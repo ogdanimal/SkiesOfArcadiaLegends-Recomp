@@ -1,0 +1,13 @@
+# RecompCore patches in the order they apply (tools/apply-patches.sh, tools/regen-recompcore-patch.sh)
+gxruntime-region-query
+gxruntime-gather-pipe
+staticrecomp-speed
+android
+win32-exit
+restore-boot-dol
+frame-interpolation
+skies-settings
+skies-android-app
+vulkan-pipeline-cache-save
+module-tables-prebuilt
+skies-branding

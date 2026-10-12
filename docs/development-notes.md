@@ -1,0 +1,1667 @@
+# Skies of Arcadia Legends (GEAE8P): static recomp notes
+
+This repo is [ModernGekko-Template](https://github.com/ExpansionPak/ModernGekko-Template) applied to
+Skies of Arcadia Legends (USA). DolRecomp translates `main.dol` to C; ModernGekko (Dolphin-derived,
+GPL-3) provides video, audio, disc and input. The matching decomp lives separately in
+`../SkiesOfArcadiaLegends-Decomp` and supplies symbol names.
+
+## Running
+
+The disc isn't copied: `extracted/SkiesOfArcadiaLegends` is a symlink to the already extracted
+disc in `../GameCube-Research/targets/SkiesOfArcadiaLegends/disc` (same `sys/` + `files/` layout
+`make extract` produces). Recreate it on a new machine with:
+
+```sh
+mkdir -p extracted
+ln -s /path/to/extracted/disc extracted/SkiesOfArcadiaLegends
+```
+
+Then:
+
+```sh
+make run GAME=SkiesOfArcadiaLegends
+```
+
+or run the built module directly with a project-local user directory:
+
+```sh
+lib/ModernGekko/build/moderngekko-run --game extracted/SkiesOfArcadiaLegends \
+  --module "$(cat build/modules-llvm-pgo-gp/GEAE8P/active-module.txt)" --user-dir build/user
+```
+
+That is the WSL module for the **unpatched** DOL (LLVM + PGO, see *Platforms*) and `tools/play.sh`'s
+default. A module linked before the gather-pipe patches (late 2026-10-06), including `make run`'s
+`build/modules`, is refused at load with "native module was rejected: CPU state size mismatch" until it is
+rebuilt.
+
+The game with the recomp's features (widescreen, camera, options; *The player build*) runs from the
+patched DOL with a module built from that same DOL: on Windows `build\game\GEAE8P-ws18` with
+`build\modules-llvm-pgo-ws18\gGEAE8P_recomp.dll` (dev runner `lib\ModernGekko\build\moderngekko-run.exe`)
+or the branded release (`Skies of Arcadia Legends.exe`, *Launcher and release*); on Android the branded
+app that imports the player's disc (ws18: `build/android/apk/skies-recomp-ws18-2026-10-12.apk`, built,
+not installed yet; the Retroid has ws17's `skies-recomp-ws17-2026-10-12.apk` since 2026-10-12, data backed up to `C:\dev\SkiesRecomp\build\backup\retroid-before-ws17-2026-10-12`; handoffs/HANDOFF-android.md), or a dev APK with its DOL pushed. On WSL (still ws16)
+`build/modules-llvm-ws16` with `build/game/GEAE8P-ws16` and the EGL-enabled runtime `lib/ModernGekko/build-egl/moderngekko-run`
+(through `tools/play.sh`: it caps memory; see *Known issues* on the 10-11 whole-VM OOM).
+
+### Controller
+
+Copy `config/GCPadNew.keyboard.ini` to `build/user/Config/GCPadNew.ini` (`build/` is gitignored).
+That's the user directory for the direct command above and for `tools/play.sh`. `make run` passes no
+`--user-dir`, so it uses ModernGekko's default (`~/.local/share/moderngekko/`) and needs its own copy
+there. The profile maps the keyboard through X11/XInput2, which is
+what WSLg gives: Dolphin's default layout, with the arrow keys on the main stick.
+
+| GC | Key | GC | Key |
+|---|---|---|---|
+| A / B / X / Y | X / Z / C / S | Start | Enter |
+| Z | D | L / R | Q / W |
+| Main stick | arrow keys (Left Shift = half) | C-stick | I / J / K / L |
+| D-pad | T / F / G / H | | |
+
+WSL has no `/dev/input`, so a USB pad isn't visible to the Linux build. ModernGekko's launcher only
+generates profiles for SDL gamepads.
+
+On Windows, use `config/GCPadNew.keyboard.windows.ini` instead: the same layout with DirectInput key
+names (`DInput/0/Keyboard Mouse`). Not yet pressed by hand. The release's launcher generates a
+controller profile for SDL gamepads (its "Controller profile" choice). On the Retroid the app maps its
+built-in controller (`Android/1/Retroid Pocket Controller`): L1 is Z, L2 / R2 are L / R, the right
+stick is the C-stick. Android's input backend names a gamepad's axes by their MotionEvent id
+(`Axis 0` / `1` left stick, `11` / `14` right stick, `15` / `16` D-pad hat, `22` / `23` triggers) and its
+buttons `Button A`, `Button L2`, `Start`; SDL-style names (`Left Y+`, `Pad N`, `Trigger L`) don't exist
+there. The branded app writes the Android names itself when the profile lacks them (*Known issues*,
+"Only the face buttons worked in Skies Recomp").
+
+L3 / R3 (Invincible) aren't GameCube buttons, so no profile maps them: the runtime reads them from
+controller 1's real device ("Thumb L" / "Thumb R" on SDL, XInput and WGInput, "Button L3" / "Button R3"
+on Android). A keyboard has no equivalent; use the menu's Invincible row there. The other added
+controls (*Controls the recomp adds*) use GameCube buttons and follow the profile.
+
+### Scripted runs (automation)
+
+`tools/play.sh [LOG] [--load-state FILE]` runs the module memory-capped (`systemd-run`
+`MemoryMax=8G`, so a runaway run dies alone instead of taking the WSL VM with it) with
+`--automation-dir build/auto`. `tools/drive.py` then feeds it pad input, screenshots and savestates:
+
+```sh
+tools/play.sh &
+tools/drive.py wait:30 shot:/tmp/title.png tap:a wait:3 hold:main_x=1:20 save:/tmp/s.sav status
+```
+
+Automation input goes through Dolphin's input overrider, so it reaches the game whatever
+`GCPadNew.ini` says; it can't press the real controller's L3 / R3 (only GameCube pad fields).
+`press:k=v` holds fields until `release` while other commands run (camera checks); `config:SYS.SECTION.KEY=V`
+sets a setting live; `peek` / `poke` read and write guest memory (over adb too). `speed:30` averages the reported speed over 30 s and prints the slowest and fastest
+second (`SPEED_TRACE=1` prints each second, with a `wall=` timestamp for lining it up with profiles). With `ADB_AUTO` set, the same script drives the Android build over adb (see *Android*). Screenshots are full-resolution PNGs written asynchronously; `drive.py` waits
+for the file to stop growing.
+
+### Standard test state
+
+**All testing and measurement starts from `build/savestates/01-opening-cutscene.sav`** (the
+opening cutscene on the Valuan ship, made 2026-10-05), so numbers stay comparable across sessions:
+
+```sh
+tools/play.sh build/bench.log --load-state build/savestates/01-opening-cutscene.sav --mute &
+```
+
+Loading takes ~16 s before the game runs (`frame_count` jumps to ~3,850); attach profilers or start
+sampling after that. The states are tied to the **extracted** disc layout (`extracted/` →
+`sys/` + `files/`): a run that boots the disc image instead reads the wrong data at the next
+scene transition. Windows and Android boot the same folder, and Android runs the four states with
+`tools/bench-android.sh`. Later states sit beside it (`02-first-battle`, `03-valuan-ship-field`,
+`04-valuan-ship-later`; `05-save-point` and `06-save-menu` are for memory-card tests, see *Known issues*;
+the full list is under *Test tools and savestates*). Savestates hold game RAM: they stay in gitignored `build/` and are never
+committed. They hold guest state, so they should survive module rebuilds of the same DOL; remake
+them if the DOL changes.
+
+**Run `moderngekko-run` from `lib/ModernGekko/build/`.** It finds Dolphin's `Sys/` (fonts, and the
+`GameSettings/GEA.ini` that forces single-core for Skies) next to its own executable. A copy
+elsewhere logs "Trying to access Windows-1252 fonts but they are not loaded", runs dual-core and
+hangs on a gray screen, while still reporting a plausible speed. To A/B two runtime builds, put
+both binaries in that directory.
+
+To dump every frame instead: put `[Movie] DumpFrames = True` in `build/user/Config/Dolphin.ini` and
+`[Settings] DumpFramesAsImages = True` in `build/user/Config/GFX.ini`; frames land in
+`build/user/Dump/Frames/`. Remove them afterwards (it's slow).
+
+## The player build (settings, menu, save states, save import, camera, options, release; 2026-10-10 / 12)
+
+What a player gets on top of the game, and where each piece lives (save states: *Save states and auto-save* below; bringing saves in: *Importing saves*). The game side is the DOL
+patch **ws18** (`build/game/GEAE8P-ws18`, SHA-1 `6a401968`; history in `patches/game/README.md`);
+the frontend side is `recompcore-skies-settings.patch` (`VideoCommon/SkiesMenu.cpp`,
+`Core/SkiesSettings.cpp`) and `moderngekko-local.patch` (launcher, runner). Plans and session logs:
+[handoffs/HANDOFF-settings.md](handoffs/HANDOFF-settings.md). Research: the decomp's `docs/widescreen.md`,
+`docs/camera.md`, `docs/qol_cheats.md`.
+
+### Controls the recomp adds
+
+| Input | Where | What it does |
+|---|---|---|
+| Hold Z, press Start | anywhere (also in battle, however long Z is held first) | the settings menu (L / R or Up to the tab bar: tabs; D-pad / stick choose, Left/Right or A change, B / Start close); its Saves tab saves and loads states |
+| Hold Z + C-stick up/down | towns, dungeons, world map | tilt the camera |
+| Hold Z + R / L (analog) | towns, dungeons, world map | zoom out / in |
+| Hold Z + C-stick left/right | world map | turn the camera around the ship (eases back behind when let go); in towns it's the game's own turn |
+| Tap Z | battle | battle speed Normal -> 2x -> 3x -> 4x -> Normal (message on screen, saved) |
+| Tap Z | elsewhere | the game's own Z (minimap on foot, Map / To Bridge / Save on the world map), sent on release |
+| L3 or R3 | anywhere | Invincible on / off (message on screen, saved); read from the real controller, not the GameCube pad |
+
+Z is held back from the game until it's clear what it's for (released alone: a late tap; with Start:
+the menu; with the C-stick or triggers: the camera); where the camera can't move and outside battle
+it's passed on after 150 ms. The game's own controls per mode (C-stick and triggers turn the camera on
+foot, climb / descend on the world map, X status, Y first person or map, Start skips battle scenes) are
+in the decomp's `docs/camera.md`. B + X + Start held for half a second is the game's soft reset.
+
+### Settings
+
+`[Skies]` in the user directory's `Config/Dolphin.ini` (`Core/Config/SkiesSettings.cpp`), applied live:
+
+| Key | Values (default) | Applied by |
+|---|---|---|
+| `Widescreen` | 1 = 16:9, 0 = original 4:3 (first boot: the DOL's) | `Core/SkiesSettings.cpp` -> `ws_config.display_aspect` (0x80002A08) and Dolphin's aspect |
+| `FrameMode` | 0 = 30 fps, 1 = 60 fps interpolated (first boot: the old switches) | `FrameInterpolator::RequestEnabled` |
+| `CameraControl` | 1 = hold Z to move the camera, 0 = the game's only (1) | `SkiesMenu.cpp` -> `cam_input` (0x80002EC0) |
+| `Encounters` | percent of the encounter chance: 0, 25, 50, 100, 200, 400 (100) | `SkiesMenu.cpp` -> `qol_input` (0x80002EA0) |
+| `Exp`, `Gold`, `MagicExp` | percent of what battles give: 0, 50, 100, 200, 300, 400 (100) | same |
+| `BattleSpeed` | 1-4 (1) | same |
+| `Invincible` | 0 / 1 (0) | same |
+| `AutoSave` | minutes between auto-saves: 0 (off), 5, 10, 15, 30 (10) | `SkiesMenu.cpp` (namespace `autosave`) |
+
+The menu also changes Dolphin's own `GFX.ini` `InternalResolution` and `MSAA`, `VSync`, `ShowFPS`, and
+`Dolphin.ini` `Volume`. On desktop the runner sets the resolution from the frontend's `config.ini` at
+every boot, so a change in game is written back there too. Any key can be set from a script:
+`tools/drive.py config:Dolphin.Skies.Encounters=0`.
+
+### The in-game menu
+
+`VideoCommon/SkiesMenu.cpp`, drawn with ImGui in the on-screen UI and fed by `Pad::GetStatus`
+(controller 1). Since 2026-10-11 (late night, user request) it looks like the launchers' Settings
+windows: a rounded navy window over the dimmed game, **tabs** Saves (Save state, Load state, Auto-save),
+Graphics (Picture, Frame rate, Resolution 1 / 2 / 3 / 4 / 6x, Anti-aliasing = the backend's MSAA modes,
+V-Sync, Show FPS), Gameplay (Camera, Battle speed, Encounters, EXP, Gold, Magic EXP, Invincible), Sound
+(Volume), Controls (Stick dead zone, Rumble); each row a label, a value box (the selected one gold-edged
+with arrows) and the launchers' one-line description; a hint line for the selected row. **L / R** (digital,
+or the analog triggers most of the way) switch tabs from anywhere; **Up** from the first setting (or Down
+from the last) puts the focus on the tab bar, like the launchers: the current tab gets the gold edge,
+Left / Right switch tabs, Down or A go back into the settings. Up / Down choose, Left / Right or A
+change, B or Start close (no Close row any more). Typeface: Segoe UI / Roboto (`/system/fonts`) / DejaVu Sans, added by
+`SkiesMenu::LoadFonts()` from `OnScreenUI::Initialize` after the OSD font (which stays the default for
+Dolphin's messages). Text size: the launchers' `[Skies] LauncherTextSize`. Layout: every length is a
+constant in picture units (480 lines = 1), scaled to the picture and the text size and shrunk to fit,
+with the window as tall as the tallest tab; nothing is measured from the previous frame, so the old
+pulsing (a font size flipping 35 <-> 34 px on the Retroid, fixed 2026-10-11 by a cap) can't happen. The
+game keeps running and sees a released pad while it's open; changes are staged and applied and saved
+when it closes. Same code on Windows, Linux and Android. Checked on Windows (tabs, the tab bar from Up,
+change + close + save, window captures) and on the Retroid (by automation: D-pad and R; by the user
+after the controller profile fix: "it mostly works", the Up-to-tabs build installed 20:44 for their
+look; "it works great now"; 10-11: "perfect"). On the Retroid the D-pad, stick and triggers first did nothing in the menu: not the menu, the
+app's controller profile (*Known issues*).
+
+### Save states and auto-save (2026-10-11)
+
+In the menu's first three rows, on every platform (Android had no player-usable states before):
+
+- **Save state**: Left/Right picks slot 1-5 (the row shows when it was saved), A saves there and
+  closes the menu.
+- **Load state**: Left/Right picks the newest auto-save or slot 1-5; A asks "Press A again to load",
+  a second A loads. Up/Down or a slot change cancels the question.
+- **Auto-save** (`[Skies] AutoSave`, default every 10 min): when it's due, the next quiet moment
+  saves: game mode 6 (towns, dungeons, world map), not during a ship battle (mode 6 on a map from
+  500 to 599; the ship battle data pointer `0x8034727C` stays set after the first one, so it's no test),
+  and the memory card untouched for 10 s (`CEXIMemoryCard::SecondsSinceLastAccess`, new; a state
+  doesn't hold a card transfer in progress). Never in a ground battle, a battle that was due waits
+  for the field. The newest three are kept.
+
+Files, in the user directory's `StateSaves` with ModernGekko's names (`Core/SavestateLayout.h`):
+`state-skies-slot1.sav` .. `slot5`, `recovery-skies-<date>-<time>.sav` (pruned with
+`PruneAutomatic`), and imported ones `state-skies-import-<date>-<time>.sav` (*Importing saves*). The launcher lists the same directory (Dolphin's `lastState.sav` undo backup is
+now left out) and has a **Continue** button that boots the newest state, whatever wrote it, or, since
+2026-10-11, the newest memory card save when it is newer (*Memory card auto-load*). Saves and
+loads run as host jobs (`Core::QueueHostJob`): the host thread pauses the emulation at a safe point,
+where a load from inside the game's pad read would not be safe. Dolphin leaves the memory card's
+contents out of states (unless a movie is recorded), so loading a state never rolls back a
+memory-card save. A state from one build usually loads in the next (`recompcore-restore-boot-dol.patch`),
+but not always (states from before late 2026-10-07 don't), so memory-card saves stay the real saves.
+
+Checked (2026-10-11): Windows (`tools/states-test-win.sh`, dev runner, ws13): menu save in a battle, load
+from the world map brings the battle back, no auto-save during 80 s of battle, auto-save every minute
+on the world map with three kept, one A doesn't load and two do, 1.000x throughout; the release
+runner boots a recovery file with `--load-state` (what Continue passes). WSL (ws10 module): menu save
+and load. Retroid (`skies-ws13c-states-2026-10-11.apk`): save in battle, load, the 18-row menu fits,
+auto-save costs one second at 0.94-0.99x (a hitch of a few frames, caught up the next second).
+
+### Camera control (DOL ws11, 2026-10-11)
+
+`patches/game/camera.c` wraps the camera manager's call to the shake function (`0x8022D910`): in the
+manager's mode 2, while it follows the field camera object (`0x80302F18`, shared by towns, dungeons and
+the world map), the eye is turned around the object's look-at point (Vyse, or the ship) by the offsets
+the frontend writes to `cam_input`. The game's camera object is never written, so its logic and
+camera-relative movement don't change. Limits: on foot the camera stays between the game's camera and
+Vyse (no higher than the game's eye, no further than its distance, pitch -40 to -1 degrees), because
+rooms have low ceilings and the game has no camera collision (a looser first version went through the
+Valuan ship cabin's ceiling); on the world map pitch -35 to +25 degrees, zoom 0.6-2x. First-person look
+and battles are untouched. Checked on Windows and the Retroid: `tools/camera-test-win.sh`, 60 fps at
+1.00x.
+
+### QOL options and Invincible (DOL ws12, 2026-10-11)
+
+`patches/game/qol.c` / `qol.S`, all whole-call hooks (decomp `docs/qol_cheats.md`):
+
+- Encounters: the encounter roll (`0x800C207C`) is remapped so the chance is scaled exactly; Off also
+  clears the frames-since-battle counter.
+- EXP / Gold / Magic EXP: the battle data is scaled once per battle right before the results read it
+  (ground: `0x8006F5B8`; ship: `0x8015C6B4`), so the results screen shows what's awarded.
+- Battle speed: the end-of-frame retrace waits (`0x801DC498`, `0x801DC4D8`) are skipped in battle
+  (game mode 7). Music should keep its tempo (MusyX runs off the audio interrupt, not the frame loop;
+  not listened to yet). The runtime turns frame
+  interpolation off while a battle runs fast, and steps a battle down (to 2x at the lowest) when the
+  emulation stays under 95% for 1.5 s.
+- Invincible: party HP, MP and Spirit refilled every battle frame (magic and S-moves cost nothing),
+  damage to the party zeroed in the damage function `fn_8002DC14` (13 calls and a handler table entry);
+  turning it off leaves the stats as they are. Members already knocked out (HP 0) aren't revived. Turned
+  on while commands are chosen, the Spirit gauge fills at once but the party status box keeps the HP / MP
+  it showed at the start of the turn until the round plays out (memory is full at once; the box isn't
+  redrawn from the battle HUD panel during command input; decomp `docs/qol_cheats.md`).
+
+Checked on Windows (`tools/qol-test-win.sh`): first battle EXP / gold / magic EXP 3 / 10 / 2+4 at Normal
+and 12 / 40 / 8+16 at 4x; first battle from the world-map state after 29 / 20 / 8 s at 1/4 / Normal / 4x,
+none in 60 s Off; deck battle 30 / 61 / 92 / 122 game frames per second at 1x-4x at 1.00x; Invincible
+keeps Vyse at full HP where the run without it is knocked out. On the Retroid: 2x at full speed, 3x / 4x
+reach only ~2.6x / 2.5x (0.85x / 0.65x emulation) so the cap settles at 2x; Invincible holds HP.
+**Ship-versus-ship battles** (ws14, 2026-10-11) run inside field mode 6 on maps 500-599; qol.c and the
+frontend count them as battle (`InShipBattle` in `SkiesMenu.cpp`, `qol_ship_battle` in qol.c).
+Invincible zeroes the enemy's damage to the ship (`qol_ship_phase` around `fn_8014419C`) and refills
+the ship's HP, the Spirit gauge and the crew's MP every frame; Spirit and MP show from the next turn,
+since the command input works from what the turn began with. Battle speed skips the same waits, and
+at 3x / 4x the frontend also overclocks the emulated CPU by speed / 2 (CurrentRun layer, removed when
+the battle ends or slows down): a ship battle frame costs about a retrace of emulated CPU time, so
+without it 3x and 4x stay at 2x. Checked on Windows from the Baltor savestate
+(`17b-ship-battle-baltor-commands`, made with `tools/shipbattle-state-win.sh`): 30 / 59 / 92 / 116 game
+frames per second at 1x-4x at 1.00x; Invincible keeps the Little Jack at 10000 HP (8140 after the same
+turn without it); won the normal way, the battle goes on to Nasr with 410 EXP / 300 gold at 100% and
+twice that at 200%. Ground battles unchanged (30 / 61 / 92, Invincible). Decomp `docs/qol_cheats.md`
+*Ship battles*.
+
+### Launcher and release (bring your own disc)
+
+`tools\build-release-win.bat configure|build|package MODULE` builds the branded Windows release in
+`lib\ModernGekko\build-release`: `Skies of Arcadia Legends.exe` (ModernGekko's launcher; `SkiesRecomp.exe`
+before 2026-10-11) and `skies-run.exe`, user directory `%LOCALAPPDATA%\Skies of Arcadia Legends` (was
+`SkiesRecomp`; the user's folder was copied over, the old one kept as a backup). `package MODULE
+[VERSION]` makes the players' zip `build\SkiesOfArcadiaLegends-<version>-windows.zip` (+ `.sha256`; one
+folder: exes, module, `Sys`, `patches\skies-widescreen.dolpatch`, art, app-local Visual C++ runtime,
+README, COPYING, notices). Linux: `tools/build-release-linux.sh` does the same in
+`lib/ModernGekko/build-release-linux` (launcher `SkiesOfArcadiaLegends`, user directory
+`~/.local/share/Skies of Arcadia Legends`, a `.tar.gz`; checked on WSLg 2026-10-11). The launcher takes the player's disc image (RVZ, ISO, GCM, GCZ, WIA or CISO; see below),
+extracts it, patches its `main.dol` with `release/skies-widescreen.dolpatch` (whole-file format
+`moderngekko-dol-file-patch 1`, made by `tools/mkdolpatch.py`: it carries only the bytes that change),
+checks the disc ID (GEAE8P) and the patched DOL's SHA-256 (pinned in the bat), and boots;
+`Skies of Arcadia Legends.exe --extract IMAGE` does the same without the window.
+
+The launcher's look (2026-10-11 late night, the user's design calls, modelled on the N64 recomps'
+RmlUi launchers): with `launcher-background.png` beside the exe (`release/launcher-background.png`,
+copied by the bat's `build` step; the user's picture with its black right-hand strip cropped off) the
+window opens at 1280x760, the art fills it (fitted to cover, cropped from the left so the characters on
+the right stay in view) under a scrim that fades out to the right; at the top left "Skies of Arcadia
+Legends: Recompiled" (gold) over the title; at the bottom left a menu: **Continue** (newest save state or
+memory card save, when there is one) / **Start Game**, or **Select Disc** with its hint as the item's second line (picking a
+disc imports it and starts the game), then **Settings** and **Exit**; the item under the mouse or the
+keyboard / pad focus gets a gold bullet and fade. Start Game carries "Ready: <game> [<disc ID>]" as
+its second line, like Select Disc's hint. **Continue** (2026-10-11, user request) is the newer of the
+newest save state and the game's newest memory card save (`GC/<region>/Card A|B/*GEAE*.gci`, by file
+time: Dolphin rewrites a `.gci` only when that save changed): a state is loaded at boot; a card save
+is loaded by the game itself, so Continue writes `[Skies] AutoLoadCard = <file>` (one shot; the file
+number from the `.gci` name, `...SA_LEGENDS.000.gci` = file 1, card A only) and the runtime drives the
+title screen for the player (*Memory card auto-load* below). Its second line says which, e.g. "Save
+state: Slot 2  Oct 11 18:00" or "Memory card save: file 1  Oct 11 17:30". Start Game clears the key. Same rule in the Android app. Checked on Windows with dummy files both ways; import progress and errors sit under the menu. Segoe UI from `%windir%\Fonts` (DejaVu Sans on Linux, ImGui's font otherwise; note
+SDL's own environment is case-sensitive, Windows spells it `windir`). **Settings** opens a rounded modal
+window over the dimmed home screen, tabs **Graphics** (Picture, Frame rate, Anti-aliasing, V-Sync),
+**Display** (Screen windowed / fullscreen, Resolution, Show FPS, FPS in title bar, Graphics backend),
+**Gameplay** (Camera, Battle speed, Encounters, EXP, Gold, Magic EXP, Invincible), **Sound** (Volume),
+**Controls** (controller profile, Stick dead zone, Rumble), **Saves** (Auto-save, the "Start from
+savestate" list), **Disc**: each a label, a dropdown with the in-game menu's choices and a one-line
+description, written to the same keys the in-game menu uses (`[Skies]` in `Dolphin.ini`, `GFX.ini`,
+`[DSP] Volume`, `GCPadNew.ini [GCPad1]`; booleans Dolphin wrote as True / False read back as 1 / 0), so
+either side shows the other's changes. **A- / A+** beside Close set the text size (80-160 %, default
+120 %, `[Skies] LauncherTextSize`); the layout widths follow it. Netplay is left out of the branded
+window. Esc or pad B closes Settings; pad navigation is on. Without the picture (any other ModernGekko
+build) the launcher keeps its original single panel. Checked from window captures at 100 / 120 / 140 %;
+clicks in the window (A- / A+, a setting written by the launcher) not yet tried by hand. The runner finds `gGEAE8P_recomp.dll` beside
+itself or in `<user>\StaticRecompModules`. Tested end to end from the USA RVZ (ws10) and from the
+original DOL (ws11, ws12, ws13: the release runner patched it and the game ran with the new features at
+1.00x). The patch applies to the original DOL or leaves its own output alone; any other DOL is refused. An
+existing game root from an earlier release (its DOL patched by that release) is updated when the
+player picks the disc again: `sys/` is taken fresh from the disc, then patched (2026-10-11: before
+that, picking the disc failed with "existing extraction patching failed"; the user hit it with their
+10-10 ws10 import). **Disc formats (checked 2026-10-11):** the release launcher's import (`--extract`, the same code as
+Select Disc) with the user's RVZ converted by `dolphin-tool` (built with
+`-DMODERNGEKKO_ENABLE_DISC_TOOL=ON` in `lib/ModernGekko/build`) to ISO, GCZ and WIA, a renamed ISO as
+GCM, and `tools/mkciso.py` for CISO: all six gave the same 5,552 files and the patched DOL
+`7b4c416c` (RVZ 6 s, ISO / GCM / CISO 3-4 s, GCZ 7 s, WIA 47 s). WBFS (a Wii backup format) is no
+longer offered in the GameCube build. The picker, the home hint and the Disc tab list the six; the Disc
+tab shows the imported game and a Change Disc button. Android reads discs with the same DiscIO code
+(its picker takes any file); only RVZ was tried on the device.
+The launcher no longer hashes all game files (`InspectGame(root, false)` unless
+the build pins `MODERNGEKKO_REQUIRED_ASSETS_SHA256`): that held the window frozen for seconds at
+startup and made the re-import check take 39 s (now 0.2 s).
+Android: the branded app imports the disc itself (`recompcore-skies-android-app.patch`,
+handoffs/HANDOFF-android.md) and has the same home screen (art, title, Continue / Start Game / Change Disc /
+Settings) and a Settings window built like the desktop one (`SkiesSettingsPanel.kt`; tabs Graphics,
+Gameplay, Sound, Controls, Saves, Disc, About; no Display tab: Resolution and Show FPS sit under
+Graphics, with Renderer (Vulkan / OpenGL ES) and, on devices that can load one, GPU driver; About has
+the device info and the licences; *Slower devices and GPU drivers*). Name "Skies of Arcadia Legends",
+app ID `com.skiesofarcadia.recomp` (2026-10-11; before: "Skies Recomp" under an ID with a personal
+domain). Dolphin's own screens are unreachable: its game list, TV UI and deep link aren't exported and
+the Back menu has only Pause, Overlay Controls and Exit. It runs full
+screen (immersive, like the game), has its own icon (Reckoner's logo, `release/android-icon/`) and its
+own banner (`android:banner`: the app drawer of launchers like the Retroid's Radikal shows it instead of
+the icon; `release/android-icon/drawable-xhdpi/skies_banner.png` from the launcher art and the logo), its
+own version: `versionCode` = minutes since 2026-01-01 at build time, `versionName` "dev build N" (a
+release: the tag's, `-PskiesVersionName`) (Dolphin's commit-count version was the same for every build, so launchers such as the Retroid's
+Radikal kept the cached icon). On every start it makes sure controller 1's profile uses Android's input
+names (`SkiesNative.ensurePadProfile`).
+
+### Slower devices and GPU drivers (2026-10-11)
+
+- **60 fps below full speed:** `slowprompt` in `SkiesMenu.cpp` (all platforms): with Frame rate at
+  60 fps, not in a fast battle (interpolation held) and after the first minute, 20 s in a row under
+  90% emulation speed open the in-game menu once on Graphics / Frame rate with a gold note; nothing
+  switches by itself; `[Skies] SlowFrameRateNoted = True` stops it for good. Checked on WSL (slow at
+  60 fps there: the menu opened at ~80 s, the key was saved). **Automation and benchmark user
+  directories that run 60 fps on WSL should carry `SlowFrameRateNoted = True`**, or the menu takes
+  the pad mid-run.
+- **Android GPU driver and device info:** Settings, Graphics, GPU driver (Adreno devices where
+  Dolphin's loader works: a driver package .zip, e.g. Mesa Turnip) with the Goemon / Hybrid Heaven
+  crash safeguard (`SkiesDriverGuard.kt`), and an About tab with Copy device info for bug reports
+  (patches/README.md, `recompcore-skies-android-app.patch`). Built (debug, Gradle only); not yet
+  tried on the device or with a real driver package.
+- **OpenGL ES as the fallback renderer** (Android Settings, Graphics, Renderer: Vulkan default /
+  OpenGL ES; the desktop launcher already had a backend choice). Checked on the Retroid (dev app,
+  2026-10-11, config backed up and restored): OpenGL ES runs the opening, the Valuan ship field, the
+  first battle, the world map and a deck battle at 1.00x / 59.9 fps with 60 fps interpolation, and
+  side by side with Vulkan the pictures match (widescreen HUD at the edges included; opening frames
+  PSNR 33-39 dB, timing only). Adreno's GLES driver can't link Dolphin's geometry-shader programs
+  (line / point expansion; no reason given in the driver's log): the shader cache precompiles 53 of
+  them at start, none were needed in those scenes, and `PreferVSForLinePointExpansion` doesn't help
+  (Dolphin doesn't offer the vertex-shader expansion on GLES). Each failure was a toast with a file
+  path: now a log line (`recompcore-skies-branding.patch`, ProgramShaderCache.cpp).
+
+### Memory card auto-load (2026-10-11)
+
+A card save can only be loaded by the game (title screen -> Continue -> card -> file -> Yes), so the
+runtime presses those buttons when the launcher asks (`SkiesMenu.cpp` namespace `autoload`, in the
+pad filter while the menu is closed). The screens are told apart by the game's own task objects, found
+by scanning `0x80800000-0x81400000` for their functions and checking the heap block header before each
+(`[-0x20]` = the task, `[-0x18]` = 0, `[-0x14]` = `0xFFFFFFFF`); a task's step is `+0x19`, its work
+`+0x24` (addresses differ between boots, so they are never hard-coded):
+
+| Screen | Task function | Step that waits | What it presses |
+|---|---|---|---|
+| logos, intro, "Press Start" | none of these | | Start, every 1.2 s |
+| New Game / Continue | `0x801D8DBC` | 5 | A when work `+1` = 1 (Continue), else Up |
+| opening the load screen | `0x801D8B94` | | nothing |
+| Load: Slot A / B | `SaveLoadTask` `0x8019E248` | 4 | A (card B is empty in Dolphin) |
+| file list | same | 9 | Down / Up until work `+5` = file - 1, then A |
+| "Load this file. Is this ok?" | same | 15 | A when work `+8` = 0 (Yes), else Up |
+| loading | same | 19 | nothing; `0x803473C4` = 1 when loaded (2 = cancelled) |
+
+The load screen leaves an idle task behind (step 32), skipped. It stops when the load is done, when
+the player presses any button or moves the stick, after a cancelled load, or after two minutes.
+Windows check (cold boot, the Retroid's card save, no input): in the game at the save point ~33 s after
+boot. Traced with `tools/drive.py peek` dumps of the heap (decomp `docs/ui.md` *Save and load*).
+
+### Importing saves (2026-10-12)
+
+User request: an Import button that behaves like the N64 recomps' (Goemon 64 / Hybrid Heaven
+`src/ui/ui_saves.cpp`), for card saves **and** save states, in the launchers' Settings, **Saves** on all
+three platforms. One implementation, `lib/ModernGekko/tools/save_import.cpp` (`moderngekko-local.patch`),
+used by the desktop launcher and, through `SkiesNative.importSave` / `describeSaves` in
+`jni/SkiesImport.cpp`, by the Android app (`recompcore-skies-android-app.patch`), so both accept and
+refuse exactly the same files with the same words.
+
+Behaviour, as in the N64 recomps:
+
+- **A prompt before the picker** says what will happen (a card save replaces the file with the same
+  number, kept as `.pre-import.bak`; "nothing will be replaced" when the card is empty; a state is
+  added), and **Cancel has the focus** (desktop: ImGui modal over Settings, Escape / B cancel it without
+  closing Settings; Android: `AlertDialog`, pad A on the focused button).
+- **Not while the game runs:** the game holds the card in memory and writes it back. The desktop
+  launcher is closed while the game runs; Android checks `NativeLibrary.IsRunning()` before the prompt
+  and again after the picker.
+- **Checked as strictly as the code that loads it, no more:** the kind is told from the contents (an
+  Android content URI has no name, and `.sav` is both MaxDrive and Dolphin). A Dolphin state has its
+  version cookie at offset 24 (`COOKIE_BASE + STATE_VERSION`) and `lzo_size` 0; then game ID
+  `GEAE8P`, the exact `STATE_VERSION` and extended header version 1 are required, like
+  `StateFile.cpp` `ValidateHeaders` / `LoadFileStateData`. One card save: size modulo 8 KiB is the
+  header size (0x40 GCI, 0x150 GCS, 0xC0 SAV), read with Dolphin's `Memcard::ReadSavefile` (block
+  count checked against the size); its game code + maker must be `GEAE` + `8P`. A card image: a
+  multiple of 8 KiB from 512 KiB, `GCMemcard::Open` (checksums, sizes), its `GEAE8P` files exported,
+  others ignored. Other regions' saves (`GEAP` / `GEAJ`) and other games are refused with a reason.
+- **Nothing half written, nothing lost:** card saves go to card A's GCI folder (`GC/USA/Card A`) under
+  Dolphin's own name (`Memcard::GenerateFilename`, e.g. `8P-GEAE-SA_LEGENDS.001.gci` = file 2). Every
+  `.gci` there with the **same identity** (game code, maker, file name: what Dolphin's GCI folder goes
+  by; it refuses a second file with the same identity) is copied to `<name>.pre-import.bak` first
+  (`<name>.pre-import.2.bak` and up when an earlier import's copy is there, so importing twice keeps
+  the original too), then the new file is written to `<name>.importtemp` and renamed; a same-identity file under another
+  name is removed after its backup. A plain file where the folder should be is reported. States are
+  added as `StateSaves/state-skies-import-<date>-<time>.sav` (a new name each time; shown as
+  "Imported" by the launchers).
+- **Continue picks it up:** everything is dated now. A card image's saves are written in the order of
+  the card's own last-written times, a second apart, so Continue auto-loads the one saved last.
+
+The tab also shows what is there ("Memory card: files 1 and 3", "Save states: 4"; desktop: card A's
+folder path) and the result line (gold, or red for a refusal). `--import-save FILE` on the branded
+desktop launcher does the import without the window (tests).
+
+Checked (2026-10-12): `tools/save-import-test.py` on WSL (16 cases, 0 failures; imported files
+byte-identical to the originals), the same files through the Windows release exe (scratch
+`LOCALAPPDATA`), ImGui screenshots of the tab / prompt / result on WSLg (through a temporary build: SDL
+doesn't get xdotool clicks there). Retroid (`skies-recomp-ws16-saveimport-2026-10-12.apk`): a European
+save refused; a card image imported files 2 and 3, and Continue booted into the imported file 2 by
+itself (59.9 fps); an imported state started from Continue; pad A on the prompt cancels. Android's
+Downloads view lists files from the media index, which doesn't see files pushed with adb: browse from
+the device's root ("Retroid Pocket 5" -> Download) instead.
+
+### Test tools and savestates
+
+| Tool | What it does |
+|---|---|
+| `tools/drive.py` | automation: pad (`tap`, `hold`, `press` / `release`), `shot`, `save` / `load`, `peek` / `poke`, `config`, `speed`; over adb with `ADB_AUTO` (peek included) |
+| `tools/dump-ab-win.sh` | frame-exact A/B of two builds from a state (`run`, `cmp`) |
+| `tools/button-probe-win.sh` | what each input does in a state (screenshots per input; sticks held) |
+| `tools/camera-test-win.sh` | camera tilt / zoom / orbit / Z tap sequence with screenshots and `cam_input` |
+| `tools/qol-test-win.sh` | `rewards`, `encounters`, `speed`, `invincible` checks with the options set |
+| `tools/capture-window-win.ps1` | screenshot of one window (DPI-aware `PrintWindow`, no other windows); used for the launcher. Posted key messages don't reach SDL's keyboard state, so to see the Settings window a temporary build opened it on start |
+| `tools/save-import-test.py` | Settings, Saves' Import through the launcher's `--import-save` (formats, refusals, backups), 16 cases |
+| `tools/states-test-win.sh` | menu save / load and auto-save (battle skip, rotation, speed, load confirmation), ~7 min |
+| `tools/build-release-win.bat` | branded release (see above) |
+
+Savestates (gitignored `build/savestates/`, also in `C:\dev\SkiesRecomp\build\savestates`): `01`-`07`
+(opening cutscene, first battle, Valuan ship field in first person, later, save point, save menu, red
+alarm room), `03b-valuan-ship-thirdperson`, `12-streaks`, `13-pre-battle(-early)`, `14-cliff-cracks`,
+`15-ladder`, `16-deck-battle-ws10` (a random battle on the world map), and the world map
+(`android-worldmap-2026-10-08` on WSL, `10-worldmap-android` on Windows and, since 2026-10-11, on WSL
+too). States made with older DOLs
+load in newer builds (`recompcore-restore-boot-dol.patch` puts this build's code back).
+
+## Platforms
+
+Same generated C, the same patches and the same `GEAE8P.ini` (idle skip) everywhere, no mods. Update
+this table with every change.
+
+Speeds are with the frame limiter off (`EmulationSpeed = 0`), so they show headroom: anything at or
+above 1.00× plays at a locked 60 VI/s with the limiter on. **Skies renders 30 fps on real hardware**
+(a new frame every second VI), so 1.00× is a solid 30 fps, which the user confirmed by playing on
+Windows (2026-10-06). More headroom doesn't raise the frame rate; 60 fps comes from frame interpolation
+(see *60 fps* below, shipped on every platform since 2026-10-08), which these numbers don't include. "worst s" is
+the slowest single second of the 30 s window. Desktop: 2026-10-06, see *Desktop headroom*; the bold desktop
+rows were re-measured late 2026-10-06 with the gather-pipe patches.
+
+| Platform | Module | 01 cutscene | 03 field | Worst second, states 01–04 | Picture |
+|---|---|---|---|---|---|
+| Linux/WSL, 1× (llvmpipe) | **LLVM + state-in-memory + PGO + `mtmsr` fix + gather-pipe stores** | **1.22×** | **1.75×** (scene varies, see below) | **1.13×** | correct |
+| Linux/WSL, 1× (llvmpipe) | LLVM + state-in-memory + PGO, before the `mtmsr`/gather-pipe patches (stale) | 1.23× | 1.46× | 1.15× | correct |
+| Linux/WSL, 1× | LLVM + state-in-memory | 1.08× | 1.29× | — | correct |
+| Linux/WSL, 1× | C backend, clang 20 `-O2` ThinLTO | 0.89× | 1.00× | — | correct |
+| Linux/WSL, 1× | C backend, gcc 15 `-O2` | 0.85× | 0.94× | — | correct |
+| Windows, 1× and 3× | **LLVM + state-in-memory + PGO (WSL profile) + `mtmsr` fix + gather-pipe stores + Win64 sjlj fix (cross-generated)** | **2.08× (1×), 2.07× (3×)** | **2.53× (1×), 2.54× (3×)** | **2.04× (1× and 3×)** | correct; all 16 runs exited cleanly (2026-10-07) |
+| Windows, 1× and 3× | **C backend, clang 20.1.8 + PGO + gather-pipe stores (GXRuntime inline `mem_write*`)** | **1.35× (1×), 1.39× (3×)**; 1.51× / 1.49× re-measured 2026-10-07 | **1.56× (1×), 1.51× (3×)**; 1.66× / 1.65× | **1.27× (1×), 1.29× (3×)**; 1.48× / 1.48× | correct; all 16 runs exited cleanly |
+| Windows, 1× and 3× | C backend, clang 20.1.8 + PGO, before the gather-pipe patches (stale) | 1.33× | 1.44× | 1.15× (1×), 1.20× (3×) | correct; user approved 3× |
+| Windows, 1× | C backend, clang 20.1.8 | 1.13× | 1.26× | — | correct |
+| Windows, 1× and 3× | LLVM + state-in-memory (cross-generated), before the Win64 sjlj fix (stale) | 1.58× | 1.87× | 1.38× | correct; crashed on every exit in states 01/02 (fixed, see *Known issues*) |
+| Windows | C backend, MSVC | 0.505× (limiter on, don't use) | — | — | correct |
+| Android (Retroid Pocket 5), 1× | **LLVM + state-in-memory + gather-pipe stores + device PGO + `cortex-a77`** | **1.05×** | **1.20×** | **1.020** (04; ≥1.03 in 01, ≥1.52 in 02, ≥1.17 in 03): **stable 30 fps in all four** | correct, text readable; played by hand to the world map at 29–30 fps (2026-10-07) |
+| Android (Retroid Pocket 5), 1× | LLVM + state-in-memory + device PGO + `mtmsr` fix, before the gather-pipe work | 0.90× | 1.07× | 0.888 (01), 0.897 (04) | correct |
+| Android (Retroid Pocket 5), 1× | C backend, NDK 29 clang | 0.53× (limiter on) | 0.53× | — | correct |
+
+All desktop rows run the speed-patched runtime (`recompcore-staticrecomp-speed.patch`). Every platform must
+boot the extracted disc folder to use the shared savestates (see *Android*). The bold rows (WSL LLVM, Windows
+clang, Android LLVM) have every patch in `patches/`; the others were measured before the `mtmsr` and
+gather-pipe patches. `dolrecomp-mtmsr-entry.patch` only affects LLVM-backend modules.
+
+**Only the bold desktop modules match the current runtimes.** The gather-pipe patches grow `CPUState`
+(3536 → 3560 bytes), and `moderngekko-run` refuses a module whose `cpu_state_size` differs ("native module
+was rejected: CPU state size mismatch", then exit 1). Every other desktop module, including the old
+launcher defaults (`build/modules`, `build\modules-clang`) and the old Windows LLVM module (`build\modules-llvm-sim`),
+needs re-linking (LLVM: regenerating) before it runs. The desktop runtime checks against ModernGekko's own copy of the struct,
+`include/moderngekko/cpu_state.h`, which `moderngekko-local.patch` now updates too (it was missed at first).
+
+### Desktop headroom (2026-10-06)
+
+Protocol: `tools/bench-wsl.sh` / `tools/bench-win.sh` with `USER_DIR=build/user-bench` (1×,
+limiter off; `build\user-bench3` on Windows is the same at 3×): load the state, 16 s, then 30
+one-second samples. One discarded warmup per module, then three interleaved rounds of states 01 and 03
+(medians above, spread within ±0.03 except WSL LLVM 03 at 1.28–1.45), then two rounds of all four
+states for the best modules (worst-second column). WSL and Windows never ran at the same time.
+
+- **Full speed with no dips on both desktops.** Mean / worst second per state:
+
+  | Module | 01 | 02 battle | 03 | 04 |
+  |---|---|---|---|---|
+  | WSL LLVM + PGO, 1× | 1.19 / 1.15 | 2.11 / 2.04 | 1.43 / 1.40 | 1.18 / 1.15 |
+  | Windows clang + PGO, 1× | 1.31 / 1.15 | 1.58 / 1.40 | 1.42 / 1.28 | 1.32 / 1.25 |
+  | Windows clang + PGO, 3× | 1.30 / 1.20 | 1.59 / 1.50 | 1.40 / 1.29 | 1.30 / 1.21 |
+  | Windows LLVM, 1× | 1.54 / 1.38 | 2.60 / 2.49 | 1.87 / 1.83 | 1.57 / 1.44 |
+  | Windows LLVM, 3× | 1.53 / 1.38 | 2.64 / 2.30 | 1.86 / 1.67 | 1.56 / 1.40 |
+
+  Android's 1–2 s dips mostly didn't show on desktop, though they had the same cause in LLVM modules
+  (fixed 2026-10-06, see *Android → Dips*; an old-module WSL battle run did show one 0.65 second).
+  Resolution doesn't matter on Windows (RTX 5080).
+- **Speed patch on desktop:** +4% / +6% on WSL LLVM (01 / 03), +4% / +2% on Windows clang. Smaller
+  than on Android (+4–14%); plausibly the ICache search it removes costs less on desktop caches.
+- **PGO:** +14% on WSL LLVM, +18% / +14% on the Windows clang C module. Trained on the four
+  benchmark states (same overlap caveat as Android).
+- **LLVM vs C on Windows:** +39% / +49% over clang C, the largest lever. Its exit crash is fixed and the
+  LLVM + PGO module is measured (2026-10-07, below).
+- WSL is limited by llvmpipe as well as the game thread; compare WSL modules with each other, not
+  with Windows.
+
+**With the gather-pipe patches (2026-10-06, late).** Rebuilt and retrained with every patch:
+`build/modules-llvm-pgo-gp` (WSL, also has the `mtmsr` fix) and `build\modules-clang-pgo\use-build` (Windows;
+the previous one is `build\modules-clang-pgo-pre-gp`, which the current runtime rejects). Same protocol, two
+rounds of all four states, WSL and Windows interleaved but never concurrent. Raw: `build/bench-states-gp.txt`.
+The old runtimes were overwritten, so this compares with the table above across sessions, not in one A/B.
+
+| Module | 01 | 02 battle | 03 | 04 |
+|---|---|---|---|---|
+| WSL LLVM + PGO, 1× | 1.22 / 1.16 | 2.10 / 1.87 | 1.75 / 1.61 | 1.25 / 1.13 |
+| Windows clang + PGO, 1× | 1.35 / 1.27 | 1.64 / 1.54 | 1.56 / 1.52 | 1.46 / 1.39 |
+| Windows clang + PGO, 3× | 1.39 / 1.29 | 1.76 / 1.62 | 1.51 / 1.40 | 1.44 / 1.37 |
+
+- **Windows clang: +3–11% at 1×, +6–10% at 3×**, worst seconds up by 0.11–0.24. This is the first run of the
+  C backend's gather fast path (GXRuntime's inline `mem_write*`): pictures correct in all four states and
+  every run exited with code 0.
+- **WSL: 01 +2%, 04 +5%, 02 flat** (llvmpipe-bound). WSL round 1 ran slower than round 2 in 03/04
+  (04: 1.19 vs 1.31), and its worst second (1.13, 04 round 1) is slightly below the old 1.15. That is
+  still well above 1.00.
+- **State 03 isn't a fixed scene:** the camera ends somewhere different from run to run (ceiling, wall or
+  Vyse in the screenshots, old and new alike), so its numbers spread more and the +10–22% there is the
+  least reliable figure.
+- Training ran with the two platforms overlapping, which only affects how many frames each window
+  covers. WSL profile: 11,015 functions, no `hash mismatch`; Windows: 0 out-of-date/mismatch warnings.
+  The Windows instrumented run exited cleanly this time, so `pgo-run` built its own PGO module too
+  (under `build\modules-clang-pgo\GEAE8P\`), alongside `pgo-win.sh`'s `use-build`.
+
+**Windows LLVM + PGO (2026-10-07).** After the exit-crash fixes (*Known issues*): `build\modules-llvm-pgo-fix`,
+cross-generated on WSL with every patch and the WSL profile (`tools/module-llvm-win.sh llvm-pgo-fix --profile-use
+build/modules-llvm-pgo-gp/GEAE8P/pgo/merged.profdata`, no `hash mismatch`; its DLL differs from the non-PGO
+`build\modules-llvm-fix`, so the profile applied). Interleaved with clang + PGO in the same session, two rounds of
+all four states at 1× and 3×. Raw: `build/bench-states-fix.txt`. Mean / worst second:
+
+| Module | 01 | 02 battle | 03 | 04 |
+|---|---|---|---|---|
+| Windows LLVM + PGO, 1× | 2.08 / 2.04 | 3.46 / 3.30 | 2.53 / 2.46 | 2.17 / 2.14 |
+| Windows LLVM + PGO, 3× | 2.07 / 2.04 | 3.41 / 3.01 | 2.54 / 2.44 | 2.17 / 2.13 |
+| Windows clang + PGO, 1× | 1.51 / 1.49 | 1.84 / 1.69 | 1.66 / 1.63 | 1.53 / 1.51 |
+| Windows clang + PGO, 3× | 1.49 / 1.48 | 1.87 / 1.82 | 1.65 / 1.62 | 1.53 / 1.50 |
+
+- **LLVM + PGO is +37–42% over clang + PGO in 01/04, +52–54% in 03 and +82–88% in the battle.** Worst
+  second 2.04× (clang 1.48×). Pictures correct (battle HUD text included); all 32 runs exited with code 0.
+- clang + PGO measured 10–12% higher than on 2026-10-06 with the same module and an equivalent runtime (only
+  `PlatformWin32.cpp` changed). Compare within a session, not across.
+- One clang 3× 01 sample read `speed=` as 0.000 (a status file caught mid-write); left out of the worst second.
+
+### Widescreen (2026-10-07)
+
+A game patch (`patches/game/widescreen.c`, built into the DOL by `tools/gamepatch.py`; see
+[patches/game/README.md](../patches/game/README.md) and the decomp's `docs/widescreen.md`) widens the 3D
+view for a 16:9 picture (Hor+, culling follows), keeps the HUD at its original shape in the centre,
+and keeps full-screen 2D (fades, screen copies, backgrounds and overlays that reach both edges) at
+full width. Because it's game code in the DOL, the module needs rebuilding from the patched DOL, and
+it runs the same on Android. Dolphin has to output an exact 16:9 picture: in the user directory's
+`Config/GFX.ini`, `AspectRatio = 5` (custom stretch), `CustomAspectRatioWidth = 16`,
+`CustomAspectRatioHeight = 9` (on Windows: `build\user-ws`). Run it with
+`GAME=build\game\GEAE8P-ws` and `MODULE=build\modules-llvm-pgo-ws\gGEAE8P_recomp.dll`.
+
+**Android (2026-10-07):** installed on the Retroid: `build/android/apk/skies-ws-2026-10-07.apk`
+(module from the patched DOL, PGO + cortex-a77, with `recompcore-restore-boot-dol.patch`), the patched
+`main.dol` in `files/Games/SkiesOfArcadiaLegends/sys/` and `AspectRatio = 5` / 16:9 in `Config/GFX.ini`.
+The originals are in `files/Backup-2026-10-07/` (`main.dol.orig`, `GFX.ini.orig`); to go back, restore
+them and install `skies-dolphin-debug-gp-pgo-a77.apk`. Battle and cutscene correct in 16:9; cutscene
+speed 1.009 mean, 0.986 slowest second, limiter on (the margin it had before).
+Reinstalled late on 2026-10-07 with the scissor fix and the full-width script fade (DOL SHA-1
+`85176f05…`). The clip build it replaced is kept: `main.dol.clip-52e799c7` in the same backup folder and
+`build/android/apk/skies-ws-2026-10-07-clip.apk`. Checked on the device: the red alert room (07) full
+width, the save menu (06) and the camp menu's party status clipped with nothing at the sides, the forced
+script fade over the whole picture, battle labels at their characters; opening cutscene 1.008 mean,
+0.986 slowest second over 30 s, limiter on (unchanged).
+
+Checked on Windows (LLVM + PGO, 3x): opening cutscene (the afterimage effect no longer leaves ghost
+bands), first battle (HUD, target selection, attack round), ship field, save menu (a centred 4:3 panel
+with black sides), cold boot to the text crawl, and battle name labels, HP bars and damage numbers
+at their characters (they're placed with `njProjectScreen`; the battle UI's calls get HUD-space x,
+found with the 2D tracer `patches/game/trace2d.c`). Squeezed 2D is clipped to the 4:3 area, because menus park
+UI just off-screen (party status's next page, the save/continue cursor arm): checked in both menus.
+The clip is a scissor that every projection load sets (see below for why every load).
+Savestates made before the patch load fine
+(`recompcore-restore-boot-dol.patch`).
+
+**The 4:3 clip and display lists (found and fixed 2026-10-07).** The first version of the clip
+(f82e437) cut the 3D scene to 4:3 in the Valuan ship's red alert room
+(`build/savestates/07-valuan-red-alarm.sav`): the room's solid geometry ended at the 4:3 edges, while
+railings and light beams still reached the sides. Reproduced on Windows with the module built from that
+DOL, frame interpolation on or off. That version remembered whether the clip was on and only wrote the
+scissor when that changed. The game records its scene into display lists and replays them later
+(decomp `docs/frame_loop.md`), so the order of the CPU's projection calls isn't the GPU's: a skipped
+write could leave the clip from the last frame's HUD in force for the layers replayed first. Now
+`ws_set_projection` writes the matching scissor on every projection load: the 4:3 clip for the squeezed
+2D projection, the game's own scissor for anything else. The scissor then follows the projection in
+GPU order, recorded or not. All five of Ninja's projection loads go through it (nothing else sets
+the projection after `GXInit`). Checked on Windows (LLVM + PGO, 3x): states 07 and 05 full width,
+the save menu (06) and the camp menu's party status clipped with nothing parked at the sides, the
+opening cutscene, and the first battle at speed 1.000 / 59.94 fps with interpolation.
+
+A WSL run of the f82e437 DOL with the older WSL module (built from 92d1c29's DOL) rendered the room
+correctly. That run didn't test anything: the module's compiled callers still called `GXSetProjection`
+directly, so the clip code most likely never ran (`scissor_clipped` read 0 there, 1 on Windows). Compare
+builds only with a module made from the same DOL.
+
+**Script fade:** `ScreenFadeDraw` (0x80210390, the script's 640 x 480 colour fade) draws through Ninja's
+own primitive (`fn_8028A0F4`), which `ws_poly` doesn't see, so fades left the side bars unfaded. It's now
+wrapped at full width like the screen effects (`ws_full_80210390` in `fullwidth.S`). Checked on Windows
+by switching the fade on through memory (`poke:0x8030DAFC:00000001A0000000`: enable flag, then ARGB at
+`lbl_8030CEA0 + 0xC5C / 0xC60`): the previous build darkened only the 4:3 area, the new one the whole
+picture.
+
+**Battle-entry transitions fixed (2026-10-09, DOL `a4f9ef7c`, `GEAE8P-ws8`):** both are 3D, not the 2D
+tiles the earlier notes chased. Found with `trace2d` (the recompiled core is needed: only it restores the
+booted DOL's code after a state load, so under the JIT a savestate brings the old code back and the trace
+stays empty): the only projection chain new during the transition was `fn_8029C8A0` (perspective load)
+<- `fn_80287C14` <- `fn_80288DE4` <- `fn_80287B38`. The tiles are sized to the game's own field of
+view, so the widened one squeezed them into the middle 4:3. `ws_unwide_begin/end` (widescreen.c) and the
+`UNWIDE` wrappers (fullwidth.S) draw them at the unwidened aspect (`njClipZ` rebuilds the matrix; Ninja
+reloads it for every 3D draw): the spinning card (`fn_802297C4`, two `fn_80287B38` sites) and the
+falling triangles (`fn_80101828` -> `fn_80097CA4`, only caller). Checked on Windows in both variants
+(dumps): full 16:9, the gauge and compass break up where they were. `WS_VERSION` 3. The code cave is
+nearly full (0x10E0 of 0x1100 bytes; room made 2026-10-10, see *Widescreen HUD at the edges*). Savestates `build/savestates/13-pre-battle.sav` / `-early.sav`
+(an encounter follows within a few seconds of flying forward; which variant is random).
+Checked on the Retroid too (`skies-ws8-interp-2026-10-09.apk`, 2026-10-09; `adb shell screenrecord`, decoded
+with `-fps_mode passthrough`): both variants full 16:9, every frame continuous, 59.6-59.9 fps. The thin
+vertical seams while the picture breaks up belong to the effect (the Windows dumps have them as well).
+
+**Open:**
+- (Fixed above.) The battle-entry shatter effect (the screen breaks into tiles that fall away) covered only the 4:3
+  area, with black sides, the full 16:9 picture squeezed into it. Seen on the Retroid (state 07 runs
+  into a random battle about 2 s after loading there, `build/shots-android/ws-07c.png`) and on Windows
+  (walk in state 07; `C:\dev\SkiesRecomp\build\shatter\s01.sav` is just before an encounter, made with
+  the f82e437-era build: see *savestates* below). Not the cause: the battle transition task
+  `fn_800B0FD0` draws through `fn_800B0278` (kind 0, tiles turned with `njSin` / `njCos`) and
+  `fn_800AF780` / `fn_800AF8F8` (kind 1); wrapping the first two full width (in the work-in-progress
+  patch) left the shatter unchanged. The tiles fly off in perspective, so it may be a 3D effect sized for
+  the original field of view; next step is the projection trace (`trace2d`) over the transition.
+- Not checked in the world map, towns or ship battles.
+- Three `njProjectScreen` callers are unclassified (decomp `docs/widescreen.md`).
+
+### Widescreen HUD at the edges (2026-10-10, DOL `329c631f`, `GEAE8P-ws9`)
+
+The HUD pieces that sit at the sides of the 4:3 picture now sit at the sides of the 16:9 one, through the
+anchor table (`WS_HUD_ANCHORS` in `widescreen.c`, `WS_VERSION` 5). Found with a deeper `trace2d` (ten return
+addresses; the four-deep chains all ended in the shared sprite code `fn_80005D98` <- `fn_801D5DD8`), each
+checked by anchoring it alone at runtime:
+
+| Scene | Piece | Code (task or call sites) | Move |
+|---|---|---|---|
+| Battle | party status panels | `fn_80022F74` | left edge |
+| Battle | command wheel | `fn_80025624` | left edge |
+| Battle | the wheel's lists (S-move, Magic, Item) | `fn_800240EC` | left edge, with the wheel |
+| Battle | SP gauge | `fn_80027C04` | 16 px up |
+| Battle | status icon columns | `BattleIconColumnDraw`, `fn_80159610` (ship battles) | right edge |
+| World map | altitude gauge | `fn_8016B434` | left edge (ws13; ws9-ws12 had side -94, as far in as the compass, until the user saw that 4:3 hugs the edge) |
+| World map | compass | `fn_8016C204` | right edge |
+| Dungeons | minimap | `fn_800E23B0`'s calls at `0x800E26F8`-`0x800E27C0` | right edge |
+| Field | party status | `FieldPartyStatusDraw` | right edge |
+
+Text queued by anchored code moves with its clip rectangle (`TextState` +0x18): the SP gauge's "/ 8" has a
+tight one and vanished when only the text moved. The anchor code moved to a second code area over MetroTRK's
+message handlers (`.trkcave`, patches/game/README.md), freeing the low-memory gap (now 0xDB4 of 0x1100). Checked
+on Windows (interpolation on, dual core): battle idle, S-move list, attack round (target labels, banner),
+world map, dungeon minimap, a ws8 state (13-pre-battle) loaded and flown into a battle. On the Retroid (first
+ws9 build, gauge at -100): same scenes, 1.00x / 59.8-59.9 fps. Not seen: the field party status and ship
+battles (no states). The game dims the whole picture after about a minute without input (both test scenes);
+that's the game's own. Tuning without a rebuild: the table is at `0x80002A18`, 12 bytes per entry
+(since ws15: `lo`, `size` u16, `side` s8, `kind` u8, `dx` s16, `dy` s16; before: `lo`, `hi`, `side`, pad,
+`dy`); `poke:` then `shot:` (reload the state first: the HUD slides).
+
+### Ship battle HUD (2026-10-11 night, DOL `2d7b1f1d`, `GEAE8P-ws15`; spacing ws16)
+
+ws16 (user's spacing): the ring's lists (`fn_8012E640`) dy +50, the crew / ship panels (`fn_801331AC`)
+dy -24, midway between the Spirit gauge and the ring.
+
+Found with `trace2d` at command input and in the action phase (states 17 / 17b), each piece moved alone
+with a live anchor poke. Layout asked for by the user: the left column at the left edge, the command grid
+in the top right corner, the enemy's HP plate below it.
+
+| Piece | Code | Move |
+|---|---|---|
+| Spirit gauge, its "/17" and the bar | `fn_8012B054` (the max is queued with `TextPrintf`, now wrapped like `TextPrint`) | left edge |
+| Command ring and its lists | `fn_8012C744`, `fn_8012E640` | left edge |
+| Crew member and ship panels | `fn_801331AC` | left edge |
+| Turn bar and command grid | `fn_801303D0`, `fn_80131734` | right edge + 175, 34 up (top right) |
+| HP plates and their icons | `fn_8015887C` (plate 0, the party's ship, at x 42; enemies' at x 502, y 74 + 40 each) | by plate: the party's to the left edge, enemies' to the right edge and 88 down |
+| Damage popups by the plates | `fn_8021F330`, `fn_8021F0EC` (shared code: only in ship battles) | by x: with the plate they belong to |
+| Action name banner | `fn_8012F958` | stays (centred) |
+
+Plates and popups are drawn by shared code, so the anchor can't tell them apart by caller: two stubs
+(`ws_ship_plate_draw` / `_icon` at `0x80158994` / `0x8015899C`, `ws_popup_draw` at the popups' sprite
+calls) note the object and jump on, and anchor kinds `WS_SHIP_PLATE` / `WS_SHIP_POPUP` pick the side
+from it. The anchor entry grew a `dx` (HUD pixels beyond the edge move) for the grid. Checked on Windows:
+command input, Focus and attack rounds both ways (plates and their damage numbers together), the battle
+won to the results; 4:3 still identical to the unpatched game (state 02, 165 pictures). The results
+screen is a centred 4:3 page like the save menu (shared with ground battles), unchanged.
+
+### Widescreen 4:3 setting: identical to the unpatched game (2026-10-10 night, DOL `7cb9de68`, `GEAE8P-ws10`)
+
+The runtime's `[Skies] Widescreen = 0` writes `ws_config.display_aspect = 0` (handoffs/HANDOFF-settings.md). The
+first frame-by-frame A/B against the unpatched DOL (Windows, `tools/dump-ab-win.sh`, state 02 first
+battle, 1x single core, every real picture dumped; two unpatched runs match byte for byte) found two
+things in the ws9 DOL's 4:3 mode:
+- **The SP gauge sat 8 pixels high.** Its anchor's `dy` (-16) applied at factor 1 too, where `dx`
+  becomes 0. Fixed: `ws_anchor_find` finds nothing in 4:3 (no move, and no unclipped anchored text).
+- **Faint differences on most edges of every frame** (at most 25 of 255, ~400 pixels per frame at a 5%
+  tolerance; invisible). Bisected with four DOL variants, each without one group of redirects: only
+  dropping the text hooks removed them. They were no-ops in 4:3, so the cause was earlier: the DOL's
+  patch data started with the 16:9 `factor`, and the hooks read `factor`, which only `ws_apply` at the
+  end of a frame recomputes from `display_aspect`. So the first frame after a load (the restore puts
+  the DOL's patch data back) ran the widescreen HUD path, and in this battle that left lasting
+  differences. A variant whose defaults were 4:3 matched exactly. Fixed: the defaults start at
+  `factor` 1 ("nothing widened yet"; `display_aspect` stays 16:9, so `ws_apply` widens at the end of
+  the first frame), `WS_VERSION` 6.
+- Also: in 4:3 every wrapper in `fullwidth.S` jumps straight to the game's function without a frame
+  of its own (`ORIGINAL_IN_43`; the C hooks became `*_wide` behind `GATE`s), except
+  `ws_set_projection`, which in 4:3 puts the game's scissor back after every projection load. That's
+  what undoes the 16:9 clip after a switch: bypassed too, the HUD stayed cut to the 16:9 HUD area.
+  The runtime now applies the setting at once after a state load instead of from a host job.
+
+Result (ws10 DOL + its LLVM+PGO module): 4:3 vs the unpatched game identical on all 165 pictures, and 16:9
+identical to the ws9 play build on all 198 pictures (state 02). Live switching at 3x dual core (Windows)
+and on WSL: 16:9 HUD at the edges, 4:3 the original layout, nothing clipped. In 4:3 the battle-entry
+shatter (state 13, flown into an encounter) covers the whole picture. Not checked frame by frame: a
+live 16:9 -> 4:3 switch mid-scene (the first-frame finding says a switch can leave invisible
+differences until the scene is rebuilt) and the battle-entry path against the unpatched game (no
+unpatched pre-battle state; 07 was saved by a widescreen build, and the unpatched game loads its
+widened camera). The low code area now holds `0xFB0` of `0x1100` bytes.
+Traps: Windows paths ignore case (dump dirs `ws10B` and `ws10b` are the same directory); a 1% CPU
+overclock changes nothing here, so timing can't explain picture differences in this scene.
+
+### Widescreen: work in progress (late 2026-10-07, committed; superseded by the section above)
+
+The source in `patches/game/` is ahead of every built DOL (`build/game/GEAE8P-ws`, the Windows module
+`build\modules-llvm-pgo-ws`, the Retroid). Built and booted only as the debug variant
+(`build\game\GEAE8P-ws6t` + `build\modules-llvm-pgo-ws6t`, with `trace2d.json`): cold boot, intro, title.
+Not yet checked in menus, battle or field.
+
+- **Savestates and moved patch code.** (2026-10-11: also the retrace polling loop, see *Known issues*;
+  check a state with `tools/statecheck.py`.) States are taken while the game waits for the retrace inside
+  `fn_801DC420`, which the old `ws_frame_end` called, so a state held a return address into patch code.
+  When a later build moved that code, loading the state returned into the middle of another function
+  (Windows: "Invalid write to 0x0000a855, PC = 0x80001e54", or a hang). `ws_frame_end` is now assembly
+  that calls `ws_apply` and *jumps* to `fn_801DC420`, so it returns straight to `main`; states made with
+  this build onwards survive patch changes. **States made with any earlier widescreen build (including
+  the user's) crash in it**; memory-card saves are unaffected.
+- **Patch data in old states.** A loaded state also brings back the old build's patch data section (only
+  code sections are restored, `recompcore-restore-boot-dol.patch`). Constants now live in `.text`
+  (`cave.ld`), and `ws_check` resets the mutable data when `ws_config.version` isn't this build's
+  (`WS_VERSION`, bump it with any layout or default change).
+- **Layout:** the data section moved to `0x80002A00` (code may run to there; `ws_config` is at the start
+  of data, `patches.txt` has the address). Patches are compiled `-Os`. `gamepatch.py` leaves weak
+  undefined symbols at 0, so `trace2d.c` hooks in through `trace_projection` only when it's linked.
+- **Battle HUD anchors (mechanism only, table empty).** `ws_config.anchors` lists code ranges
+  (`lo`, `hi`, `side` in percent of the gained width, `dy` in pixels); 2D drawn with one of them up the
+  call stack (`ws_anchor_find`, PowerPC back chain) gets the projection moved and no 4:3 clip. Text is
+  queued and drawn by `TextFlush`, so `TextPrint`, `TextPrintN` and `TextPrintNumber` go through
+  `ws_text_anchor` (moves the node when queued) and `TextDrawNode` through `ws_text_draw_node` (draws
+  moved nodes unclipped). The table can be filled at runtime with `poke:` to find and tune ranges. Still
+  to find: the code that draws the battle status panel, command wheel and SP gauge (`BattleHudDraw` only
+  does labels and icons). The user wants the left panels moved to the left edge and the top gauge up a
+  little.
+- **Anchors tested live (2026-10-09, ws8 on Windows; the mechanism is in the installed DOL).** The table is
+  at `0x80002A18` (12 entries of `lo`, `hi`, `side` s8, pad, `dy` s16; poke it, e.g. the scratchpad
+  `anchor.sh`). One entry over all game code (`0x80003100`-`0x80300000`, side -100) moved the whole battle
+  HUD (SP gauge, status panel, command wheel) to the left edge, unclipped and drawn right, except the
+  "/ 8" beside the SP number, which vanished (unexplained). In the world map (state 14) it moved the
+  altitude gauge and compass, and pulled in a dark quad the game normally keeps out of sight, so anchors
+  must be per element. `main` is more than 12 frames above HUD draws, so it never matches. Finding the
+  per-element code by bisection (poke a range, screenshot, compare boxes against a fresh unanchored shot)
+  works, but Windows screenshots of a background window take ~20 s, so it's hours per scene; found only
+  `fn_80005D98` (generic rotated sprite: parts of the panel and wheel) and `fn_8000A118` (part of the
+  wheel). Better: a `trace2d` build, which **doesn't fit**: code 0x1287 bytes against 0x1100 below the data
+  at `0x80002A00`, and code + data 0x1742 against the gap's 0x1600. More room: the debugger-stack area
+  (`0x8035D4C8`-`0x803624C8`) is heap here (OSInit starts the arena at `_stack_addr` when BI2's debug flag
+  is < 2, and it's 0); MetroTRK's code (`0x802547C0`-`0x8025A094`, ~22 KB, interleaved with runtime code)
+  only runs when `0x800030E8` is 2 or 3 (it's 0), a candidate after a call-graph check; or raise the arena
+  start in OSInit (`0x80231D74`/`0x80231D3C`) at a small cost in heap.
+- **Tracing:** `trace2d.c` now records every projection load (2D and 3D) with four game return
+  addresses, hits and first/last frame; `tools/readtrace.py ADDR [reset]` prints it with names.
+  On the title screen it showed the 2D: `main`'s background quad, `fn_80290A60` from `fn_801D129C`, and
+  `fn_801D5DD8` (a multi-part sprite: logo, PRESS START) through `fn_80005D98` (a rotated sprite quad
+  used by ~20 callers); the clouds come through the 3D path (`fn_80288DE4`).
+
+### 60 fps: frame interpolation (prototype, 2026-10-07)
+
+The game logic is fixed-step at 30 Hz (decomp `docs/frame_loop.md`), so 60 fps means drawing an
+in-between picture, not running the game faster. `recompcore-frame-interpolation.patch` does it in the
+video code, for any game: it records each frame's GX command stream, replays it with every XF matrix
+and every inline vertex position halfway between this frame's and the previous frame's, and presents
+that picture on the first retrace of the new frame and the real one on the second. For Skies the
+positions are what matter: Ninja transforms vertices on the CPU and sends them in view space, so the XF
+matrices barely change (about 2 of 2,400 loads per cutscene frame; ~4,200 draws and 24,000 vertices
+per frame carry the motion). Draws are paired by vertex format, count and texture; within a kind, the
+two frames' lists are aligned by their first vertices (below).
+
+Turn it on with `frame_interpolation=true` under `[Video]` in the user directory's `config.ini`
+(`build\user-ws` has it), or `RECOMP_FRAME_INTERPOLATION=1` in the environment, which wins (`2` adds
+statistics every 300 frames).
+`RECOMP_FRAME_INTERPOLATION_DUMP=<dir>` saves the real and in-between pictures of frames 300-305
+(`_DUMP_FRAME` moves the first, `_DUMP_COUNT` sets how many; the count is XFB copies since boot, so
+load a state to land on a scene). `RECOMP_FRAME_INTERPOLATION_TRACE=1` logs each frame end, replay and
+retrace (which picture was shown) and the draws the alignment left unpaired.
+
+**Title-screen cloud flicker (fixed late 2026-10-07).** The user saw the title's clouds flicker with
+interpolation on (not off, not in 4:3). Presentation order was right every frame (trace); the bad
+pictures were single in-between frames, every one to two seconds: the lower cloud layer is ~120 alike
+draws, and when one strip scrolled out of the set, pairing the n-th draw with the n-th put every later
+strip halfway to its neighbour. Draws of a kind are now aligned with a banded dynamic-programming match
+on their first vertex positions (gap cost four times the typical motion), so a draw that appears or goes
+is left unpaired and the rest pair correctly. Checked with 240 dumped title frames
+(`build\savestates\09-title.sav`, the title in the current `GEAE8P-ws` build): the four bad in-between
+pictures (in-between 10-25x farther from both neighbours than they are from each other) are gone, the
+worst is now 1.21 like any frame (not yet confirmed by eye). Cost, limiter off, opening cutscene, 1x: 1.468x
+before, 1.432x after (slowest second 1.40 both). Only the Windows runtime is rebuilt with it.
+
+Checked on Windows (LLVM + PGO, widescreen game): 59.9 presented fps at speed 1.0 in the cutscene and
+the first battle; 299 of 300 frames interpolated; the in-between picture of a slow camera move is as far
+from each neighbour (RMSE 0.0059 / 0.0058, neighbours 0.0084 apart) and shows no tearing. Cost, limiter
+off, opening cutscene: 2.07x without, 1.65x with. **Open (as of 2026-10-07):** scene cuts and particles (unpaired draws show the new frame); EFB copies the next frame reads
+(the afterimage effect) see the replay's; WSL (llvmpipe). Since 2026-10-08 the replay's copies stay out of RAM and the cache
+(*60 fps on Android: dual core*), so the game never reads one; the Retroid's own copy and TMEM problems are under
+*Green bands at the bottom of the Valuan ladder*.
+
+**Android (2026-10-08):** a test APK has it (`skies-ws-interp-2026-10-08.apk`, handoffs/HANDOFF-android.md), switched
+on by an empty `FrameInterpolation.on` in the user directory (the runtime checks for it when the
+environment variable isn't set). Retroid, limiter on: first battle full speed at 59.8 fps, opening
+cutscene 0.79x (46 fps), so it doesn't fit there yet. (Superseded the same day: dual core, see
+*60 fps on Android: dual core* below.)
+
+### 60 fps on Android: dual core (2026-10-08)
+
+**What the user saw** (three screen recordings from the Retroid, `build/android/recordings-2026-10-08/`,
+single-core test build `skies-ws-interp-2026-10-08.apk`): slowdowns in the world map (79-91%), deck
+battles (73-82%, 46-55% during a ring attack), the red alert room (72%) and the save menu (74%); and, in
+two dialogue scenes after the first battle ("You coward!", Fina in the cell), every in-between picture
+black from the top down to the bottom of the text box. Savestates of the slow spots, made on the device:
+`build/savestates/android-worldmap-2026-10-08.sav`, `android-redalarm-slow-2026-10-08.sav` (Windows copies
+`10-worldmap-android.sav`, `11-redalarm-slow-android.sav`). The user's memory card is backed up in
+`build/android/user-save-2026-10-08/`.
+
+**Why single core can't hold 60 fps there.** Skies is forced single-core (`GEA.ini`), so the game, its
+GPU command processing and the replay share one A77; heavy scenes already use ~95% of the frame without
+the replay. Adaptive replay (skip it while it doesn't fit, see *patches/README*) keeps full speed but
+shows 30 fps there; it is still what single core does.
+
+**Skies' dual-core desync, explained.** The game's end-of-frame sync, `fn_801D22CC`, sends draw-sync
+token `0xB00B` and polls `GXReadDrawSync` until it comes back; if two retraces pass first it treats the
+GPU as hung and re-inits the FIFO (`GXInitFifoBase` / `GXSetCPUFifo` / `GXSetGPFifo`). In dual core the GPU
+thread can lag that much, and the reset pulls the FIFO from under it ("GFX FIFO: Unknown Opcode"). That
+is presumably why Dolphin needed SyncGPU, later single core, for this game. Fix: a PE token read waits
+for the GPU thread to work through the FIFO (`WaitForGpuToDrain`), so emulated time stands still while
+the game waits and the token is current when read. Cold boots in dual core run cleanly (Windows and
+Android, 90 s at 60 fps), and the standard states load, except below.
+
+**Making the replay free in dual core** (each step measured on the Retroid, red alert room):
+- First dual-core run (replay right after the XFB copy): 0.96 at 57 fps, but the CPU waited for the
+  replay at the next token poll. Deferring the replay until the GPU thread idles made it worse (0.74):
+  Dolphin's "sync on skip idle" made every CPU idle wait for the GPU thread's whole queue, replay
+  included. With interpolation on, idle skipping now waits for the FIFO only.
+- A timeline (`FrameInterpolation.timeline`) showed the rest: Skies submits its frame in the ~10 ms
+  after the token, waits for draw-done, then runs ~17 ms of game logic with the GPU idle. A replay
+  placed after the token sat in front of the next frame's commands, and the CPU waited for both.
+- So the replay now runs on a **second EFB** (`FramebufferManager::SwapEFB`) **in slices** (96 KiB of
+  stream each) whenever the GPU thread's FIFO is empty, with its own saved video state. The game's
+  commands always go first. Its EFB/XFB copies go to private textures (never RAM or the cache), so a
+  replay running during the next frame can't overwrite what that frame wrote. It is presented **one
+  retrace later** (previous real, in-between, real), which gives it a retrace more; if it isn't done
+  when due or when the next frame ends, the rest runs at once.
+- The GPU thread's FIFO loop now reads up to 2 KiB per pass (it read 32 bytes, with a status update
+  and atomics each time) and only runs its end-of-work steps (flush, peek cache) after work.
+
+| Retroid, limiter on, interpolation on | speed | fps |
+|---|---|---|
+| single core, before (user's build) | red alert 0.72, world map 0.82, opening 0.79 | 42 / 49 / 46 |
+| single core, adaptive | 0.98 / 1.01 / 1.00 | 29 / 30 / 30 |
+| **dual core, sliced replay** (`skies-ws-interp-dualcore-2026-10-08m.apk`) | red alert 1.007, world map 1.005, first battle 1.003, ship field 1.005 | 59.8-59.9 |
+| same, ws8 (`skies-ws8-interp-2026-10-09.apk`, 2026-10-09, 20 s each) | red alert 1.005, world map 1.008, first battle 1.003, ship field 1.005 | 59.8-59.9 |
+
+Limiter off with the same build: red alert 1.28 (slowest second 1.235), world map 1.17 (1.137); dual core
+without interpolation was 1.20 in the red alert room. Per frame there, the CPU now waits 1.1 ms for the
+GPU (10.8 ms before the slices). On Windows (3x, LLVM + PGO, red alert, limiter off): dual core with
+interpolation 2.11x, dual core without 2.08x, single core with 1.59x. In-between pictures checked by dump
+(halfway between neighbours, same values as before the rework) and the presentation order by trace.
+
+**Installed on the Retroid (2026-10-08):** `skies-ws-interp-dualcore-2026-10-08m.apk` (late 2026-10-08: `-08n.apk`, the same plus the state-load fix below), `CPUThread = True`
+added to `files/GameSettings/GEAE8P.ini` (original in `files/Backup-2026-10-08/GEAE8P.ini.orig`, also
+`build/android/bench/cfg-2026-10-08/`). `Dolphin.ini` unchanged (limiter on).
+
+**Open:**
+- **Fixed (late 2026-10-08): the state-01 load desync in dual core.** Loading `01-opening-cutscene.sav`
+  into a running dual-core game hung at its first frame (3835) with "Unknown Opcode": 0xda over the
+  title, 0x70 over state 02, so the GPU thread was decoding what was in RAM *before* the load. Cause:
+  Dolphin loads states as a CPU-thread job with the GPU thread running again (`RunOnCPUThread` pauses,
+  queues the job, unpauses). `VideoCommon_DoState` restores the command processor on the GPU thread,
+  but RAM only comes later (`HW::DoState`, CPU thread), so the GPU thread went on reading the FIFO at the
+  restored pointers from the old RAM. Only states saved with commands left in the FIFO hit it (01 is one);
+  Windows' faster GPU thread mostly missed the window. Fix (`State.cpp`, in the interpolation patch):
+  `State::DoState` holds the GPU thread (`Fifo::PauseAndLock`, which lets it finish the FIFO first) for
+  the whole save or load in dual core. Checked on the Retroid (`skies-ws-interp-dualcore-2026-10-08n.apk`):
+  01 loads over the title and over 02 at 59.9 fps / 1.00x, and 01, 02, 03, 04, world map, red alert, 01
+  back to back in one session, pictures right, no alert. Windows: 01 -> 02 -> 01 in one session, fine.
+  Dual-core saves had the same race (the GPU thread changing the FIFO registers mid-save) and are covered too.
+- **FIFO overflow in dual core (user's play, 2026-10-08 17:35, `-08n` build):** "FIFO is overflowed by
+  GatherPipe! CPU thread is too fast!" (`CommandProcessor::GatherPipeBursted`) in a palace/court scene
+  after ~40 min of play, at 100% speed / 59.7 fps. The game stops writing at the high watermark (16 KiB
+  before full) through the CP overflow interrupt (`GXOverflowHandler` suspends the writer), but the
+  recomp takes interrupts only between dispatches, and one dispatch can run a whole function with its
+  callees; with the GPU thread behind, the writes ran past the margin and overwrote unread commands.
+  Fix (`Fifo::WaitForFifoSpace`, called per burst from `GatherPipeBursted`): when one more burst would
+  overflow, the CPU thread waits until the GPU thread is back at the high watermark (2 s limit; not while
+  the GPU waits on the CPU). It logs `FIFO full (… bytes): CPU thread waits for the GPU thread` (first 8
+  times) to the COMMANDPROCESSOR log, which is off by default (the device's `Logger.ini` is empty), so in
+  play the sign is only that the alert stays away. Installed `skies-ws-interp-dualcore-2026-10-08o.apk`; Windows/WSL runtimes rebuilt (previous
+  Windows exe `moderngekko-run-1008-prefifospace.exe`). **Not yet confirmed at the spot** (no state there).
+- **Black in-between pictures (user's recordings, Windows and Android, 2026-10-08 evening):** single frames
+  with a black sky and black blocks while flying, and a black picture with only the HUD after closing the
+  main menu. Reproduced on Windows by automation (world-map state 10, X to open the menu, B twice) with
+  `RECOMP_FRAME_INTERPOLATION_DUMP`: always the first in-between after the menu, the real pictures fine.
+  `RECOMP_FRAME_INTERPOLATION_T=1` (no blending) cured it, and the trace found the cause: a full-screen
+  640x480 quad (backdrop/fade) at z = 100 in the first world frame and z = 0.001 in the next; the vertex
+  jump test (more than half the value *plus* 50 units) let 99.999 through, and at z = 50 the quad covered
+  the scene. Fix: a jump is more than half the value *or* more than 50 units, whichever is larger. A/B
+  with the old exe (`moderngekko-run-1008-preefbstart.exe`): black at frame 113 before, none after.
+  Also added, for correctness (none was the cause in the repro): the replay starts from the video state
+  its frame started with (an EFB snapshot too, removed 10-09: it hung state loads) (the game writes only changed
+  registers), and reads the vertex array data its draws read by index, copied when recorded (~1,900 of
+  ~1,950 world-map draws index their arrays; ~57 KB per frame); Vulkan's `CopyRectangleFromTexture` now
+  copies depth too. The mid-flight black sky (run 1, frame 346, ~20 frames before a menu opened) wasn't
+  reproduced on a long flight with either build: probably the same quad, unconfirmed. Evidence pictures:
+  `build/interp-black-2026-10-08/`. APK `skies-ws-interp-dualcore-2026-10-08q.apk` built, not installed.
+- **Stray bands in in-between pictures while steering (user, Android and Windows, 2026-10-08 night):**
+  single 16 ms frames with a translucent band or smear (bottom right over the cloud sea, behind the
+  ship), every second or so, worst when steering left and right. Found in the recording only with a
+  fine-grid neighbour test (`interp_vs_real`/outlier scripts, 16x9 cells); a 30 fps capture hides them.
+  Cause: matrix loads were paired between frames by occurrence within their kind (address, count, next
+  draw's key); when the game culls one of many alike objects (cloud strips while turning) every later
+  object's matrix was blended with its neighbour's (traced: translations -124.8 vs +111.7, accepted by
+  the 200-unit translation slack). Fix: loads of a kind are aligned like draws (`Align`, the dynamic
+  programming that pairs draws, now shared) by the L1 distance of their matrices; an unpaired load
+  snaps. Savestate at the user's spot: `build/savestates/12-streaks.sav`. A/B there (steer left/right,
+  every picture dumped): 17 of 417 in-between pictures with stray content before
+  (`moderngekko-run-1008-prealign.exe`), 0 after. APK `skies-ws-interp-dualcore-2026-10-08r.apk`
+  installed; the user: "definitely a lot better".
+- **Battle transition in-betweens (2026-10-09):** the spinning card came out torn into offset strips in
+  the in-between pictures. Three causes, each A/B'd with dumps: vertices snapped or blended one by one
+  (some corners of a strip jumped); then whole draws, but strips of one card snapped while others blended;
+  then the alignment paired strips with neighbours (motion faster than their spacing). Now: when one draw
+  jumps, every draw with the same texture snaps; kinds with equal counts pair in order unless the alignment
+  costs less than half as much (scrolling clouds still align). Clean in both transition variants; the
+  steering spot still 0 stray, the menu still no black frame.
+- **Hang after state loads (found 2026-10-09, fixed):** the EFB start snapshot (added 10-08 night) hung the
+  game right after loading `12-streaks.sav` in 2 of 3 loads (state running, 0 fps); bisected with switches
+  to the snapshot (start state and vertex arrays innocent). Removed, with its Vulkan depth-copy change; the
+  spare EFB starts as the last replay left it, as before. 6 of 6 loads fine. The `-08q`/`-08r` APKs have it. On the Retroid with ws8: 5 of 5 loads fine, no stray
+  bands steering there, menu close is a plain fade (no lone black frame).
+- **Cracks in the cliff while turning (user's recording, Retroid, 2026-10-09 evening, ws8):** flying along a
+  floating island's cliff, a thin sky-blue seam opened along cliff polygon edges in every other picture (the
+  in-betweens); recording `build/android/recordings-2026-10-09/`, state saved on the device at the spot
+  `build/savestates/14-cliff-cracks.sav`. On Windows (steer left/right from the state, every picture dumped)
+  the in-betweens tore whole blocks of rock out of place. Trace: almost every frame snapped some of the
+  cliff's texture groups. The jump test looked at each coordinate alone: the cliff runs far off to the side
+  of the camera (x = -1790), where its view-space z sits near zero, and turning moved z 99.6 -> 43.4, "more
+  than half the value and more than 50 units", although the vertex moved 3% of its distance. One such
+  vertex snapped its texture's whole group to the new frame while the cliff's other textures moved halfway.
+  Fix (`VertexJumps`): the 50-unit floor grows to a tenth of the vertex's distance from the camera (a turn
+  of up to ~6 degrees per frame no longer counts; the menu's z 100 -> 0.001 quad still does). A/B, same
+  input: frames with a snapping group 392 -> 13 (the rest are real teleports, 370 units in y); worst
+  in-between 23,101 -> 2,283 outlier pixels (texture speckle of normal motion, no seams). Unchanged:
+  12-streaks steering (0 stray), menu close after X B B (no black picture), both battle transitions
+  (identical stray lists); one battle-start in-between lost a dark smear. The trace now names draws
+  without a partner, snapping groups and the first jumping vertex. The recording's other two oddities are
+  the game's own: the diagonal white streak and the fog wall with a hard vertical edge (cloud quads) show
+  in the original DOL at 4:3 without interpolation. APK `skies-ws8-interp-2026-10-09b.apk` (same module
+  and DOL as ws8, runtime only), installed on the Retroid and checked there: no seams at the cliff, single-frame
+  outlier pixels per frame median 205 -> 25, none over 1,000 (35 before), 59.7-59.9 fps.
+- **Green bands at the bottom of the Valuan ladder (Retroid, 2026-10-10): fixed. The cloud-sea texture
+  garbage on the same ladder: NOT fixed (see the end of this entry).** The pictures: single in-between frames where the
+  cloud sea turned dark, gold or red, a pale rectangle over the cannons, a cloud billboard drawn white or
+  black (`build/android/recordings-2026-10-10/`, state `build/savestates/15-ladder.sav`, hold down), and at
+  the balcony three full-width bands of green dots at rows 0, 208 and 416 (sometimes the picture shifted
+  instead). Only with interpolation on, only in-betweens, never on Windows at 1x or 3x.
+  - The way there (half a day; the dead ends are worth knowing): the bands' rows are the first rows of the
+    Adreno's three 208-row tiles of a 640x480 render pass, so a GPU-side race was the first reading. Vulkan
+    synchronization and core validation on the device found nothing; a semaphore chain between submissions,
+    full memory barriers before or after the replay's copies, a layout barrier at each EFB swap, transfer
+    blits instead of copy passes, storage usage (no UBWC), the replay on the game's own EFB, whole-frame
+    replays, holding the replay's copies for three frames: no change. Painting the replay's EFB magenta
+    before each replay and the grab textures yellow after their copy showed the bands drawn over the paint,
+    i.e. the draws making them don't read what the copy wrote. A fence wait before each replay copy
+    (`WaitForGPUIdle`) made them vanish at 70-83% speed; a bare submit made them worse. Skipping ranges of
+    the replay's draws (`FrameInterpolation.skip`) narrowed it to draws 3011-3012 of the frame: two
+    full-screen quads sampling the second screen grab (`003a84e0`, an I8 intensity EFB copy made before
+    draw 3009), i.e. the game copies the screen and draws it back two draws later.
+  - The cause: the game's copies go to RAM too (`EFBToTextureEnable = False` in the game ini), so each is
+    the VRAM copy pass *and* the encode pass (a render pass reading the EFB, then an image-to-buffer
+    transfer). The replay's copies went to VRAM only. On this driver, without the encode pass behind it, a
+    copy sampled right after shows rows it hadn't finished, barriers or not. Fix: the replay's copies run
+    the same encode pass and drop the result (never RAM); `DriverDetails::BUG_EFB_COPY_NEEDS_READBACK`,
+    Qualcomm Vulkan. Final build (`skies-ws9-encode-2026-10-10.apk`, sha1 75cac5b8), three 15 s ladder runs: 0, 0, 0
+    green (7-44 before), single-frame outliers 1, 0, 2 (1-18 before), speed 99-101% on the overlay.
+  - Also in: textures the game preloads into TMEM are recorded and re-bound like the others (the replay
+    used to re-read TMEM, which the next frame had refilled by then; right on its own, not the cause), and
+    `FramebufferManager::SwapEFB` ends the outgoing EFB's render pass with a layout change (a tiled GPU
+    loads the next pass's tiles from memory; also right on its own). Both A/B'd on Windows: ladder and menu
+    in-betweens unchanged.
+  - Device debug files (user dir): `FrameInterpolation.trace` (trace to logcat, tag FrameInterpolation),
+    `FrameInterpolation.dump` holding "first count" (pictures to `InterpDump/`), `FrameInterpolation.slice`
+    holding the slice size in bytes, `FrameInterpolation.nodefer`, `FrameInterpolation.skip` holding
+    "lo hi" (the replay leaves draws lo..hi-1 out: bisect a wrong picture; 3700 draws a frame here).
+    Vulkan validation on the device: push `libVkLayer_khronos_validation.so` (Khronos android-binaries)
+    into the app's data dir with `run-as`, `settings put global enable_gpu_debug_layers 1`,
+    `gpu_debug_app`, `gpu_debug_layers VK_LAYER_KHRONOS_validation`, `setprop
+    debug.vulkan.khronos_validation.validate_sync true`; 0.33x speed, tag VALIDATION in logcat.
+  - **Cloud-sea garbage (user's play on the encode build, `build/android/recordings-2026-10-10/user-ladder-play.mp4`):
+    fixed late 2026-10-10 (APK `skies-ws9-notmemload-2026-10-10.apk`).** The picture: the cloud sea below
+    the ladder keeps its shape but is drawn with a dark olive-and-black texture, the same look every time,
+    for one game frame: frames 125-126, 153, 206-207, 314-315, 996-997, 1021-1022, 1237, 1376-1377 of 1397.
+    `tools/ladder-check/cloudfind.py` scores it (the cloud-sea region's brightness, 600x200 at 0,880 of
+    1080p, frames darker than the video's median by 25) and finds exactly those eight events; over every
+    ladder recording of the day it gave 0-5 events per 15 s run with the replay on (encode 0/1/4, tmemstate
+    5/3/3, copytrace 2/3), **0/0/0 with `FrameInterpolation.noreplay`**, 0 without interpolation, and 0 on
+    Windows even with 2 KiB slices.
+    - What it was: a **real** picture is wrong, and the in-between replayed from its recording with it
+      (shown by `check-ladder-skip-3500-6000-1.mp4`, where the replay left the HUD out, so in-betweens are
+      the frames without the minimap: frame 635, an in-between, and 636, the real one, both have it).
+      The replay's recorded stream carries the game's TMEM loads (`BPMEM_LOADTLUT1` palette loads,
+      `BPMEM_PRELOAD_MODE` preloads: the cloud textures are preloaded), and a slice replayed them,
+      copying what RAM holds *now* over the game's TMEM data (`s_tex_mem`). On the Retroid the replay
+      takes ~10 ms of GPU-thread time spread over the FIFO's idle gaps, so slices fall inside the game's
+      own frame, between its load and its bind; the bind then hashes the replaced bytes, makes a new
+      entry from them, and the draw shows another texture through the clouds' mapping. On Windows the
+      whole replay fits the idle gap after the frame, so no slice ever lands there.
+    - Fix: TLUT loads and TMEM preloads are skipped while replaying (`BPStructs.cpp`, with the token and
+      bounding-box writes). The replay never needs them: it binds the cache entries its frame's draws got
+      (`FindRecordedTexture`), preloaded ones included.
+    - Also in the tree from the hunt, each right on its own but not the cause: the TMEM unit state goes
+      with the replay's saved video state and the cache's bound textures are put back after a slice
+      instead of `TMEM::InvalidateAll()` (tested alone: 5/3/3, no change); debug switches
+      `FrameInterpolation.copytrace` (the game's 640-wide copies: copy / flush / prune with hashes; showed
+      the grabs are never pruned, their pending RAM writes are always tossed by the XFB copy, so the
+      "hash mismatch -> RAM decode" theory was wrong), `.paintgrab` (the game's grabs yellow after the
+      copy: showed the grab is drawn back over the whole screen, a bloom, not just the sea) and
+      `.paintefb` (the replay's EFB magenta after its last slice).
+    - Checked on the Retroid: six 15 s ladder runs (three on the test build, three on the final APK),
+      0/0/0 and 0/0/0 cloud-sea events, 0 single-frame outliers, 0 green, speed 99-101% on the overlay.
+      The user played the ladder on the final APK and called it resolved. Windows regression at 1x (`build\user-bt`): ladder 0 bad in-betweens of 519 at the default and at
+      2 KiB slices, menu 0 of 295, 0 dark pictures, no panics (unchanged).
+- **Input only with focus (Windows, 2026-10-10, user request):** the user's keys reached background test
+  windows (menus opened mid-test). The Win32 window now tracks focus, so Dolphin's input gate works:
+  `[Input] BackgroundInput = False` (the user dirs' setting) ignores pads and keyboard while unfocused; `True`
+  is the toggle. Automation input still applies (input overrider). Previous exe `moderngekko-run-1010-prefocus.exe`.
+- The black dialogue pictures weren't reproduced: state 01's dialogue never showed them (Windows, or the
+  Retroid with the old build). Suspected cause: the replay's EFB copies to RAM (Skies sets
+  `EFBToTextureEnable = False`), which the rework took out of RAM entirely. Needs a by-eye check at
+  "You coward!" or Fina's cell.
+- Deck battles with heavy effects (the 46% ring attack) have no savestate yet.
+- **Desktop plays dual core too (late 2026-10-08):** `build\user-ws` (what `tools\play-ws.bat` uses) now
+  has `GameSettings/GEAE8P.ini` with the idle skip and `CPUThread = True`. Checked limiter off in the red
+  alert state with that setup (16:9, 1920x1080): dual core 2.09x / 124 fps, the same with `CPUThread = False`
+  1.59x / 94 fps.
+
+### 60 fps (earlier notes, 2026-10-06)
+
+Full speed (1.00×) is the game's own 30 fps; headroom above it is spent idling by the frame limiter, so
+speed work never raises the frame rate. Two routes, neither started:
+- **Game-side 60 fps patch.** If the game logic is fixed-step, it runs twice as often, which needs ~2.0×
+  headroom in every scene. Android has ~1.02–1.05× and the fastest desktop module (Windows LLVM) 1.4–1.6×,
+  so CPU work can't get there.
+- **Renderer interpolation (RT64-style).** The game stays at 30 fps and the renderer draws in-between
+  frames from interpolated GX/Ninja matrices (*Hook points*). It costs GPU time, not emulated-CPU time, so
+  it's the realistic route, Android included. Dolphin has nothing like it: substantial new renderer work.
+
+First step if resumed (cheap, no device): find in the decomp whether the frame loop is fixed-step or
+delta-time, which decides between the two.
+
+## Status (2026-10-05, Linux/WSL2 + WSLg, GCC 15; C and LLVM 20 backends)
+
+- `make tools`: builds cleanly.
+- `make recompile`: ~6 minutes on 12 cores, peak ~650 MB RAM. DolRecomp warns that the DOL may
+  patch executable memory and registers 103 self-modifying-code ranges to verify.
+- **Plays.** Boot → SEGA / Overworks logos → title (New Game / Continue) → new-game prompts →
+  opening cutscene on the Valuan ship → first battle (Attack via A) → Vyse walking around the ship
+  under stick control. `fallback=0` (no interpreter fallback) and no SMC failures throughout.
+- **Speed:** full speed (1.00×) in the standard test state with the LLVM state-in-memory module,
+  idle skipping and 1× internal resolution; 0.565× with the default C module at 3×. See *Performance*.
+- **Native Windows build: full speed at 3×** (1.01×, 1920×1580) with a clang-built C module on the RTX
+  5080. An MSVC-built module runs at half speed. See *Native Windows build*.
+- Not yet checked: audio by ear, memory-card saving, the keyboard profile pressed by hand.
+
+## Rendering on WSL
+
+WSL has no `/dev/dri`, so Mesa falls back to llvmpipe (software) unless told otherwise. Measured
+from one savestate in the opening cutscene:
+
+| Renderer | How | Result |
+|---|---|---|
+| Vulkan / llvmpipe | default | **Correct picture.** ~0.58–0.75 speed, ~11 llvmpipe threads at ~58%, ~4.3 GB RSS. Use this. |
+| Vulkan / dzn (Mesa on D3D12, RTX 5080) | `VK_DRIVER_FILES=~/.local/dzn/icd.d/dzn_icd.json` | **Broken picture**: blocky clouds, unreadable text. ~0.66–0.75 speed. Segfaults (exit 139) during teardown, after the runtime's clean shutdown line. Don't use. |
+| OpenGL / d3d12 (RTX 5080) | EGL-enabled runtime (`-DMODERNGEKKO_ENABLE_EGL=ON`, built in `lib/ModernGekko/build-egl`) + `--graphics OGL` + `GALLIUM_DRIVER=d3d12 MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA` | **Broken picture, worse than dzn**: most geometry, the background and the dialogue box don't draw. EGL does pick the RTX 5080 (the `DRI3 error` warnings are harmless). Segfaults on shutdown. Don't use. |
+
+dzn's speed gain was small and its picture wrong. When checking a renderer, compare it against
+llvmpipe on the same savestate, text included, before trusting any speed figure.
+
+## Performance
+
+`resolution=1920x1080` in `config.ini` renders at 1920×1580 (screenshot size), which is 3× the
+640×528 EFB. Earlier notes called it "2×".
+
+**Full speed is reachable** in the standard test state (the opening cutscene): **1.00×** with the
+LLVM backend + state-in-memory + idle skipping, at 1× internal resolution. Measured 2026-10-05 from
+`01-opening-cutscene.sav`, llvmpipe, speed averaged over 30 s, interleaved runs:
+
+| Setup | 3× res (`1920x1080`, renders 1920×1580) | 1× res (`640x528`) |
+|---|---|---|
+| C backend, gcc `-O2` (starting point) | 0.565 | — |
+| + idle skip, no mod hook | 0.639 | 0.80 |
+| LLVM backend | 0.575 | — |
+| LLVM + `--state-in-memory` | 0.645 | — |
+| LLVM + state-in-memory + idle skip, no mod hook | **0.658** | **1.00** |
+
+At 3×, the limit is llvmpipe. The CPU-GPU thread drops from 99% to ~77% and waits on 8+ llvmpipe
+threads at ~65%, sharing 12 vCPUs. That's why the internal resolution matters more than anything else.
+
+### Recipe
+
+1. Build the tools with LLVM 20 (`llvm-20-dev` from apt) and apply the [local patches](../patches/README.md):
+   ```sh
+   cmake -S lib/ModernGekko -B lib/ModernGekko/build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+     -DDOLRECOMP_ENABLE_LLVM=ON -DLLVM_DIR=/usr/lib/llvm-20/lib/cmake/llvm
+   cmake --build lib/ModernGekko/build --target moderngekko-port moderngekko-run
+   ```
+2. Build the module (~8 min, separate output so the C module stays):
+   ```sh
+   lib/ModernGekko/build/moderngekko-port build extracted/SkiesOfArcadiaLegends \
+     --backend llvm --state-in-memory --output build/modules-llvm-sim
+   ```
+   The port's cache key doesn't cover GXRuntime source edits. After changing GXRuntime, rebuild
+   `<artifact>/module-build` with `cmake --build` and copy its `.so` over the artifact's.
+3. Idle skipping: `build/user/GameSettings/GEAE8P.ini` holds `[Core] StaticRecompIdlePC = 0x80237BA8`.
+   That's the SDK scheduler's spin in `SelectThread` (`lwz r0, RunQueueBits` / `cmplwi` / `beq`),
+   which was 7.75% of the thread before.
+4. For full speed on WSL set `resolution=640x528` in `build/user/config.ini` (1× EFB; on Windows 3× is
+   fine, see *Native Windows build*), then run:
+   ```sh
+   MODULE=$(ls build/modules-llvm-sim/GEAE8P/*/gGEAE8P_recomp.so) tools/play.sh
+   ```
+   (2026-10-05 recipe. The current module is LLVM + PGO from `tools/pgo-wsl.sh build/modules-llvm-pgo-gp`:
+   `MODULE=$(cat build/modules-llvm-pgo-gp/GEAE8P/active-module.txt)`. `modules-llvm-sim` predates the
+   gather-pipe patches and is refused by the current runtime.)
+
+### What didn't help (or barely)
+
+- clang `-O3` + ThinLTO on the C backend: ~+4%. Upstream measured `-O3`/ThinLTO as neutral.
+- Early-out in `ModManager::Dispatch` with no mods: ~+2%. Superseded by not installing `host_call`.
+- Dual-core (`CPUThread = True`): hung on the first frame after a savestate load.
+- GPU renderers under WSL: both break the picture (see *Rendering on WSL*).
+
+### Profile, LLVM + state-in-memory (3×, before idle skip / hook removal)
+
+The hottest guest code was `SelectThread` (idle spin, now skipped), unnamed Ninja functions around
+`0x802A2200`/`0x802A4A00`/`0x802A6000`, `PSMTX*` (paired-single matrix math), and `GXSetProjection`/
+`GXLoad*MtxImm`. Runtime side: GPU FIFO writes through `HookExternalWrite` → `GPFifo::Write32`
+(~3.7%), `OnICacheInvalidate` (~1.9%).
+
+Upstream context: ModernGekko `8f7a642`/`ecd3188` show CPU-limited Mario Kart: Double Dash!! scenes at
+0.50–0.61× on a 5900X, and DolRecomp's LLVM work (`8993041`, `18d0add`, `c876e2b`) targets a newer
+module ABI than our pin. PGO (`moderngekko-port pgo-run`) is untried; on the LLVM backend it needs
+`clang-20` to match.
+
+## Native Windows build
+
+Two separate limits showed up under WSL:
+
+- **Rendering** (WSL only, now confirmed): WSL has no `/dev/dri`, so the only correct renderer is
+  llvmpipe on the CPU, which caps 3× at ~0.66×. On Windows, the RTX 5080 holds 3× at full speed
+  with the GPU nearly idle.
+- **The game thread** (every OS): recompiled code plus Dolphin's GPU command processing run on one
+  thread, because Skies is forced single-core. Single-core CPU speed and the module's code quality
+  decide this. Heavier scenes (big battles, the world map) are unmeasured.
+
+### Status (2026-10-05): full speed at 3× with a clang-built C module
+
+Measured with `tools/bench-win.sh` (the standard-state protocol), three interleaved rounds:
+
+| Module (C backend, idle skip, no mod hook) | 1× (`640x528`) | 3× (`1920x1080`) |
+|---|---|---|
+| MSVC 14.50 (`cl /O2 /fp:strict`) | 0.505 / 0.506 / 0.504 | — |
+| clang 20.1.8 (`-O2 -ffp-contract=off`, ThinLTO) | 1.010 / 1.012 / 1.009 | **1.011 / 1.012 / 1.011** |
+| *WSL for reference:* gcc 15 `-O2`, llvmpipe | 0.80 | 0.639 |
+
+- **Use clang for the module on Windows.** The MSVC module is exactly half as fast. The template's
+  `--toolchain auto` picks `cl` when the tools were built with MSVC, so it has to be overridden.
+  The picture is identical. Why MSVC is so much slower isn't settled. A likely candidate is the template's
+  `/fp:strict` for MSVC (clang and gcc only get `-ffp-contract=off`), which blocks a lot of
+  optimization in float-heavy code. Untested; worth reporting upstream.
+- **1.01× is the frame limiter.** Neither number shows how much headroom is left above full speed.
+- **The GPU check, done before the clang test:** it renders on the RTX 5080, not the Intel UHD 770
+  iGPU. Its 3D-engine work and dedicated memory are on the NVIDIA adapter, at ~1–3% GPU use while one
+  thread sat at 97%. E-cores were ruled out too: pinned to the P-cores (CPUs 0–15) the MSVC module
+  ran at 0.50×, and on the E-cores (16–19) at 0.24×.
+- **Boots from the standard state** made on WSL. The picture is correct at 1× and 3×, dialogue
+  text included. The user checked the 3× screenshot and approved it (2026-10-05). Shutdown is clean (`fallback=0`, `smc_failed=0`).
+- On Windows the game sees all 20 logical processors (WSL: 12, from `.wslconfig`).
+
+### Building on Windows
+
+The Makefile is Unix-only, so `tools/build-win.bat` runs the same CMake steps and sets up the VS
+environment itself. Needs: VS Build Tools 18 with the C++ workload (MSVC 14.50, Windows SDK
+10.0.26100.0, bundled CMake + Ninja) for the tools, and LLVM's release tarball for the module.
+No admin rights are needed.
+
+1. Get the source onto a Windows path (not `\\wsl$`, which is slow and brittle for builds): clone
+   with submodules and apply [`patches/`](../patches/README.md), or copy a patched WSL tree without
+   `.git` and the `build/` dirs (Dolphin's CMake doesn't need Git). Copying the tree plus the disc
+   over `/mnt/c` takes ~12 min.
+2. Put the extracted disc (`sys/` + `files/`) at `extracted\SkiesOfArcadiaLegends`.
+3. Unpack `clang+llvm-20.1.8-x86_64-pc-windows-msvc.tar.xz` (LLVM GitHub release, 940 MB, matches
+   WSL's LLVM 20) with Windows `tar.exe -xf` into `C:\dev\`, or set `LLVM_ROOT`. It also has
+   `lib\cmake\llvm` for a future LLVM-backend build.
+4. `tools\build-win.bat configure`, then `build` (~15 min), then `module` (clang, ~10 min with ThinLTO,
+   into `build\modules-clang`). `module-msvc` builds the slow MSVC module into `build\modules`. They work
+   from WSL too, e.g. `cmd.exe /c "C:\dev\SkiesRecomp\tools\build-win.bat module"`. (vcvars prints
+   a harmless "'vswhere.exe' is not recognized".)
+5. Make `build\user` from the WSL one: `config.ini`, `GameSettings/GEAE8P.ini` (idle skip),
+   `Config/GFX.ini`, `Config/Dolphin.ini` with `[DSP] Backend = Cubeb` instead of `Pulse`, and
+   [`config/GCPadNew.keyboard.windows.ini`](../config/GCPadNew.keyboard.windows.ini) as
+   `Config/GCPadNew.ini` (DirectInput names: `DInput/0/Keyboard Mouse`, `RETURN`, `UP`, `LSHIFT`).
+6. `tools\run-win.bat build\run.log --load-state build\savestates\01-opening-cutscene.sav` runs the
+   clang module (set `MODULE` for another) with the automation directory on. From WSL,
+   `tools/drive.py` drives it (run it in `/mnt/c/dev/SkiesRecomp` with `AUTO=build/auto`; it
+   translates `/mnt/c/...` screenshot and savestate paths to `C:\...`), and
+   `tools/bench-win.sh NAME MODULE` runs one measurement.
+
+The `moderngekko-run` placement rule above applies here too: run `lib\ModernGekko\build\moderngekko-run.exe`
+in place, next to its `Sys\`. From WSL, set variables for cmd as `set VAR=value&& ...`. A quoted
+`set "VAR=..."` reaches cmd as `\"VAR` and silently does nothing.
+
+### Open questions
+
+- ~~Headroom~~: measured 2026-10-06 (*Desktop headroom*): clang + PGO worst second 1.27× (1×) / 1.29× (3×)
+  with the gather-pipe patches. Heavier scenes (big battles, world map) are still unmeasured.
+- Whether MSVC's gap is `/fp:strict` (try `/fp:precise` in the module template).
+- LLVM backend on Windows: done by cross-generating COFF objects on WSL (`tools/module-llvm-win.sh`). The exit
+  crash is fixed (`dolrecomp-win64-sjlj-frame.patch`), and `build\modules-llvm-pgo-fix` (LLVM + WSL-trained
+  PGO) is the fastest Windows module, worst second 2.04× (*Desktop headroom*). Windows can't train its own
+  LLVM profile (its tools are built without LLVM); the WSL profile matches (same DOL and patches).
+- Route B, cross-compiling from WSL with `clang-cl` like HybridHeavenRecomp: no longer needed.
+- How the GPU was measured, for next time: `Get-Counter "\\GPU Engine(pid_<pid>_*)\\Utilization Percentage"`
+  and `"\\GPU Process Memory(pid_<pid>_*)\\Dedicated Usage"` per adapter LUID, per-thread
+  `TotalProcessorTime` deltas from `Get-Process`, and `ProcessorAffinity` for pinning.
+
+## Android
+
+### Status (2026-10-05): 0.89–0.98× in gameplay on the Retroid Pocket 5
+
+*Current state (late 2026-10-06): limiter off 1.05 / 1.57 / 1.20 / 1.04, worst second 1.020, a stable 30 fps;
+see *Gather-pipe stores* below. This section is the 2026-10-05 history, measured with the limiter on.*
+
+Skies runs natively in Dolphin's own Android app (vendored, plus
+[`patches/recompcore-android.patch`](../patches/recompcore-android.patch)) with the arm64 module
+inside the APK. Logcat shows `StaticRecomp SC | Vulkan | HLE | Skies of Arcadia: Legends (GEAE8P)`.
+The module stays mapped, so it was accepted (a rejected module is unloaded and runs on the
+interpreter). Picture correct in all states checked, text included.
+
+Standard protocol (`tools/bench-android.sh`: fresh boot, load, 16 s, mean speed over 30 s), 1×,
+limiter on, one run each. Battle `02` swung 0.4–1.1× within a run (the `mtmsr` bug, found and fixed
+2026-10-06), so treat ±0.03 as noise. The 01 column includes an A press in at least the last two rows
+(the dialogue advanced); untouched, 01 measures 0.87–0.90:
+
+| Build | 01 cutscene | 02 battle | 03 field | 04 field later |
+|---|---|---|---|---|
+| C backend (NDK clang `-O2`) | 0.529 | 0.607 | 0.533 | 0.478 |
+| LLVM backend + state-in-memory (aarch64) | 0.869 | 0.717 | 0.710 | 0.720 |
+| + icache early exit | 0.877 | 0.801 | 0.769 | 0.802 |
+| + FIFO exception-check skip, inline REL identity | 0.914 | 0.746 | 0.801 | 0.822 |
+| **+ PGO trained on the device** | **0.970** | **0.876** | **0.944** | **0.896** |
+| + Dolphin built `-mno-outline-atomics` (noise) | 0.976 | 0.900 | 0.939 | 0.891 |
+
+FPS at the last row: 29.0 / 25.8 / 27.8 / 26.3. The PGO profile was trained on these same four
+states, so its gain is probably a little optimistic for the rest of the game. The game thread
+sits on cpu7 (the 2.84 GHz prime core) at full clock by itself, so pinning wouldn't help.
+
+What the profiles showed (simpleperf, `CPU-GPU thread` ≈ 88% of the process, Adreno driver ~2–4%,
+so CPU-bound on one thread):
+- C module: 56% game code, 32% runtime. `StaticRecompCore::Run()` alone was 11.5%, with load
+  stalls on the 24 MB chunk lookup table (A77 caches are small).
+- LLVM module: dispatch overhead drops (Run 2.4%). `OnICacheInvalidate` became 6%, all in its
+  binary search over 5,452 chunks for `icbi`s on data buffers. Early exit when the range lies
+  outside the code: 0.9%.
+- `CompileExceptionCheck` ran on every gather-pipe flush and re-decoded a stale `ppc_state.pc` each
+  time. It's now skipped during native bursts.
+- Left after PGO (share of the runtime's ~39%): GPU FIFO writes through `HookExternalWrite` →
+  `GPFifo::Write32` ~20%, `Run`/`SyncIn`/`GetPPCState` ~14%, texture hashing, icache bookkeeping.
+
+The three runtime fixes are in [`patches/recompcore-staticrecomp-speed.patch`](../patches/recompcore-staticrecomp-speed.patch)
+(shared core). Desktop runs them too since 2026-10-06 (+2–6% there, see *Desktop headroom*).
+
+### Dips: interpreter re-entry after `mtmsr`, fixed (2026-10-06)
+
+**Re-baseline, limiter off** (`EmulationSpeed = 0.0`, two rounds, before the fix; mean / slowest second):
+01 0.870/0.857 and 0.897/0.894, 02 1.432/1.403 and 1.428/1.403, 03 0.992/**0.506** and
+1.058/1.029, 04 0.876/0.859 and 0.908/0.904. cpu7 held 2.84 GHz in every sample, the hottest core stayed
+≤56 °C, the GPU was ~12% busy: one thread, CPU-bound, no throttling.
+
+- **The 2026-10-05 0.97 in 01 was not a clean number.** State 01 stops on a dialogue line that waits for A.
+  That run ended two lines later, so something pressed A during it, and part of the window measured
+  a lighter shot. Untouched, 01 is a flat 0.87–0.90 from boot to boot.
+- **Not shaders, not thermal.** No shader-cache file was written all day (the cache is warm), and during a
+  dip the Adreno driver was <2% of the game thread while cpu7 stayed at full clock. (Separate fact:
+  `am force-stop` never saves `Vulkan-Pipeline-*.cache`; a clean `stop` does.)
+- **Cause: the LLVM module's cold-entry path.** simpleperf with `--clockid realtime`, sliced per second
+  against drive.py's trace: in a 0.44× second, `HookInstructionFallback` → `Interpreter::SingleStepInner`
+  with `SyncIn`/`SyncOut`/`SetPPCStateFromGuestState` around *every* instruction was >45% of the game
+  thread. An `mtmsr` that sets MSR[EE] side-exits to the next instruction; that PC was not a region leader,
+  so the dispatcher re-entered through the cold path, which interprets one instruction at a time until a
+  leader. That is the `rlwinm; blr` tail of every `OSRestoreInterrupts` and `OSEnableInterrupts`: 435k of
+  912k fallbacks in a desktop battle run (`STATICRECOMP_FALLBACK_SAMPLES=1`). Interrupt-heavy moments
+  (battle effects) call them in bursts, hence 1–2 s dips that only appear on the A77, and differ run to
+  run because battle RNG differs.
+- **Fix:** [`patches/dolrecomp-mtmsr-entry.patch`](../patches/dolrecomp-mtmsr-entry.patch) makes the
+  instruction after `mtmsr` a native entry. Desktop battle: `hook_fb` 912k → 39k. Android, limiter on:
+  02 0.999 (min 0.951), 03 1.011 (min 0.986), 01 0.875 (min 0.850), 04 0.840 (min 0.824), no dips. First
+  battle passes from load, which dipped to 0.44–0.55 every time before, stayed ≥1.0 while the battle ran.
+- **Retrained and A/B'd (interleaved, limiter off, two rounds; runs with screen presses dropped).** The
+  first post-fix module ran with a stale profile (14 functions with changed control flow lost it), so the
+  device profile was retrained on the fixed module (same four states, walking in 03/04;
+  `build/android/pgo/skies-android-mtmsr.profdata`, 0 mismatches). Old best → new, mean (slowest second):
+  01 0.881/0.876 → 0.901/0.902 (0.888), 02 1.423/1.448 → 1.472 (1.438), 03 1.059 → 1.076/1.067 (1.050),
+  04 0.891/0.894 → 0.904/0.910 (0.897): +1.5–2.6% everywhere, no second more than 0.015 below its mean.
+  Limiter on: 01 0.909 (0.884), 04 0.897 (0.878). APK `build/android/apk/skies-dolphin-debug-mtmsr-pgo.apk`.
+- **Desktop (WSL LLVM, PGO retrained with the fix, `build/modules-llvm-pgo-v2`; superseded late 2026-10-06 by
+  `build/modules-llvm-pgo-gp`, which has this fix and the gather-pipe patches):**
+  fallbacks ~10× lower (01 548k → 55k, 03 682k → 54k); speed equal to −2–4% (04), within WSL's llvmpipe
+  ceiling and noise (runs overlapped the device A/B). One v2 battle run took a different course (mean 2.3)
+  with 1.07M fallbacks: a second fallback source in some battle outcome, not yet sampled.
+- What is left are the remaining 39k fallbacks: lazy FPU switching (the first FP instruction after a thread
+  switch traps; `rfi` lands mid-block, e.g. `GXSetProjection`, 2.2k×9) plus small groups. Same fix
+  pattern (make the FP-check PC an entry) if they ever matter.
+- **The user was playing on the device during some runs** (screen taps to advance screens and actions;
+  01 and 02 of the second post-fix round, and likely the 2026-10-05 01 runs). `tools/android-sampler.sh` now logs
+  input and `bench-android.sh` warns per state; treat a warned state as void, and ask before benchmarking.
+
+### Gather-pipe stores: stable 30 fps (2026-10-06, late)
+
+**Fresh profile of the fixed build** (simpleperf, 01 and 04, limiter off; `build/android/bench/prof-mtmsr-pgo/`):
+the game thread is 100% busy; module ~50%, `libmain.so` ~42%, Adreno driver ~5%. Within it, by callchain
+(01 / 04): gather-pipe stores through `HookExternalWrite` → `GPFifo::Write32` and out-of-line
+`System::GetPPCState()` ~11% (per store) plus ~4% per 32-byte burst (`UpdateGatherPipe`,
+`GatherPipeBursted`); GPU emulation on the CPU thread (`RunGpuOnCpu`, inside `CoreTiming::Advance`) 15–17%,
+of it `VertexManagerBase::Flush` 7–8%; `OnICacheInvalidate` 3.5% (all from `dcbf`/`dcbst` lines in guest
+`0x80232E00`); `Run()` self 2.6%, a fifth of it the load from the 24 MB lookup table.
+
+Three changes, each A/B'd interleaved (two rounds, limiter off, no presses):
+1. **Runtime: inline gather-pipe hook** (`recompcore-staticrecomp-speed.patch`): the store, the pointer bump
+   and `UpdateGatherPipe` per burst, with the MMU path moved out of line so the hot entry has a small prologue;
+   plus `OnICacheInvalidate` without `ResolveNativeAddress` when there are no RELs. Module unchanged.
+   01 0.907/0.895 → 0.971/0.976, 04 0.905/0.909 → 0.960/0.960 (+6–8%).
+2. **Module: gather-pipe stores in generated code** (`dolrecomp-gather-pipe.patch`,
+   `recompcore-gxruntime-gather-pipe.patch`): a store that misses RAM and hits page `0xCC008000` appends to
+   GPFifo's buffer through `CPUState::gather_pipe_ptr_ref` and calls `gather_pipe_flush` once per 32 bytes;
+   no indirect call, no state flush/reload per store. Changes most functions' CFG, so the device profile was
+   retrained (`pgo/skies-android-gp.profdata`, 0 mismatches). Against (1): 01 0.948/0.965 → 1.053/1.041,
+   04 0.975/0.962 → 1.031/1.038.
+3. **`DOLRECOMP_LLVM_CPU=cortex-a77`** (`dolrecomp-llvm-cpu.patch`): +1–2% in 01/04, −1% in 02/03; it raises
+   the worst second (the binding one is 01/04), so it stays.
+
+**Result** (all four states, two rounds; mean, slowest second in parentheses), gather + PGO → + A77:
+01 1.040/1.011 (1.001) → 1.053/1.042 (1.033); 02 1.60/1.59 → 1.59/1.56 (1.521); 03 1.22/1.21 → 1.19/1.21
+(1.169); 04 1.032/1.040 → 1.040/1.048 (1.020). **Every second ≥1.00 in every state**, so the parity target
+is met, but with ~2% to spare in 01/04 against desktop's 13% (WSL) to 27% (Windows clang). Pictures match
+the pre-change shots.
+Installed: `build/android/apk/skies-dolphin-debug-gp-pgo-a77.apk` (module `jniLibs-gp-pgouse-a77/`).
+
+Run-to-run spread between sessions is ±2–3% in 01 (gpfast 0.948–0.976 on the same build, full clock, cooler
+device on the slower run), so compare builds only within one interleaved A/B.
+
+### Automation and savestates on Android
+
+`jni/Automation.cpp` (in the Android patch) is moderngekko-run's automation directory, using
+ModernGekko's own `tools/automation_protocol.cpp` parser. It runs when
+`files/Automation/` exists. `tools/drive.py` drives it over adb when `ADB_AUTO` is set (pushes
+savestates, pulls screenshots). `tools/android-boot.sh` restarts the game and waits for
+`state=running`. Pad input goes through Dolphin's InputOverrider, and clearing it hands control
+back to the built-in pad. The **desktop savestates load on arm64**, so all three platforms use the
+same four states.
+
+### Savestates need the same disc layout (2026-10-05)
+
+The desktop savestates load on arm64 (x86-64 → arm64 works). But Android first booted the RVZ,
+and then every scene transition (the end of the first battle, room changes) raised
+"Invalid read/write from 0x…, PC = 0x80005b6c / 0x80109dcc", with either module. The cause is
+that desktop boots the **extracted** disc (`sys/` + `files/`), which Dolphin serves as a
+DirectoryBlob with its own FST layout. The game caches file offsets in RAM, so a state made on
+that layout reads wrong data when the disc underneath is the real image. The fix (and the rule):
+**every platform boots the extracted folder**. On Android it's pushed to
+`files/Games/SkiesOfArcadiaLegends/` (1.4 GB, 5,557 files, checked by total size and the md5 of
+`sys/`), with `ISOPath0` pointing at its `sys/`. The RVZ moved to `files/Discs/`, out of the game
+list. A state made from the RVZ would need the RVZ everywhere.
+
+Loading one state over another also raised the alert once while still on the RVZ. That's the
+same cause, not a separate bug.
+
+### Building and running
+
+The exact commands are in [handoffs/HANDOFF-android.md](handoffs/HANDOFF-android.md) *Status*. In short:
+1. `DOLRECOMP_LLVM_CPU=cortex-a77 DOLRECOMP_LLVM_TARGET=aarch64-unknown-linux-android24 dolrecomp
+   --backend=llvm --state-in-memory --targets=aarch64 [--profile-use build/android/pgo/skies-android-gp.profdata] …`
+   (~4 min), with all of `patches/` applied. Copy `main.dol` into
+   `generated/`, then configure `module-template` with the NDK toolchain file
+   (`-DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-24`) and link. It links as
+   `gGEAE8P_recomp.so`; strip it into `jniLibs-*/arm64-v8a/libgGEAE8P_recomp.so`.
+2. PGO: the same with `--profile-generate skies-%m.profraw`, linked with `-fprofile-generate`. The
+   hook points `LLVM_PROFILE_FILE` at `files/PGO/`, and the counters are written when the game
+   stops (drive.py `stop`). Train on the four states (walking in 03/04), pull, then
+   `llvm-profdata-20 merge` (LLVM 20 reads the NDK 21 runtime's raw profiles). Retrain whenever DolRecomp
+   changes control flow: functions with a changed CFG silently lose their profile (`hash mismatch`
+   warnings in the dolrecomp log).
+3. `./gradlew :app:assembleDebug -Pandroid.injected.build.abi=arm64-v8a -PrecompJniLibs=DIR
+   -PrecompNativeFlags=-mno-outline-atomics`, then `adb install -r -t`.
+
+### Open questions
+
+- **Parity target (2026-10-06): a stable 30 fps**, i.e. the slowest second ≥1.00× in all four states
+  with the limiter off. **Met** (late 2026-10-06, *Gather-pipe stores*): worst second 1.020, but ~2% to spare
+  in 01/04 where desktop has 13–29%. Levers left, by size: the per-burst path (`UpdateGatherPipe` →
+  `GatherPipeBursted`, ~4%), the `dcbf`/`dcbst` invalidation chain (~3%; skip it when the line holds no
+  fallback-JIT block, as Dolphin's JIT does with `GetBlockBitSet()`), a compact lookup table for `Run()`
+  (chunks are contiguous and 32-byte aligned: 24 MB → ~350 KB), broader PGO training (the profile is trained
+  on the four benchmark states, so the margin elsewhere is unmeasured).
+  **Expected size (estimate, 2026-10-06):** the percentages are profile shares, not gains; a fix removes
+  part of each. Realistically 2–3% (burst path) + 2–3% (`dcbf`/`dcbst`) + ~0.5% (`Run()` table), i.e.
+  ~4–7% together: 01/04's worst second from ~1.02–1.03 to ~1.06–1.09. PGO broadening is ±1–2% on these
+  states; its point is the untrained scenes. Desktop would gain less (Windows clang 1–3%, WSL
+  llvmpipe-bound). None of it raises the frame rate (*60 fps*); it buys margin and, with the limiter on,
+  idle time per frame (heat, battery). **Cheaper first:** play a big battle and the world map on the
+  device; if nothing drops below full speed, these are polish. **Done 2026-10-07: nothing dropped** (see
+  below), so these levers are polish now.
+- **Hand check on the Retroid (user, 2026-10-07, installed `skies-dolphin-debug-gp-pgo-a77.apk`, limiter
+  on):** played from the opening through many battles up to the world map, then flew around it: a smooth
+  29–30 fps the whole time, no hitches. Memory-card save, then reload after
+  restarting: works. Built-in pad: works for everything tried. Audio: sounded okay, not yet checked in depth.
+- The remaining interpreter fallbacks: lazy-FPU re-entries (~2%) and an unexplained 1.07M in one WSL
+  battle run that took a different course (*Dips*).
+- **Vulkan pipeline cache and app kills:** Dolphin writes `cache/Shaders/Vulkan-Pipeline-*.cache` only
+  on a clean shutdown. Benchmarks force-stop the app, and players often swipe it away, so pipelines
+  compiled since the last clean exit are rebuilt by the driver on the next boot. It didn't cause the
+  dips; whether it causes first-use hitches for players is untested (none noticed in the 2026-10-07 hand
+  check, but that session may not have followed a swipe-away).
+- Stock Dolphin's JIT on the same device, for comparison.
+- Left from the hand check: audio in depth (the user will test more) and the game after a
+  swipe-away (pipeline cache).
+
+## Known issues
+
+- **A battle can freeze when the battle speed changes during a round (open, 2026-10-11):** the user
+  hit it on the Retroid (Antonio fight, several Z taps, the 2x step-down kicking in): the round stops
+  with a damage number on screen while the game keeps running at 60 fps. Reproduced on Windows from the
+  user's state at the fight's start (`build/savestates/19-retroid-antonio-start.sav`; the frozen one is
+  `18-retroid-battle-softlock.sav`): 5 of 12 first rounds froze with 5 Z taps during the round, with
+  Invincible on or off; none froze with the speed left alone (single trials at 1x / 2x / 4x). The freeze
+  is in the game's state (stays after a reload; still frozen after a minute); every battle task stays on
+  its step; no DVD read is pending (`executing` 0, empty queue). Not separated yet: the emulated-CPU
+  overclock switched at 3x / 4x (and by the step-down) vs the 60 fps interpolation stood down / back up
+  (a batch to split them was cancelled by the user). Advice meanwhile: change speed while choosing
+  commands. Tools: `trial.sh` / `trial2.sh` style runs (load, Z taps, two captures 8 s apart: a frozen
+  round changes ~2 % of the picture, a live one 17-44 %).
+
+- **"Compiling shaders" at full length on every Android start (fixed 2026-10-11, verified on the
+  Retroid: pipeline cache 48 bytes -> 3.1 MB after a minute of play, shorter compile at the next start):** the game waits at boot until every ubershader pipeline is built
+  (`WaitForShadersBeforeStarting`). The shader code is cached across runs (`Vulkan-uber-*`,
+  `-specialized-*` in the app's external cache dir, `Android/data/<app>/cache/Shaders`), but the
+  expensive driver step only skips when `Vulkan-Pipeline-*.cache` has data, and Dolphin wrote that file
+  only at a clean emulation shutdown. Leaving an Android app with Home / the recents list kills the
+  process without one, and Skies Recomp hides Dolphin's Exit, so its pipeline cache stayed a 48-byte
+  header (the Dolphin Debug app had 6.6 MB from one clean exit). `recompcore-vulkan-pipeline-cache-save.patch`
+  saves it in the background at most every 30 s while new pipelines appear, via a temp file + rename.
+  Windows check: saved 30 s into a run, intact after `taskkill /F`. A new cache set (`2C4DFF40` ->
+  `2C4DFF41`) also appears when settings that change the shader host config (e.g. MSAA) change; that
+  set compiles once.
+
+- **Only the face buttons worked in Skies Recomp (Android), fixed 2026-10-11:** the user found the
+  in-game menu ignoring the D-pad and L / R. A temporary log in `SkiesMenu::FilterOpen` showed the pad
+  reaching the menu with buttons only: `stick=128,128`, `trig=0,0` and no D-pad bits whatever was
+  pressed (so the game itself had no stick either). The app's `Config/GCPadNew.ini` was Dolphin's
+  bundled `Sys/Profiles/GCPad/SDL Gamepad.ini` mapping (Z changed to `Button L1`): `Left Y+`, `Pad N`,
+  `Trigger L`, names Android's backend doesn't have; only `Button A` / `Start` style names matched. The
+  Dolphin Debug app, mapped by hand in Dolphin's controller screen long ago, uses `Axis 1-` etc. and
+  worked. The branded app hides that screen, so a player could never fix it. Fix: `SkiesNative.
+  ensurePadProfile()` (`jni/SkiesImport.cpp`, called from `SkiesLauncherActivity.installDefaults` at
+  every start) rewrites the stick, C-stick, triggers, D-pad and rumble of `[GCPad1]` to the standard
+  Android layout of the first gamepad with an `Axis 0+` input when the main stick isn't on `Axis`
+  names; buttons and a player's own Android mapping are left alone; Dolphin reloads the file at every
+  boot (`Core.cpp`: `Pad::LoadConfig`). The user's device was repaired by hand first (the debug app's
+  mapping copied in; the old file kept as `Config/GCPadNew.ini.sdl-backup`). **Automatic fix verified
+  on the Retroid (21:12):** with the SDL profile put back, starting the app logged "mapped the stick,
+  D-pad and triggers of Android/1/Retroid Pocket Controller" and wrote the same mapping as the working
+  one (buttons, Z on L1 kept); the next start left the file byte-identical and logged nothing. Still
+  open: a second Android controller (only the Retroid's axis ids are known to match the standard
+  layout).
+  Desktop is unaffected (SDL names are right for SDL).
+
+- **The Baltor savestates aren't from the story** (2026-10-11): no save of ours reaches the first ship
+  battle, so `tools/shipbattle-state-win.sh` makes them from the world map with the debug build
+  (`patches/game/shipdebug.json`): it gives the party the Little Jack and its two cannons and changes the
+  map to `me500a`. The battle itself plays and ends normally; the party is Vyse and Aika (the story's
+  lead-up isn't played). Other ship battles: untested.
+- **WSL "hangs compiling shaders" can be the whole VM out of memory** (2026-10-11): the ws16 smoke test
+  died at shader compile three times. The kernel log (`journalctl -k | grep -i oom`) showed a global OOM,
+  not the run's `MemoryMax`: the game had ~2.2 GB while idle Gradle / Kotlin daemons (~2.6 GB), a dozen
+  Claude sessions and RAM-backed `/tmp` (~2.9 GB) filled the 12 GB VM, and one run started without
+  `tools/play.sh`'s cap took WSL down. Same build after a restart: boots in ~5 s, Baltor 1.00x, peak
+  ~4.2 GB. Fixes: `tools/android-ws-build.sh` stops the daemons; `.wslconfig` now `memory=16GB`. Always
+  start the runtime through `tools/play.sh`.
+- **Save states from ws12-ws14 can hang in ws15 and later** (2026-10-11): those builds called patch
+  code (`qol_retrace_count`) from the end-of-frame loop that polls the retrace count, where the game
+  spends much of each frame, so a state made then holds a PC in patch code that later builds moved
+  (Baltor state 17b hung in ws15: PC `0x80255720`). ws15 moves that work to `qol_frame`, run once
+  before the loop, so new states don't; `tools/statecheck.py STATE DOL` tells whether a state is caught
+  in patch code. Memory-card saves are unaffected. The player's Retroid states (ws13) may be hit.
+- **Invincible shows late in the status box** (2026-10-11, user report): turned on while commands are
+  chosen, HP / MP are full in memory at once but the party status box keeps the old numbers until the
+  round plays out (the Spirit gauge fills at once). What that box is drawn from during command input
+  isn't known; writing the battle HUD panel didn't change it. Knocked-out members aren't revived.
+- **A new release build refuses an older patched game root** (2026-10-11): the release runner only
+  patches the original `main.dol`; a game root made by an earlier release (the user's
+  `%LOCALAPPDATA%\SkiesRecomp\games\GEAE8P`, ws10) fails the SHA-256 check, so the disc has to be
+  imported again. A shipped updater would need the old patches' outputs as accepted inputs.
+- **An auto-save costs a hitch of a few frames on the Retroid** (2026-10-11): one second at 0.94-0.99x
+  when it saves (the state is captured on the CPU thread; compression and writing run on Dolphin's
+  own thread). None measurable on Windows. Every 10 minutes by default.
+- **Dolphin's save / load messages show file names** ("Saved State to state-skies-slot1.sav"): fine
+  for now, a shipped build would want its own wording.
+- **Not checked yet**: the real controller's L3 / R3 press (automation can't press it), MP refill after
+  casting magic with Invincible on, music at 2x-4x battle speed by ear, the menu on Windows after the
+  2026-10-11 pulse fix (built, not looked at: Dolphin screenshots leave out the OSD), the launcher's
+  Continue button clicked by hand (its list and `--load-state` were checked; for a card save, the
+  launcher writing `AutoLoadCard` is unclicked, the game-side load was checked with the key set by
+  hand), the card auto-load on Android, auto-save in real play.
+- **The Retroid tops out near 2.5x battle speed** (2026-10-11): 3x / 4x ran at 0.85x / 0.65x emulation, so
+  the runtime steps such a battle down to 2x (message on screen); every battle starts at the setting again.
+- **A lone Z tap reaches the game late**: on release where the camera can move, 150 ms after the press
+  elsewhere (held back to catch Z+Start and the camera hold). Nothing in the game needs a held Z.
+- (Fixed 2026-10-11: the branded app imports the disc itself, *Launcher and release*.) **Android had no disc
+  import**: the patched DOL was pushed with adb and had to match the APK's module (handoffs/HANDOFF-android.md). Skies of Arcadia Legends is a single disc (`GEAE8P`, disc number 0, ~1.4 GB of
+  files; the Dreamcast original had two), so one disc ID is all the launcher needs.
+- (Closed 2026-10-11: the user sees it no more.) **Deck cloud billboard glitch on the Retroid** (user's phone video, 2026-10-10): a cloud billboard over
+  the cannons drawn white, black or purple for a frame with interpolation on. Never reproduced or scored.
+  Probably the TMEM-load cause fixed late 2026-10-10 (those textures are preloaded too).
+
+- **Picture in the top-left two-thirds of the window** (seen once, 2026-10-07): a test window started
+  from WSL with `cmd.exe` (Windows display scaling 150%) drew the game at 1536 x 871 inside a
+  2304 x 1306 window, the rest black; the window reports DPI-unaware. The user's earlier window filled
+  normally. Cause not looked into (window resize or maximise with a DPI-unaware window, most likely).
+
+- `--headless` aborts in Dolphin's ImGui OSD ("No current context"): a ModernGekko bug, not the game.
+- `--graphics OGL` needs the EGL build and then renders wrong (see *Rendering on WSL*).
+- **Windows exit crashes: both fixed (2026-10-07).** Two unrelated bugs, found with a PDB build of the
+  runtime (`lib\ModernGekko\build-pdb`, `/Z7` + `/DEBUG`) and `lldb.exe` from the clang tarball (it needs
+  `python310.dll`: the Python 3.10 embeddable zip unpacked at `C:\dev\python310-embed`, on `PATH` with
+  `PYTHONHOME` set).
+  - **LLVM module: `abort()` (`0xc0000409`) before the shutdown line.** Not random: every stop in states
+    01/02 crashed (12 of 12), none in 03/04 (0 of 11). The CPU-GPU thread throws from `timing.join()` in
+    `CPUManager::Run` (`CPU.cpp:216`, the Play Time Tracker thread): `_Thrd_join` fails, the
+    `std::system_error` leaves the thread function, `std::terminate`. MSVC keeps that `std::thread` in
+    **xmm6** across the CPU loop, and xmm6 came back as garbage (a heap pointer and a return address). A
+    canary trampoline around `m_module->dispatch` (xmm6–15 preset, checked after) showed every native
+    entry that escapes through DolRecomp's `eh.sjlj` path returns xmm6–15 shuffled. Cause: the entry
+    wrapper stores `llvm.frameaddress(0)` in the jump buffer, `eh.sjlj.longjmp` reloads `rbp` from it, but
+    a Win64 frame pointer sits at an offset into the frame (`rbp = rsp + 0x80`), so the epilogue reloaded
+    the callee-saved XMM registers 0x80 too low. Fixed in `patches/dolrecomp-win64-sjlj-frame.patch`
+    (store `rbp` itself on Windows targets). Linux x86-64 objects are byte-identical; SysV has no
+    callee-saved XMM registers, which is why WSL never crashed. After the fix: 40 of 40 clean
+    automation stops (20 each in 01 and 02), plus the focused X-button and Alt+F4 runs below.
+    `patches/dolrecomp-coff-uwtable.patch` adds `.pdata`/`.xdata` to the module so debuggers and dumps
+    can walk module frames; it's not part of the fix (the crash reproduced with it).
+  - **Window callback access violation (`0xc0000005` at `moderngekko-run.exe+0x68392`, then
+    `0xc000041d`): fixed by
+    `recompcore-win32-exit.patch`.** It happens whenever the window has keyboard focus at exit:
+    `DestroyWindow` sends `WM_KILLFOCUS`, whose handler wrote Config after the runtime had shut it down.
+    Earlier tests never reproduced it because a process launched from WSL can't take the foreground on its
+    own; `tools/focus-win.ps1` forces it (`AttachThreadInput` + `SetForegroundWindow`) and checks
+    `GetForegroundWindow`. Focused A/B, state 01, `tools/exit-test-win.sh` with `STOP=close|altf4` /
+    `FOCUS=1`: the pre-fix runtime (`moderngekko-run-prefocus.exe`) crashed **30 of 30** (X button, Alt+F4
+    and automation stop alike, exit `0xc000041d`); the current runtime exited cleanly **45 of 45** with
+    the clang + PGO module and **20 of 20** with the fixed LLVM module. Since 2026-10-07 the window
+    procedure also hands every message to `DefWindowProc` once the window is detached (the F1/F11/Esc/
+    Alt+Enter/`WM_CLOSE` handlers dereferenced the platform unchecked).
+  - **Memory-card saves survive an exit on Windows** (2026-10-07). From `build/savestates/06-save-menu.sav`
+    (made on WSL from the user's Android save: the save-point menu on the Valuan battleship), the LLVM + PGO
+    module saved to file #02 (`A`, `Down`, `A`, `A`): Dolphin wrote `8P-GEAE-SA_LEGENDS.001.gci` at once, the
+    run exited with code 0, and a WSL cold boot with a copy of that card listed and loaded file #02. File #01
+    stayed byte-identical. `05-save-point.sav` is the same room before stepping onto the save point.
+- ~~**Windows cold boot hangs**~~ (2026-10-06; **fixed 2026-10-07**): not a hang and not cold-boot specific.
+  Every launch spent ~27 s on Windows (~10 s on WSL) at ~28 MB, one core busy, before the first log line,
+  with or without `--load-state`: `InspectGame` read and SHA-256-hashed all of `files/` (1.4 GB), once in
+  `moderngekko-run` and again in `Runtime::Create`, for an assets hash only a pinned release build reads.
+  The 2026-10-06 run was killed at ~30 s, just before the window would have opened. `moderngekko-local.patch`
+  skips the hash there: time to `state=running` ~28 s → ~2 s on Windows, 12.4 s → 2.7 s on WSL; a Windows
+  cold boot reaches the opening text crawl at 30 fps, full speed, exit 0. The `build-pdb` debug runtime
+  predates the fix. Before rebuilding: `moderngekko-run-1007-prehash(.exe)` in both build dirs.
+- `moderngekko-port` doesn't pass a symbol map to DolRecomp, so the build doesn't use the decomp's
+  names yet. `tools/export_map.py` writes them in DolRecomp's `--map` format for when it does (or for
+  running DolRecomp by hand).
+
+## Hook points
+
+See `../SkiesOfArcadiaLegends-Decomp/docs/ninja.md`, `docs/widescreen.md`, `docs/frame_loop.md`,
+`docs/camera.md` and `docs/qol_cheats.md`: projection setup (`njSetAspect`, `njSetScreen`, `njClipZ`) and the
+2D layer for widescreen (done, *Widescreen*), the frame loop for 60 fps (done in the video code, *60 fps*; Ninja
+transforms vertices on the CPU, so game-side matrix tagging wouldn't catch the motion), the camera manager's
+view build for camera control (done, `camera.c`), the encounter roll, battle rewards, end-of-frame waits and
+damage function for the options (done, `qol.c`), and MusyX's `hw*` layer for native audio. Game patches go in
+`patches/game/` (C built into the DOL by `tools/gamepatch.py`); `patches/game/trace2d.c` records which code draws
+2D, for finding the next thing to fix.

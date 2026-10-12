@@ -1,0 +1,113 @@
+diff --git a/GXRuntime/include/core/cpu.h b/GXRuntime/include/core/cpu.h
+index 690ad5f..26cb11d 100644
+--- a/GXRuntime/include/core/cpu.h
++++ b/GXRuntime/include/core/cpu.h
+@@ -109,6 +109,7 @@ typedef bool (*PPCHostCall)(CPUState* cpu, u32 address);
+ typedef u32 (*PPCSPRRead)(CPUState* cpu, u16 spr, u32 cia);
+ typedef void (*PPCSPRWrite)(CPUState* cpu, u16 spr, u32 value, u32 cia);
+ typedef void (*PPCCacheControl)(CPUState* cpu, u8 operation, u32 ea, u32 cia);
++typedef void (*PPCGatherPipeFlush)(CPUState* cpu);
+ 
+ enum {
+     PPC_CACHE_DCBST,
+@@ -169,6 +170,14 @@ struct CPUState {
+     PPCSPRRead spr_read;
+     PPCSPRWrite spr_write;
+     PPCCacheControl cache_control;
++
++    /* Write-gather pipe (stores to effective page 0xCC008000, the GX FIFO). When the host sets
++       gather_pipe_ptr_ref, generated stores to that page append big-endian bytes at
++       *gather_pipe_ptr_ref and call gather_pipe_flush once 32 or more bytes are queued past
++       gather_pipe_base. NULL keeps them on external_write. */
++    u8** gather_pipe_ptr_ref;
++    u8* gather_pipe_base;
++    PPCGatherPipeFlush gather_pipe_flush;
+ };
+ 
+ #include <stdio.h>
+@@ -206,6 +215,25 @@ static GXRUNTIME_ALWAYS_INLINE void clear_matching_reservation(CPUState* cpu, u3
+         cpu->reserve_valid = false;
+ }
+ 
++/* A store to the write-gather pipe page, queued in the host's buffer when it publishes one (see
++ * CPUState::gather_pipe_ptr_ref). Returns false to leave the store to external_write. */
++static GXRUNTIME_ALWAYS_INLINE bool gather_pipe_write(CPUState* cpu, u32 addr, u64 value, u32 size) {
++    if ((addr & 0xFFFFF000u) != 0xCC008000u || !cpu->gather_pipe_ptr_ref)
++        return false;
++    u8* cursor = *cpu->gather_pipe_ptr_ref;
++    switch (size) {
++    case 8: write_be64(cursor, value); break;
++    case 4: write_be32(cursor, (u32)value); break;
++    case 2: write_be16(cursor, (u16)value); break;
++    default: *cursor = (u8)value; break;
++    }
++    cursor += size;
++    *cpu->gather_pipe_ptr_ref = cursor;
++    if ((size_t)(cursor - cpu->gather_pipe_base) >= 32u)
++        cpu->gather_pipe_flush(cpu);
++    return true;
++}
++
+ static GXRUNTIME_ALWAYS_INLINE u64 mem_read64(CPUState* cpu, u32 addr) {
+     u8* ptr = get_ram_ptr(cpu, addr, 8, NULL);
+     if (ptr == NULL) {
+@@ -220,6 +248,8 @@ static GXRUNTIME_ALWAYS_INLINE void mem_write64(CPUState* cpu, u32 addr, u64 val
+     u32 offset;
+     u8* ptr = get_ram_ptr(cpu, addr, 8, &offset);
+     if (ptr == NULL) {
++        if (gather_pipe_write(cpu, addr, value, 8))
++            return;
+         if (cpu->external_write) {
+             cpu->external_write(cpu, addr, value, 8);
+         }
+@@ -244,6 +274,8 @@ static GXRUNTIME_ALWAYS_INLINE void mem_write32(CPUState* cpu, u32 addr, u32 val
+     u32 offset;
+     u8* ptr = get_ram_ptr(cpu, addr, 4, &offset);
+     if (ptr == NULL) {
++        if (gather_pipe_write(cpu, addr, value, 4))
++            return;
+         if (cpu->external_write) {
+             cpu->external_write(cpu, addr, value, 4);
+         }
+@@ -268,6 +300,8 @@ static GXRUNTIME_ALWAYS_INLINE void mem_write16(CPUState* cpu, u32 addr, u16 val
+     u32 offset;
+     u8* ptr = get_ram_ptr(cpu, addr, 2, &offset);
+     if (ptr == NULL) {
++        if (gather_pipe_write(cpu, addr, value, 2))
++            return;
+         if (cpu->external_write) {
+             cpu->external_write(cpu, addr, value, 2);
+         }
+@@ -292,6 +326,8 @@ static GXRUNTIME_ALWAYS_INLINE void mem_write8(CPUState* cpu, u32 addr, u8 value
+     u32 offset;
+     u8* ptr = get_ram_ptr(cpu, addr, 1, &offset);
+     if (ptr == NULL) {
++        if (gather_pipe_write(cpu, addr, value, 1))
++            return;
+         if (cpu->external_write) {
+             cpu->external_write(cpu, addr, value, 1);
+         }
+diff --git a/GXRuntime/src/core/cpu.c b/GXRuntime/src/core/cpu.c
+index d6ef2b5..c99eaaf 100644
+--- a/GXRuntime/src/core/cpu.c
++++ b/GXRuntime/src/core/cpu.c
+@@ -69,6 +69,9 @@ void cpu_reset(CPUState* cpu) {
+     PPCSPRRead spr_read = cpu->spr_read;
+     PPCSPRWrite spr_write = cpu->spr_write;
+     PPCCacheControl cache_control = cpu->cache_control;
++    u8** gather_pipe_ptr_ref = cpu->gather_pipe_ptr_ref;
++    u8* gather_pipe_base = cpu->gather_pipe_base;
++    PPCGatherPipeFlush gather_pipe_flush = cpu->gather_pipe_flush;
+ 
+     memset(cpu, 0, sizeof(*cpu));
+     cpu->ram = ram;
+@@ -86,6 +89,9 @@ void cpu_reset(CPUState* cpu) {
+     cpu->spr_read = spr_read;
+     cpu->spr_write = spr_write;
+     cpu->cache_control = cache_control;
++    cpu->gather_pipe_ptr_ref = gather_pipe_ptr_ref;
++    cpu->gather_pipe_base = gather_pipe_base;
++    cpu->gather_pipe_flush = gather_pipe_flush;
+ 
+     if (cpu->ram)
+         memset(cpu->ram, 0, cpu->ram_size);

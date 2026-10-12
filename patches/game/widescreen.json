@@ -1,0 +1,225 @@
+{
+  "comment": "Widescreen (widescreen.c, fullwidth.S), player camera control (camera.c) and the QOL options (qol.c: encounter rate, battle rewards, battle speed). Every 'bl target' in the DOL's code is rewritten to 'bl to' (redirect_calls), or only at the listed site or sites (redirect_sites); gamepatch.py fails if a site doesn't hold the expected call.",
+  "sources": [
+    "widescreen.c",
+    "fullwidth.S",
+    "camera.c",
+    "qol.c",
+    "qol.S"
+  ],
+  "symbols": {
+    "njClipZ": "0x80299188",
+    "njProjectScreen": "0x80291E54",
+    "GXSetProjection": "0x80251F8C",
+    "GXSetScissor": "0x802523B4",
+    "memcpy": "0x80005520",
+    "TextFlush": "0x801E1F3C",
+    "TextDrawNode": "0x801E236C",
+    "TextPrintNumber": "0x801E2B4C",
+    "TextPrintN": "0x801E2DB4",
+    "TextPrint": "0x801E2EE4",
+    "TextPrintf": "0x801E3010",
+    "njSin": "0x80291930",
+    "njCos": "0x802916B8",
+    "VIGetRetraceCount": "0x8023F704",
+    "VIWaitForRetrace": "0x8023E460"
+  },
+  "redirect_sites": [
+    {
+      "sites": ["0x8021F84C", "0x8021F880", "0x8021F308"],
+      "target": "fn_80005D98",
+      "to": "ws_popup_draw",
+      "why": "fn_8021F330 / fn_8021F0EC: a popup's sprite (widescreen.c anchors ship battle ones by x)"
+    },
+    {
+      "site": "0x80158994",
+      "target": "fn_8021C62C",
+      "to": "ws_ship_plate_draw",
+      "why": "fn_8015887C: a ship battle HP plate (widescreen.c anchors by which ship)"
+    },
+    {
+      "site": "0x8015899C",
+      "target": "fn_80159610",
+      "to": "ws_ship_plate_icon",
+      "why": "fn_8015887C: the plate's status icon"
+    },
+    {
+      "site": "0x801DCD68",
+      "target": "fn_801DC420",
+      "to": "ws_frame_end",
+      "why": "main: end of frame"
+    },
+    {
+      "sites": [
+        "0x800B546C",
+        "0x800B547C",
+        "0x800B548C",
+        "0x800B549C",
+        "0x800B57B4",
+        "0x800B57C4",
+        "0x800B57D4",
+        "0x800B57E4",
+        "0x800B58B0",
+        "0x800B58C0",
+        "0x800B58D0",
+        "0x800B58E0"
+      ],
+      "target": "njProjectScreen",
+      "to": "ws_project_hud",
+      "why": "fn_800B522C: battle labels and bars drawn at projected corners"
+    },
+    {
+      "sites": [
+        "0x800B8108",
+        "0x800B8118",
+        "0x800B8128",
+        "0x800B8138"
+      ],
+      "target": "njProjectScreen",
+      "to": "ws_project_hud",
+      "why": "fn_800B8028: the same for another battle label"
+    },
+    {
+      "sites": [
+        "0x80029D44",
+        "0x8002B020"
+      ],
+      "target": "njProjectScreen",
+      "to": "ws_project_hud",
+      "why": "fn_80029B70, fn_8002A574: battle name labels, HP bars and damage numbers (found with trace2d)"
+    },
+    {
+      "sites": [
+        "0x80229974",
+        "0x80229BA8"
+      ],
+      "target": "fn_80287B38",
+      "to": "ws_unwide_80287B38",
+      "why": "fn_802297C4: the battle-entry shatter's 3D tiles, drawn at the game's own field of view so they cover the whole picture (found with trace2d)"
+    },
+    {
+      "site": "0x8022D910",
+      "target": "fn_8022D1F8",
+      "to": "cam_view",
+      "why": "fn_8022D384 (camera manager): the view's eye and angles, just before the view is built (camera.c)"
+    },
+    {
+      "site": "0x800C207C",
+      "target": "fn_8025ECC4",
+      "to": "qol_encounter_rand",
+      "why": "fn_800C1C24: the random encounter roll (qol.c)"
+    },
+    {
+      "site": "0x8006F5B8",
+      "target": "fn_80078610",
+      "to": "qol_ground_member",
+      "why": "fn_8006F4B0: the member count right before the battle rewards are read (qol.c)"
+    },
+    {
+      "site": "0x8015C6B4",
+      "target": "fn_80144E60",
+      "to": "qol_ship_results",
+      "why": "fn_8015C6A8: ship battle results (qol.c)"
+    },
+    {
+      "site": "0x8015C6DC",
+      "target": "fn_801453D0",
+      "to": "qol_ship_alloc",
+      "why": "fn_8015C6C8: a ship battle's data allocated (qol.c: the live flag; the game never clears the pointer after freeing)"
+    },
+    {
+      "site": "0x80144E3C",
+      "target": "fn_8014419C",
+      "to": "qol_ship_phase",
+      "why": "fn_80144CE4: a ship battle phase's HP changes (qol.c, Invincible)"
+    },
+    {
+      "site": "0x801DC4D8",
+      "target": "VIWaitForRetrace",
+      "to": "qol_wait_retrace",
+      "why": "fn_801DC420: the retrace wait (qol.c, battle speed)"
+    }
+  ],
+  "redirect_calls": [
+    {
+      "target": "fn_802AB460",
+      "to": "ws_full_802AB460"
+    },
+    {
+      "target": "fn_802AB608",
+      "to": "ws_full_802AB608"
+    },
+    {
+      "target": "fn_800AF8F8",
+      "to": "ws_full_800AF8F8"
+    },
+    {
+      "target": "fn_800AF780",
+      "to": "ws_full_800AF780"
+    },
+    {
+      "target": "fn_800B0278",
+      "to": "ws_full_800B0278"
+    },
+    {
+      "target": "fn_80210390",
+      "to": "ws_full_80210390"
+    },
+    {
+      "target": "fn_80290ED4",
+      "to": "ws_poly"
+    },
+    {
+      "target": "fn_80291064",
+      "to": "ws_tex_poly"
+    },
+    {
+      "target": "GXSetProjection",
+      "to": "ws_set_projection"
+    },
+    {
+      "target": "GXSetScissor",
+      "to": "ws_set_scissor"
+    },
+    {
+      "target": "TextPrint",
+      "to": "ws_text_print"
+    },
+    {
+      "target": "TextPrintN",
+      "to": "ws_text_print_n"
+    },
+    {
+      "target": "TextPrintNumber",
+      "to": "ws_text_print_number"
+    },
+    {
+      "target": "TextPrintf",
+      "to": "ws_text_printf"
+    },
+    {
+      "target": "TextDrawNode",
+      "to": "ws_text_draw_node"
+    },
+    {
+      "target": "TextFlush",
+      "to": "ws_text_flush"
+    },
+    {
+      "target": "fn_80097CA4",
+      "to": "ws_unwide_80097CA4"
+    },
+    {
+      "target": "fn_8002DC14",
+      "to": "qol_damage"
+    }
+  ],
+  "redirect_pointers": [
+    {
+      "address": "0x802DBB10",
+      "target": "fn_8002DC14",
+      "to": "qol_damage",
+      "why": "lbl_802DBB10: the battle action handlers' table, entry 0 is the damage function (qol.c)"
+    }
+  ]
+}

@@ -1,0 +1,111 @@
+# Game patches
+
+Changes to the game itself, written in C (and a little assembly) and built into a copy of
+`main.dol` by `tools/gamepatch.py`. The shipping spec is `widescreen.json` (widescreen, camera
+control and the QOL options together); the current build is **ws18** (`build/game/GEAE8P-ws18`, DOL
+SHA-1 `6a401968`, SHA-256 `39dd1e6c`), and `release/skies-widescreen.dolpatch` turns a player's own
+`main.dol` into it (`tools/mkdolpatch.py`). Because they're part of the DOL, the recompiled module runs them
+as ordinary game code: desktop and Android alike, with no mod loader and no runtime cost beyond the
+code itself. The research behind each one is in the decomp's `docs/` (`../SkiesOfArcadiaLegends-Decomp`).
+
+| Spec | What it does |
+|---|---|
+| `widescreen.json` | 16:9 (or any aspect, set at runtime in `ws_config`): wider 3D view, HUD at its original shape, full-screen effects kept full width, the battle-entry transitions' 3D tiles drawn at the game's own field of view (`UNWIDE` in `fullwidth.S`), and the HUD's side pieces at the wide edges (`WS_HUD_ANCHORS`). With `display_aspect` 0 (4:3) the hooks step aside (`ORIGINAL_IN_43` in `fullwidth.S`) and the picture is identical to the unpatched game's (`tools/dump-ab-win.sh`, NOTES *Widescreen 4:3 setting*). Decomp `docs/widescreen.md`. |
+| `widescreen.json` (camera.c) | Player camera control: wraps the camera manager's call to the shake function (`0x8022D910`) and turns the eye around the field camera's look-at point by the tilt, zoom and turn the frontend writes to `cam_input` (`0x80002EC0`, hold Z in game; `VideoCommon/SkiesMenu.cpp`). Towns, dungeons and the world map; the game's camera object isn't touched. Decomp `docs/camera.md`. |
+| `widescreen.json` (qol.c, qol.S) | Quality-of-life options from `qol_input` (`0x80002EA0`, the in-game menu): random encounter rate (remaps the encounter roll; Off also clears the frames-since-battle counter), EXP / gold / magic EXP scaled in the battle data once per battle before the results read it (ground and ship battles), battle speed (skips the end-of-frame retrace waits in game mode 7; `qol_wait_retrace` tail-calls `VIWaitForRetrace` for savestates), Invincible (party HP / MP / Spirit refilled every battle frame, damage to the party zeroed by `qol_damage` around `fn_8002DC14`, including the action handler table entry via `redirect_pointers`; in ship battles, field mode 6 on maps 500-599, the ship's HP, Spirit and crew MP, and `qol_ship_phase` around `fn_8014419C`). Decomp `docs/qol_cheats.md`. |
+| `shipdebug.json` | Debug only, combined with `widescreen.json`: gives the party a ship on request (`'SHP' << 8 \| ship` written to `0x8031AA24`, the last word of MetroTRK's buffers, so it combines with `trace2d.json`; the field main's call at `0x801DC358` goes through `dbg_field`, which tail-calls it so states made with this build load in play builds). Used by `tools/shipbattle-state-win.sh` to make the Baltor ship battle states. |
+| `trace2d.json` | Debug only, combined with `widescreen.json`: records the ten-deep call chain of every projection load (`trace2d.c`, table in MetroTRK's buffers at `0x80319078`); read it with `AUTO=... tools/readtrace.py 0x80319078 [reset] [2d]`. |
+
+## Building
+
+```sh
+tools/gamepatch.py patches/game/widescreen.json --out-root build/game/GEAE8P-ws18
+DOL=build/game/GEAE8P-ws18/sys/main.dol tools/module-llvm-win.sh llvm-pgo-ws18 \
+  --profile-use build/modules-llvm-pgo-gp/GEAE8P/pgo/merged.profdata      # Windows module
+NAME=ws18 tools/android-ws-build.sh                                       # Android module + APK
+python3 tools/mkdolpatch.py extracted/SkiesOfArcadiaLegends/sys/main.dol \
+  build/game/GEAE8P-ws18/sys/main.dol release/skies-widescreen.dolpatch   # release patch
+```
+
+The release builds take the DOL's SHA-256 from the patch's `output-sha256` line
+(`tools/build-release-win.bat` and `build-release-linux.sh` since ws17, the Android app through
+`tools/android-ws-build.sh`), so after `mkdolpatch.py` run `configure` and `build` there again. The release runner refuses any other DOL, so test a new build
+with the dev runner (`lib\ModernGekko\build\moderngekko-run.exe`).
+
+`gamepatch.py` checks that the input is the USA Rev 0 `main.dol`, compiles the sources with clang for
+the Gekko (`-mcpu=750`, `-Os`, no small-data), links them into the low-memory gap at `0x80001900`
+(`cave.ld`: code and constants up to `0x80002A00`, data from there to `0x80002F00`, with
+`qol_input` fixed at `0x80002EA0` and `cam_input` at `0x80002EC0` for the frontend), rewrites the listed call sites and adds the code and data as new DOL sections. That gap is nearly full (ws13: code 0xFD0 of 0x1100 bytes, data 0x4E4 of 0x500), so there's a second code area: functions marked `section(".trkcave")` go to `0x802548E8`-`0x80257074` (10 KB), over MetroTRK's message handlers, which only run with a debugger attached (`__start` starts MetroTRK only when `0x800030E8` is 2 or 3; the handlers are reached only through its dispatch table). `gamepatch.py` writes that code into the DOL's text in place; it's code only (data still goes in the gap). It
+writes a game root: `sys/` with the patched DOL, `files/` linked to the original (on Windows, make
+it a junction: `mklink /J build\game\GEAE8P-ws16\files extracted\SkiesOfArcadiaLegends\files`), plus
+`patches.txt` (symbols and patched sites) and `patch.elf` (for disassembly). Run it with
+`GAME=build/game/GEAE8P-ws16` (`tools/play.sh`) or `GAME=build\game\GEAE8P-ws16` (`tools\run-win.bat`)
+and a module built from the same DOL.
+
+| Build | DOL SHA-1 | What it added |
+|---|---|---|
+| ws8 | `a4f9ef7c` | battle-entry transitions at full width |
+| ws9 | `329c631f` | HUD side pieces at the wide edges, the MetroTRK code area |
+| ws10 | `7cb9de68` | the 4:3 setting identical to the unpatched game |
+| ws11 | `54afdf92` | camera control (`camera.c`) |
+| ws12 | `7ad26f22` | QOL options and Invincible (`qol.c`, `qol.S`), `redirect_pointers` |
+| ws13 | `fa7b1af1` | world map altitude gauge at the left edge like the original 4:3 (side -100, was -94), `WS_VERSION` 7 |
+| ws14 | `7a73cd6e` | QOL options in ship battles: `qol_ship_phase` at `0x80144E3C`, ship HP / Spirit / crew MP refill, speed on maps 500-599 (an earlier ws14 test build of 2026-10-11, a reverted status-box sync, was never used) |
+| ws15 | `2d7b1f1d` | ship battle HUD at the edges (grid top right, enemy plates below it; anchor entries now 12 bytes with `dx` and a kind, `WS_VERSION` 9, `TextPrintf` wrapped); battle speed / Invincible work moved out of the retrace polling loop (`qol_frame` from `ws_frame_end`), so states made there survive later builds |
+| ws16 | `66da66de` | ship battle spacing asked for by the user: ring lists dy +50, crew / ship panels dy -24 (midway between the Spirit gauge and the ring), `WS_VERSION` 10 |
+| ws17 | `910d9504` | ship battle QOL only while the battle's data is live (code review A3, 2026-10-12): the game frees `lbl_8034727C`'s data in `fn_80144E60` but never clears the pointer, so from the second ship battle on Invincible wrote through a stale pointer between the map's load and the new allocation. `qol_ship_live` is set by `qol_ship_alloc` (new hook at `0x8015C6DC`, `fn_8015C6C8`'s call of `fn_801453D0`) and by `qol_ship_phase`, cleared after `qol_ship_results`; it sits in `.late_bss` (`cave.ld`) after every older variable, so states from earlier builds keep their data where this build looks (they read 0 there: off until the battle's next phase) |
+| ws18 | `6a401968` | code review section C (2026-10-12): the camera keeps the game's own tilt when its eye sits below the look-at point by more than `rise` (the height limit went negative and put the eye on the far side); `ws_check` restarts the unwide depth for an older build's state and `ws_unwide_end` never takes it below 0 (either would leave every later unwide pair off); `in_ram` accepts only word-aligned addresses inside the 24 MB. No data moved (all 19 data symbols at their ws17 addresses), so ws17 states load as they are. The debug `shipdebug.c` request word moved to `0x8031AA24` so it combines with `trace2d.json` (debug builds only) |
+
+A module only matches the DOL it was built from: an unpatched module with a patched DOL (or the
+reverse) fails verification for the patched code and runs it in the interpreter. Savestates made
+before a patch carry the old code; `recompcore-restore-boot-dol.patch` puts the boot DOL's code back
+when such a state is loaded. Don't test a patch change with a module from an earlier patched DOL: in one such run
+the new code most likely never ran, because the module's compiled callers came from the old DOL (NOTES *Widescreen*).
+
+## Savestates across patch builds
+
+A state restores RAM, so it brings back the old build's patch *data* (the boot DOL's code is put
+back) and whatever return addresses were on the stacks. Rules that keep states loadable:
+
+- The game must never be waiting inside patch code when a state is taken. Wrappers around a function
+  the game waits in (the end-of-frame retrace wait) tail-call it (`ws_frame_end` in `fullwidth.S`).
+- Constants belong in `.text` (`cave.ld` puts `.rodata` there). Mutable data is versioned:
+  `ws_check` resets it to `ws_defaults` when `ws_config.version` isn't `WS_VERSION`; bump that with
+  any change to the data layout or the defaults.
+- States made with widescreen builds before late 2026-10-07 don't load in later ones (their stack
+  returns into moved patch code).
+
+## Debug hooks
+
+`gamepatch.py` leaves weak undefined symbols at 0, so a spec can offer an optional hook: `widescreen.c`
+calls `trace_projection` only when `trace2d.c` is linked in.
+
+## Writing a spec
+
+```json
+{
+  "sources": ["widescreen.c", "fullwidth.S"],
+  "symbols": {"njClipZ": "0x80299188"},
+  "redirect_sites": [{"sites": ["0x801DCD68"], "target": "fn_801DC420", "to": "ws_frame_end"}],
+  "redirect_calls": [{"target": "fn_80290ED4", "to": "ws_poly"}],
+  "redirect_pointers": [{"address": "0x802DBB10", "target": "fn_8002DC14", "to": "qol_damage"}]
+}
+```
+
+- Game functions are `fn_XXXXXXXX` (resolved from the name) or listed in `symbols`.
+- `redirect_pointers` rewrites function pointers in data (a handler table) at the given addresses
+  and fails if one doesn't hold the target; use it where `redirect_calls` warns about a pointer.
+- `redirect_sites` rewrites `bl target` to `bl to` at the given addresses and fails if one doesn't
+  hold that call; `redirect_calls` rewrites every direct call in the DOL and warns about pointers to
+  the target in data (indirect calls would bypass the patch).
+- Patches hook whole calls, never the middle of a function, so DolRecomp sees ordinary functions.
+  A wrapper that must pass arbitrary arguments through is written in assembly (`fullwidth.S`).
+- When the code to change is in the middle of a function, wrap a call next to it instead: the camera
+  wraps the shake call right before the view is built, the reward scaling wraps the member count
+  right before the rewards are read (qol.c).
+- Settings from the frontend go in a fixed-address block in the data section (`cave.ld`) with a magic
+  word the frontend writes; with no frontend the magic stays 0 and the hook does nothing. The
+  frontend checks that the DOL has the hook (a call site no longer holds the original `bl`) before
+  writing.
+- The gap is shared with Dolphin: it writes a stub at `0x80001800`, hooks `0x800018A8` and
+  `0x80002FFC`, and enabling Gecko codes installs the code handler over the whole range.

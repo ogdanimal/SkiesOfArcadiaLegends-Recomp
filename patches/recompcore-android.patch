@@ -1,0 +1,507 @@
+diff --git a/Source/Android/app/build.gradle.kts b/Source/Android/app/build.gradle.kts
+index 0a952a0704..749f9244bb 100644
+--- a/Source/Android/app/build.gradle.kts
++++ b/Source/Android/app/build.gradle.kts
+@@ -103,6 +103,11 @@ android {
+                     "-DCMAKE_BUILD_TYPE=RelWithDebInfo"
+                     // , "-DENABLE_GENERIC=ON"
+                 )
++                // Static recomp: -PrecompNativeFlags="..." adds compiler flags to the native build
++                // (e.g. -mno-outline-atomics: inline atomics instead of helper calls).
++                providers.gradleProperty("recompNativeFlags").orNull?.let {
++                    arguments("-DCMAKE_C_FLAGS=$it", "-DCMAKE_CXX_FLAGS=$it")
++                }
+                 abiFilters("arm64-v8a", "x86_64") //, "armeabi-v7a", "x86"
+ 
+                 // Uncomment the line below if you don't want to build the C++ unit tests
+@@ -114,6 +119,13 @@ android {
+     packaging {
+         jniLibs.useLegacyPackaging = true
+     }
++
++    // Static recomp: -PrecompJniLibs=DIR packages prebuilt game modules
++    // (DIR/arm64-v8a/libg<GameID>_recomp.so). They hold code translated from the
++    // user's disc, so they are never kept in the source tree.
++    providers.gradleProperty("recompJniLibs").orNull?.let {
++        sourceSets.getByName("main").jniLibs.srcDir(it)
++    }
+ }
+ 
+ dependencies {
+diff --git a/Source/Android/app/src/main/AndroidManifest.xml b/Source/Android/app/src/main/AndroidManifest.xml
+index 3218ed3ed8..b8ccca501a 100644
+--- a/Source/Android/app/src/main/AndroidManifest.xml
++++ b/Source/Android/app/src/main/AndroidManifest.xml
+@@ -38,7 +38,7 @@
+         android:requestLegacyExternalStorage="true"
+         android:preserveLegacyExternalStorage="true"
+         android:enableOnBackInvokedCallback="false"
+-        android:allowBackup="true"
++        android:allowBackup="false"
+         android:fullBackupContent="@xml/backup_rules"
+         android:dataExtractionRules="@xml/backup_rules_api_31"
+         android:supportsRtl="true"
+diff --git a/Source/Android/jni/Automation.cpp b/Source/Android/jni/Automation.cpp
+new file mode 100644
+index 0000000000..4436bd64ed
+--- /dev/null
++++ b/Source/Android/jni/Automation.cpp
+@@ -0,0 +1,307 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++// moderngekko-run's automation directory, for the Android app: command files
++// dropped into <User>/Automation/commands/ (key=value, the format
++// ModernGekko's tools/automation_protocol.cpp parses) drive pad input,
++// savestates, screenshots and memory reads, and <User>/Automation/status.txt
++// reports speed and progress. tools/drive.py pushes and polls them over adb.
++//
++// Opt-in: the thread only runs when <User>/Automation exists. It sits in the
++// app's own storage, which only the app and adb can write.
++
++#include "jni/Automation.h"
++
++#include <atomic>
++#include <chrono>
++#include <cstdint>
++#include <filesystem>
++#include <fstream>
++#include <mutex>
++#include <optional>
++#include <string>
++#include <thread>
++#include <vector>
++
++#include <android/log.h>
++#include <fmt/format.h>
++
++#include "Common/CommonPaths.h"
++#include "Common/FileUtil.h"
++#include "Common/HookableEvent.h"
++#include "Core/Core.h"
++#include "Core/HW/Memmap.h"
++#include "Core/State.h"
++#include "Core/System.h"
++#include "InputCommon/ControllerInterface/Touch/InputOverrider.h"
++#include "VideoCommon/FrameDumper.h"
++#include "VideoCommon/PerformanceMetrics.h"
++#include "VideoCommon/Present.h"
++#include "VideoCommon/VideoEvents.h"
++
++#include "automation_protocol.hpp"
++
++namespace fs = std::filesystem;
++namespace automation = moderngekko::automation;
++
++namespace Automation
++{
++namespace
++{
++std::jthread s_thread;
++Common::EventHook s_present_hook;
++std::atomic<std::uint64_t> s_frame_count{0};
++std::atomic<std::uint64_t> s_present_count{0};
++std::uint64_t s_processed_commands = 0;
++std::string s_last_command;
++std::string s_last_error;
++std::mutex s_mutex;
++
++void ClearPad(int port)
++{
++  // ClearControlState hands the control back to the real pad (the built-in
++  // controller), unlike setting it to 0.
++  for (int control = ciface::Touch::FIRST_GC_CONTROL; control <= ciface::Touch::LAST_GC_CONTROL;
++       ++control)
++  {
++    ciface::Touch::ClearControlState(port, static_cast<ciface::Touch::ControlID>(control));
++  }
++}
++
++void ApplyPad(const automation::PadState& pad)
++{
++  ClearPad(pad.port);
++  for (std::size_t index = 0; index < pad.controls.size(); ++index)
++  {
++    const int control = ciface::Touch::FIRST_GC_CONTROL + static_cast<int>(index);
++    if (control > ciface::Touch::LAST_GC_CONTROL)
++      break;
++    ciface::Touch::SetControlState(pad.port, static_cast<ciface::Touch::ControlID>(control),
++                                   pad.controls[index]);
++  }
++}
++
++bool CoreIsReady()
++{
++  const auto state = Core::GetState(Core::System::GetInstance());
++  return state == Core::State::Running || state == Core::State::Paused;
++}
++
++bool NeedsReadyCore(automation::CommandType type)
++{
++  return type != automation::CommandType::Pad && type != automation::CommandType::ClearPad &&
++         type != automation::CommandType::Stop;
++}
++
++std::optional<std::string> ReadMemory(const fs::path& path, u32 address, u32 size)
++{
++  auto& system = Core::System::GetInstance();
++  const Core::CPUThreadGuard guard(system);
++  const u8* source = system.GetMemory().GetPointerForRange(address, size);
++  if (!source)
++    return fmt::format("guest range {:#010x}+{} is not readable", address, size);
++  std::error_code ec;
++  fs::create_directories(path.parent_path(), ec);
++  std::ofstream output(path, std::ios::binary | std::ios::trunc);
++  output.write(reinterpret_cast<const char*>(source), size);
++  if (!output)
++    return std::string("could not write memory output file");
++  return std::nullopt;
++}
++
++std::optional<std::string> WriteMemory(u32 address, const std::vector<std::uint8_t>& data)
++{
++  auto& system = Core::System::GetInstance();
++  const Core::CPUThreadGuard guard(system);
++  if (!system.GetMemory().GetPointerForRange(address, static_cast<u32>(data.size())))
++    return fmt::format("guest range {:#010x}+{} is not writable", address, data.size());
++  system.GetMemory().CopyToEmu(address, data.data(), data.size());
++  return std::nullopt;
++}
++
++std::optional<std::string> Apply(const automation::Command& command, std::stop_token stop_token)
++{
++  auto& system = Core::System::GetInstance();
++  switch (command.type)
++  {
++  case automation::CommandType::Pad:
++    ApplyPad(command.pad);
++    break;
++  case automation::CommandType::PadFrames:
++  {
++    if (Core::GetState(system) != Core::State::Running)
++      return std::string("pad_frames requires a running emulated core");
++    std::uint64_t first = s_frame_count.load(std::memory_order_relaxed);
++    ApplyPad(command.pad);
++    while (!stop_token.stop_requested())
++    {
++      const std::uint64_t now = s_frame_count.load(std::memory_order_relaxed);
++      if (now < first)
++        first = now;
++      else if (now - first >= command.frames)
++        break;
++      std::this_thread::sleep_for(std::chrono::milliseconds(1));
++    }
++    ClearPad(command.pad.port);
++    break;
++  }
++  case automation::CommandType::ClearPad:
++    ClearPad(command.pad.port);
++    break;
++  case automation::CommandType::Pause:
++    Core::SetState(system, Core::State::Paused);
++    break;
++  case automation::CommandType::Resume:
++    Core::SetState(system, Core::State::Running);
++    break;
++  case automation::CommandType::SaveState:
++  {
++    std::error_code ec;
++    fs::create_directories(command.path.parent_path(), ec);
++    State::SaveAs(system, command.path.string());
++    break;
++  }
++  case automation::CommandType::LoadState:
++    State::LoadAs(system, command.path.string());
++    break;
++  case automation::CommandType::Screenshot:
++  {
++    fs::path path = command.path;
++    if (!path.has_extension())
++      path += ".png";
++    std::error_code ec;
++    fs::create_directories(path.parent_path(), ec);
++    const Core::CPUThreadGuard guard(system);
++    if (g_frame_dumper)
++      g_frame_dumper->SaveScreenshot(path.string());
++    break;
++  }
++  case automation::CommandType::ReadMemory:
++    return ReadMemory(command.path, command.address, command.size);
++  case automation::CommandType::WriteMemory:
++    return WriteMemory(command.address, command.data);
++  case automation::CommandType::Stop:
++    Core::Stop(system);
++    break;
++  }
++  return std::nullopt;
++}
++
++void Move(const fs::path& source, const fs::path& root, const char* destination_directory)
++{
++  std::error_code ec;
++  const fs::path destination = root / destination_directory / source.filename();
++  fs::remove(destination, ec);
++  fs::rename(source, destination, ec);
++  if (ec)
++    fs::remove(source, ec);
++}
++
++void WriteStatus(const fs::path& root)
++{
++  auto& system = Core::System::GetInstance();
++  automation::Status status;
++  const auto core_state = Core::GetState(system);
++  status.state = core_state == Core::State::Paused ?
++                     "paused" :
++                     (core_state == Core::State::Running ? "running" : "stopped");
++  status.booted = core_state != Core::State::Uninitialized;
++  const auto& perf = system.GetPerfMetrics();
++  status.fps = perf.GetFPS();
++  status.vps = perf.GetVPS();
++  status.speed = perf.GetSpeed();
++  status.frame_count = s_frame_count.load(std::memory_order_relaxed);
++  status.present_count = s_present_count.load(std::memory_order_relaxed);
++  {
++    std::lock_guard lock(s_mutex);
++    status.processed_commands = s_processed_commands;
++    status.last_command = s_last_command;
++    status.last_error = s_last_error;
++  }
++  const fs::path temp = root / "status.tmp";
++  {
++    std::ofstream output(temp, std::ios::binary | std::ios::trunc);
++    output << automation::FormatStatus(status);
++  }
++  std::error_code ec;
++  fs::rename(temp, root / "status.txt", ec);
++}
++
++void Loop(fs::path root, std::stop_token stop_token)
++{
++  std::error_code ec;
++  for (const char* sub : {"commands", "processed", "failed"})
++    fs::create_directories(root / sub, ec);
++  auto next_status = std::chrono::steady_clock::now();
++  while (!stop_token.stop_requested())
++  {
++    for (const fs::path& command_path : automation::ListCommandFiles(root / "commands"))
++    {
++      automation::Command command;
++      std::string error;
++      if (!automation::ParseCommandFile(command_path, &command, &error))
++      {
++        std::lock_guard lock(s_mutex);
++        s_last_error = command_path.filename().string() + ": " + error;
++        Move(command_path, root, "failed");
++        continue;
++      }
++      if (NeedsReadyCore(command.type) && !CoreIsReady())
++        break;
++      if (!command.path.empty())
++        command.path = automation::ResolveControlPath(root, command.path);
++
++      const std::optional<std::string> failure = Apply(command, stop_token);
++      std::lock_guard lock(s_mutex);
++      if (failure)
++      {
++        s_last_error = command.source_name + ": " + *failure;
++        Move(command_path, root, "failed");
++        continue;
++      }
++      ++s_processed_commands;
++      s_last_command = command.source_name;
++      s_last_error.clear();
++      Move(command_path, root, "processed");
++    }
++
++    const auto now = std::chrono::steady_clock::now();
++    if (now >= next_status)
++    {
++      WriteStatus(root);
++      next_status = now + std::chrono::milliseconds(200);
++    }
++    std::this_thread::sleep_for(std::chrono::milliseconds(50));
++  }
++  WriteStatus(root);
++}
++}  // namespace
++
++void Start()
++{
++  const fs::path root = File::GetUserPath(D_USER_IDX) + "Automation";
++  std::error_code ec;
++  if (!fs::is_directory(root, ec))
++    return;
++  __android_log_print(ANDROID_LOG_INFO, "DolphinEmuNative", "Automation directory: %s",
++                      root.c_str());
++  s_frame_count = 0;
++  s_present_count = 0;
++  s_present_hook = GetVideoEvents().after_present_event.Register([](const PresentInfo& info) {
++    s_frame_count.store(info.frame_count, std::memory_order_relaxed);
++    s_present_count.store(info.present_count, std::memory_order_relaxed);
++  });
++  // Our own override registration, so input works with the touch overlay hidden.
++  ciface::Touch::RegisterGameCubeInputOverrider(0);
++  s_thread = std::jthread([root](std::stop_token stop_token) { Loop(root, stop_token); });
++}
++
++void Stop()
++{
++  if (s_thread.joinable())
++  {
++    s_thread.request_stop();
++    s_thread.join();
++  }
++  s_present_hook = {};
++}
++}  // namespace Automation
+diff --git a/Source/Android/jni/Automation.h b/Source/Android/jni/Automation.h
+new file mode 100644
+index 0000000000..e37447f338
+--- /dev/null
++++ b/Source/Android/jni/Automation.h
+@@ -0,0 +1,10 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++#pragma once
++
++// The automation directory (see Automation.cpp). Start after boot, Stop before shutdown.
++namespace Automation
++{
++void Start();
++void Stop();
++}  // namespace Automation
+diff --git a/Source/Android/jni/CMakeLists.txt b/Source/Android/jni/CMakeLists.txt
+index a15eb5c636..40349d82bc 100644
+--- a/Source/Android/jni/CMakeLists.txt
++++ b/Source/Android/jni/CMakeLists.txt
+@@ -45,6 +45,20 @@ PRIVATE
+   uicommon
+ )
+ 
++# StaticRecomp's SPR/cache hooks call GXRuntime's ppc_program_exception. On desktop,
++# ModernGekko's top-level CMakeLists adds it to core; the Android app builds this tree directly.
++target_sources(main PRIVATE ${CMAKE_SOURCE_DIR}/GXRuntime/src/core/cpu_exception.c)
++target_include_directories(main PRIVATE ${CMAKE_SOURCE_DIR}/GXRuntime/include)
++
++# moderngekko-run's automation directory (jni/Automation.cpp), driven by tools/drive.py over adb.
++# The command parser is ModernGekko's own, so the protocol stays identical across platforms.
++set(MODERNGEKKO_TOOLS_DIR ${CMAKE_SOURCE_DIR}/../../tools)
++if(EXISTS ${MODERNGEKKO_TOOLS_DIR}/automation_protocol.cpp)
++  target_sources(main PRIVATE Automation.cpp ${MODERNGEKKO_TOOLS_DIR}/automation_protocol.cpp)
++  target_include_directories(main PRIVATE ${MODERNGEKKO_TOOLS_DIR})
++  target_compile_definitions(main PRIVATE DOLPHIN_ANDROID_AUTOMATION=1)
++endif()
++
+ target_link_libraries(main
+ PRIVATE
+   android
+diff --git a/Source/Android/jni/MainAndroid.cpp b/Source/Android/jni/MainAndroid.cpp
+index a5048e01bf..f5a94f1682 100644
+--- a/Source/Android/jni/MainAndroid.cpp
++++ b/Source/Android/jni/MainAndroid.cpp
+@@ -13,6 +13,7 @@
+ #include <vector>
+ 
+ #include <EGL/egl.h>
++#include <dlfcn.h>
+ #include <android/log.h>
+ #include <android/native_window_jni.h>
+ #include <fmt/format.h>
+@@ -39,6 +40,8 @@
+ #include "Core/CommonTitles.h"
+ #include "Core/ConfigLoaders/GameConfigLoader.h"
+ #include "Core/Config/ConfigManager.h"
++#include "Core/Config/GraphicsSettings.h"
++#include "Core/Config/MainSettings.h"
+ #include "Core/Core.h"
+ #include "Core/DolphinAnalytics.h"
+ #include "Core/HW/DVD/DVDInterface.h"
+@@ -47,6 +50,7 @@
+ #include "Core/Host.h"
+ #include "Core/PowerPC/JitInterface.h"
+ #include "Core/PowerPC/PowerPC.h"
++#include "Core/PowerPC/StaticRecomp/StaticRecompModuleSource.h"
+ #include "Core/State.h"
+ #include "Core/System.h"
+ 
+@@ -62,9 +66,13 @@
+ #include "VideoCommon/OnScreenDisplay.h"
+ #include "VideoCommon/Present.h"
+ #include "VideoCommon/VideoBackendBase.h"
++#include "VideoCommon/VideoConfig.h"
+ 
+ #include "jni/AndroidCommon/AndroidCommon.h"
+ #include "jni/AndroidCommon/IDCache.h"
++#ifdef DOLPHIN_ANDROID_AUTOMATION
++#include "jni/Automation.h"
++#endif
+ 
+ namespace
+ {
+@@ -546,8 +554,44 @@ static float GetRenderSurfaceScale(JNIEnv* env)
+   return env->CallStaticFloatMethod(native_library_class, get_render_surface_scale_method);
+ }
+ 
++// Static recomp: if the APK carries a module for this disc (libg<GameID>_recomp.so in the
++// native library directory, beside libmain.so), boot it on the StaticRecomp core with the
++// settings moderngekko-run uses. Only the current-run layer is touched, and BootManager clears
++// it at shutdown, so other games and the user's settings are unaffected.
++static void ConfigureStaticRecomp(const BootParameters& boot)
++{
++  StaticRecompModuleSource source;
++  const auto* disc = std::get_if<BootParameters::Disc>(&boot.parameters);
++  Dl_info info{};
++  if (disc && disc->volume &&
++      dladdr(reinterpret_cast<void*>(&ConfigureStaticRecomp), &info) && info.dli_fname)
++  {
++    std::string path = info.dli_fname;
++    path.resize(path.rfind('/') + 1);
++    path += "libg" + disc->volume->GetGameID() + "_recomp.so";
++    if (File::Exists(path))
++    {
++      __android_log_print(ANDROID_LOG_INFO, DOLPHIN_TAG, "StaticRecomp module: %s", path.c_str());
++      source = StaticRecompModuleSource::Dynamic(path);
++      // A PGO-instrumented module (DolRecomp --profile-generate) writes its counters when it is
++      // unloaded; point them at app storage (the default is relative to "/", not writable).
++      const std::string profile = File::GetUserPath(D_USER_IDX) + "PGO/%m-%p.profraw";
++      setenv("LLVM_PROFILE_FILE", profile.c_str(), 0);
++      Config::SetCurrent(Config::MAIN_CPU_CORE, PowerPC::CPUCore::StaticRecomp);
++      Config::SetCurrent(Config::GFX_SHADER_CACHE, true);
++      Config::SetCurrent(Config::GFX_SHADER_COMPILATION_MODE,
++                         ShaderCompilationMode::AsynchronousUberShaders);
++      Config::SetCurrent(Config::GFX_WAIT_FOR_SHADERS_BEFORE_STARTING, true);
++    }
++  }
++  Core::System::GetInstance().GetJitInterface().SetStaticRecompModuleSource(std::move(source));
++}
++
+ static void Run(JNIEnv* env, std::unique_ptr<BootParameters>&& boot, bool riivolution)
+ {
++  if (boot)
++    ConfigureStaticRecomp(*boot);
++
+   if (riivolution && std::holds_alternative<BootParameters::Disc>(boot->parameters))
+   {
+     const std::string& riivolution_dir = File::GetUserPath(D_RIIVOLUTION_IDX);
+@@ -577,12 +621,21 @@ static void Run(JNIEnv* env, std::unique_ptr<BootParameters>&& boot, bool riivol
+   s_need_nonblocking_alert_msg = false;
+   surface_guard.unlock();
+ 
++#ifdef DOLPHIN_ANDROID_AUTOMATION
++  if (Core::IsRunning(Core::System::GetInstance()))
++    Automation::Start();
++#endif
++
+   while (Core::IsRunning(Core::System::GetInstance()))
+   {
+     s_update_main_frame_event.Wait();
+     Core::HostDispatchJobs(Core::System::GetInstance());
+   }
+ 
++#ifdef DOLPHIN_ANDROID_AUTOMATION
++  Automation::Stop();
++#endif
++
+   s_game_metadata_is_valid = false;
+   Core::Shutdown(Core::System::GetInstance());
+ 

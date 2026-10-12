@@ -1,0 +1,42 @@
+diff --git a/module-template/CMakeLists.txt b/module-template/CMakeLists.txt
+index dac92e812d..b25bd9fc12 100644
+--- a/module-template/CMakeLists.txt
++++ b/module-template/CMakeLists.txt
+@@ -22,7 +22,14 @@ set(GENERATED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/generated" CACHE PATH "DolRecomp
+ if(NOT EXISTS "${GENERATED_DIR}")
+   message(FATAL_ERROR "Generated directory not found at ${GENERATED_DIR}. Set -DGENERATED_DIR=<path to DolRecomp output>")
+ endif()
+-foreach(REQUIRED_GENERATED_FILE generated.h generated_smc.txt main.dol)
++# MODULE_TABLES_INC: a module_tables.inc made beforehand (gen_module_tables.py) where the DOL is, so a
++# build elsewhere (CI) needs no copy of the game's DOL; main.dol is then not required here.
++set(MODULE_TABLES_INC "" CACHE FILEPATH "Prebuilt module_tables.inc (instead of main.dol in GENERATED_DIR)")
++set(REQUIRED_GENERATED_FILES generated.h generated_smc.txt)
++if(NOT MODULE_TABLES_INC)
++  list(APPEND REQUIRED_GENERATED_FILES main.dol)
++endif()
++foreach(REQUIRED_GENERATED_FILE ${REQUIRED_GENERATED_FILES})
+   if(NOT EXISTS "${GENERATED_DIR}/${REQUIRED_GENERATED_FILE}")
+     message(FATAL_ERROR
+       "DolRecomp output is incomplete: ${GENERATED_DIR}/${REQUIRED_GENERATED_FILE} is missing")
+@@ -40,6 +47,13 @@ set(MODULE_NAME "g${GAME_ID}_recomp")
+ find_package(Python3 REQUIRED COMPONENTS Interpreter)
+ 
+ set(MODULE_TABLES "${CMAKE_CURRENT_BINARY_DIR}/module_tables.inc")
++if(MODULE_TABLES_INC)
++add_custom_command(
++  OUTPUT "${MODULE_TABLES}"
++  COMMAND ${CMAKE_COMMAND} -E copy "${MODULE_TABLES_INC}" "${MODULE_TABLES}"
++  DEPENDS "${MODULE_TABLES_INC}"
++  COMMENT "Using the prebuilt module_tables.inc")
++else()
+ add_custom_command(
+   OUTPUT "${MODULE_TABLES}"
+   COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/gen_module_tables.py"
+@@ -49,6 +63,7 @@ add_custom_command(
+           "${GENERATED_DIR}/generated.h" "${GENERATED_DIR}/generated_smc.txt"
+           "${GENERATED_DIR}/main.dol"
+   COMMENT "Generating module_tables.inc")
++endif()
+ 
+ file(READ "${GENERATED_DIR}/generated.h" GENERATED_HEADER_TEXT)
+ if(GENERATED_HEADER_TEXT MATCHES "DOLRECOMP_BACKEND_LLVM")

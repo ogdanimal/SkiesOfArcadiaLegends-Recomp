@@ -1,0 +1,180 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index d65d556..7c64c85 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -107,6 +107,7 @@ if(DOLRECOMP_ENABLE_LLVM)
+         src/backend/llvm/native_wrapper.cpp
+         src/backend/llvm/native_abi.cpp
+         src/backend/llvm/abi_stats.cpp
++        src/backend/llvm/gather_pipe.cpp
+         src/backend/llvm/memory.cpp
+         src/backend/llvm/memory_fallback.cpp
+         src/backend/llvm/register_state.cpp
+diff --git a/src/backend/llvm/emitter.h b/src/backend/llvm/emitter.h
+index 9263c79..8e18613 100644
+--- a/src/backend/llvm/emitter.h
++++ b/src/backend/llvm/emitter.h
+@@ -187,6 +187,7 @@ private:
+   void journal(llvm::Value *offset, u32 width);
+   void endianStore(llvm::Value *pointer, llvm::Value *value, u32 width);
+   void externalWrite(llvm::Value *address, llvm::Value *value, u32 width);
++  void gatherPipeWrite(llvm::Value *address, llvm::Value *value, u32 width);
+   void emitGuestStore(const DolIRInstruction &instruction,
+                       llvm::Value *address, llvm::Value *value, u32 width);
+   void emitGuestStore(llvm::Value *address, llvm::Value *value, u32 width);
+diff --git a/src/backend/llvm/gather_pipe.cpp b/src/backend/llvm/gather_pipe.cpp
+new file mode 100644
+index 0000000..17e3447
+--- /dev/null
++++ b/src/backend/llvm/gather_pipe.cpp
+@@ -0,0 +1,63 @@
++#include "backend/llvm/emitter.h"
++#include "cpu/cpu.h"
++
++#include <llvm/IR/BasicBlock.h>
++#include <llvm/IR/Function.h>
++#include <llvm/IR/MDBuilder.h>
++
++namespace dolllvm {
++
++using namespace llvm;
++
++// Stores to the write-gather pipe page (effective 0xCC008000, the GX FIFO) append to the host's
++// gather buffer when it publishes one (gather_pipe_ptr_ref), calling out only once a 32-byte burst
++// is queued. Immediate-mode vertex data makes these the most frequent non-RAM stores; through
++// external_write each one was an indirect call that also took the guest state out of host
++// registers. The flush only moves queued bytes to the GPU FIFO: it leaves the guest state alone and
++// raises nothing synchronously (CP interrupts are delivered between dispatches), so it needs no PC,
++// exception check or state reload.
++void FunctionEmitter::gatherPipeWrite(Value *address, Value *value,
++                                      u32 width) {
++  Type *ptr = PointerType::getUnqual(context_);
++  Type *i8 = Type::getInt8Ty(context_);
++  BasicBlock *checkHost =
++      BasicBlock::Create(context_, "store_gp_check", function_);
++  BasicBlock *gather = BasicBlock::Create(context_, "store_gp", function_);
++  BasicBlock *flush = BasicBlock::Create(context_, "store_gp_flush", function_);
++  BasicBlock *external =
++      BasicBlock::Create(context_, "store_external", function_);
++  BasicBlock *done = BasicBlock::Create(context_, "store_gp_done", function_);
++  Value *page = builder_.CreateAnd(address, builder_.getInt32(0xFFFFF000u));
++  builder_.CreateCondBr(
++      builder_.CreateICmpEQ(page, builder_.getInt32(0xCC008000u)), checkHost,
++      external);
++
++  builder_.SetInsertPoint(checkHost);
++  Value *ref = loadOffset(ptr, offsetof(CPUState, gather_pipe_ptr_ref));
++  builder_.CreateCondBr(builder_.CreateIsNotNull(ref), gather, external,
++                        MDBuilder(context_).createBranchWeights(2000, 1));
++
++  builder_.SetInsertPoint(gather);
++  Value *cursor = builder_.CreateLoad(ptr, ref, "gp.cursor");
++  endianStore(cursor, value, width);
++  Value *next = builder_.CreateInBoundsGEP(i8, cursor, builder_.getInt64(width));
++  builder_.CreateStore(next, ref);
++  Value *base = loadOffset(ptr, offsetof(CPUState, gather_pipe_base));
++  Value *queued = builder_.CreatePtrDiff(i8, next, base);
++  builder_.CreateCondBr(
++      builder_.CreateICmpUGE(queued, builder_.getInt64(32)), flush, done,
++      MDBuilder(context_).createBranchWeights(1, 7));
++
++  builder_.SetInsertPoint(flush);
++  Value *fn = loadOffset(ptr, offsetof(CPUState, gather_pipe_flush));
++  builder_.CreateCall(FunctionType::get(Type::getVoidTy(context_), {ptr}, false),
++                      fn, {ctx_});
++  builder_.CreateBr(done);
++
++  builder_.SetInsertPoint(external);
++  externalWrite(address, value, width);
++  builder_.CreateBr(done);
++  builder_.SetInsertPoint(done);
++}
++
++} // namespace dolllvm
+diff --git a/src/backend/llvm/memory.cpp b/src/backend/llvm/memory.cpp
+index a3b90cf..f33b29f 100644
+--- a/src/backend/llvm/memory.cpp
++++ b/src/backend/llvm/memory.cpp
+@@ -289,7 +289,7 @@ void FunctionEmitter::emitGuestStore(const DolIRInstruction &instruction,
+   builder_.CreateBr(join);
+ 
+   builder_.SetInsertPoint(slowBlock);
+-  externalWrite(address, value, width);
++  gatherPipeWrite(address, value, width);
+   builder_.CreateBr(join);
+   builder_.SetInsertPoint(join);
+ }
+diff --git a/src/cpu/cpu.c b/src/cpu/cpu.c
+index 27297aa..c4001f2 100644
+--- a/src/cpu/cpu.c
++++ b/src/cpu/cpu.c
+@@ -85,6 +85,9 @@ void cpu_reset(CPUState* cpu) {
+     PPCSPRRead spr_read = cpu->spr_read;
+     PPCSPRWrite spr_write = cpu->spr_write;
+     PPCCacheControl cache_control = cpu->cache_control;
++    u8** gather_pipe_ptr_ref = cpu->gather_pipe_ptr_ref;
++    u8* gather_pipe_base = cpu->gather_pipe_base;
++    PPCGatherPipeFlush gather_pipe_flush = cpu->gather_pipe_flush;
+ 
+     memset(cpu, 0, sizeof(*cpu));
+     cpu->ram = ram;
+@@ -102,6 +105,9 @@ void cpu_reset(CPUState* cpu) {
+     cpu->spr_read = spr_read;
+     cpu->spr_write = spr_write;
+     cpu->cache_control = cache_control;
++    cpu->gather_pipe_ptr_ref = gather_pipe_ptr_ref;
++    cpu->gather_pipe_base = gather_pipe_base;
++    cpu->gather_pipe_flush = gather_pipe_flush;
+ 
+     if (cpu->ram)
+         memset(cpu->ram, 0, cpu->ram_size);
+diff --git a/src/cpu/cpu.h b/src/cpu/cpu.h
+index 29510f8..e941c1a 100644
+--- a/src/cpu/cpu.h
++++ b/src/cpu/cpu.h
+@@ -55,6 +55,7 @@ typedef bool (*PPCHostCall)(CPUState* cpu, u32 address);
+ typedef u32 (*PPCSPRRead)(CPUState* cpu, u16 spr, u32 cia);
+ typedef void (*PPCSPRWrite)(CPUState* cpu, u16 spr, u32 value, u32 cia);
+ typedef void (*PPCCacheControl)(CPUState* cpu, u8 operation, u32 ea, u32 cia);
++typedef void (*PPCGatherPipeFlush)(CPUState* cpu);
+ 
+ enum {
+     PPC_CACHE_DCBST,
+@@ -122,6 +123,14 @@ struct CPUState {
+     PPCSPRRead spr_read;
+     PPCSPRWrite spr_write;
+     PPCCacheControl cache_control;
++
++    /* Write-gather pipe (stores to effective page 0xCC008000, the GX FIFO). When the host sets
++       gather_pipe_ptr_ref, generated stores to that page append big-endian bytes at
++       *gather_pipe_ptr_ref and call gather_pipe_flush once 32 or more bytes are queued past
++       gather_pipe_base. NULL keeps them on external_write. */
++    u8** gather_pipe_ptr_ref;
++    u8* gather_pipe_base;
++    PPCGatherPipeFlush gather_pipe_flush;
+ };
+ 
+ typedef void (*PPCMemWriteJournal)(u32 offset, u32 size, void* user);
+diff --git a/tests/test_module_abi.c b/tests/test_module_abi.c
+index 46224f3..ee94370 100644
+--- a/tests/test_module_abi.c
++++ b/tests/test_module_abi.c
+@@ -23,7 +23,7 @@ static int arm(CPUState* state, u32 blocks) {
+ 
+ int main(void) {
+ #if UINTPTR_MAX == UINT64_MAX
+-    CHECK(sizeof(CPUState) == 3536u);
++    CHECK(sizeof(CPUState) == 3560u);
+     CHECK(offsetof(CPUState, downcount) == 3480u);
+     CHECK(offsetof(CPUState, cycle_budget) == 3488u);
+     CHECK(offsetof(CPUState, exram) == 3496u);
+@@ -31,6 +31,9 @@ int main(void) {
+     CHECK(offsetof(CPUState, spr_read) == 3512u);
+     CHECK(offsetof(CPUState, spr_write) == 3520u);
+     CHECK(offsetof(CPUState, cache_control) == 3528u);
++    CHECK(offsetof(CPUState, gather_pipe_ptr_ref) == 3536u);
++    CHECK(offsetof(CPUState, gather_pipe_base) == 3544u);
++    CHECK(offsetof(CPUState, gather_pipe_flush) == 3552u);
+ #endif
+     const DolRecompVariantV4 variants[] = {
+         {DOLRECOMP_FEATURE_X86_V2, DOLRECOMP_SEMANTICS_EXACT, v2, "v2"},

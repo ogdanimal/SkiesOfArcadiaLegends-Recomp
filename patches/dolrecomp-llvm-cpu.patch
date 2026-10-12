@@ -1,0 +1,25 @@
+diff --git a/src/backend/llvm/target.cpp b/src/backend/llvm/target.cpp
+index 2bdaa32..36dc8fa 100644
+--- a/src/backend/llvm/target.cpp
++++ b/src/backend/llvm/target.cpp
+@@ -1,6 +1,7 @@
+ #include "backend/llvm/target.h"
+ 
+ #include <array>
++#include <cstdlib>
+ #include <cstring>
+ 
+ #include <llvm/MC/TargetRegistry.h>
+@@ -84,6 +85,12 @@ bool resolveTargetProfile(const DolLLVMOptions *options, TargetProfile &result,
+   result.cpu = selected->cpu;
+   result.features = selected->features;
+   result.aarch64 = selected->aarch64;
++  // Tune for one device without adding a profile (e.g. cortex-a77 for a Snapdragon 865). Both
++  // values are part of dolllvm_codegen_fingerprint, so cached objects don't mix CPUs.
++  if (const char *cpu = std::getenv("DOLRECOMP_LLVM_CPU"); cpu && cpu[0])
++    result.cpu = cpu;
++  if (const char *features = std::getenv("DOLRECOMP_LLVM_FEATURES"); features && features[0])
++    result.features = features;
+   const std::string hostTriple = sys::getDefaultTargetTriple();
+   const Triple host(hostTriple);
+   if (options && options->target_triple && options->target_triple[0])

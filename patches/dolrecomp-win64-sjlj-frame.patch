@@ -1,0 +1,49 @@
+diff --git a/src/backend/llvm/native_wrapper.cpp b/src/backend/llvm/native_wrapper.cpp
+index 2786bca..7be4565 100644
+--- a/src/backend/llvm/native_wrapper.cpp
++++ b/src/backend/llvm/native_wrapper.cpp
+@@ -5,9 +5,11 @@
+ #include <llvm/IR/BasicBlock.h>
+ #include <llvm/IR/Function.h>
+ #include <llvm/IR/Intrinsics.h>
++#include <llvm/IR/Metadata.h>
+ #include <llvm/IR/Module.h>
+ #include <llvm/IR/Verifier.h>
+ #include <llvm/Support/raw_ostream.h>
++#include <llvm/TargetParser/Triple.h>
+ 
+ namespace dolllvm {
+ 
+@@ -57,10 +59,28 @@ bool FunctionEmitter::emitWrapper(raw_ostream &diagnostics) {
+     Value *buffer = builder_.CreateStructGEP(chainTy, chain, 0);
+     Value *jumped = nullptr;
+     if (intrinsic_escapes_) {
+-      Value *frame =
+-          builder_.CreateCall(Intrinsic::getDeclaration(
+-                                  &module_, Intrinsic::frameaddress, {pointer}),
+-                              {builder_.getInt32(0)});
++      // eh.sjlj.longjmp reloads the frame register from buffer[0] and the
++      // resume path addresses the frame through it. A Win64 frame register
++      // sits at an offset into the frame, so frameaddress (the frame's base)
++      // would land rbp below its slots and the epilogue would restore the
++      // callee-saved xmm6-15 from the wrong places. Store rbp itself there.
++      const bool win64 = Triple(module_.getTargetTriple()).isOSWindows();
++      Value *frame = nullptr;
++      if (win64) {
++        wrapper->addFnAttr("frame-pointer", "all");
++        MDNode *rbp = MDNode::get(context_, {MDString::get(context_, "rbp")});
++        frame = builder_.CreateIntToPtr(
++            builder_.CreateCall(
++                Intrinsic::getDeclaration(&module_, Intrinsic::read_register,
++                                          {builder_.getInt64Ty()}),
++                {MetadataAsValue::get(context_, rbp)}),
++            pointer);
++      } else {
++        frame = builder_.CreateCall(
++            Intrinsic::getDeclaration(&module_, Intrinsic::frameaddress,
++                                      {pointer}),
++            {builder_.getInt32(0)});
++      }
+       builder_.CreateStore(
+           frame,
+           builder_.CreateInBoundsGEP(

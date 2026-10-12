@@ -1,0 +1,33 @@
+diff --git a/src/backend/llvm/llvm_backend.cpp b/src/backend/llvm/llvm_backend.cpp
+index a2fca3f..442e199 100644
+--- a/src/backend/llvm/llvm_backend.cpp
++++ b/src/backend/llvm/llvm_backend.cpp
+@@ -23,6 +23,7 @@
+ #include <llvm/Support/FileSystem.h>
+ #include <llvm/Support/raw_ostream.h>
+ #include <llvm/Target/TargetMachine.h>
++#include <llvm/TargetParser/Triple.h>
+ 
+ namespace {
+ 
+@@ -54,6 +55,11 @@ bool readableProfile(const char *path, FILE *diagnostics) {
+ void applyTargetAttributes(Module &module,
+                            const dolllvm::TargetProfile &profile,
+                            const DolLLVMOptions &options) {
++  // Windows x64 treats a function without .pdata as a leaf, so SEH dispatch and
++  // stack walks (debuggers, crash dumps) cannot cross module frames without it.
++  const bool unwindTables = Triple(module.getTargetTriple()).isOSWindows();
++  if (unwindTables)
++    module.setUwtable(UWTableKind::Async);
+   for (Function &function : module) {
+     if (function.isDeclaration())
+       continue;
+@@ -61,6 +67,8 @@ void applyTargetAttributes(Module &module,
+     if (!profile.features.empty())
+       function.addFnAttr("target-features", profile.features);
+     function.addFnAttr(Attribute::NoUnwind);
++    if (unwindTables)
++      function.setUWTableKind(UWTableKind::Async);
+     if (options.semantics == DOLLLVM_SEMANTICS_EXACT)
+       function.addFnAttr("strictfp");
+   }

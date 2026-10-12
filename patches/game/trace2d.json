@@ -1,0 +1,4 @@
+{
+  "comment": "Debug aid (trace2d.c): record which code loads a projection. Combine with widescreen.json; not for play builds.",
+  "sources": ["trace2d.c"]
+}

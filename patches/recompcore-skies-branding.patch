@@ -1,0 +1,35 @@
+diff --git a/Source/Core/Core/HW/GCMemcard/GCMemcardDirectory.cpp b/Source/Core/Core/HW/GCMemcard/GCMemcardDirectory.cpp
+index 87cdcbafb6..1d0ce28b1a 100644
+--- a/Source/Core/Core/HW/GCMemcard/GCMemcardDirectory.cpp
++++ b/Source/Core/Core/HW/GCMemcard/GCMemcardDirectory.cpp
+@@ -598,7 +598,7 @@ bool GCMemcardDirectory::SetUsedBlocks(int save_index)
+     block = current_bat->GetNextBlock(block);
+     if (block == 0)
+     {
+-      PanicAlertFmtT("BAT incorrect. Dolphin will now exit");
++      PanicAlertFmtT("The memory card data is damaged (BAT incorrect). The game will now exit.");
+       exit(0);
+     }
+   }
+diff --git a/Source/Core/VideoBackends/OGL/ProgramShaderCache.cpp b/Source/Core/VideoBackends/OGL/ProgramShaderCache.cpp
+index d0cabd0ae9..60f00824e4 100644
+--- a/Source/Core/VideoBackends/OGL/ProgramShaderCache.cpp
++++ b/Source/Core/VideoBackends/OGL/ProgramShaderCache.cpp
+@@ -440,10 +440,13 @@ bool ProgramShaderCache::CheckProgramLinkResult(GLuint id, std::string_view vcod
+       file << "Video Backend: " + g_video_backend->GetDisplayName();
+       file.close();
+ 
+-      PanicAlertFmt("Failed to link shaders: {}\n"
+-                    "Debug info ({}, {}, {}):\n{}",
+-                    filename, g_ogl_config.gl_vendor, g_ogl_config.gl_renderer,
+-                    g_ogl_config.gl_version, info_log);
++      // Skies Recomp: logged, not an alert. Adreno's GLES driver can't link Dolphin's geometry
++      // shader programs (line / point expansion), which the shader cache precompiles at every
++      // start: dozens of toasts with file paths a player can't act on. The draws they'd serve are
++      // rare (none seen in the opening, the field, battles or the world map); the dump stays.
++      ERROR_LOG_FMT(VIDEO, "Failed to link shaders: {}\nDebug info ({}, {}, {}):\n{}", filename,
++                    g_ogl_config.gl_vendor, g_ogl_config.gl_renderer, g_ogl_config.gl_version,
++                    info_log);
+ 
+       return false;
+     }

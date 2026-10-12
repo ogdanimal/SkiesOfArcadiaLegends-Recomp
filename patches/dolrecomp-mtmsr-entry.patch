@@ -1,0 +1,19 @@
+diff --git a/src/backend/llvm/register_state.cpp b/src/backend/llvm/register_state.cpp
+index 1a9bd5d..5b50b07 100644
+--- a/src/backend/llvm/register_state.cpp
++++ b/src/backend/llvm/register_state.cpp
+@@ -138,6 +138,14 @@ void FunctionEmitter::scanRegionLeaders() {
+       region_leaders_[i] = true;
+     if (i + 1u < source_.block_count && term.kind != DOLIR_TERM_FALLTHROUGH)
+       region_leaders_[i + 1u] = true;
++    // mtmsr side-exits to the next instruction when it sets MSR[EE]
++    // (emitStateWrite), and the dispatcher resumes there. Without an entry it
++    // would interpret the rest of the block an instruction at a time: the tail
++    // of every OSRestoreInterrupts/OSEnableInterrupts call.
++    const u32 raw = source_.blocks[i].raw;
++    if (i + 1u < source_.block_count && (raw >> 26) == 31u &&
++        ((raw >> 1) & 0x3FFu) == 146u)
++      region_leaders_[i + 1u] = true;
+     u32 count = term.kind == DOLIR_TERM_COND_BRANCH ? 2u
+                 : term.kind == DOLIR_TERM_BRANCH    ? 1u
+                 : term.kind == DOLIR_TERM_INDIRECT  ? 2u

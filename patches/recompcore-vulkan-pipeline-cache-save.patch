@@ -1,0 +1,164 @@
+diff --git a/Source/Core/VideoBackends/Vulkan/ObjectCache.cpp b/Source/Core/VideoBackends/Vulkan/ObjectCache.cpp
+index 965721decf..4645831c91 100644
+--- a/Source/Core/VideoBackends/Vulkan/ObjectCache.cpp
++++ b/Source/Core/VideoBackends/Vulkan/ObjectCache.cpp
+@@ -68,10 +68,41 @@ bool ObjectCache::Initialize()
+ 
+ void ObjectCache::Shutdown()
+ {
++  JoinPipelineCacheSave();
+   if (g_ActiveConfig.bShaderCache && m_pipeline_cache != VK_NULL_HANDLE)
+     SavePipelineCache();
+ }
+ 
++void ObjectCache::JoinPipelineCacheSave()
++{
++  if (m_pipeline_cache_save_thread.joinable())
++    m_pipeline_cache_save_thread.join();
++}
++
++void ObjectCache::SavePipelineCacheIfChanged()
++{
++  using namespace std::chrono_literals;
++  if (!g_ActiveConfig.bShaderCache || m_pipeline_cache == VK_NULL_HANDLE)
++    return;
++  const auto now = std::chrono::steady_clock::now();
++  if (now - m_last_pipeline_cache_save < 30s ||
++      m_pipelines_since_save.load(std::memory_order_relaxed) == 0 ||
++      m_pipeline_cache_saving.load(std::memory_order_acquire))
++  {
++    return;
++  }
++  JoinPipelineCacheSave();
++  m_last_pipeline_cache_save = now;
++  m_pipelines_since_save.store(0, std::memory_order_relaxed);
++  m_pipeline_cache_saving.store(true, std::memory_order_release);
++  // Pipeline caches are internally synchronized (created without the externally-synchronized
++  // flag), so pipelines may keep being created meanwhile.
++  m_pipeline_cache_save_thread = std::thread([this] {
++    SavePipelineCache();
++    m_pipeline_cache_saving.store(false, std::memory_order_release);
++  });
++}
++
+ void ObjectCache::ClearSamplerCache()
+ {
+   for (const auto& it : m_sampler_cache)
+@@ -648,6 +679,7 @@ bool ObjectCache::ValidatePipelineCache(const u8* data, size_t data_length)
+ 
+ void ObjectCache::DestroyPipelineCache()
+ {
++  JoinPipelineCacheSave();
+   vkDestroyPipelineCache(g_vulkan_context->GetDevice(), m_pipeline_cache, nullptr);
+   m_pipeline_cache = VK_NULL_HANDLE;
+ }
+@@ -672,21 +704,25 @@ void ObjectCache::SavePipelineCache()
+     return;
+   }
+ 
+-  // Delete the old cache and re-create.
+-  File::Delete(m_pipeline_cache_filename);
++  // Written beside the old cache and renamed over it, so a process killed mid-write (Android) leaves
++  // the previous cache instead of a torn one.
++  const std::string temp_filename = m_pipeline_cache_filename + ".tmp";
++  File::Delete(temp_filename);
+ 
+   // We write a single key of 1, with the entire pipeline cache data.
+   // Not ideal, but our disk cache class does not support just writing a single blob
+   // of data without specifying a key.
+   Common::LinearDiskCache<u32, u8> disk_cache;
+   PipelineCacheReadIgnoreCallback callback;
+-  disk_cache.OpenAndRead(m_pipeline_cache_filename, callback);
++  disk_cache.OpenAndRead(temp_filename, callback);
+   disk_cache.Append(1, data.data(), static_cast<u32>(data.size()));
+   disk_cache.Close();
++  File::Rename(temp_filename, m_pipeline_cache_filename);
+ }
+ 
+ void ObjectCache::ReloadPipelineCache()
+ {
++  JoinPipelineCacheSave();
+   SavePipelineCache();
+ 
+   if (g_ActiveConfig.bShaderCache)
+diff --git a/Source/Core/VideoBackends/Vulkan/ObjectCache.h b/Source/Core/VideoBackends/Vulkan/ObjectCache.h
+index c3346ba783..a6d872a943 100644
+--- a/Source/Core/VideoBackends/Vulkan/ObjectCache.h
++++ b/Source/Core/VideoBackends/Vulkan/ObjectCache.h
+@@ -4,10 +4,13 @@
+ #pragma once
+ 
+ #include <array>
++#include <atomic>
++#include <chrono>
+ #include <cstddef>
+ #include <map>
+ #include <memory>
+ #include <string>
++#include <thread>
+ #include <tuple>
+ #include <unordered_map>
+ 
+@@ -65,6 +68,12 @@ public:
+   // Pipeline cache. Used when creating pipelines for drivers to store compiled programs.
+   VkPipelineCache GetPipelineCache() const { return m_pipeline_cache; }
+ 
++  // The pipeline cache is otherwise saved only at a clean shutdown, which an Android app killed from
++  // the recents list never gets (the driver then rebuilt every pipeline at each start): pipeline
++  // creation counts here, and Present saves in the background, at most every 30 s, when it grew.
++  void NotePipelineCreated() { m_pipelines_since_save.fetch_add(1, std::memory_order_relaxed); }
++  void SavePipelineCacheIfChanged();
++
+   // Clear sampler cache, use when anisotropy mode changes
+   // WARNING: Ensure none of the objects from here are in use when calling
+   void ClearSamplerCache();
+@@ -108,6 +117,12 @@ private:
+   // pipeline cache
+   VkPipelineCache m_pipeline_cache = VK_NULL_HANDLE;
+   std::string m_pipeline_cache_filename;
++
++  void JoinPipelineCacheSave();
++  std::atomic<u32> m_pipelines_since_save{0};
++  std::chrono::steady_clock::time_point m_last_pipeline_cache_save = std::chrono::steady_clock::now();
++  std::thread m_pipeline_cache_save_thread;
++  std::atomic<bool> m_pipeline_cache_saving{false};
+ };
+ 
+ extern std::unique_ptr<ObjectCache> g_object_cache;
+diff --git a/Source/Core/VideoBackends/Vulkan/VKGfx.cpp b/Source/Core/VideoBackends/Vulkan/VKGfx.cpp
+index c88e422c98..c42dc9efa1 100644
+--- a/Source/Core/VideoBackends/Vulkan/VKGfx.cpp
++++ b/Source/Core/VideoBackends/Vulkan/VKGfx.cpp
+@@ -308,6 +308,8 @@ bool VKGfx::BindBackbuffer(const ClearColor& clear_color)
+ 
+ void VKGfx::PresentBackbuffer()
+ {
++  g_object_cache->SavePipelineCacheIfChanged();
++
+   // End drawing to backbuffer
+   StateTracker::GetInstance()->EndRenderPass();
+ 
+diff --git a/Source/Core/VideoBackends/Vulkan/VKPipeline.cpp b/Source/Core/VideoBackends/Vulkan/VKPipeline.cpp
+index 6dbd9e5bfc..29d21d99fc 100644
+--- a/Source/Core/VideoBackends/Vulkan/VKPipeline.cpp
++++ b/Source/Core/VideoBackends/Vulkan/VKPipeline.cpp
+@@ -430,6 +430,7 @@ std::unique_ptr<VKPipeline> VKPipeline::Create(const AbstractPipelineConfig& con
+     LOG_VULKAN_ERROR(res, "vkCreateGraphicsPipelines failed: ");
+     return VK_NULL_HANDLE;
+   }
++  g_object_cache->NotePipelineCreated();
+ 
+   return std::make_unique<VKPipeline>(config, pipeline, pipeline_layout, config.usage);
+ }
+diff --git a/Source/Core/VideoBackends/Vulkan/VKShader.cpp b/Source/Core/VideoBackends/Vulkan/VKShader.cpp
+index 9132085748..19c2ccb902 100644
+--- a/Source/Core/VideoBackends/Vulkan/VKShader.cpp
++++ b/Source/Core/VideoBackends/Vulkan/VKShader.cpp
+@@ -102,6 +102,7 @@ CreateShaderObject(ShaderStage stage, ShaderCompiler::SPIRVCodeVector spv, std::
+     LOG_VULKAN_ERROR(res, "vkCreateComputePipelines failed: ");
+     return nullptr;
+   }
++  g_object_cache->NotePipelineCreated();
+ 
+   return std::make_unique<VKShader>(std::move(spv), pipeline, name);
+ }

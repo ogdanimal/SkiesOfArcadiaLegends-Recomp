@@ -1,0 +1,164 @@
+diff --git a/Source/Core/Core/HW/DVD/DVDThread.cpp b/Source/Core/Core/HW/DVD/DVDThread.cpp
+index c11d0daec6..da4b4d84ec 100644
+--- a/Source/Core/Core/HW/DVD/DVDThread.cpp
++++ b/Source/Core/Core/HW/DVD/DVDThread.cpp
+@@ -26,6 +26,7 @@
+ #include "Core/IOS/ES/Formats.h"
+ #include "Core/System.h"
+ 
++#include "DiscIO/DiscUtils.h"
+ #include "DiscIO/Enums.h"
+ #include "DiscIO/Volume.h"
+ 
+@@ -129,6 +130,26 @@ u64 DVDThread::PartitionOffsetToRawOffset(u64 offset, const DiscIO::Partition& p
+   return m_disc->PartitionOffsetToRawOffset(offset, partition);
+ }
+ 
++std::vector<u8> DVDThread::ReadBootDOL()
++{
++  WaitUntilIdle();
++  if (!m_disc)
++    return {};
++  const DiscIO::Partition partition = m_disc->GetGamePartition();
++  const std::optional<u64> offset = DiscIO::GetBootDOLOffset(*m_disc, partition);
++  if (!offset)
++    return {};
++  const std::optional<u32> size = DiscIO::GetBootDOLSize(*m_disc, partition, *offset);
++  // The size is the disc's own sum of section ends: a damaged or modded disc can claim up to 4 GiB.
++  // No DOL is bigger than the console's 24 MiB of RAM.
++  if (!size || *size > (24u << 20))
++    return {};
++  std::vector<u8> dol(*size);
++  if (!m_disc->Read(*offset, *size, dol.data(), partition))
++    return {};
++  return dol;
++}
++
+ IOS::ES::TMDReader DVDThread::GetTMD(const DiscIO::Partition& partition)
+ {
+   WaitUntilIdle();
+diff --git a/Source/Core/Core/HW/DVD/DVDThread.h b/Source/Core/Core/HW/DVD/DVDThread.h
+index 7b40e436c1..c6f9177b41 100644
+--- a/Source/Core/Core/HW/DVD/DVDThread.h
++++ b/Source/Core/Core/HW/DVD/DVDThread.h
+@@ -67,6 +67,8 @@ public:
+ 
+   bool HasWiiHashes() const;
+   DiscIO::Platform GetDiscType() const;
++  // The disc's boot DOL as stored on it (empty if there is none).
++  std::vector<u8> ReadBootDOL();
+   u64 PartitionOffsetToRawOffset(u64 offset, const DiscIO::Partition& partition);
+   IOS::ES::TMDReader GetTMD(const DiscIO::Partition& partition);
+   IOS::ES::TicketReader GetTicket(const DiscIO::Partition& partition);
+diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.cpp b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.cpp
+index 7ff11bbf65..3673925fe4 100644
+--- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.cpp
++++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.cpp
+@@ -16,6 +16,9 @@
+ #include "Core/Config/MainSettings.h"
+ #include "Core/Config/StaticRecompSettings.h"
+ #include "Core/Config/ConfigManager.h"
++#include "Core/HW/DVD/DVDThread.h"
++#include "Core/HW/Memmap.h"
++#include "Core/PowerPC/PowerPC.h"
+ #include "Core/PowerPC/StaticRecomp/StaticRecompLockstep.h"
+ #include "Core/System.h"
+ 
+@@ -365,7 +368,76 @@ void StaticRecompCore::ClearCache()
+ 
+   if (!m_module)
+     return;
++  RestoreBootDolCode();
+   std::fill(m_chunk_state.begin(), m_chunk_state.end(), u8{CHUNK_UNVERIFIED});
+   m_failed_chunks = 0;
+   ++m_reverify_events;
+ }
++
++// A savestate carries the guest code of the DOL that was running when it was made. If the game's
++// DOL has been patched since (a game patch built into the DOL, and the module recompiled from it),
++// an older state brings the old code back: its chunks then fail verification and run interpreted,
++// without the patch. ClearCache runs on every state load, after RAM is restored, so put the boot
++// DOL's text sections back here when they differ, along with its sections below the usual DOL start
++// (0x80003100), where such patches keep their own code and data. Nothing changes when RAM already
++// matches, which is always the case for an unpatched game whose code isn't modified at runtime.
++void StaticRecompCore::RestoreBootDolCode()
++{
++  // The first ClearCache comes while the core is set up, before the disc is inserted, so keep
++  // trying until the DOL has been read.
++  if (m_boot_dol.size() < 0x100)
++    m_boot_dol = m_system.GetDVDThread().ReadBootDOL();
++  if (m_boot_dol.size() < 0x100)
++    return;
++
++  struct Section
++  {
++    u32 offset, address, size;
++  };
++  const auto be32 = [this](u32 at) {
++    return (u32{m_boot_dol[at]} << 24) | (u32{m_boot_dol[at + 1]} << 16) |
++           (u32{m_boot_dol[at + 2]} << 8) | m_boot_dol[at + 3];
++  };
++  auto& memory = m_system.GetMemory();
++  const u32 ram_size = memory.GetRamSizeReal();
++  const auto fits = [&](const Section& s) {
++    return s.size != 0 && s.address >= 0x80000000u && s.address - 0x80000000u <= ram_size &&
++           s.size <= ram_size - (s.address - 0x80000000u) &&
++           u64{s.offset} + s.size <= m_boot_dol.size();
++  };
++  std::vector<Section> text, low_data;
++  for (u32 i = 0; i < 7; ++i)
++    text.push_back({be32(i * 4), be32(0x48 + i * 4), be32(0x90 + i * 4)});
++  for (u32 i = 0; i < 11; ++i)
++  {
++    const Section s{be32(0x1C + i * 4), be32(0x64 + i * 4), be32(0xAC + i * 4)};
++    if (s.address < 0x80003100u)
++      low_data.push_back(s);
++  }
++
++  u8* ram = memory.GetRAM();
++  u32 restored = 0;
++  for (const Section& s : text)
++  {
++    if (!fits(s))
++      continue;
++    u8* dst = ram + (s.address - 0x80000000u);
++    if (std::memcmp(dst, m_boot_dol.data() + s.offset, s.size) != 0)
++    {
++      std::memcpy(dst, m_boot_dol.data() + s.offset, s.size);
++      ++restored;
++    }
++  }
++  if (restored == 0)
++    return;
++  for (const Section& s : low_data)
++  {
++    if (fits(s))
++      std::memcpy(ram + (s.address - 0x80000000u), m_boot_dol.data() + s.offset, s.size);
++  }
++  m_system.GetPPCState().iCache.Cache::Reset();
++  std::fprintf(stderr,
++               "[staticrecomp] state load: restored %u code section(s) of the boot DOL "
++               "(the state was made with different code)\n",
++               restored);
++}
+diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.h b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.h
+index 8b18215695..341258012d 100644
+--- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.h
++++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.h
+@@ -57,6 +57,8 @@ public:
+   bool ShouldYieldAt(u32 address);
+ 
+   void ClearCache() override;
++  // After a state load: put the boot DOL's code back if the state brought different code.
++  void RestoreBootDolCode();
+   void Jit(u32 em_address) override {}
+   bool HandleFault(uintptr_t access_address, SContext* ctx) override { return false; }
+ 
+@@ -209,6 +211,7 @@ private:
+   std::vector<ActiveRelSection> m_active_rel_sections;
+   std::vector<int> m_chunk_rel_sections;
+   std::vector<u64> m_effective_chunk_hashes;
++  std::vector<u8> m_boot_dol;
+   u64 m_rel_mapping_generation = 0;
+   u32 m_failed_chunks = 0;    // chunks currently failing verification (real SMC)
+   u64 m_verifications = 0;    // chunk hash checks performed

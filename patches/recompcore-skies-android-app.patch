@@ -1,0 +1,2399 @@
+diff --git a/Source/Android/app/build.gradle.kts b/Source/Android/app/build.gradle.kts
+index 749f9244bb..1a9fe00848 100644
+--- a/Source/Android/app/build.gradle.kts
++++ b/Source/Android/app/build.gradle.kts
+@@ -46,6 +46,16 @@ android {
+         buildConfigField("String", "BRANCH", "\"${getBranch()}\"")
+ 
+         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
++
++        // Skies Recomp: Dolphin's own launcher unless -PskiesBrand (below).
++        manifestPlaceholders["dolphinLauncherCategory"] = "android.intent.category.LAUNCHER"
++        manifestPlaceholders["dolphinTvLauncherCategory"] = "android.intent.category.LEANBACK_LAUNCHER"
++        manifestPlaceholders["skiesLauncherCategory"] = "android.intent.category.DEFAULT"
++        manifestPlaceholders["appIcon"] = "@mipmap/ic_launcher"
++        manifestPlaceholders["appBanner"] = "@drawable/banner_tv"
++        // Skies Recomp: Dolphin's game list, TV UI and deep link aren't reachable from outside in the brand
++        manifestPlaceholders["dolphinExported"] = "true"
++        resValue("string", "skies_dol_sha256", "")
+     }
+ 
+     signingConfigs {
+@@ -83,6 +93,12 @@ android {
+             applicationIdSuffix = ".debug"
+             versionNameSuffix = "-debug"
+             isJniDebuggable = true
++            // Static recomp: tools/drive.py's automation directory, never in a release APK
++            externalNativeBuild {
++                cmake {
++                    arguments("-DDOLPHIN_ANDROID_AUTOMATION_BUILD=ON")
++                }
++            }
+         }
+     }
+ 
+@@ -120,6 +136,49 @@ android {
+         jniLibs.useLegacyPackaging = true
+     }
+ 
++    // Skies Recomp, the branded app: -PskiesBrand=DIR (DIR/assets holds skies-widescreen.dolpatch and
++    // skies-GEAE8P.ini, DIR/dol-sha256.txt the patched DOL's SHA-256, DIR/res the launcher icon if
++    // there is one; tools/android-ws-build.sh BRAND=1 makes it) gives the app its own id and
++    // name, makes SkiesLauncherActivity (first-run disc import, Play / Continue) the launcher and
++    // hides Dolphin's game list.
++    providers.gradleProperty("skiesBrand").orNull?.let { brand ->
++        val dolSha256 = file("$brand/dol-sha256.txt").readText().trim()
++        defaultConfig {
++            applicationId = "com.skiesofarcadia.recomp"
++            manifestPlaceholders["dolphinLauncherCategory"] = "android.intent.category.DEFAULT"
++            manifestPlaceholders["dolphinTvLauncherCategory"] = "android.intent.category.DEFAULT"
++            manifestPlaceholders["skiesLauncherCategory"] = "android.intent.category.LAUNCHER"
++            manifestPlaceholders["dolphinExported"] = "false"
++            // DIR/res/mipmap-*/skies_launcher (tools/make-skies-icon.sh), when there is one
++            if (file("$brand/res").isDirectory) manifestPlaceholders["appIcon"] = "@mipmap/skies_launcher"
++            // The banner launchers like the Retroid's show in their app drawer (Dolphin's otherwise)
++            if (file("$brand/res/drawable-xhdpi/skies_banner.png").isFile) {
++                manifestPlaceholders["appBanner"] = "@drawable/skies_banner"
++            }
++            resValue("string", "skies_dol_sha256", dolSha256)
++            // Its own version: minutes since 2026-01-01 at build time, so every build is a newer
++            // version. With Dolphin's (commit count) unchanged, launchers kept the cached icon.
++            val skiesBuild = ((System.currentTimeMillis() / 60000L) - 29453760L).toInt()
++            // Releases name themselves from the tag (-PskiesVersionName=0.9.0-beta); the code stays
++            // the build time, so a release and the dev builds around it always order correctly.
++            versionCode = skiesBuild
++            versionName = providers.gradleProperty("skiesVersionName").orNull
++                ?: "dev build $skiesBuild"
++        }
++        buildTypes.getByName("debug") {
++            applicationIdSuffix = null
++            resValue("string", "app_name_suffixed", "Skies of Arcadia Legends")
++        }
++        buildTypes.getByName("release") {
++            resValue("string", "app_name_suffixed", "Skies of Arcadia Legends")
++        }
++        sourceSets.getByName("main").assets.srcDir(file("$brand/assets"))
++        // No permissions the branded app doesn't use (src/skies/AndroidManifest.xml)
++        sourceSets.getByName("debug").manifest.srcFile("src/skies/AndroidManifest.xml")
++        sourceSets.getByName("release").manifest.srcFile("src/skies/AndroidManifest.xml")
++        if (file("$brand/res").isDirectory) sourceSets.getByName("main").res.srcDir(file("$brand/res"))
++    }
++
+     // Static recomp: -PrecompJniLibs=DIR packages prebuilt game modules
+     // (DIR/arm64-v8a/libg<GameID>_recomp.so). They hold code translated from the
+     // user's disc, so they are never kept in the source tree.
+diff --git a/Source/Android/app/src/main/AndroidManifest.xml b/Source/Android/app/src/main/AndroidManifest.xml
+index b8ccca501a..8d23f5b2d9 100644
+--- a/Source/Android/app/src/main/AndroidManifest.xml
++++ b/Source/Android/app/src/main/AndroidManifest.xml
+@@ -34,7 +34,7 @@
+     <application
+         android:name=".DolphinApplication"
+         android:label="@string/app_name_suffixed"
+-        android:icon="@mipmap/ic_launcher"
++        android:icon="${appIcon}"
+         android:requestLegacyExternalStorage="true"
+         android:preserveLegacyExternalStorage="true"
+         android:enableOnBackInvokedCallback="false"
+@@ -43,7 +43,7 @@
+         android:dataExtractionRules="@xml/backup_rules_api_31"
+         android:supportsRtl="true"
+         android:isGame="true"
+-        android:banner="@drawable/banner_tv"
++        android:banner="${appBanner}"
+         android:hasFragileUserData="true">
+         <meta-data
+             android:name="android.max_aspect"
+@@ -54,27 +54,41 @@
+ 
+         <activity
+             android:name=".ui.main.MainActivity"
+-            android:exported="true"
++            android:exported="${dolphinExported}"
+             android:theme="@style/Theme.Dolphin.Splash.Main">
+ 
+             <!-- This intentfilter marks this Activity as the one that gets launched from Home screen. -->
++            <!-- (Skies Recomp: -PskiesBrand moves the launcher to SkiesLauncherActivity.) -->
+             <intent-filter>
+                 <action android:name="android.intent.action.MAIN" />
+ 
+-                <category android:name="android.intent.category.LAUNCHER" />
++                <category android:name="${dolphinLauncherCategory}" />
+             </intent-filter>
+         </activity>
+ 
+         <activity
+-            android:name=".ui.main.TvMainActivity"
++            android:name=".skies.SkiesLauncherActivity"
+             android:exported="true"
++            android:configChanges="keyboard|keyboardHidden|navigation"
++            android:label="@string/skies_app_name"
++            android:theme="@style/Theme.Dolphin.Main">
++            <intent-filter>
++                <action android:name="android.intent.action.MAIN" />
++
++                <category android:name="${skiesLauncherCategory}" />
++            </intent-filter>
++        </activity>
++
++        <activity
++            android:name=".ui.main.TvMainActivity"
++            android:exported="${dolphinExported}"
+             android:theme="@style/Theme.Dolphin.Splash.TV">
+ 
+             <!-- This intentfilter marks this Activity as the one that gets launched from Home screen. -->
+             <intent-filter>
+                 <action android:name="android.intent.action.MAIN"/>
+ 
+-                <category android:name="android.intent.category.LEANBACK_LAUNCHER"/>
++                <category android:name="${dolphinTvLauncherCategory}"/>
+             </intent-filter>
+         </activity>
+ 
+@@ -111,7 +125,7 @@
+ 
+         <activity
+             android:name=".activities.AppLinkActivity"
+-            android:exported="true">
++            android:exported="${dolphinExported}">
+ 
+             <intent-filter>
+                 <action android:name="android.intent.action.VIEW"/>
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/activities/EmulationActivity.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/activities/EmulationActivity.kt
+index 8a1d8addbd..ccdc639e21 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/activities/EmulationActivity.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/activities/EmulationActivity.kt
+@@ -314,6 +314,13 @@ class EmulationActivity : AppCompatActivity(), ThemeProvider {
+         DolphinSensorEventListener.setDeviceRotation(windowManager.defaultDisplay.rotation)
+     }
+ 
++    override fun onPause() {
++        super.onPause()
++        // Skies Recomp: the game closed normally (this runs before the launcher's onResume looks)
++        if (isFinishing && org.dolphinemu.dolphinemu.skies.isSkiesBrand(this))
++            org.dolphinemu.dolphinemu.skies.SkiesDriverGuard.onCleanExit(applicationContext)
++    }
++
+     override fun onStop() {
+         super.onStop()
+         settings.saveSettings()
+@@ -322,8 +329,17 @@ class EmulationActivity : AppCompatActivity(), ThemeProvider {
+     fun onTitleChanged() {
+         if (!menuToastShown) {
+             // The reason why this doesn't run earlier is because we want to be sure the boot succeeded.
+-            Toast.makeText(this, R.string.emulation_menu_help, Toast.LENGTH_LONG).show()
++            // Skies Recomp: its own hint (Dolphin's Back menu is cut down to pause / overlay / exit)
++            val help = if (org.dolphinemu.dolphinemu.skies.isSkiesBrand(this))
++                R.string.skies_emulation_menu_help else R.string.emulation_menu_help
++            Toast.makeText(this, help, Toast.LENGTH_LONG).show()
+             menuToastShown = true
++            // Skies Recomp: a kept custom GPU driver has proven itself after 30 s of play
++            if (org.dolphinemu.dolphinemu.skies.isSkiesBrand(this)) {
++                window.decorView.postDelayed({
++                    org.dolphinemu.dolphinemu.skies.SkiesDriverGuard.onSurvived(applicationContext)
++                }, 30_000)
++            }
+         }
+ 
+         try {
+@@ -514,7 +530,10 @@ class EmulationActivity : AppCompatActivity(), ThemeProvider {
+ 
+             MENU_SET_IR_MODE -> setIRMode()
+             MENU_ACTION_CHOOSE_DOUBLETAP -> chooseDoubleTapButton()
+-            MENU_ACTION_SETTINGS -> SettingsActivity.launch(this, MenuTag.SETTINGS)
++            // Skies Recomp: Dolphin's settings are never opened (the game's own menu has the ones
++            // that apply); the menu item is hidden too, this is the backstop
++            MENU_ACTION_SETTINGS -> if (!org.dolphinemu.dolphinemu.skies.isSkiesBrand(this))
++                SettingsActivity.launch(this, MenuTag.SETTINGS)
+             MENU_ACTION_SKYLANDERS -> showSkylanderPortalSettings()
+             MENU_ACTION_INFINITY_BASE -> showInfinityBaseSettings()
+             MENU_ACTION_EXIT -> emulationFragment!!.stopEmulation()
+@@ -858,7 +877,7 @@ class EmulationActivity : AppCompatActivity(), ThemeProvider {
+             }
+         }
+ 
+-        MaterialAlertDialogBuilder(this)
++        val dialog = MaterialAlertDialogBuilder(this)
+             .setTitle(R.string.emulation_choose_controller)
+             .setSingleChoiceItems(
+                 entries.toArray(arrayOf<CharSequence>()), checkedItem
+@@ -867,10 +886,13 @@ class EmulationActivity : AppCompatActivity(), ThemeProvider {
+                 emulationFragment?.refreshInputOverlay()
+             }
+             .setPositiveButton(R.string.ok, null)
+-            .setNeutralButton(
++        // Skies Recomp: no way into Dolphin's full settings from the game
++        if (!org.dolphinemu.dolphinemu.skies.isSkiesBrand(this)) {
++            dialog.setNeutralButton(
+                 R.string.emulation_more_controller_settings
+             ) { _: DialogInterface?, _: Int -> SettingsActivity.launch(this, MenuTag.SETTINGS) }
+-            .show()
++        }
++        dialog.show()
+     }
+ 
+     private fun setIRMode() {
+@@ -1094,23 +1116,29 @@ class EmulationActivity : AppCompatActivity(), ThemeProvider {
+         }
+ 
+         @JvmStatic
+-        fun launch(activity: FragmentActivity, filePaths: Array<String>, riivolution: Boolean, fromIntent: Boolean = false) {
++        fun launch(activity: FragmentActivity, filePaths: Array<String>, riivolution: Boolean, fromIntent: Boolean = false,
++                   beforeStart: Runnable? = null) {
+             if (ignoreLaunchRequests)
+                 return
+ 
+-            performLaunchChecks(activity, fromIntent) { launchWithoutChecks(activity, filePaths, riivolution) }
++            performLaunchChecks(activity, fromIntent) { launchWithoutChecks(activity, filePaths, riivolution, beforeStart) }
+         }
+ 
++        // Skies Recomp: beforeStart runs only when the launch goes ahead (not on a dropped double
++        // tap), for what must match a game that really starts
+         @JvmStatic
+-        fun launch(activity: FragmentActivity, filePath: String, riivolution: Boolean, fromIntent: Boolean = false) =
+-            launch(activity, arrayOf(filePath), riivolution, fromIntent)
++        fun launch(activity: FragmentActivity, filePath: String, riivolution: Boolean, fromIntent: Boolean = false,
++                   beforeStart: Runnable? = null) =
++            launch(activity, arrayOf(filePath), riivolution, fromIntent, beforeStart)
+ 
+         private fun launchWithoutChecks(
+             activity: FragmentActivity,
+             filePaths: Array<String>,
+-            riivolution: Boolean
++            riivolution: Boolean,
++            beforeStart: Runnable? = null
+         ) {
+             ignoreLaunchRequests = true
++            beforeStart?.run()
+             val launcher = Intent(activity, EmulationActivity::class.java)
+             launcher.putExtra(EXTRA_SELECTED_GAMES, filePaths)
+             launcher.putExtra(EXTRA_RIIVOLUTION, riivolution)
+@@ -1122,7 +1150,12 @@ class EmulationActivity : AppCompatActivity(), ThemeProvider {
+                 if (fromIntent) {
+                     activity.finish()
+                 }
+-                if (!FileBrowserHelper.isPathEmptyOrValid(StringSetting.MAIN_DEFAULT_ISO) ||
++                // Skies Recomp: the paths these check are Dolphin's game list / dump / SD card
++                // folders, which the branded app never sets; their fix-it dialogs open Dolphin's
++                // settings, which it doesn't show
++                if (org.dolphinemu.dolphinemu.skies.isSkiesBrand(activity)) {
++                    continueCallback.run()
++                } else if (!FileBrowserHelper.isPathEmptyOrValid(StringSetting.MAIN_DEFAULT_ISO) ||
+                     !FileBrowserHelper.isPathEmptyOrValid(StringSetting.MAIN_FS_PATH) ||
+                     !FileBrowserHelper.isPathEmptyOrValid(StringSetting.MAIN_DUMP_PATH) ||
+                     !FileBrowserHelper.isPathEmptyOrValid(StringSetting.MAIN_LOAD_PATH) ||
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/features/DocumentProvider.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/features/DocumentProvider.kt
+index 6705d9e71e..3f14975b90 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/features/DocumentProvider.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/features/DocumentProvider.kt
+@@ -27,6 +27,11 @@ import java.io.FileNotFoundException
+ 
+ @TargetApi(Build.VERSION_CODES.N)
+ class DocumentProvider : DocumentsProvider() {
++    // Skies Recomp: the app's own icon in the Files app instead of Dolphin's
++    private val itemIcon: Int
++        get() = context?.takeIf { org.dolphinemu.dolphinemu.skies.isSkiesBrand(it) }
++            ?.applicationInfo?.icon ?: R.drawable.ic_dolphin
++
+     private var rootDirectory: File? = null
+ 
+     companion object {
+@@ -62,7 +67,7 @@ class DocumentProvider : DocumentsProvider() {
+         result.newRow().apply {
+             add(DocumentsContract.Root.COLUMN_ROOT_ID, ROOT_ID)
+             add(DocumentsContract.Root.COLUMN_TITLE, context!!.getString(R.string.app_name_suffixed))
+-            add(DocumentsContract.Root.COLUMN_ICON, R.drawable.ic_dolphin)
++            add(DocumentsContract.Root.COLUMN_ICON, itemIcon)
+             add(
+                 DocumentsContract.Root.COLUMN_FLAGS,
+                 DocumentsContract.Root.FLAG_SUPPORTS_CREATE or DocumentsContract.Root.FLAG_SUPPORTS_RECENTS or DocumentsContract.Root.FLAG_SUPPORTS_SEARCH or DocumentsContract.Root.FLAG_LOCAL_ONLY or DocumentsContract.Root.FLAG_SUPPORTS_IS_CHILD
+@@ -130,7 +135,7 @@ class DocumentProvider : DocumentsProvider() {
+         rootDirectory ?: return null
+ 
+         val folder = documentIdToPath(parentDocumentId)
+-        val file = findFileNameForNewFile(File(folder, displayName))
++        val file = findFileNameForNewFile(File(folder, checkedName(displayName)))
+         if (mimeType == DocumentsContract.Document.MIME_TYPE_DIR) {
+             file.mkdirs()
+         } else {
+@@ -153,7 +158,7 @@ class DocumentProvider : DocumentsProvider() {
+         rootDirectory ?: return null
+ 
+         val file = documentIdToPath(documentId)
+-        val dest = findFileNameForNewFile(File(file.parentFile, displayName))
++        val dest = findFileNameForNewFile(File(file.parentFile, checkedName(displayName)))
+         file.renameTo(dest)
+         refreshDocument(pathToDocumentId(file.parentFile!!))
+         return pathToDocumentId(dest)
+@@ -168,8 +173,17 @@ class DocumentProvider : DocumentsProvider() {
+         context!!.contentResolver.notifyChange(parentUri, null)
+     }
+ 
++    // Skies Recomp: whole path segments ("root/Config2" isn't inside "root/Config")
+     override fun isChildDocument(parentDocumentId: String, documentId: String): Boolean
+-        = documentId.startsWith(parentDocumentId)
++        = documentId.startsWith(parentDocumentId.trimEnd('/') + "/")
++
++    // Skies Recomp: a plain name, so a new or renamed file stays in its folder
++    private fun checkedName(displayName: String): String {
++        if (displayName.isEmpty() || displayName == "." || displayName == ".." ||
++            displayName.contains('/') || displayName.contains('\u0000'))
++            throw FileNotFoundException("Invalid file name $displayName")
++        return displayName
++    }
+ 
+     private fun appendDocument(file: File, cursor: MatrixCursor) {
+         var flags = 0
+@@ -201,7 +215,7 @@ class DocumentProvider : DocumentsProvider() {
+             add(DocumentsContract.Document.COLUMN_FLAGS, flags)
+             add(DocumentsContract.Document.COLUMN_SIZE, file.length())
+             if (file == rootDirectory) {
+-                add(DocumentsContract.Document.COLUMN_ICON, R.drawable.ic_dolphin)
++                add(DocumentsContract.Document.COLUMN_ICON, itemIcon)
+             }
+         }
+     }
+@@ -212,6 +226,12 @@ class DocumentProvider : DocumentsProvider() {
+ 
+     private fun documentIdToPath(documentId: String): File {
+         val file = File(rootDirectory, documentId.substring("$ROOT_ID/".lastIndex))
++        // Skies Recomp: only the user folder ("..", or a link out of it, doesn't leave it)
++        val root = rootDirectory!!.canonicalFile
++        val canonical = file.canonicalFile
++        if (canonical != root && !canonical.path.startsWith(root.path + File.separator)) {
++            throw FileNotFoundException("File $documentId is outside the user folder.")
++        }
+         if (!file.exists()) {
+             throw FileNotFoundException("File $documentId does not exist.")
+         }
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/fragments/EmulationFragment.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/fragments/EmulationFragment.kt
+index e4698ba43c..4adef990cc 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/fragments/EmulationFragment.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/fragments/EmulationFragment.kt
+@@ -219,7 +219,13 @@ class EmulationFragment : Fragment(), SurfaceHolder.Callback {
+                     val paths = requireNotNull(gamePaths) {
+                         "Cannot start emulation without any game paths"
+                     }
+-                    NativeLibrary.Run(paths, riivolution)
++                    val state = pendingStatePath
++                    pendingStatePath = null
++                    if (state != null) {
++                        NativeLibrary.Run(paths, riivolution, state, false)
++                    } else {
++                        NativeLibrary.Run(paths, riivolution)
++                    }
+                 }
+                 EmulationActivity.stopIgnoringLaunchRequests()
+             }, "NativeEmulation")
+@@ -238,6 +244,11 @@ class EmulationFragment : Fragment(), SurfaceHolder.Callback {
+         get() = "${requireContext().filesDir}${File.separator}temp.sav"
+ 
+     companion object {
++        // Skies Recomp's launcher (skies/SkiesLauncherActivity.kt): boot into this savestate once
++        // (Continue), like the desktop runner's --load-state.
++        @JvmStatic
++        var pendingStatePath: String? = null
++
+         private const val KEY_GAMEPATHS = "gamepaths"
+         private const val KEY_RIIVOLUTION = "riivolution"
+         private const val KEY_SYSTEM_MENU = "systemMenu"
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/fragments/MenuFragment.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/fragments/MenuFragment.kt
+index 6bf9c7c147..e784c2c9ca 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/fragments/MenuFragment.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/fragments/MenuFragment.kt
+@@ -70,6 +70,23 @@ class MenuFragment : Fragment(), View.OnClickListener {
+             binding.menuInfinityBase.visibility = View.GONE
+         }
+ 
++        // Skies Recomp: no Dolphin settings, screenshots, disc swap or Dolphin's own savestate slots
++        // (the game's menu, hold Z + Start, has the settings and save states); pause, the touch
++        // overlay and exit stay.
++        if (org.dolphinemu.dolphinemu.skies.isSkiesBrand(requireContext())) {
++            // Plain words for players
++            binding.menuPauseEmulation.text = "Pause"
++            binding.menuUnpauseEmulation.text = "Resume"
++            binding.menuOverlayControls.text = "Touch Controls"
++            binding.menuExit.text = "Exit Game"
++            for (item in listOf(binding.menuTakeScreenshot, binding.menuQuicksave, binding.menuQuickload,
++                binding.menuEmulationSaveRoot, binding.menuEmulationLoadRoot, binding.menuSettings,
++                binding.menuRefreshWiimotes, binding.menuChangeDisc, binding.menuSkylanders,
++                binding.menuInfinityBase)) {
++                item.visibility = View.GONE
++            }
++        }
++
+         val options = binding.layoutOptions
+         for (childIndex in 0 until options.childCount) {
+             val button = options.getChildAt(childIndex) as Button
+@@ -116,7 +133,9 @@ class MenuFragment : Fragment(), View.OnClickListener {
+         super.onResume()
+         val savestatesEnabled = BooleanSetting.MAIN_ENABLE_SAVESTATES.boolean
+         val hardcoreEnabled = AchievementModel.isHardcoreModeActive()
+-        val savestateVisibility = if (savestatesEnabled) View.VISIBLE else View.GONE
++        // Skies Recomp: its states live in the game's menu, not Dolphin's slots
++        val savestateVisibility = if (savestatesEnabled &&
++            !org.dolphinemu.dolphinemu.skies.isSkiesBrand(requireContext())) View.VISIBLE else View.GONE
+         binding.menuQuicksave.visibility = savestateVisibility
+         binding.menuQuickload.visibility = savestateVisibility
+         binding.menuEmulationSaveRoot.visibility = savestateVisibility
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesDriverGuard.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesDriverGuard.kt
+new file mode 100644
+index 0000000000..e24d4e47aa
+--- /dev/null
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesDriverGuard.kt
+@@ -0,0 +1,136 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++package org.dolphinemu.dolphinemu.skies
++
++import android.content.Context
++import android.os.Build
++import org.dolphinemu.dolphinemu.features.settings.model.NativeConfig
++import org.dolphinemu.dolphinemu.features.settings.model.Settings
++import org.dolphinemu.dolphinemu.utils.GpuDriverHelper
++import java.io.File
++
++/**
++ * A GPU driver the player chose (Dolphin's custom-driver loading, libadrenotools, Adreno only),
++ * with the crash safeguard the Goemon / Hybrid Heaven ports use: a marker is written when the game
++ * starts with a custom driver and removed when it closes normally (or, for a driver the player has
++ * kept, after 30 s of play). A marker still there when the launcher comes back means the game
++ * crashed or was closed by force with that driver, so the app goes back to the device's own driver
++ * and says why. After the first normal session with a new driver the launcher asks whether to keep
++ * it (a black screen can't ask from inside the game).
++ */
++object SkiesDriverGuard {
++    private const val PENDING = "skies-driver-boot-pending"
++    private const val KEPT = "skies-driver-kept"
++    private const val SESSION_DONE = "skies-driver-session-done"
++
++    private fun file(context: Context, name: String) = File(context.filesDir, name)
++
++    /** The custom driver's library name, "" for the device's own driver. */
++    fun selected(): String = NativeConfig.getString(NativeConfig.LAYER_BASE_OR_CURRENT,
++        Settings.FILE_GFX, "Settings", "DriverLibName", "")
++
++    fun supported(): Boolean = try {
++        GpuDriverHelper.supportsCustomDriverLoading()
++    } catch (e: UnsatisfiedLinkError) {
++        false
++    }
++
++    /** "Name version" of the installed custom driver, or null. */
++    fun customName(): String? = GpuDriverHelper.getInstalledDriverMetadata()?.let {
++        listOf(it.name, it.driverVersion).filter { s -> !s.isNullOrBlank() }.joinToString(" ")
++    }
++
++    fun isKept(context: Context): Boolean =
++        file(context, KEPT).let { it.isFile && it.readText() == selected() }
++
++    /** After a driver was installed: selected, not kept yet. */
++    fun select(context: Context, libraryName: String) {
++        NativeConfig.setString(NativeConfig.LAYER_BASE, Settings.FILE_GFX, "Settings",
++            "DriverLibName", libraryName)
++        NativeConfig.save(NativeConfig.LAYER_BASE)
++        file(context, KEPT).delete()
++        file(context, SESSION_DONE).delete()
++    }
++
++    fun useSystemDriver(context: Context) {
++        GpuDriverHelper.uninstallDriver()
++        NativeConfig.setString(NativeConfig.LAYER_BASE, Settings.FILE_GFX, "Settings",
++            "DriverLibName", "")
++        NativeConfig.save(NativeConfig.LAYER_BASE)
++        listOf(PENDING, KEPT, SESSION_DONE).forEach { file(context, it).delete() }
++    }
++
++    fun keep(context: Context) {
++        file(context, KEPT).writeText(selected())
++        file(context, SESSION_DONE).delete()
++    }
++
++    /** The game is about to start. */
++    fun onLaunch(context: Context) {
++        if (selected().isEmpty()) return
++        file(context, PENDING).writeText(selected())
++        file(context, SESSION_DONE).delete()
++    }
++
++    /** The game has run for a while: a kept driver no longer needs the marker. */
++    fun onSurvived(context: Context) {
++        if (isKept(context)) file(context, PENDING).delete()
++    }
++
++    /** The game closed normally (EmulationActivity finishing). */
++    fun onCleanExit(context: Context) {
++        if (file(context, PENDING).delete() && !isKept(context))
++            file(context, SESSION_DONE).writeText(selected())
++    }
++
++    sealed class Check {
++        object None : Check()
++        class Reverted(val driver: String) : Check()
++        class AskKeep(val driver: String) : Check()
++    }
++
++    /** The launcher is showing: what to tell the player, if anything. */
++    fun check(context: Context): Check {
++        val pending = file(context, PENDING)
++        if (pending.isFile) {
++            val name = customName() ?: pending.readText().trim()
++            useSystemDriver(context)
++            return Check.Reverted(name)
++        }
++        if (file(context, SESSION_DONE).isFile && selected().isNotEmpty() && !isKept(context))
++            return Check.AskKeep(customName() ?: selected())
++        return Check.None
++    }
++
++    /** One block of text for a bug report: app, device, Android, GPU and driver. */
++    fun deviceInfo(context: Context): String {
++        val version = try {
++            context.packageManager.getPackageInfo(context.packageName, 0).let {
++                @Suppress("DEPRECATION")
++                "${it.versionName} (${if (Build.VERSION.SDK_INT >= 28) it.longVersionCode else it.versionCode})"
++            }
++        } catch (e: Exception) {
++            "?"
++        }
++        val chip = if (Build.VERSION.SDK_INT >= 31) "${Build.SOC_MANUFACTURER} ${Build.SOC_MODEL}"
++        else Build.HARDWARE
++        val system = try {
++            GpuDriverHelper.getSystemDriverMetadata(context)
++        } catch (e: UnsatisfiedLinkError) {
++            null
++        }
++        // Only the version: Dolphin's vendor field from the driver is a bare number on Adreno
++        val gpu = system?.driverVersion?.takeIf { it.isNotBlank() } ?: "unknown"
++        val driver = if (selected().isEmpty()) "device's own" else "custom: ${customName() ?: selected()}"
++        val metrics = context.resources.displayMetrics
++        return listOf(
++            "App: Skies of Arcadia Legends $version",
++            "Device: ${Build.MANUFACTURER} ${Build.MODEL}",
++            "Chip: $chip",
++            "Android: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
++            "GPU driver (device): $gpu",
++            "GPU driver in use: $driver",
++            "Screen: ${metrics.widthPixels} x ${metrics.heightPixels}",
++        ).joinToString("\n")
++    }
++}
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
+new file mode 100644
+index 0000000000..d29322ce44
+--- /dev/null
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
+@@ -0,0 +1,713 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++package org.dolphinemu.dolphinemu.skies
++
++import android.content.Intent
++import android.graphics.Bitmap
++import android.graphics.BitmapFactory
++import android.graphics.Color
++import android.graphics.Typeface
++import android.graphics.drawable.ColorDrawable
++import android.graphics.drawable.GradientDrawable
++import android.graphics.drawable.StateListDrawable
++import android.content.res.ColorStateList
++import android.text.SpannableString
++import android.text.Spanned
++import android.text.style.ForegroundColorSpan
++import android.text.style.RelativeSizeSpan
++import android.view.View
++import android.view.WindowManager
++import android.os.Build
++import androidx.core.view.WindowCompat
++import androidx.core.view.WindowInsetsCompat
++import androidx.core.view.WindowInsetsControllerCompat
++import android.view.ViewGroup
++import android.net.Uri
++import android.os.Bundle
++import android.os.Handler
++import android.os.Looper
++import android.util.Log
++import android.view.Gravity
++import android.view.InputDevice
++import android.view.KeyEvent
++import android.widget.Button
++import android.widget.FrameLayout
++import android.widget.ImageView
++import android.widget.LinearLayout
++import android.widget.TextView
++import androidx.activity.result.contract.ActivityResultContracts
++import androidx.fragment.app.FragmentActivity
++import org.dolphinemu.dolphinemu.R
++import org.dolphinemu.dolphinemu.activities.EmulationActivity
++import org.dolphinemu.dolphinemu.features.settings.model.NativeConfig
++import org.dolphinemu.dolphinemu.features.settings.model.Settings
++import org.dolphinemu.dolphinemu.fragments.EmulationFragment
++import org.dolphinemu.dolphinemu.utils.AfterDirectoryInitializationRunner
++import org.dolphinemu.dolphinemu.utils.DirectoryInitialization
++import java.io.File
++import java.security.MessageDigest
++
++/**
++ * The branded app's home screen (built with -PskiesBrand, which makes it the launcher activity and
++ * hides Dolphin's game list): first the player's own disc is imported (SkiesNative), then Start Game,
++ * Continue (the newest save state, as on desktop), Change Disc and Settings (SkiesSettingsPanel, the
++ * same settings as the in-game menu: hold Z, press Start).
++ */
++class SkiesLauncherActivity : FragmentActivity() {
++    private companion object {
++        /** The gold of the menu highlight, as on desktop (LAUNCHER_ACCENT). */
++        val ACCENT = Color.rgb(255, 201, 74)
++
++        /** The largest file Import a save copies: a save state of at most 1 GiB plus its header. */
++        const val MAX_IMPORT_BYTES = (1L shl 30) + (1L shl 20)
++
++        /**
++         * The disc import's result for whichever launcher is showing when it ends: the import runs on
++         * its own thread and outlives the Activity that started it (rotation, dark mode, a new task).
++         * Null while none has finished unseen.
++         */
++        @Volatile
++        var importResult: String? = null
++
++        /** True from the tap until the import thread ends (the native side refuses a second one). */
++        @Volatile
++        var importRunning = false
++    }
++
++    private lateinit var message: TextView
++    private lateinit var buttons: LinearLayout
++    private lateinit var screen: FrameLayout
++    private lateinit var column: LinearLayout
++    private var settings: SkiesSettingsPanel? = null
++    private val handler = Handler(Looper.getMainLooper())
++    private var driverDialog: android.app.AlertDialog? = null
++
++    private val pickDisc =
++        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
++            if (uri != null) startImport(uri)
++        }
++
++    // A GPU driver package (Settings, Graphics): installed with Dolphin's loader, then tried
++    // (SkiesDriverGuard), and the Settings window comes back on Graphics
++    private val pickDriver =
++        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
++            if (uri != null) installDriver(uri)
++        }
++
++    // A save the player already has (Settings, Saves), after the prompt: imported, and the Settings
++    // window comes back on Saves with what happened
++    private val pickSave =
++        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
++            if (uri != null) importSave(uri)
++        }
++
++    override fun onCreate(savedInstanceState: Bundle?) {
++        super.onCreate(savedInstanceState)
++        // Laid out like the desktop launcher (and the N64 recomps'): the art across the screen,
++        // cropped from the left so the characters on its right stay in view, a scrim over the sky
++        // on the left, the title at the top left and a short menu at the bottom left.
++        val density = resources.displayMetrics.density
++        screen = FrameLayout(this).apply { setBackgroundColor(Color.rgb(16, 24, 40)) }
++        loadBackground()?.let { art ->
++            screen.addView(ImageView(this).apply {
++                setImageBitmap(art)
++                scaleType = ImageView.ScaleType.CENTER_CROP
++            }, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
++            screen.addView(View(this).apply {
++                background = GradientDrawable(
++                    GradientDrawable.Orientation.LEFT_RIGHT,
++                    intArrayOf(Color.argb(225, 6, 12, 28), Color.argb(0, 6, 12, 28))
++                )
++            }, FrameLayout.LayoutParams(
++                (resources.displayMetrics.widthPixels * 0.66f).toInt(),
++                FrameLayout.LayoutParams.MATCH_PARENT
++            ))
++        }
++        column = LinearLayout(this).apply {
++            orientation = LinearLayout.VERTICAL
++            setPadding((48 * density).toInt(), (40 * density).toInt(), (48 * density).toInt(),
++                (32 * density).toInt())
++        }
++        column.addView(TextView(this).apply {
++            text = getString(R.string.skies_subtitle)
++            textSize = 16f
++            typeface = Typeface.DEFAULT_BOLD
++            setTextColor(ACCENT)
++        })
++        column.addView(TextView(this).apply {
++            text = getString(R.string.skies_title)
++            textSize = 34f
++            typeface = Typeface.DEFAULT_BOLD
++            setTextColor(Color.WHITE)
++        })
++        column.addView(View(this), LinearLayout.LayoutParams(0, 0, 1f))
++        buttons = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
++        column.addView(buttons)
++        message = TextView(this).apply {
++            textSize = 14f
++            setTextColor(Color.argb(235, 220, 228, 242))
++            maxWidth = (resources.displayMetrics.widthPixels * 0.5f).toInt()
++            setPadding((12 * density).toInt(), (8 * density).toInt(), 0, 0)
++        }
++        column.addView(message)
++        screen.addView(column, FrameLayout.LayoutParams.MATCH_PARENT,
++            FrameLayout.LayoutParams.MATCH_PARENT)
++        setContentView(screen)
++        enableFullscreen()
++
++        message.text = getString(R.string.skies_starting)
++        DirectoryInitialization.start(this)
++        AfterDirectoryInitializationRunner().runWithLifecycle(this) {
++            installDefaults()
++            showState()
++            // A cold start after a crash lands here, not in onResume (the directories weren't ready
++            // then): the crash safeguard has to run before Start can write a new marker
++            checkDriver()
++        }
++    }
++
++    override fun onDestroy() {
++        handler.removeCallbacks(importPoll)
++        driverDialog?.dismiss()
++        super.onDestroy()
++    }
++
++    // Full screen like the game (EmulationActivity): no status or navigation bar, a swipe from an
++    // edge shows them for a moment. Again on focus, since the system file picker brings them back.
++    private fun enableFullscreen() {
++        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
++            window.attributes = window.attributes.apply {
++                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
++            }
++        }
++        WindowCompat.setDecorFitsSystemWindows(window, false)
++        WindowInsetsControllerCompat(window, window.decorView).let { controller ->
++            controller.hide(WindowInsetsCompat.Type.systemBars())
++            controller.systemBarsBehavior =
++                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
++        }
++    }
++
++    override fun onWindowFocusChanged(hasFocus: Boolean) {
++        super.onWindowFocusChanged(hasFocus)
++        if (hasFocus) enableFullscreen()
++    }
++
++    override fun onResume() {
++        super.onResume()
++        if (DirectoryInitialization.areDolphinDirectoriesReady()) {
++            showState()
++            checkDriver()
++        }
++    }
++
++    /** The home menu, or the import's progress while one runs (started here or by an earlier
++     * instance of this Activity), then its result once. */
++    private fun showState() {
++        if (importRunning) {
++            showImporting()
++            return
++        }
++        refresh()
++        importResult?.let { error ->
++            importResult = null
++            if (error.isNotEmpty()) message.text = error
++        }
++    }
++
++    /** After a game session: a custom GPU driver that crashed is undone; a new one, kept or not.
++     * Runs from both the directory callback and onResume, so it never stacks a second dialog. */
++    private fun checkDriver() {
++        if (driverDialog?.isShowing == true || importRunning) return
++        driverDialog = when (val check = SkiesDriverGuard.check(this)) {
++            is SkiesDriverGuard.Check.Reverted -> padDialog(android.app.AlertDialog.Builder(this)
++                .setTitle("Back on the device's own GPU driver")
++                .setMessage("The game didn't close normally with the GPU driver ${check.driver}, so " +
++                    "the app went back to the device's own driver. You can try another one in " +
++                    "Settings, Graphics.")
++                .setPositiveButton("OK", null))
++            is SkiesDriverGuard.Check.AskKeep -> padDialog(android.app.AlertDialog.Builder(this)
++                .setTitle("Keep this GPU driver?")
++                .setMessage("Did the game look and run right with ${check.driver}?")
++                .setPositiveButton("Keep it") { _, _ -> SkiesDriverGuard.keep(this) }
++                .setNegativeButton("Use the device's own") { _, _ ->
++                    SkiesDriverGuard.useSystemDriver(this)
++                }
++                .setCancelable(false))
++            SkiesDriverGuard.Check.None -> null
++        }
++    }
++
++    /** A dialog the pad can work: its A presses the focused button (Android's dialogs take only
++     * the D-pad's centre), B is Back. */
++    private fun padDialog(builder: android.app.AlertDialog.Builder): android.app.AlertDialog =
++        builder.setOnKeyListener { dialog, keyCode, event ->
++            if (keyCode == KeyEvent.KEYCODE_BUTTON_A && event.action == KeyEvent.ACTION_UP) {
++                (dialog as android.app.AlertDialog).currentFocus?.performClick()
++                true
++            } else false
++        }.show()
++
++    /**
++     * Settings, Saves: Import, as in the N64 recomps (Goemon 64, Hybrid Heaven). Never while the game
++     * runs: it holds the memory card in memory and writes it back, so a swapped file would be lost.
++     * The prompt says what will be replaced before the picker opens, and Cancel has the focus.
++     */
++    private fun confirmImportSave() {
++        if (org.dolphinemu.dolphinemu.NativeLibrary.IsRunning()) {
++            openSettings(mainDol.isFile, "Saves", arrayOf("Close the game first: it keeps the " +
++                "memory card in memory and would write over an imported save.", ""))
++            return
++        }
++        val hasCard = !SkiesNative.describeSaves(userDirectory.absolutePath).startsWith("Memory card: no saves")
++        val replaced = if (hasCard) "A memory card save replaces the file with the same number here. " +
++            "The one it replaces is kept beside it as a .pre-import.bak file, and can be put back by hand."
++        else "There are no memory card saves here yet, so nothing will be replaced."
++        padDialog(android.app.AlertDialog.Builder(this)
++            .setTitle("Import a save?")
++            .setMessage("Choose a memory card save (.gci, .gcs, .sav), a whole memory card (.raw, " +
++                ".gcp) or a save state from this port.\n\n$replaced\n\nA save state is added next " +
++                "to the ones you have; nothing is replaced.")
++            .setPositiveButton("Choose a file") { _, _ -> pickSave.launch(arrayOf("*/*")) }
++            .setNegativeButton("Cancel", null))
++            .getButton(android.app.AlertDialog.BUTTON_NEGATIVE)?.requestFocus()
++    }
++
++    /** Copies the picked document into the cache (a content URI has no path) and imports that. */
++    private fun importSave(uri: Uri) {
++        Thread {
++            // Its own name per import; no bigger than the largest file the import accepts (a save
++            // state of at most 1 GiB, save_import.cpp), so a huge pick can't fill the storage
++            val copy = try {
++                File.createTempFile("save-import", null, cacheDir)
++            } catch (e: java.io.IOException) {
++                handler.post { openSettings(mainDol.isFile, "Saves", arrayOf("Could not copy that file: ${e.message}", "")) }
++                return@Thread
++            }
++            val result = try {
++                contentResolver.openInputStream(uri)?.use { input ->
++                    copy.outputStream().use { output ->
++                        val buffer = ByteArray(1 shl 16)
++                        var total = 0L
++                        while (true) {
++                            val n = input.read(buffer)
++                            if (n < 0) break
++                            total += n
++                            if (total > MAX_IMPORT_BYTES) throw java.io.IOException("it is too big to be a save")
++                            output.write(buffer, 0, n)
++                        }
++                    }
++                }
++                if (org.dolphinemu.dolphinemu.NativeLibrary.IsRunning()) {
++                    arrayOf("The game started while the file was being chosen, so nothing was imported.", "")
++                } else {
++                    SkiesNative.importSave(copy.absolutePath, userDirectory.absolutePath)
++                }
++            } catch (e: Exception) {
++                arrayOf("Could not read that file: ${e.message}", "")
++            } finally {
++                copy.delete()
++            }
++            handler.post {
++                refresh()
++                openSettings(mainDol.isFile, "Saves", result)
++            }
++        }.start()
++    }
++
++    private fun installDriver(uri: Uri) {
++        message.text = "Installing the GPU driver…"
++        Thread {
++            var installed: org.dolphinemu.dolphinemu.model.GpuDriverMetadata? = null
++            val result = try {
++                contentResolver.openInputStream(uri)?.use {
++                    org.dolphinemu.dolphinemu.utils.GpuDriverHelper.installDriver(it)
++                }.also { installed = org.dolphinemu.dolphinemu.utils.GpuDriverHelper.getInstalledDriverMetadata() }
++            } catch (e: Exception) {
++                null
++            }
++            handler.post {
++                val driver = installed
++                if (result == org.dolphinemu.dolphinemu.utils.GpuDriverInstallResult.Success &&
++                    driver != null) {
++                    SkiesDriverGuard.select(this, driver.libraryName)
++                    message.text = "GPU driver ${SkiesDriverGuard.customName()} installed. Start the " +
++                        "game to try it."
++                } else {
++                    // The install removed the old driver first: back to the device's own, so the
++                    // setting doesn't name a driver that is gone
++                    SkiesDriverGuard.useSystemDriver(this)
++                    message.text = "That isn't a GPU driver package this app can use (${result ?: "unreadable"})."
++                }
++                openSettings(mainDol.isFile, "Graphics")
++            }
++        }.start()
++    }
++
++    /** The licences (assets/licenses, from the recomp repo's COPYING and release/ notices). */
++    private fun showLicences() {
++        val licences = listOf("THIRD-PARTY.md", "THIRD-PARTY-DOLPHIN.md", "COPYING").joinToString("\n\n") {
++            try {
++                assets.open("licenses/$it").bufferedReader().use { r -> r.readText() }
++            } catch (e: Exception) {
++                ""
++            }
++        }
++        val density = resources.displayMetrics.density
++        // The files are wrapped at 100 columns: join a paragraph's lines (not list items or headings)
++        val unwrapped = licences.replace(Regex("""(?<=\S)\n[ \t]*(?=[^\n \t\-#*|\d])"""), " ")
++        val body = TextView(this).apply {
++            text = unwrapped
++            textSize = 13f
++            setTextIsSelectable(false)
++            setPadding((20 * density).toInt(), (12 * density).toInt(), (20 * density).toInt(), 0)
++        }
++        padDialog(android.app.AlertDialog.Builder(this)
++            .setTitle("Licences")
++            .setView(android.widget.ScrollView(this).apply {
++                isFocusable = true
++                addView(body)
++            })
++            .setPositiveButton("Close", null))
++    }
++
++    // A pad's A button confirms like the touch screen and the D-pad's centre; with nothing focused
++    // yet (touch mode: no focus until a D-pad press) it takes the first button.
++    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
++        // The Settings window: A presses what has focus, B / Back closes a choice list or the window
++        val panel = settings
++        if (panel != null && panel.isShowing) {
++            when (event.keyCode) {
++                KeyEvent.KEYCODE_BUTTON_A -> {
++                    if (event.action == KeyEvent.ACTION_UP) currentFocus?.performClick()
++                    return true
++                }
++                KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BACK -> {
++                    if (event.action == KeyEvent.ACTION_UP) panel.back()
++                    return true
++                }
++            }
++            return super.dispatchKeyEvent(event)
++        }
++        if (event.keyCode == KeyEvent.KEYCODE_BUTTON_A) {
++            if (event.action == KeyEvent.ACTION_UP) {
++                (currentFocus as? Button ?: buttons.getChildAt(0))?.performClick()
++            }
++            return true
++        }
++        return super.dispatchKeyEvent(event)
++    }
++
++    /**
++     * The background art by I_LIKE_SONIC (assets/skies-background.png, release/launcher-background.png
++     * in the recomp repo; credited in its README.md and release/CREDITS.md), cropped to the screen's shape from the left so its right side (the characters) stays in
++     * view, as on desktop. Null without the asset.
++     */
++    private fun loadBackground(): Bitmap? {
++        val full = try {
++            assets.open("skies-background.png").use { BitmapFactory.decodeStream(it) }
++        } catch (e: Exception) {
++            null
++        } ?: return null
++        // The whole display: the launcher is full screen, so the bars' space is the art's too
++        val (screenWidth, screenHeight) = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
++            windowManager.maximumWindowMetrics.bounds.let { it.width() to it.height() }
++        } else {
++            resources.displayMetrics.let { it.widthPixels to it.heightPixels }
++        }
++        val aspect = screenWidth.toFloat() / screenHeight
++        val width = minOf(full.width, (full.height * aspect).toInt())
++        return if (width < full.width) Bitmap.createBitmap(full, full.width - width, 0, width, full.height)
++        else full
++    }
++
++    private val userDirectory get() = File(DirectoryInitialization.getUserDirectory())
++    private val gameRoot get() = File(userDirectory, "Games/GEAE8P")
++    private val mainDol get() = File(gameRoot, "sys/main.dol")
++
++    // main.dol's size and time when it was last hashed, and the answer: refresh() runs on the UI
++    // thread at every onResume, and the hash only changes when the file does
++    private var gameReadyFor: Pair<Long, Long>? = null
++    private var gameReadyResult = false
++
++    private fun gameReady(): Boolean {
++        val dol = mainDol
++        if (!dol.isFile) return false
++        val stamp = Pair(dol.length(), dol.lastModified())
++        if (stamp == gameReadyFor) return gameReadyResult
++        gameReadyResult = hashMatches(dol)
++        gameReadyFor = stamp
++        return gameReadyResult
++    }
++
++    private fun hashMatches(dol: File): Boolean {
++        val digest = MessageDigest.getInstance("SHA-256")
++        dol.inputStream().use { input ->
++            val buffer = ByteArray(1 shl 16)
++            while (true) {
++                val n = input.read(buffer)
++                if (n < 0) break
++                digest.update(buffer, 0, n)
++            }
++        }
++        val sha = digest.digest().joinToString("") { "%02x".format(it) }
++        return sha == getString(R.string.skies_dol_sha256)
++    }
++
++    /** The newest save state the in-game menu or auto-save made (Continue), or null. */
++    private fun newestState(): File? =
++        File(userDirectory, "StateSaves").listFiles { file ->
++            file.isFile && file.name.endsWith(".sav") &&
++                (file.name.startsWith("state-skies-") || file.name.startsWith("recovery-skies-"))
++        }?.maxByOrNull { it.lastModified() }
++
++    /**
++     * The game's newest memory card save (GCI folders GC/<region>/Card A|B), or null. Dolphin rewrites
++     * a .gci only when that save changed, so its time is when the game last saved.
++     */
++    private fun newestCardSave(): File? =
++        listOf("USA", "EUR", "JAP").flatMap { region ->
++            listOf("Card A", "Card B").flatMap { card ->
++                File(userDirectory, "GC/$region/$card").listFiles { file ->
++                    file.isFile && file.name.endsWith(".gci") && file.name.contains("GEAE")
++                }?.toList() ?: emptyList()
++            }
++        }.maxByOrNull { it.lastModified() }
++
++    /**
++     * The game's file number (1..3) of a card save on card A ("...SA_LEGENDS.000.gci" is file 1), or
++     * 0 when the in-game auto-load can't pick it (card B, another name).
++     */
++    private fun cardSaveFile(card: File): Int {
++        if (card.parentFile?.name != "Card A") return 0
++        val number = card.nameWithoutExtension.substringAfterLast('.', "").toIntOrNull() ?: return 0
++        return if (number in 0..2) number + 1 else 0
++    }
++
++    /** [Skies] AutoLoadCard: the card save file the game loads by itself on the next boot (0 = none). */
++    private fun setAutoLoadCard(file: Int) {
++        NativeConfig.setInt(NativeConfig.LAYER_BASE, Settings.FILE_DOLPHIN, "Skies", "AutoLoadCard", file)
++        NativeConfig.save(NativeConfig.LAYER_BASE)
++    }
++
++    /** A save state's name: the in-game menu's slots and auto-saves by their role. */
++    private fun stateText(state: File): String {
++        val stem = state.nameWithoutExtension
++        return when {
++            stem.startsWith("state-skies-slot") -> "Slot " + stem.removePrefix("state-skies-slot")
++            stem.startsWith("recovery-skies-") -> "Auto-save"
++            stem.startsWith("state-skies-import-") -> "Imported"
++            else -> stem
++        }
++    }
++
++    private fun timeText(millis: Long): String =
++        java.text.SimpleDateFormat("MMM d HH:mm", java.util.Locale.getDefault()).format(java.util.Date(millis))
++
++    private fun bundledPatch(): File {
++        val patch = File(cacheDir, "skies-widescreen.dolpatch")
++        assets.open("skies-widescreen.dolpatch").use { input ->
++            patch.outputStream().use { input.copyTo(it) }
++        }
++        return patch
++    }
++
++    private fun refresh() {
++        buttons.removeAllViews()
++        // Imported by an earlier version of the app: bring main.dol up to this version's build.
++        var repatchError = ""
++        if (mainDol.isFile && !gameReady()) {
++            repatchError = SkiesNative.repatch(
++                gameRoot.absolutePath, bundledPatch().absolutePath,
++                getString(R.string.skies_dol_sha256)
++            )
++        }
++        if (gameReady()) {
++            message.text = getString(R.string.skies_ready)
++            // Continue: the newer of the newest save state and the newest memory card save (as on
++            // desktop); a card save is loaded on the title screen, so for one it boots normally
++            val state = newestState()
++            val card = newestCardSave()
++            if (state != null && (card == null || state.lastModified() >= card.lastModified())) {
++                addButton(getString(R.string.skies_continue),
++                    "Save state: ${stateText(state)}   ${timeText(state.lastModified())}") {
++                    setAutoLoadCard(0)
++                    launch(state)
++                }
++            } else if (card != null) {
++                // The game loads it by itself this boot (SkiesMenu.cpp autoload; one shot)
++                val file = cardSaveFile(card)
++                val detail = if (file > 0) "Memory card save: file $file   ${timeText(card.lastModified())}"
++                else "Memory card save   ${timeText(card.lastModified())}   (load it on the title screen)"
++                addButton(getString(R.string.skies_continue), detail) {
++                    setAutoLoadCard(file)
++                    launch(null)
++                }
++            }
++            addButton(getString(R.string.skies_play)) {
++                setAutoLoadCard(0)
++                launch(null)
++            }
++            addButton(getString(R.string.skies_change_disc)) { pickDisc.launch(arrayOf("*/*")) }
++            addButton(getString(R.string.skies_settings)) { openSettings(true) }
++        } else {
++            message.text = repatchError.ifEmpty { getString(R.string.skies_need_disc) }
++            addButton(getString(R.string.skies_choose_disc)) { pickDisc.launch(arrayOf("*/*")) }
++            addButton(getString(R.string.skies_settings)) { openSettings(false) }
++        }
++        buttons.getChildAt(0)?.requestFocus()
++    }
++
++    // A menu item like the desktop launcher's: plain text, gold with a bullet and a fading
++    // highlight when focused (pad) or pressed (touch).
++    /** The Settings window over the home screen; the home menu can't take focus while it's open. */
++    private fun openSettings(ready: Boolean, tab: String? = null, saveResult: Array<String>? = null) {
++        settings?.close()
++        column.descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
++        val game = if (ready) getString(R.string.skies_title) + " [GEAE8P]" else null
++        settings = SkiesSettingsPanel(this, screen, game, { pickDisc.launch(arrayOf("*/*")) },
++            { pickDriver.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) },
++            { confirmImportSave() }, { showLicences() }) {
++            column.descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
++            settings = null
++            buttons.getChildAt(buttons.childCount - 1)?.requestFocus()
++        }.also {
++            if (tab != null) it.tabName = tab
++            if (saveResult != null) {
++                it.importMessage = saveResult[0]
++                it.importOk = saveResult.getOrNull(1) == "ok"
++            }
++            it.show()
++        }
++    }
++
++    private fun addButton(label: String, onClick: () -> Unit) = addButton(label, null, onClick)
++
++    /** A menu item, with [detail] as a smaller second line (like the desktop menu's). */
++    private fun addButton(label: String, detail: String?, onClick: () -> Unit) {
++        val density = resources.displayMetrics.density
++        val lit = intArrayOf(android.R.attr.state_focused)
++        val pressed = intArrayOf(android.R.attr.state_pressed)
++        val glow = { GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
++            intArrayOf(Color.argb(90, 255, 201, 74), Color.argb(0, 255, 201, 74))) }
++        val bullet = GradientDrawable().apply {
++            shape = GradientDrawable.OVAL
++            setColor(ACCENT)
++            setSize((10 * density).toInt(), (10 * density).toInt())
++        }
++        buttons.addView(Button(this).apply {
++            text = if (detail == null) label else SpannableString("$label\n$detail").apply {
++                val start = label.length + 1
++                setSpan(RelativeSizeSpan(0.58f), start, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
++                setSpan(ForegroundColorSpan(Color.argb(235, 220, 228, 242)), start, length,
++                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
++            }
++            isAllCaps = false
++            textSize = 24f
++            gravity = Gravity.START or Gravity.CENTER_VERTICAL
++            stateListAnimator = null
++            background = StateListDrawable().apply {
++                addState(lit, glow())
++                addState(pressed, glow())
++                addState(intArrayOf(), ColorDrawable(Color.TRANSPARENT))
++            }
++            setTextColor(ColorStateList(arrayOf(lit, pressed, intArrayOf()),
++                intArrayOf(ACCENT, ACCENT, Color.rgb(242, 242, 242))))
++            setCompoundDrawablesRelativeWithIntrinsicBounds(bullet, null, null, null)
++            compoundDrawablePadding = (14 * density).toInt()
++            bullet.alpha = 0
++            setOnFocusChangeListener { _, focused -> bullet.alpha = if (focused) 255 else 0 }
++            setPadding((12 * density).toInt(), (6 * density).toInt(), (12 * density).toInt(),
++                (6 * density).toInt())
++            minWidth = (340 * density).toInt()
++            isFocusable = true
++            setOnClickListener { onClick() }
++        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT,
++            LinearLayout.LayoutParams.WRAP_CONTENT))
++    }
++
++    private fun launch(state: File?) {
++        // Only for a launch that goes ahead: a stale driver marker would later read as a crash
++        EmulationActivity.launch(this, mainDol.absolutePath, false) {
++            SkiesDriverGuard.onLaunch(this)
++            EmulationFragment.pendingStatePath = state?.absolutePath
++        }
++    }
++
++    // While an import runs: its progress, then (on whichever instance is showing) the result
++    private val importPoll = object : Runnable {
++        override fun run() {
++            if (!importRunning) {
++                showState()
++                return
++            }
++            val status = SkiesNative.importStatus()
++            message.text = getString(R.string.skies_importing) +
++                if (status.isNotEmpty()) "\n" + status else ""
++            handler.postDelayed(this, 250)
++        }
++    }
++
++    private fun showImporting() {
++        settings?.close()
++        buttons.removeAllViews()
++        message.text = getString(R.string.skies_importing)
++        handler.removeCallbacks(importPoll)
++        handler.post(importPoll)
++    }
++
++    private fun startImport(uri: Uri) {
++        if (importRunning) {
++            showImporting()
++            return
++        }
++        importRunning = true
++        importResult = null
++        val patch = bundledPatch()
++        val image = uri.toString()
++        val root = gameRoot.absolutePath
++        val sha = getString(R.string.skies_dol_sha256)
++        // Only values go to the thread, never this Activity (it can be gone when the import ends)
++        Thread({
++            try {
++                importResult = SkiesNative.importDisc(image, root, patch.absolutePath, sha)
++            } finally {
++                importRunning = false
++            }
++        }, "SkiesImport").start()
++        showImporting()
++    }
++
++    /**
++     * First run: the game's ini (dual core, the idle skip) into GameSettings, and the defaults the
++     * Retroid build was tuned with, each only if the player hasn't set it.
++     */
++    private fun installDefaults() {
++        val ini = File(userDirectory, "GameSettings/GEAE8P.ini")
++        if (!ini.exists()) {
++            ini.parentFile?.mkdirs()
++            assets.open("skies-GEAE8P.ini").use { input ->
++                ini.outputStream().use { input.copyTo(it) }
++            }
++        }
++        // Every start: a controller profile Android can read (no-op once it is)
++        SkiesNative.ensurePadProfile().let { if (it.isNotEmpty()) Log.i("SkiesLauncher", it) }
++        val dolphinIni = File(userDirectory, "Config/Dolphin.ini")
++        if (dolphinIni.exists() && dolphinIni.readText().contains("[Skies]")) return
++        val base = NativeConfig.LAYER_BASE
++        val dolphin = Settings.FILE_DOLPHIN
++        NativeConfig.setString(base, dolphin, "Core", "GFXBackend", "Vulkan")
++        NativeConfig.setBoolean(base, dolphin, "DSP", "DSPThread", true)
++        NativeConfig.setBoolean(base, dolphin, "Analytics", "Enabled", false)
++        NativeConfig.setBoolean(base, dolphin, "Analytics", "PermissionAsked", true)
++        // The touch controls only when no game controller is connected.
++        NativeConfig.setBoolean(base, dolphin, "Android", "ShowInputOverlay", !hasGamepad())
++        NativeConfig.save(base)
++    }
++
++    private fun hasGamepad(): Boolean = InputDevice.getDeviceIds().any { id ->
++        val sources = InputDevice.getDevice(id)?.sources ?: 0
++        sources and InputDevice.SOURCE_GAMEPAD == InputDevice.SOURCE_GAMEPAD ||
++            sources and InputDevice.SOURCE_JOYSTICK == InputDevice.SOURCE_JOYSTICK
++    }
++}
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt
+new file mode 100644
+index 0000000000..427e4b4bf7
+--- /dev/null
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt
+@@ -0,0 +1,64 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++package org.dolphinemu.dolphinemu.skies
++
++import android.content.Context
++import org.dolphinemu.dolphinemu.R
++
++/** True in the branded app (-PskiesBrand), which hides Dolphin's own screens. */
++fun isSkiesBrand(context: Context): Boolean =
++    context.getString(R.string.skies_dol_sha256).isNotEmpty()
++
++/** Skies Recomp's first-run disc import (jni/SkiesImport.cpp). */
++object SkiesNative {
++    /**
++     * Checks [image] (a path or content URI) is Skies of Arcadia Legends (USA), extracts it to
++     * [gameRoot], patches its main.dol with the whole-file DOL patch at [patch] and checks the result
++     * against [dolSha256]. Returns "" on success, else a message for the player. Blocks: call it off
++     * the main thread.
++     */
++    @JvmStatic
++    external fun importDisc(image: String, gameRoot: String, patch: String, dolSha256: String): String
++
++    /**
++     * A game imported by an earlier version of the app: patches the original main.dol kept at import
++     * (sys/main.dol.orig) into this version's build. Returns "" on success, else a message.
++     */
++    @JvmStatic
++    external fun repatch(gameRoot: String, patch: String, dolSha256: String): String
++
++    /**
++     * Settings, Saves: imports a save the player already has (tools/save_import.cpp, the desktop
++     * launcher's code): a memory card save, a whole memory card image or a save state, told apart by
++     * contents. [file] is a copy of the picked document. Returns the message for the player and "ok"
++     * on success ("" otherwise). Call it only while the game isn't running.
++     */
++    @JvmStatic
++    external fun importSave(file: String, userDirectory: String): Array<String>
++
++    /** The saves there now, a line each: "Memory card: files 1 and 2", "Save states: 4". */
++    @JvmStatic
++    external fun describeSaves(userDirectory: String): String
++
++    /** What the import is doing now ("" when idle). */
++    @JvmStatic
++    external fun importStatus(): String
++
++    /** Controller 1's [key] in Config/GCPadNew.ini [GCPad1] (percent), or [fallback] if unset. */
++    @JvmStatic
++    external fun getPadOption(key: String, fallback: Int): Int
++
++    /**
++     * Writes [value] to each of [keys] in controller 1's existing profile. False when there is no
++     * profile yet (it appears once the game has run) or it can't be written.
++     */
++    @JvmStatic
++    external fun setPadOptions(keys: Array<String>, value: Int): Boolean
++
++    /**
++     * Gives controller 1 a stick, D-pad and triggers Android can read when its profile has Dolphin's
++     * SDL-style defaults (only the face buttons worked). What it did, or "" if nothing was needed.
++     */
++    @JvmStatic
++    external fun ensurePadProfile(): String
++}
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+new file mode 100644
+index 0000000000..7e7709f128
+--- /dev/null
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+@@ -0,0 +1,517 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++package org.dolphinemu.dolphinemu.skies
++
++import android.content.res.ColorStateList
++import android.graphics.Color
++import android.graphics.Typeface
++import android.graphics.drawable.Drawable
++import android.graphics.drawable.GradientDrawable
++import android.graphics.drawable.StateListDrawable
++import android.view.Gravity
++import android.view.KeyEvent
++import android.view.View
++import android.widget.Button
++import android.widget.FrameLayout
++import android.widget.LinearLayout
++import android.widget.ScrollView
++import android.widget.TextView
++import androidx.fragment.app.FragmentActivity
++import org.dolphinemu.dolphinemu.features.settings.model.NativeConfig
++import org.dolphinemu.dolphinemu.features.settings.model.Settings
++
++/**
++ * The branded app's Settings window, the Android twin of the desktop launcher's (tools/
++ * moderngekko_launcher.cpp): a rounded window over the dimmed home screen with tabs, each setting a
++ * label, its value and a one-line description, A- / A+ for the text size, Close. The values are the
++ * in-game menu's (VideoCommon/SkiesMenu.cpp) on the same keys, so either side shows the other's
++ * changes. Dropdowns open in place instead of a popup window, so the pad's A and B work on them;
++ * left / right on a value steps through its choices.
++ */
++class SkiesSettingsPanel(
++    private val activity: FragmentActivity,
++    private val host: FrameLayout,
++    private val gameText: String?,
++    private val onChangeDisc: () -> Unit,
++    private val onPickDriver: () -> Unit,
++    private val onImportSave: () -> Unit,
++    private val onLicences: () -> Unit,
++    private val onClosed: () -> Unit
++) {
++    private class Choice(val value: Int, val text: String)
++
++    private companion object {
++        val ACCENT = Color.rgb(255, 201, 74)
++        val DESCRIPTION = Color.rgb(168, 184, 214)
++        val FIELD = Color.rgb(26, 41, 77)
++        val FIELD_FOCUS = Color.rgb(41, 66, 118)
++        val BUTTON = Color.rgb(36, 77, 158)
++        val BUTTON_FOCUS = Color.rgb(56, 107, 204)
++        const val TEXT_SIZE_KEY = "LauncherTextSize"
++        val TABS = listOf("Graphics", "Gameplay", "Sound", "Controls", "Saves", "Disc", "About")
++
++        fun choices(vararg pairs: Pair<Int, String>) = pairs.map { Choice(it.first, it.second) }
++        val ON_OFF = choices(1 to "On", 0 to "Off")
++        // Dolphin's [Core] GFXBackend values, by index
++        val BACKEND_KEYS = listOf("Vulkan", "OGL")
++        val BACKEND = choices(0 to "Vulkan", 1 to "OpenGL ES")
++        val PICTURE = choices(1 to "Widescreen 16:9", 0 to "Original 4:3")
++        val FRAME_RATE = choices(0 to "30 fps (original)", 1 to "60 fps (interpolated)")
++        val RESOLUTION = choices(1 to "Native (480p)", 2 to "2x (720p)", 3 to "3x (1080p)",
++            4 to "4x (1440p)", 6 to "6x (4K)")
++        val MSAA = choices(1 to "Off", 2 to "2x MSAA", 4 to "4x MSAA", 8 to "8x MSAA")
++        val CAMERA = choices(1 to "Hold Z to move", 0 to "Original")
++        val SPEED = choices(1 to "Normal (Z in battle)", 2 to "2x (Z in battle)",
++            3 to "3x (Z in battle)", 4 to "4x (Z in battle)")
++        val ENCOUNTERS = choices(0 to "Off", 25 to "1/4", 50 to "1/2", 100 to "Normal",
++            200 to "2x", 400 to "4x")
++        val REWARDS = choices(0 to "Off", 50 to "1/2", 100 to "Normal", 200 to "2x", 300 to "3x",
++            400 to "4x")
++        val INVINCIBLE = choices(1 to "On (L3 / R3)", 0 to "Off (L3 / R3)")
++        val VOLUME = (0..100 step 10).map { Choice(it, if (it == 0) "0% (muted)" else "$it%") }
++        val DEAD_ZONE = (0..30 step 5).map { Choice(it, if (it == 0) "Off" else "$it%") }
++        val AUTO_SAVE = choices(0 to "Off", 5 to "Every 5 min", 10 to "Every 10 min",
++            15 to "Every 15 min", 30 to "Every 30 min")
++    }
++
++    private val density = activity.resources.displayMetrics.density
++    private var textPercent = readInt(Settings.FILE_DOLPHIN, "Skies", TEXT_SIZE_KEY, 100)
++        .let { if (it in 80..160) it else 100 }
++    private var tab = 0
++    var tabName: String
++        get() = TABS[tab]
++        set(name) { tab = TABS.indexOf(name).coerceAtLeast(0) }
++    /** Saves: the last import's message and whether it worked, shown under the saves. */
++    var importMessage = ""
++    var importOk = false
++    private var overlay: FrameLayout? = null
++    private var openList: Pair<LinearLayout, View>? = null
++
++    private val scale get() = textPercent / 100f
++    private fun dp(value: Float) = (value * density * scale).toInt()
++
++    val isShowing get() = overlay != null
++
++    fun show() {
++        overlay?.let { host.removeView(it) }
++        openList = null
++        val metrics = activity.resources.displayMetrics
++        val root = FrameLayout(activity).apply {
++            setBackgroundColor(Color.argb(150, 0, 5, 15))
++            isClickable = true
++        }
++        val card = LinearLayout(activity).apply {
++            orientation = LinearLayout.VERTICAL
++            background = GradientDrawable().apply {
++                setColor(Color.argb(242, 9, 14, 28))
++                cornerRadius = 14 * density
++                setStroke((1.5f * density).toInt(), Color.argb(56, 255, 255, 255))
++            }
++            setPadding(dp(26f), dp(20f), dp(26f), dp(16f))
++        }
++        val width = minOf(metrics.widthPixels - (48 * density).toInt(), dp(900f))
++        root.addView(card, FrameLayout.LayoutParams(width, metrics.heightPixels - (40 * density).toInt(),
++            Gravity.CENTER))
++
++        // Header: title, text size, Close
++        val header = LinearLayout(activity).apply {
++            orientation = LinearLayout.HORIZONTAL
++            gravity = Gravity.CENTER_VERTICAL
++        }
++        header.addView(text("Settings", 26f, Color.WHITE, bold = true),
++            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
++        val smaller = button("A-", BUTTON) { setTextPercent(textPercent - 10, true) }
++        smaller.isEnabled = textPercent > 80
++        header.addView(smaller)
++        header.addView(text("$textPercent%", 15f, Color.WHITE).apply {
++            setPadding(dp(10f), 0, dp(10f), 0)
++        })
++        val larger = button("A+", BUTTON) { setTextPercent(textPercent + 10, false) }
++        larger.isEnabled = textPercent < 160
++        header.addView(larger)
++        header.addView(View(activity), LinearLayout.LayoutParams(dp(18f), 1))
++        header.addView(button("Close", BUTTON) { close() }.apply { minWidth = dp(110f) })
++        card.addView(header)
++
++        // Tabs
++        val tabs = LinearLayout(activity).apply {
++            orientation = LinearLayout.HORIZONTAL
++            setPadding(0, dp(12f), 0, 0)
++        }
++        val tabButtons = TABS.mapIndexed { index, name ->
++            button(name, if (index == tab) Color.rgb(41, 87, 173) else FIELD, selected = index == tab) {
++                if (tab != index) {
++                    tab = index
++                    show()
++                }
++            }.also {
++                tabs.addView(it, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT,
++                    LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginEnd = dp(6f) })
++            }
++        }
++        // Scrolls sideways when the tabs don't fit (narrow screens, large text)
++        card.addView(android.widget.HorizontalScrollView(activity).apply {
++            isHorizontalScrollBarEnabled = false
++            addView(tabs)
++        })
++        card.addView(View(activity).apply { setBackgroundColor(Color.rgb(41, 87, 173)) },
++            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
++                maxOf(1, (1.5f * density).toInt())))
++
++        // The tab's rows
++        val rows = LinearLayout(activity).apply {
++            orientation = LinearLayout.VERTICAL
++            setPadding(0, dp(8f), 0, dp(8f))
++        }
++        fillTab(rows)
++        card.addView(ScrollView(activity).apply { addView(rows) },
++            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
++
++        host.addView(root, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
++        overlay = root
++        tabButtons[tab].requestFocus()
++    }
++
++    /** B / Back: close an open choice list, else the window. */
++    fun back() {
++        val list = openList
++        if (list != null) {
++            list.first.visibility = View.GONE
++            list.second.requestFocus()
++            openList = null
++        } else {
++            close()
++        }
++    }
++
++    fun close() {
++        overlay?.let { host.removeView(it) }
++        overlay = null
++        openList = null
++        onClosed()
++    }
++
++    private fun setTextPercent(size: Int, smaller: Boolean) {
++        textPercent = size.coerceIn(80, 160)
++        writeInt(Settings.FILE_DOLPHIN, "Skies", TEXT_SIZE_KEY, textPercent)
++        show()
++        // Keep the pad on the button that was pressed
++        overlay?.let { root ->
++            root.findViewWithTag<View>(if (smaller) "A-" else "A+")?.requestFocus()
++        }
++    }
++
++    private fun fillTab(rows: LinearLayout) {
++        val dolphin = Settings.FILE_DOLPHIN
++        val gfx = Settings.FILE_GFX
++        when (TABS[tab]) {
++            "Graphics" -> {
++                configRow(rows, "Picture", PICTURE, dolphin, "Skies", "Widescreen", 1,
++                    "Widescreen fills a 16:9 screen; Original keeps the GameCube's 4:3 picture.")
++                configRow(rows, "Frame rate", FRAME_RATE, dolphin, "Skies", "FrameMode", 0,
++                    "60 fps adds in-between frames for smoother motion. 30 fps is the original.")
++                configRow(rows, "Resolution", RESOLUTION, gfx, "Settings", "InternalResolution", 1,
++                    "Higher is sharper but needs more power. 3x matches a 1080p screen.")
++                configRow(rows, "Anti-aliasing", MSAA, gfx, "Settings", "MSAA", 1,
++                    "Smooths jagged edges. Higher settings need more power.")
++                boolRow(rows, "V-Sync", gfx, "Hardware", "VSync",
++                    "Stops screen tearing. Can add a little input delay.")
++                boolRow(rows, "Show FPS", gfx, "Settings", "ShowFPS",
++                    "Show the frame rate in a corner of the game screen.")
++                backendRow(rows)
++                if (SkiesDriverGuard.supported()) driverRows(rows)
++            }
++            "Gameplay" -> {
++                configRow(rows, "Camera", CAMERA, dolphin, "Skies", "CameraControl", 1,
++                    "Hold Z, then tilt with the C-stick and zoom with L / R. Original keeps the " +
++                        "game's fixed camera.")
++                configRow(rows, "Battle speed", SPEED, dolphin, "Skies", "BattleSpeed", 1,
++                    "Plays battles faster. Tap Z during a battle to switch speeds.")
++                configRow(rows, "Encounters", ENCOUNTERS, dolphin, "Skies", "Encounters", 100,
++                    "How often random battles happen. Off means none.")
++                configRow(rows, "EXP", REWARDS, dolphin, "Skies", "Exp", 100,
++                    "Experience from battles, for levelling up.")
++                configRow(rows, "Gold", REWARDS, dolphin, "Skies", "Gold", 100,
++                    "Gold won from battles.")
++                configRow(rows, "Magic EXP", REWARDS, dolphin, "Skies", "MagicExp", 100,
++                    "Magic experience from battles, for learning new spells.")
++                configRow(rows, "Invincible", INVINCIBLE, dolphin, "Skies", "Invincible", 0,
++                    "Keeps the party's HP and MP full. Press L3 or R3 in game to switch it.")
++            }
++            "Sound" -> configRow(rows, "Volume", VOLUME, dolphin, "DSP", "Volume", 100,
++                "Music and sound effects.")
++            "Controls" -> {
++                padRow(rows, "Stick dead zone", DEAD_ZONE,
++                    arrayOf("Main Stick/Dead Zone", "C-Stick/Dead Zone"), 0, 1,
++                    "Ignores small stick movements. Raise it if a stick drifts.")
++                padRow(rows, "Rumble", ON_OFF, arrayOf("Rumble/Motor/Range"), 100, 100,
++                    "Controller vibration.")
++            }
++            "Saves" -> {
++                configRow(rows, "Auto-save", AUTO_SAVE, dolphin, "Skies", "AutoSave", 10,
++                    "Saves your place at quiet moments. Continue picks up from the newest.")
++                savesRows(rows)
++            }
++            "Disc" -> {
++                val line = rowLine(rows, "Game")
++                line.addView(text(gameText ?: "No disc imported yet", 16f, Color.WHITE))
++                val change = button(if (gameText != null) "Change Disc" else "Select Disc", BUTTON) {
++                    close()
++                    onChangeDisc()
++                }
++                rows.addView(change, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT,
++                    LinearLayout.LayoutParams.WRAP_CONTENT).apply {
++                    marginStart = dp(200f)
++                    topMargin = dp(10f)
++                })
++                describe(rows, "Your own copy of the game: RVZ, ISO, GCM, GCZ, WIA or CISO. It is " +
++                    "copied in once and patched; the file itself isn't changed.")
++            }
++            "About" -> {
++                val info = SkiesDriverGuard.deviceInfo(activity)
++                info.lines().forEach { line ->
++                    val (label, value) = line.split(": ", limit = 2).let { it[0] to it.getOrElse(1) { "" } }
++                    rowLine(rows, label).addView(text(value, 15f, Color.WHITE))
++                }
++                val actions = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL }
++                actions.addView(button("Copy device info", BUTTON) {
++                    val clipboard = activity.getSystemService(android.content.ClipboardManager::class.java)
++                    clipboard?.setPrimaryClip(android.content.ClipData.newPlainText("Device info", info))
++                    android.widget.Toast.makeText(activity, "Device info copied", android.widget.Toast.LENGTH_SHORT).show()
++                })
++                actions.addView(View(activity), LinearLayout.LayoutParams(dp(10f), 1))
++                actions.addView(button("Licences", BUTTON) { onLicences() })
++                rows.addView(actions, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT,
++                    LinearLayout.LayoutParams.WRAP_CONTENT).apply {
++                    marginStart = dp(200f)
++                    topMargin = dp(14f)
++                })
++                describe(rows, "Something wrong? Copy the device info into your bug report: it says " +
++                    "which phone, chip and graphics driver the game ran on.")
++            }
++        }
++    }
++
++    /** Saves: Import (like the N64 recomps': the activity asks first, then opens the picker) and what's there. */
++    private fun savesRows(rows: LinearLayout) {
++        rowLine(rows, "Import a save").addView(button("Choose a save file…", BUTTON) { onImportSave() })
++        describe(rows, "Brings in a save you already have: from Dolphin, a GameCube memory card, this " +
++            "port on another device, or a backup.")
++        val userDirectory = org.dolphinemu.dolphinemu.utils.DirectoryInitialization.getUserDirectory()
++        SkiesNative.describeSaves(userDirectory).lines().forEachIndexed { index, line ->
++            if (index == 0) {
++                rowLine(rows, "Your saves").addView(text(line, 15f, Color.WHITE))
++            } else {
++                rows.addView(text(line, 15f, Color.WHITE).apply { setPadding(dp(200f), dp(4f), 0, 0) })
++            }
++        }
++        if (importMessage.isNotEmpty()) {
++            rows.addView(text(importMessage, 15f, if (importOk) ACCENT else Color.rgb(255, 115, 102)).apply {
++                setPadding(dp(200f), dp(10f), 0, 0)
++            })
++        }
++    }
++
++    /** Graphics: Vulkan (default) or OpenGL ES, the way out of a Vulkan driver that misbehaves. */
++    private fun backendRow(rows: LinearLayout) {
++        val stored = NativeConfig.getString(NativeConfig.LAYER_BASE_OR_CURRENT, Settings.FILE_DOLPHIN,
++            "Core", "GFXBackend", "Vulkan")
++        val current = BACKEND_KEYS.indexOf(stored).coerceAtLeast(0)
++        choiceRow(rows, "Renderer", BACKEND, current,
++            "Vulkan is the default. If the game crashes or draws things wrong on this device, try " +
++                "OpenGL ES. Takes effect when the game starts.") { value ->
++            NativeConfig.setString(NativeConfig.LAYER_BASE, Settings.FILE_DOLPHIN, "Core", "GFXBackend",
++                BACKEND_KEYS[value])
++            NativeConfig.save(NativeConfig.LAYER_BASE)
++            true
++        }
++    }
++
++    /** Graphics: the GPU driver (Adreno devices that can load one; Dolphin's loader). */
++    private fun driverRows(rows: LinearLayout) {
++        val custom = SkiesDriverGuard.selected().isNotEmpty()
++        val current = if (custom) {
++            (SkiesDriverGuard.customName() ?: SkiesDriverGuard.selected()) +
++                if (SkiesDriverGuard.isKept(activity)) "" else "  (being tried)"
++        } else "The device's own"
++        rowLine(rows, "GPU driver").addView(text(current, 15f, Color.WHITE))
++        val actions = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL }
++        actions.addView(button("Choose driver…", BUTTON) { onPickDriver() })
++        if (custom) {
++            actions.addView(View(activity), LinearLayout.LayoutParams(dp(10f), 1))
++            actions.addView(button("Use the device's own", BUTTON) {
++                SkiesDriverGuard.useSystemDriver(activity)
++                show()
++            })
++        }
++        rows.addView(actions, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT,
++            LinearLayout.LayoutParams.WRAP_CONTENT).apply {
++            marginStart = dp(200f)
++            topMargin = dp(8f)
++        })
++        describe(rows, "For Adreno devices, with the Vulkan renderer: a driver package (.zip, e.g. Mesa Turnip) can fix crashes " +
++            "or glitches. Unsupported; if the game doesn't start with it, the app goes back to the " +
++            "device's own driver by itself.")
++    }
++
++    // Rows
++
++    private fun configRow(rows: LinearLayout, label: String, choices: List<Choice>, file: String,
++                          section: String, key: String, fallback: Int, description: String) {
++        val current = readInt(file, section, key, fallback).let { if (it < 0) fallback else it }
++        choiceRow(rows, label, choices, current, description) { value ->
++            writeInt(file, section, key, value)
++            true
++        }
++    }
++
++    private fun boolRow(rows: LinearLayout, label: String, file: String, section: String,
++                        key: String, description: String) {
++        val current = if (NativeConfig.getBoolean(NativeConfig.LAYER_BASE_OR_CURRENT, file, section,
++                key, false)) 1 else 0
++        choiceRow(rows, label, ON_OFF, current, description) { value ->
++            NativeConfig.setBoolean(NativeConfig.LAYER_BASE, file, section, key, value != 0)
++            NativeConfig.save(NativeConfig.LAYER_BASE)
++            true
++        }
++    }
++
++    private fun padRow(rows: LinearLayout, label: String, choices: List<Choice>, keys: Array<String>,
++                       fallback: Int, scaleToIni: Int, description: String) {
++        val stored = SkiesNative.getPadOption(keys[0], fallback)
++        val current = if (scaleToIni == 100) (if (stored > 0) 1 else 0) else stored
++        choiceRow(rows, label, choices, current, description) { value ->
++            SkiesNative.setPadOptions(keys, value * scaleToIni)
++        }
++    }
++
++    /** Label, value button (opens its choices in place; left / right steps) and description. */
++    private fun choiceRow(rows: LinearLayout, label: String, choices: List<Choice>, initial: Int,
++                          description: String, write: (Int) -> Boolean) {
++        var current = initial
++        val line = rowLine(rows, label)
++        val textOf = { value: Int -> choices.firstOrNull { it.value == value }?.text ?: choices[0].text }
++        val value = button("${textOf(current)}  ▾", FIELD, focusColor = FIELD_FOCUS) {}.apply {
++            gravity = Gravity.START or Gravity.CENTER_VERTICAL
++        }
++        line.addView(value, LinearLayout.LayoutParams(dp(420f), LinearLayout.LayoutParams.WRAP_CONTENT))
++        val list = LinearLayout(activity).apply {
++            orientation = LinearLayout.VERTICAL
++            visibility = View.GONE
++            setPadding(dp(200f), dp(4f), 0, dp(4f))
++        }
++        val pick = { choice: Choice ->
++            if (choice.value == current || write(choice.value)) {
++                current = choice.value
++                value.text = "${choice.text}  ▾"
++            } else {
++                value.text = "${textOf(current)}  ▾   (start the game once first)"
++            }
++        }
++        choices.forEach { choice ->
++            list.addView(button(choice.text, FIELD, focusColor = FIELD_FOCUS) {
++                pick(choice)
++                list.visibility = View.GONE
++                openList = null
++                value.requestFocus()
++            }.apply { gravity = Gravity.START or Gravity.CENTER_VERTICAL },
++                LinearLayout.LayoutParams(dp(420f), LinearLayout.LayoutParams.WRAP_CONTENT))
++        }
++        value.setOnClickListener {
++            if (list.visibility == View.VISIBLE) {
++                list.visibility = View.GONE
++                openList = null
++            } else {
++                openList?.first?.visibility = View.GONE
++                list.visibility = View.VISIBLE
++                openList = list to value
++                val index = choices.indexOfFirst { it.value == current }.coerceAtLeast(0)
++                list.getChildAt(index)?.requestFocus()
++            }
++        }
++        value.setOnKeyListener { _, keyCode, event ->
++            val step = when (keyCode) {
++                KeyEvent.KEYCODE_DPAD_LEFT -> -1
++                KeyEvent.KEYCODE_DPAD_RIGHT -> 1
++                else -> 0
++            }
++            if (step == 0 || list.visibility == View.VISIBLE) return@setOnKeyListener false
++            if (event.action == KeyEvent.ACTION_DOWN) {
++                val index = choices.indexOfFirst { it.value == current }.coerceAtLeast(0)
++                choices.getOrNull(index + step)?.let(pick)
++            }
++            true
++        }
++        rows.addView(list)
++        describe(rows, description)
++    }
++
++    private fun rowLine(rows: LinearLayout, label: String): LinearLayout {
++        val line = LinearLayout(activity).apply {
++            orientation = LinearLayout.HORIZONTAL
++            gravity = Gravity.CENTER_VERTICAL
++            setPadding(0, dp(10f), 0, 0)
++        }
++        line.addView(text(label, 16f, Color.WHITE),
++            LinearLayout.LayoutParams(dp(200f), LinearLayout.LayoutParams.WRAP_CONTENT))
++        rows.addView(line)
++        return line
++    }
++
++    private fun describe(rows: LinearLayout, description: String) {
++        rows.addView(text(description, 13f, DESCRIPTION).apply {
++            setPadding(dp(200f), dp(3f), 0, 0)
++        })
++    }
++
++    // Widgets
++
++    private fun text(value: String, size: Float, color: Int, bold: Boolean = false) =
++        TextView(activity).apply {
++            text = value
++            textSize = size * scale
++            setTextColor(color)
++            if (bold) typeface = Typeface.DEFAULT_BOLD
++        }
++
++    private fun button(label: String, color: Int, focusColor: Int = BUTTON_FOCUS,
++                       selected: Boolean = false, onClick: () -> Unit) =
++        Button(activity).apply {
++            text = label
++            tag = label
++            isAllCaps = false
++            textSize = 15f * scale
++            stateListAnimator = null
++            minHeight = 0
++            minimumHeight = 0
++            minWidth = 0
++            minimumWidth = 0
++            setPadding(dp(14f), dp(8f), dp(14f), dp(8f))
++            background = StateListDrawable().apply {
++                addState(intArrayOf(android.R.attr.state_focused), box(focusColor, ACCENT))
++                addState(intArrayOf(android.R.attr.state_pressed), box(focusColor, ACCENT))
++                addState(intArrayOf(), box(color, if (selected) ACCENT else null))
++            }
++            setTextColor(ColorStateList(
++                arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()),
++                intArrayOf(Color.argb(110, 255, 255, 255), Color.WHITE)))
++            isFocusable = true
++            setOnClickListener { onClick() }
++        }
++
++    private fun box(color: Int, stroke: Int?): Drawable = GradientDrawable().apply {
++        setColor(color)
++        cornerRadius = 6 * density
++        if (stroke != null) setStroke((2 * density).toInt(), stroke)
++    }
++
++    // Config (Dolphin's base layer, saved at once, like the in-game menu)
++
++    private fun readInt(file: String, section: String, key: String, fallback: Int) =
++        NativeConfig.getInt(NativeConfig.LAYER_BASE_OR_CURRENT, file, section, key, fallback)
++
++    private fun writeInt(file: String, section: String, key: String, value: Int) {
++        NativeConfig.setInt(NativeConfig.LAYER_BASE, file, section, key, value)
++        NativeConfig.save(NativeConfig.LAYER_BASE)
++    }
++}
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/utils/GpuDriverHelper.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/utils/GpuDriverHelper.kt
+index 9de5378e57..c6444f6606 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/utils/GpuDriverHelper.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/utils/GpuDriverHelper.kt
+@@ -20,6 +20,8 @@ import java.io.File
+ import java.io.InputStream
+ 
+ private const val GPU_DRIVER_META_FILE = "meta.json"
++// Skies Recomp: the most a driver package may unpack to (real ones are a few tens of MB)
++private const val MAX_DRIVER_PACKAGE_BYTES = 256L shl 20
+ 
+ interface GpuDriverHelper {
+     companion object {
+@@ -65,9 +67,11 @@ interface GpuDriverHelper {
+                 return null;
+             }
+ 
++            // Skies Recomp: any bad meta.json (deserialize also throws IllegalArgumentException),
++            // or every screen naming the driver crashes
+             return try {
+                 GpuDriverMetadata.deserialize(metadataFile)
+-            } catch (e: SerializationException) {
++            } catch (e: Exception) {
+                 null
+             }
+         }
+@@ -104,7 +108,7 @@ interface GpuDriverHelper {
+ 
+             val driverDir = File(DirectoryInitialization.getExtractedDriverDirectory())
+             try {
+-                ZipUtils.unzip(stream, driverDir)
++                ZipUtils.unzip(stream, driverDir, MAX_DRIVER_PACKAGE_BYTES)
+             } catch (e: Exception) {
+                 e.printStackTrace()
+                 uninstallDriver()
+@@ -121,7 +125,14 @@ interface GpuDriverHelper {
+             // Check that the driver metadata is valid
+             val driverMetadata = try {
+                 GpuDriverMetadata.deserialize(metadataFile)
+-            } catch (e: SerializationException) {
++            } catch (e: Exception) {
++                uninstallDriver()
++                return GpuDriverInstallResult.InvalidMetadata
++            }
++            // Skies Recomp: a plain file name in the package's own folder
++            if (!driverMetadata.libraryName.matches(Regex("[A-Za-z0-9._-]+")) ||
++                driverMetadata.libraryName.startsWith(".") ||
++                !File(driverDir, driverMetadata.libraryName).isFile) {
+                 uninstallDriver()
+                 return GpuDriverInstallResult.InvalidMetadata
+             }
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/utils/ZipUtils.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/utils/ZipUtils.kt
+index 8ca09fb868..a9b3ea8098 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/utils/ZipUtils.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/utils/ZipUtils.kt
+@@ -56,10 +56,12 @@ interface ZipUtils {
+          * This results in ~8x the amount of JNI calls, producing an increased number of array bounds checking, which kills performance.
+          * Usage of this method is discouraged when possible, [unzip] should be used instead.
+          * Nevertheless, it's the only option when extracting zips obtained from content URIs, as a [File] object cannot be obtained from them.
++         * @param maxBytes Skies Recomp: the most it may write in all (a zip bomb would fill the app's storage)
+          * @exception IOException if unzipping fails for any reason
+          */
+         @Throws(IOException::class)
+-        fun unzip(stream : InputStream, targetDirectory : File) {
++        fun unzip(stream : InputStream, targetDirectory : File, maxBytes : Long = Long.MAX_VALUE) {
++            var written = 0L
+             ZipInputStream(BufferedInputStream(stream)).use { zis ->
+                 do {
+                     // Get the next entry, break if we've reached the end
+@@ -79,7 +81,17 @@ interface ZipUtils {
+ 
+                     // Copy bytes to destination
+                     try {
+-                        BufferedOutputStream(destFile.outputStream()).use { zis.copyTo(it) }
++                        BufferedOutputStream(destFile.outputStream()).use { out ->
++                            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
++                            while (true) {
++                                val read = zis.read(buffer)
++                                if (read < 0) break
++                                written += read
++                                if (written > maxBytes)
++                                    throw IOException("Archive unpacks to more than $maxBytes bytes")
++                                out.write(buffer, 0, read)
++                            }
++                        }
+                     } catch (e : IOException) {
+                         if (destFile.exists())
+                             destFile.delete()
+diff --git a/Source/Android/app/src/main/res/values/skies_strings.xml b/Source/Android/app/src/main/res/values/skies_strings.xml
+new file mode 100644
+index 0000000000..f3e17ce993
+--- /dev/null
++++ b/Source/Android/app/src/main/res/values/skies_strings.xml
+@@ -0,0 +1,17 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- Skies Recomp, the branded app (skies/SkiesLauncherActivity.kt, built with -PskiesBrand). -->
++<resources>
++    <string name="skies_app_name" translatable="false">Skies of Arcadia Legends</string>
++    <string name="skies_subtitle" translatable="false">Skies of Arcadia Legends: Recompiled</string>
++    <string name="skies_title" translatable="false">Skies of Arcadia Legends</string>
++    <string name="skies_starting" translatable="false">Starting…</string>
++    <string name="skies_need_disc" translatable="false">To play, choose your own copy of Skies of Arcadia Legends for the GameCube (USA). ISO, GCM, RVZ, WIA, GCZ and CISO disc images work. It is copied into the app once and patched; the image itself isn\'t changed.</string>
++    <string name="skies_importing" translatable="false">Importing your disc. This takes a minute or two.</string>
++    <string name="skies_ready" translatable="false">Settings are here and in the game (hold Z, press Start).</string>
++    <string name="skies_play" translatable="false">Start Game</string>
++    <string name="skies_continue" translatable="false">Continue</string>
++    <string name="skies_change_disc" translatable="false">Change Disc</string>
++    <string name="skies_settings" translatable="false">Settings</string>
++    <string name="skies_choose_disc" translatable="false">Select Disc</string>
++    <string name="skies_emulation_menu_help" translatable="false">Back: pause and exit. Hold Z and press Start: the game\'s settings.</string>
++</resources>
+diff --git a/Source/Android/app/src/skies/AndroidManifest.xml b/Source/Android/app/src/skies/AndroidManifest.xml
+new file mode 100644
+index 0000000000..7626aaf47a
+--- /dev/null
++++ b/Source/Android/app/src/skies/AndroidManifest.xml
+@@ -0,0 +1,22 @@
++<!-- Skies Recomp, the branded app only (-PskiesBrand; merged over src/main's manifest for both build
++     types): no permissions it doesn't use. It has no netplay, online features or microphone, isn't
++     a TV channel app, and keeps its user folder in the app's own storage (without the legacy
++     storage permission Dolphin can't pick the shared dolphin-emu folder on Android 10 and older). -->
++<manifest xmlns:android="http://schemas.android.com/apk/res/android"
++    xmlns:tools="http://schemas.android.com/tools">
++
++    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove"/>
++    <uses-permission android:name="android.permission.INTERNET" tools:node="remove"/>
++    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" tools:node="remove"/>
++    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" tools:node="remove"/>
++    <uses-permission android:name="com.android.providers.tv.permission.READ_EPG_DATA" tools:node="remove"/>
++    <uses-permission android:name="com.android.providers.tv.permission.WRITE_EPG_DATA" tools:node="remove"/>
++    <uses-permission android:name="android.permission.RECORD_AUDIO" tools:node="remove"/>
++
++    <application
++        android:requestLegacyExternalStorage="false"
++        android:preserveLegacyExternalStorage="false"
++        tools:replace="android:requestLegacyExternalStorage,android:preserveLegacyExternalStorage">
++        <profileable tools:node="remove"/>
++    </application>
++</manifest>
+diff --git a/Source/Android/jni/CMakeLists.txt b/Source/Android/jni/CMakeLists.txt
+index 40349d82bc..5e1f4249fc 100644
+--- a/Source/Android/jni/CMakeLists.txt
++++ b/Source/Android/jni/CMakeLists.txt
+@@ -52,13 +52,24 @@ target_include_directories(main PRIVATE ${CMAKE_SOURCE_DIR}/GXRuntime/include)
+ 
+ # moderngekko-run's automation directory (jni/Automation.cpp), driven by tools/drive.py over adb.
+ # The command parser is ModernGekko's own, so the protocol stays identical across platforms.
++# Debug builds only (app/build.gradle.kts turns it on): it reads and writes guest memory and
++# config, and any app with access to the user folder could switch it on in a shipped APK.
++option(DOLPHIN_ANDROID_AUTOMATION_BUILD "Build the automation directory protocol" OFF)
+ set(MODERNGEKKO_TOOLS_DIR ${CMAKE_SOURCE_DIR}/../../tools)
+-if(EXISTS ${MODERNGEKKO_TOOLS_DIR}/automation_protocol.cpp)
++if(DOLPHIN_ANDROID_AUTOMATION_BUILD AND EXISTS ${MODERNGEKKO_TOOLS_DIR}/automation_protocol.cpp)
+   target_sources(main PRIVATE Automation.cpp ${MODERNGEKKO_TOOLS_DIR}/automation_protocol.cpp)
+   target_include_directories(main PRIVATE ${MODERNGEKKO_TOOLS_DIR})
+   target_compile_definitions(main PRIVATE DOLPHIN_ANDROID_AUTOMATION=1)
+ endif()
+ 
++# Skies Recomp (the branded app): first-run disc import (jni/SkiesImport.cpp) with ModernGekko's
++# whole-file DOL patch code and save import, the same the desktop launcher uses.
++if(EXISTS ${MODERNGEKKO_TOOLS_DIR}/dol_patch.cpp)
++  target_sources(main PRIVATE SkiesImport.cpp ${MODERNGEKKO_TOOLS_DIR}/dol_patch.cpp
++                 ${MODERNGEKKO_TOOLS_DIR}/disc_extract.cpp ${MODERNGEKKO_TOOLS_DIR}/save_import.cpp)
++  target_include_directories(main PRIVATE ${MODERNGEKKO_TOOLS_DIR} ${MODERNGEKKO_TOOLS_DIR}/../include)
++endif()
++
+ target_link_libraries(main
+ PRIVATE
+   android
+diff --git a/Source/Android/jni/SkiesImport.cpp b/Source/Android/jni/SkiesImport.cpp
+new file mode 100644
+index 0000000000..64d4077185
+--- /dev/null
++++ b/Source/Android/jni/SkiesImport.cpp
+@@ -0,0 +1,332 @@
++// Skies Recomp (the branded Android app): first-run import of the player's own disc. The same steps
++// as the desktop launcher (ModernGekko tools/moderngekko_launcher.cpp, ExtractDisc): check that the
++// image is Skies of Arcadia Legends (USA, GEAE8P, revision 0), extract it into a game folder, turn its
++// main.dol into the game build the APK's module was made from with the bundled whole-file DOL patch
++// (which checks the input and output SHA-256 itself), and only then move the folder into place.
++
++#include <jni.h>
++
++#include <atomic>
++#include <cctype>
++#include <cstdint>
++#include <filesystem>
++#include <memory>
++#include <mutex>
++#include <span>
++#include <string>
++#include <system_error>
++
++#include "Common/FileUtil.h"
++#include "Common/IniFile.h"
++#include "Common/StringUtil.h"
++#include "DiscIO/DiscExtractor.h"
++#include "InputCommon/ControllerInterface/ControllerInterface.h"
++#include "DiscIO/Filesystem.h"
++#include "DiscIO/Volume.h"
++#include "disc_extract.hpp"
++#include "dol_patch.hpp"
++#include "jni/AndroidCommon/AndroidCommon.h"
++#include "moderngekko/sha256.hpp"
++#include "save_import.hpp"
++
++namespace fs = std::filesystem;
++
++namespace
++{
++constexpr const char* SKIES_GAME_ID = "GEAE8P";
++
++std::mutex s_status_lock;
++std::string s_status;
++
++void SetStatus(std::string status)
++{
++  std::lock_guard lock(s_status_lock);
++  s_status = std::move(status);
++}
++
++// Patches main.dol in place and checks the result. Returns "" or what went wrong.
++std::string PatchDol(const fs::path& dol, const fs::path& patch, const std::string& expected_sha256)
++{
++  bool changed = false;
++  std::string error;
++  if (!moderngekko::frontend::ApplyDolPatchManifest(dol, patch, &changed, &error))
++    return "Patching main.dol failed: " + error;
++  const std::optional<std::string> sha = moderngekko::Sha256File(dol);
++  if (!sha || *sha != expected_sha256)
++    return "The patched main.dol isn't the build this app was made for.";
++  return "";
++}
++
++// A game imported by an earlier version of the app: its main.dol is that version's build, so
++// patch the original kept beside it (main.dol.orig) into this version's. "" on success.
++std::string Repatch(const fs::path& game_root, const fs::path& patch,
++                    const std::string& expected_dol_sha256)
++{
++  const fs::path original = game_root / "sys" / "main.dol.orig";
++  const fs::path staged = game_root / "sys" / "main.dol.new";
++  std::error_code ec;
++  if (!fs::exists(original, ec))
++    return "This game was imported by an older version: choose the disc image again.";
++  fs::copy_file(original, staged, fs::copy_options::overwrite_existing, ec);
++  if (ec)
++    return "Can't copy main.dol: " + ec.message();
++  if (std::string error = PatchDol(staged, patch, expected_dol_sha256); !error.empty())
++  {
++    fs::remove(staged, ec);
++    return error;
++  }
++  fs::rename(staged, game_root / "sys" / "main.dol", ec);
++  return ec ? "Can't update main.dol: " + ec.message() : "";
++}
++
++// Returns "" on success, else what went wrong (shown to the player). The working install, if any,
++// is only replaced once the new one is complete and patched; a failure leaves it and removes the
++// staging folder.
++std::string ImportDiscStaged(const std::string& image, const fs::path& game_root,
++                             const fs::path& staging, const fs::path& patch,
++                             const std::string& expected_dol_sha256)
++{
++  SetStatus("Reading the disc image");
++  const std::unique_ptr<DiscIO::Volume> volume = DiscIO::CreateVolume(image);
++  if (!volume)
++    return "That file isn't a GameCube disc image this app can read.";
++  const std::string id = volume->GetGameID();
++  if (id != SKIES_GAME_ID)
++  {
++    return "That disc is " + (id.empty() ? std::string("unknown") : id) +
++           ". This port needs Skies of Arcadia Legends for the GameCube, USA version (GEAE8P).";
++  }
++  if (volume->GetRevision().value_or(0) != 0)
++    return "That's a later revision of the disc; this port needs the original USA release.";
++
++  const DiscIO::Partition partition = volume->GetGamePartition();
++  const DiscIO::FileSystem* filesystem = volume->GetFileSystem(partition);
++  if (!filesystem || !filesystem->IsValid())
++    return "The disc image's file system can't be read.";
++
++  // Every name on the disc is checked before anything is written (a crafted image could otherwise
++  // write outside the game folder), and the game has to fit beside the old import
++  std::uint64_t game_bytes = 0;
++  std::size_t game_files = 0;
++  if (std::string problem = moderngekko::frontend::CheckDiscFileNames(filesystem->GetRoot(),
++                                                                       &game_bytes, &game_files);
++      !problem.empty())
++  {
++    return "This disc image can't be used: " + problem + ".";
++  }
++  constexpr std::uint64_t SYSTEM_DATA_MARGIN = 64ull << 20;
++  if (std::string error; !moderngekko::frontend::HasFreeSpace(
++          game_root.parent_path(), game_bytes + SYSTEM_DATA_MARGIN, &error))
++  {
++    error[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(error[0])));
++    return error + ".";
++  }
++
++  std::error_code ec;
++  fs::remove_all(staging, ec);
++  ec.clear();
++  fs::create_directories(staging / "files", ec);
++  if (ec)
++    return "Can't create " + staging.string() + ": " + ec.message();
++
++  SetStatus("Copying the disc's system data");
++  if (!DiscIO::ExportSystemData(*volume, partition, staging.string()))
++    return "Copying the disc's system data failed.";
++  SetStatus("Copying the game files");
++  if (std::string error; !moderngekko::frontend::ExportDiscFiles(
++          *volume, partition, filesystem->GetRoot(), (staging / "files").string(),
++          [](const std::string& path) { SetStatus("Copying " + path); }, &error))
++  {
++    return "Copying the game files failed: " + error + ".";
++  }
++
++  SetStatus("Patching the game");
++  // The original stays beside it, so a later version of the app can patch it again (Repatch).
++  const fs::path dol = staging / "sys" / "main.dol";
++  fs::copy_file(dol, staging / "sys" / "main.dol.orig", fs::copy_options::overwrite_existing, ec);
++  if (ec)
++    return "Can't keep a copy of main.dol: " + ec.message();
++  if (std::string error = PatchDol(dol, patch, expected_dol_sha256); !error.empty())
++    return error;
++
++  SetStatus("Finishing");
++  if (std::string error; !moderngekko::frontend::ReplaceDirectory(staging, game_root, &error))
++    return "Can't move the game into place: " + error;
++  return "";
++}
++
++// One import at a time, whatever the Activity does (it can be recreated, or a second one started,
++// while this runs on its thread).
++std::atomic<bool> s_importing{false};
++
++std::string ImportDisc(const std::string& image, const fs::path& game_root, const fs::path& patch,
++                       const std::string& expected_dol_sha256)
++{
++  if (s_importing.exchange(true))
++    return "A disc is already being imported.";
++  const fs::path staging = game_root.string() + ".importing";
++  std::string error = ImportDiscStaged(image, game_root, staging, patch, expected_dol_sha256);
++  if (!error.empty())
++  {
++    std::error_code ec;
++    fs::remove_all(staging, ec);
++  }
++  SetStatus("");
++  s_importing = false;
++  return error;
++}
++}  // namespace
++
++extern "C" {
++
++JNIEXPORT jstring JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_importDisc(
++    JNIEnv* env, jclass, jstring image, jstring game_root, jstring patch, jstring dol_sha256)
++{
++  return ToJString(env, ImportDisc(GetJString(env, image), GetJString(env, game_root),
++                                   GetJString(env, patch), GetJString(env, dol_sha256)));
++}
++
++JNIEXPORT jstring JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_repatch(
++    JNIEnv* env, jclass, jstring game_root, jstring patch, jstring dol_sha256)
++{
++  return ToJString(env, Repatch(GetJString(env, game_root), GetJString(env, patch),
++                                GetJString(env, dol_sha256)));
++}
++
++// Controller 1's settings in the pad profile (Config/GCPadNew.ini [GCPad1]: the sticks' dead zone and
++// the rumble motor's range, in percent), the keys the in-game menu and the desktop launcher write.
++// Dolphin reads the file at every boot (Core: Pad::LoadConfig). Only an existing profile is written:
++// keys alone in a new file would leave the pad unmapped.
++JNIEXPORT jint JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_getPadOption(
++    JNIEnv* env, jclass, jstring key, jint fallback)
++{
++  Common::IniFile ini;
++  if (!ini.Load(File::GetUserPath(D_CONFIG_IDX) + "GCPadNew.ini"))
++    return fallback;
++  double value = fallback;
++  ini.GetOrCreateSection("GCPad1")->Get(GetJString(env, key), &value, fallback);
++  return static_cast<jint>(value + 0.5);
++}
++
++JNIEXPORT jboolean JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_setPadOptions(
++    JNIEnv* env, jclass, jobjectArray keys, jint value)
++{
++  const std::string path = File::GetUserPath(D_CONFIG_IDX) + "GCPadNew.ini";
++  Common::IniFile ini;
++  if (!ini.Load(path) || !ini.Exists("GCPad1"))
++    return JNI_FALSE;
++  if (keys == nullptr)
++    return JNI_FALSE;
++  Common::IniFile::Section* section = ini.GetOrCreateSection("GCPad1");
++  const jsize count = env->GetArrayLength(keys);
++  for (jsize i = 0; i < count; ++i)
++  {
++    auto* key = static_cast<jstring>(env->GetObjectArrayElement(keys, i));
++    // A null element or a pending Java exception: write nothing rather than half the keys
++    if (env->ExceptionCheck() || key == nullptr)
++      return JNI_FALSE;
++    section->Set(GetJString(env, key), static_cast<int>(value));
++    env->DeleteLocalRef(key);
++  }
++  return ini.Save(path) ? JNI_TRUE : JNI_FALSE;
++}
++
++// Controller 1 on a handheld: Dolphin's built-in gamepad defaults name inputs the way SDL does
++// ("Left Y+", "Pad N", "Trigger L"), which Android's input backend doesn't have (its axes are
++// "Axis <MotionEvent axis id>"). Written as the profile on the first boot, they left only the face
++// buttons working: no stick, D-pad or triggers, in the game or the menu (Retroid, 2026-10-11).
++// When the main stick isn't on Android's names, this maps the stick, C-stick, triggers, D-pad and
++// rumble to the standard Android gamepad layout of the first gamepad with a left stick (AXIS_X / Y,
++// AXIS_Z / RZ, AXIS_HAT_X / Y, AXIS_GAS / BRAKE, L2 / R2); buttons keep their mapping (their names
++// match). Returns what it did, "" when nothing was needed.
++JNIEXPORT jstring JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_ensurePadProfile(
++    JNIEnv* env, jclass)
++{
++  const std::string path = File::GetUserPath(D_CONFIG_IDX) + "GCPadNew.ini";
++  Common::IniFile ini;
++  ini.Load(path);
++  Common::IniFile::Section* section = ini.GetOrCreateSection("GCPad1");
++  std::string stick;
++  section->Get("Main Stick/Up", &stick, "");
++  if (stick.find("Axis ") != std::string::npos)
++    return ToJString(env, "");
++
++  std::string gamepad;
++  for (const std::string& name : g_controller_interface.GetAllDeviceStrings())
++  {
++    ciface::Core::DeviceQualifier qualifier;
++    qualifier.FromString(name);
++    const auto device = g_controller_interface.FindDevice(qualifier);
++    if (!device || device->GetSource() != "Android")
++      continue;
++    for (const ciface::Core::Device::Input* input : device->Inputs())
++    {
++      if (input->GetName() == "Axis 0+")
++      {
++        gamepad = name;
++        break;
++      }
++    }
++    if (!gamepad.empty())
++      break;
++  }
++  if (gamepad.empty())
++    return ToJString(env, "no gamepad with a stick connected");
++
++  section->Set("Device", gamepad);
++  const std::pair<const char*, const char*> mapping[] = {
++      {"Main Stick/Up", "`Axis 1-`"},    {"Main Stick/Down", "`Axis 1+`"},
++      {"Main Stick/Left", "`Axis 0-`"},  {"Main Stick/Right", "`Axis 0+`"},
++      {"C-Stick/Up", "`Axis 14-`"},      {"C-Stick/Down", "`Axis 14+`"},
++      {"C-Stick/Left", "`Axis 11-`"},    {"C-Stick/Right", "`Axis 11+`"},
++      {"Triggers/L", "`Button L2`"},     {"Triggers/R", "`Button R2`"},
++      {"Triggers/L-Analog", "`Axis 23+`"}, {"Triggers/R-Analog", "`Axis 22+`"},
++      {"D-Pad/Up", "`Axis 16-`"},        {"D-Pad/Down", "`Axis 16+`"},
++      {"D-Pad/Left", "`Axis 15-`"},      {"D-Pad/Right", "`Axis 15+`"},
++  };
++  for (const auto& [key, expression] : mapping)
++    section->Set(key, std::string(expression));
++  // The SDL defaults' single-value calibration and rumble motors don't apply here
++  section->Delete("Main Stick/Calibration");
++  section->Delete("C-Stick/Calibration");
++  ciface::Core::DeviceQualifier sensors;
++  sensors.FromString("Android/0/Device Sensors");
++  if (g_controller_interface.FindDevice(sensors))
++    section->Set("Rumble/Motor", std::string("`Android/0/Device Sensors:Motor 0`"));
++  else
++    section->Delete("Rumble/Motor");
++  if (!ini.Save(path))
++    return ToJString(env, "can't write " + path);
++  return ToJString(env, "mapped the stick, D-pad and triggers of " + gamepad);
++}
++
++// Settings, Saves: a save the player already has (tools/save_import.cpp, as on desktop). The app
++// copies the picked document to a file first and checks the game isn't running.
++// The game's card saves are always 3 blocks named SA_LEGENDS.000-.002 (the desktop launcher's SaveGame)
++constexpr moderngekko::frontend::SaveImportGame SKIES_SAVES{SKIES_GAME_ID, "Skies of Arcadia Legends",
++                                                            "state-skies-import-", 3, "SA_LEGENDS."};
++
++JNIEXPORT jobjectArray JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_importSave(
++    JNIEnv* env, jclass, jstring file, jstring user_directory)
++{
++  const moderngekko::frontend::SaveImportResult result = moderngekko::frontend::ImportSave(
++      StringToPath(GetJString(env, file)), StringToPath(GetJString(env, user_directory)),
++      SKIES_SAVES);
++  const std::string answer[] = {result.message, result.ok ? "ok" : ""};
++  return SpanToJStringArray(env, std::span<const std::string>(answer));
++}
++
++JNIEXPORT jstring JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_describeSaves(
++    JNIEnv* env, jclass, jstring user_directory)
++{
++  return ToJString(env, moderngekko::frontend::DescribeSaves(
++                            StringToPath(GetJString(env, user_directory)), SKIES_SAVES));
++}
++
++JNIEXPORT jstring JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_importStatus(JNIEnv* env,
++                                                                                         jclass)
++{
++  std::lock_guard lock(s_status_lock);
++  return ToJString(env, s_status);
++}
++}

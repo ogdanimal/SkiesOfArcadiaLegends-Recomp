@@ -1,0 +1,345 @@
+# Build validation for Skies of Arcadia Legends: Recompiled -- Windows, Linux and Android.
+#
+# On a push this is validation only: nothing is signed or published; each job uploads a short-lived
+# artifact so a build can be inspected. release.yml CALLS this workflow (workflow_call,
+# `release: true`) so a tagged release is built by exactly these steps: Windows packages the zip
+# under the tag's version, Linux the tar.gz, and Android builds a SIGNED, minified release APK.
+#
+# NO GAME FILES LEAVE THE CODEGEN JOB. The game's main.dol (and the PGO profiles, which are
+# game-derived) live in a private secrets repo, cloned with a read-only token in the codegen job
+# only and deleted right after. tools/ci-codegen.sh patches the DOL, runs DolRecomp for both
+# targets (x86_64 Windows and Linux, aarch64 Android), precomputes each module's tables (so the build jobs never need the DOL:
+# -DMODULE_TABLES_INC) and refuses to finish if a DOL ended up in its output. The generated code is
+# game-derived too, so it travels between jobs encrypted (SOAL_ARTIFACT_KEY) and for one day only.
+#
+# Required secrets:
+#   SOAL_SECRETS_REPO_WITH_PAT -> https://x-access-token:<PAT>@github.com/<owner>/<secrets repo>.git
+#       holding main.dol (the ORIGINAL USA DOL, SHA-256 below) and pgo/windows.profdata,
+#       pgo/android.profdata at its root
+#   SOAL_ARTIFACT_KEY          -> any long random string (encrypts the codegen artifact)
+#   RELEASE_KEYSTORE_BASE64, RELEASE_STORE_PASSWORD, RELEASE_KEY_PASSWORD, RELEASE_KEY_ALIAS
+#       -> release signing (tools/make-release-key.sh); release mode only
+#
+# Fork PRs cannot run this: push + workflow_dispatch only, so the secrets are never in scope for
+# unmerged code.
+
+name: validate
+
+on:
+  workflow_call:
+    inputs:
+      release:
+        type: boolean
+        default: false
+      vname:      # the tag minus its leading v (0.9.0-beta)
+        type: string
+        default: ''
+  workflow_dispatch:
+  push:
+    branches: [dev, main]
+    paths-ignore:
+      - '**.md'
+      - '.gitignore'
+
+permissions:
+  contents: read
+
+env:
+  DOL_SHA256: 87c240acb746c5a09e95dd84021f78643eaa6721d8edc96ed87d3b6b3bcbae54
+  LLVM_VERSION: 20.1.8
+  # Ubuntu 26.04's own build (the release pocket, signed by Ubuntu), the one the shipped codegen was
+  # made with locally; apt refuses if it's gone rather than installing another
+  LLVM_APT_VERSION: 1:20.1.8-2ubuntu8
+  # GitHub's published digest of the release asset
+  LLVM_WINDOWS_SHA256: f229769f11d6a6edc8ada599c0cda964b7dee6ab1a08c6cf9dd7f513e85b107f
+
+jobs:
+  # ---------------------------------------------------------------------------
+  codegen:
+    name: codegen
+    runs-on: ubuntu-26.04  # LLVM 20.1.8 in its own archive
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      # Only what DolRecomp and the patches need (not Dolphin's externals)
+      - name: Submodules (ModernGekko, RecompCore, DolRecomp)
+        run: |
+          git submodule update --init --depth 1 lib/ModernGekko
+          git -C lib/ModernGekko submodule update --init --depth 1 vendor/dolphin
+          git -C lib/ModernGekko/vendor/dolphin submodule update --init --depth 1 DolRecomp
+
+      - name: Apply patches
+        run: tools/apply-patches.sh
+
+      - name: Install LLVM ${{ env.LLVM_VERSION }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y "llvm-20-dev=$LLVM_APT_VERSION" ninja-build
+          test "$(llvm-config-20 --version)" = "$LLVM_VERSION" \
+            || { echo "::error::llvm-config-20 says $(llvm-config-20 --version), not $LLVM_VERSION"; exit 1; }
+
+      - name: Build DolRecomp
+        run: |
+          cmake -S lib/ModernGekko/vendor/dolphin/DolRecomp -B build/dolrecomp -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DDOLRECOMP_ENABLE_LLVM=ON -DLLVM_DIR=/usr/lib/llvm-20/lib/cmake/llvm
+          cmake --build build/dolrecomp --target dolrecomp
+
+      - name: Fetch private build inputs (DOL, profiles)
+        env:
+          SECRETS_URL: ${{ secrets.SOAL_SECRETS_REPO_WITH_PAT }}
+        run: |
+          test -n "$SECRETS_URL" || { echo "::error::SOAL_SECRETS_REPO_WITH_PAT is not set"; exit 1; }
+          # The token goes to git as an HTTP header through the environment: not in git's
+          # arguments (visible to other processes) and not in the clone's .git/config
+          REST=${SECRETS_URL#https://}
+          AUTH=$(printf '%s' "${REST%%@*}" | base64 -w0)
+          echo "::add-mask::$AUTH"
+          GIT_TERMINAL_PROMPT=0 GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $AUTH" \
+            git clone -q --depth 1 "https://${REST#*@}" "$RUNNER_TEMP/s"
+          mkdir -p "$RUNNER_TEMP/secrets/pgo"
+          cp "$RUNNER_TEMP/s/main.dol" "$RUNNER_TEMP/secrets/"
+          cp "$RUNNER_TEMP/s/pgo/windows.profdata" "$RUNNER_TEMP/s/pgo/android.profdata" "$RUNNER_TEMP/secrets/pgo/"
+          rm -rf "$RUNNER_TEMP/s"
+          echo "$DOL_SHA256  $RUNNER_TEMP/secrets/main.dol" | sha256sum -c --quiet -
+
+      - name: Generate code
+        run: DOLRECOMP=build/dolrecomp/dolrecomp tools/ci-codegen.sh "$RUNNER_TEMP/secrets" codegen
+
+      - name: Delete the private inputs
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/secrets" "$RUNNER_TEMP/s"
+
+      - name: Encrypt codegen
+        shell: bash  # -o pipefail: a failed tar mustn't encrypt a cut-short stream
+        env:
+          SOAL_ARTIFACT_KEY: ${{ secrets.SOAL_ARTIFACT_KEY }}
+        run: |
+          test -n "$SOAL_ARTIFACT_KEY" || { echo "::error::SOAL_ARTIFACT_KEY is not set; refusing to upload game code in the clear."; exit 1; }
+          tar czf - codegen/windows/generated codegen/linux/generated codegen/android/generated \
+            | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass env:SOAL_ARTIFACT_KEY -out codegen.tar.gz.enc
+
+      - name: Upload codegen
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: codegen
+          path: codegen.tar.gz.enc
+          if-no-files-found: error
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  windows:
+    name: windows
+    needs: codegen
+    runs-on: windows-2025
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Apply patches
+        shell: bash
+        run: tools/apply-patches.sh
+
+      - name: Download codegen
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: codegen
+
+      - name: Decrypt codegen
+        shell: bash
+        env:
+          SOAL_ARTIFACT_KEY: ${{ secrets.SOAL_ARTIFACT_KEY }}
+        run: |
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:SOAL_ARTIFACT_KEY -in codegen.tar.gz.enc | tar xzf -
+          rm codegen.tar.gz.enc
+
+      - name: Cache LLVM
+        id: llvm-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: C:\llvm
+          key: llvm-${{ env.LLVM_VERSION }}-windows-msvc
+
+      - name: Download LLVM ${{ env.LLVM_VERSION }}
+        if: steps.llvm-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/llvm.tar.xz" \
+            "https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/clang+llvm-$LLVM_VERSION-x86_64-pc-windows-msvc.tar.xz"
+          echo "$LLVM_WINDOWS_SHA256  $RUNNER_TEMP/llvm.tar.xz" | sha256sum -c --quiet -
+          mkdir -p /c/llvm && tar -xf "$RUNNER_TEMP/llvm.tar.xz" -C /c/llvm
+
+      - name: Configure Developer Command Prompt
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+        with:
+          arch: x64
+
+      - name: Build the module
+        shell: cmd
+        run: |
+          set LLVM_ROOT=C:\llvm\clang+llvm-%LLVM_VERSION%-x86_64-pc-windows-msvc
+          set MODULE_TABLES_INC=%CD%\codegen\windows\generated\module_tables.inc
+          tools\module-win.bat %CD%\codegen\windows\generated %CD%\build\module
+
+      - name: Build and package the launcher and runner
+        shell: cmd
+        env:
+          VNAME: ${{ inputs.vname }}
+        run: |
+          if "%VNAME%"=="" (set VERSION=dev-%GITHUB_SHA:~0,7%) else (set VERSION=v%VNAME%)
+          call tools\build-release-win.bat configure || exit /b 1
+          call tools\build-release-win.bat build || exit /b 1
+          call tools\build-release-win.bat package build\module\gGEAE8P_recomp.dll %VERSION% || exit /b 1
+
+      - name: Upload build
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: windows-${{ github.sha }}
+          path: build/SkiesOfArcadiaLegends-*-windows.zip*
+          if-no-files-found: error
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # Built on the oldest supported Ubuntu LTS runner so the binaries run on older glibc too
+  linux:
+    name: linux
+    needs: codegen
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Apply patches
+        run: tools/apply-patches.sh
+
+      - name: Download codegen
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: codegen
+
+      - name: Decrypt codegen
+        shell: bash  # -o pipefail
+        env:
+          SOAL_ARTIFACT_KEY: ${{ secrets.SOAL_ARTIFACT_KEY }}
+        run: |
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:SOAL_ARTIFACT_KEY -in codegen.tar.gz.enc | tar xzf -
+          rm codegen.tar.gz.enc
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build build-essential pkg-config cmake \
+            libevdev-dev libudev-dev libgtk-3-dev libsystemd-dev \
+            libbluetooth-dev libasound2-dev libpulse-dev libgl1-mesa-dev libegl-dev \
+            libxrandr-dev libxi-dev
+
+      - name: Build the module
+        run: |
+          MODULE_TABLES_INC=codegen/linux/generated/module_tables.inc \
+            tools/module-linux.sh codegen/linux/generated build/module-linux
+
+      - name: Build and package the launcher and runner
+        env:
+          VNAME: ${{ inputs.vname }}
+        run: |
+          if [ -z "$VNAME" ]; then VERSION=dev-${GITHUB_SHA::7}; else VERSION=v$VNAME; fi
+          tools/build-release-linux.sh configure
+          tools/build-release-linux.sh build
+          tools/build-release-linux.sh package build/module-linux/gGEAE8P_recomp.so "$VERSION"
+
+      - name: Upload build
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: linux-${{ github.sha }}
+          path: build/SkiesOfArcadiaLegends-*-linux.tar.gz*
+          if-no-files-found: error
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  android:
+    name: android
+    needs: codegen
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Apply patches
+        run: tools/apply-patches.sh
+
+      - name: Download codegen
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: codegen
+
+      - name: Decrypt codegen
+        shell: bash  # -o pipefail
+        env:
+          SOAL_ARTIFACT_KEY: ${{ secrets.SOAL_ARTIFACT_KEY }}
+        run: |
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:SOAL_ARTIFACT_KEY -in codegen.tar.gz.enc | tar xzf -
+          rm codegen.tar.gz.enc
+
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
+
+      - name: Install the pinned NDK
+        run: |
+          sdkmanager --install "ndk;29.0.14206865"
+          sudo apt-get install -y ninja-build
+
+      # Release mode only: the APK must be signed with the release key, and the build script
+      # verifies the signer before it hands the APK over.
+      - name: Decode keystore
+        if: ${{ inputs.release }}
+        env:
+          KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          test -n "$KEYSTORE_B64" || { echo "::error::RELEASE_KEYSTORE_BASE64 is not set -- cannot sign a release."; exit 1; }
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+
+      - name: Build the APK
+        env:
+          RELEASE: ${{ inputs.release && '1' || '0' }}
+          VERSION: ${{ inputs.vname }}
+          SKIES_KEYSTORE: ${{ runner.temp }}/release.jks
+          # Signing secrets reach this step only in release mode
+          SKIES_KEY_ALIAS: ${{ inputs.release && secrets.RELEASE_KEY_ALIAS || '' }}
+          ORG_GRADLE_PROJECT_storepass: ${{ inputs.release && secrets.RELEASE_STORE_PASSWORD || '' }}
+          ORG_GRADLE_PROJECT_keypass: ${{ inputs.release && secrets.RELEASE_KEY_PASSWORD || '' }}
+        run: |
+          BRAND=1 NAME=ci PREGEN=codegen/android NDK=$ANDROID_HOME/ndk/29.0.14206865 tools/android-ws-build.sh
+          ls -la build/android/apk/
+
+      - name: Clean up signing material
+        if: ${{ always() && inputs.release }}
+        run: rm -f "$RUNNER_TEMP/release.jks"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: android-${{ inputs.release && 'release' || 'debug' }}-${{ github.sha }}
+          path: build/android/apk/*.apk
+          if-no-files-found: error
+          retention-days: 7

@@ -1,0 +1,2413 @@
+diff --git a/Source/Android/jni/Automation.cpp b/Source/Android/jni/Automation.cpp
+index 4436bd64ed..03f55e0caa 100644
+--- a/Source/Android/jni/Automation.cpp
++++ b/Source/Android/jni/Automation.cpp
+@@ -26,6 +26,7 @@
+ #include <fmt/format.h>
+ 
+ #include "Common/CommonPaths.h"
++#include "Common/Config/Config.h"
+ #include "Common/FileUtil.h"
+ #include "Common/HookableEvent.h"
+ #include "Core/Core.h"
+@@ -182,6 +183,19 @@ std::optional<std::string> Apply(const automation::Command& command, std::stop_t
+   case automation::CommandType::Stop:
+     Core::Stop(system);
+     break;
++  case automation::CommandType::SetConfig:
++  {
++    // Same as moderngekko-run (src/runtime/dolphin_runtime.cpp): set a config value live, e.g.
++    // Dolphin.Skies.Widescreen=0. Stored as text like an ini line; the active layer keeps a
++    // game-ini override from shadowing the write.
++    const auto config_system = Config::GetSystemFromName(command.config_system);
++    if (!config_system)
++      return "set_config: unknown config system " + command.config_system;
++    const Config::Location location{*config_system, command.config_section, command.config_key};
++    Config::GetLayer(Config::GetActiveLayerForConfig(location))->Set(location, command.config_value);
++    Config::OnConfigChanged();
++    break;
++  }
+   }
+   return std::nullopt;
+ }
+diff --git a/Source/Core/Core/CMakeLists.txt b/Source/Core/Core/CMakeLists.txt
+index f30654ce5d..27162227e2 100644
+--- a/Source/Core/Core/CMakeLists.txt
++++ b/Source/Core/Core/CMakeLists.txt
+@@ -42,6 +42,8 @@ add_library(core
+   Config/CheatSettings.h
+   Config/MainSettings.cpp
+   Config/MainSettings.h
++  Config/SkiesSettings.cpp
++  Config/SkiesSettings.h
+   Config/NetplaySettings.cpp
+   Config/NetplaySettings.h
+   Config/SessionSettings.cpp
+@@ -638,6 +640,8 @@ add_library(core
+   PowerPC/SignatureDB/MEGASignatureDB.h
+   PowerPC/SignatureDB/SignatureDB.cpp
+   PowerPC/SignatureDB/SignatureDB.h
++  SkiesSettings.cpp
++  SkiesSettings.h
+   State.cpp
+   State.h
+   StateFile.cpp
+diff --git a/Source/Core/Core/Config/SkiesSettings.cpp b/Source/Core/Core/Config/SkiesSettings.cpp
+new file mode 100644
+index 0000000000..08a19ff176
+--- /dev/null
++++ b/Source/Core/Core/Config/SkiesSettings.cpp
+@@ -0,0 +1,18 @@
++// Copyright 2026 Dolphin Emulator Project
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++#include "Core/Config/SkiesSettings.h"
++
++namespace Config
++{
++const Info<int> SKIES_WIDESCREEN{{System::Main, "Skies", "Widescreen"}, -1};
++const Info<int> SKIES_FRAME_MODE{{System::Main, "Skies", "FrameMode"}, -1};
++const Info<int> SKIES_CAMERA_CONTROL{{System::Main, "Skies", "CameraControl"}, 1};
++const Info<int> SKIES_ENCOUNTERS{{System::Main, "Skies", "Encounters"}, 100};
++const Info<int> SKIES_EXP{{System::Main, "Skies", "Exp"}, 100};
++const Info<int> SKIES_GOLD{{System::Main, "Skies", "Gold"}, 100};
++const Info<int> SKIES_MAGIC_EXP{{System::Main, "Skies", "MagicExp"}, 100};
++const Info<int> SKIES_BATTLE_SPEED{{System::Main, "Skies", "BattleSpeed"}, 1};
++const Info<int> SKIES_INVINCIBLE{{System::Main, "Skies", "Invincible"}, 0};
++const Info<int> SKIES_AUTO_SAVE{{System::Main, "Skies", "AutoSave"}, 10};
++}  // namespace Config
+diff --git a/Source/Core/Core/Config/SkiesSettings.h b/Source/Core/Core/Config/SkiesSettings.h
+new file mode 100644
+index 0000000000..b94b6cfa40
+--- /dev/null
++++ b/Source/Core/Core/Config/SkiesSettings.h
+@@ -0,0 +1,35 @@
++// Copyright 2026 Dolphin Emulator Project
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++#pragma once
++
++#include "Common/Config/Config.h"
++
++// Player settings for the Skies of Arcadia Legends recomp, section [Skies] in Dolphin.ini. They
++// are applied live by Core/SkiesSettings.cpp. -1 means "not set": the old switches decide
++// (the DOL's own default aspect; RECOMP_FRAME_INTERPOLATION / FrameInterpolation.on), and the
++// first boot writes the derived value so a settings screen shows a definite choice.
++namespace Config
++{
++// 1 = 16:9 (the widescreen patch's target aspect), 0 = the original 4:3 picture.
++extern const Info<int> SKIES_WIDESCREEN;
++// 0 = 30 fps (the game's own rate), 1 = 60 fps (frame interpolation), 2 = reserved (unlocked).
++extern const Info<int> SKIES_FRAME_MODE;
++// 1 = hold Z to tilt and zoom the camera with the C-stick and triggers (VideoCommon/SkiesMenu.cpp,
++// the game patch's camera.c), 0 = the game's own camera controls only.
++extern const Info<int> SKIES_CAMERA_CONTROL;
++// Quality-of-life options (the game patch's qol.c): percent of the game's random encounter chance
++// (0 = none), of the EXP, gold and magic EXP battles give, and the battle speed (1 = normal, 2..4;
++// a Z tap in battle cycles it).
++extern const Info<int> SKIES_ENCOUNTERS;
++extern const Info<int> SKIES_EXP;
++extern const Info<int> SKIES_GOLD;
++extern const Info<int> SKIES_MAGIC_EXP;
++extern const Info<int> SKIES_BATTLE_SPEED;
++// 1 = in battle the party's HP, MP and Spirit stay full and the party takes no damage; L3 or R3 (the
++// real controller's stick clicks) toggles it.
++extern const Info<int> SKIES_INVINCIBLE;
++// Minutes between auto-saves (save states in slots 6-8, the oldest overwritten; only on the field or
++// world map, VideoCommon/SkiesMenu.cpp), 0 = off.
++extern const Info<int> SKIES_AUTO_SAVE;
++}  // namespace Config
+diff --git a/Source/Core/Core/Core.cpp b/Source/Core/Core/Core.cpp
+index e58579ecda..16b0d7d61d 100644
+--- a/Source/Core/Core/Core.cpp
++++ b/Source/Core/Core/Core.cpp
+@@ -70,6 +70,7 @@
+ #include "Core/PowerPC/GDBStub.h"
+ #include "Core/PowerPC/JitInterface.h"
+ #include "Core/PowerPC/PowerPC.h"
++#include "Core/SkiesSettings.h"
+ #include "Core/State.h"
+ #include "Core/System.h"
+ #include "Core/Wii/WiiRoot.h"
+@@ -216,6 +217,8 @@ bool Init(Core::System& system, std::unique_ptr<BootParameters> boot, const Wind
+   // Drain any left over jobs
+   HostDispatchJobs(system);
+ 
++  SkiesSettings::Init(system);
++
+   INFO_LOG_FMT(BOOT, "Starting core = {} mode", system.IsWii() ? "Wii" : "GameCube");
+   INFO_LOG_FMT(BOOT, "CPU Thread separate = {}", system.IsDualCoreMode() ? "Yes" : "No");
+ 
+diff --git a/Source/Core/Core/HW/EXI/EXI_DeviceMemoryCard.cpp b/Source/Core/Core/HW/EXI/EXI_DeviceMemoryCard.cpp
+index 35cad68a60..f2a7f783a1 100644
+--- a/Source/Core/Core/HW/EXI/EXI_DeviceMemoryCard.cpp
++++ b/Source/Core/Core/HW/EXI/EXI_DeviceMemoryCard.cpp
+@@ -4,6 +4,8 @@
+ #include "Core/HW/EXI/EXI_DeviceMemoryCard.h"
+ 
+ #include <array>
++#include <atomic>
++#include <chrono>
+ #include <functional>
+ #include <memory>
+ #include <string>
+@@ -336,8 +338,29 @@ bool CEXIMemoryCard::IsInterruptSet()
+   return false;
+ }
+ 
++namespace
++{
++std::atomic<std::chrono::steady_clock::rep> s_last_access{0};
++
++void NoteAccess()
++{
++  s_last_access.store(std::chrono::steady_clock::now().time_since_epoch().count(),
++                      std::memory_order_relaxed);
++}
++}  // namespace
++
++double CEXIMemoryCard::SecondsSinceLastAccess()
++{
++  const auto last = s_last_access.load(std::memory_order_relaxed);
++  if (last == 0)
++    return 1e9;
++  const auto now = std::chrono::steady_clock::now().time_since_epoch().count();
++  return std::chrono::duration<double>(std::chrono::steady_clock::duration(now - last)).count();
++}
++
+ void CEXIMemoryCard::TransferByte(u8& byte)
+ {
++  NoteAccess();
+   DEBUG_LOG_FMT(EXPANSIONINTERFACE, "EXI MEMCARD: > {:02x}", byte);
+   if (m_position == 0)
+   {
+@@ -522,6 +545,7 @@ void CEXIMemoryCard::DoState(PointerWrap& p)
+ // read all at once instead of single byte at a time as done by IEXIDevice::DMARead
+ void CEXIMemoryCard::DMARead(u32 addr, u32 size)
+ {
++  NoteAccess();
+   auto& memory = m_system.GetMemory();
+   m_memory_card->Read(m_address, size, memory.GetPointerForRange(addr, size));
+ 
+@@ -540,6 +564,7 @@ void CEXIMemoryCard::DMARead(u32 addr, u32 size)
+ // write all at once instead of single byte at a time as done by IEXIDevice::DMAWrite
+ void CEXIMemoryCard::DMAWrite(u32 addr, u32 size)
+ {
++  NoteAccess();
+   auto& memory = m_system.GetMemory();
+   m_memory_card->Write(m_address, size, memory.GetPointerForRange(addr, size));
+ 
+diff --git a/Source/Core/Core/HW/EXI/EXI_DeviceMemoryCard.h b/Source/Core/Core/HW/EXI/EXI_DeviceMemoryCard.h
+index db9c013671..0b22e037a2 100644
+--- a/Source/Core/Core/HW/EXI/EXI_DeviceMemoryCard.h
++++ b/Source/Core/Core/HW/EXI/EXI_DeviceMemoryCard.h
+@@ -61,6 +61,10 @@ public:
+   static void Init(CoreTiming::CoreTimingManager& core_timing);
+   static void Shutdown();
+ 
++  // Seconds since the game last talked to a memory card (either slot), for frontends that save
++  // states on their own (Skies' auto-save): a state doesn't hold the card's transfer in progress.
++  static double SecondsSinceLastAccess();
++
+   static std::pair<std::string /* path */, bool /* migrate */>
+   GetGCIFolderPath(Slot card_slot, AllowMovieFolder allow_movie_folder, Movie::MovieManager& movie);
+ 
+diff --git a/Source/Core/Core/HW/GCPad.cpp b/Source/Core/Core/HW/GCPad.cpp
+index 188882c58a..840bc84e0c 100644
+--- a/Source/Core/Core/HW/GCPad.cpp
++++ b/Source/Core/Core/HW/GCPad.cpp
+@@ -8,6 +8,7 @@
+ #include "InputCommon/ControllerEmu/ControlGroup/ControlGroup.h"
+ #include "InputCommon/GCPadStatus.h"
+ #include "InputCommon/InputConfig.h"
++#include "VideoCommon/SkiesMenu.h"
+ 
+ namespace Pad
+ {
+@@ -55,7 +56,9 @@ bool IsInitialized()
+ 
+ GCPadStatus GetStatus(int pad_num)
+ {
+-  return static_cast<GCPad*>(s_config.GetController(pad_num))->GetInput();
++  // Skies' settings menu takes the controller while it's open (VideoCommon/SkiesMenu.cpp).
++  return SkiesMenu::FilterPad(pad_num,
++                              static_cast<GCPad*>(s_config.GetController(pad_num))->GetInput());
+ }
+ 
+ ControllerEmu::ControlGroup* GetGroup(int pad_num, PadGroup group)
+diff --git a/Source/Core/Core/SavestateLayout.h b/Source/Core/Core/SavestateLayout.h
+index 2abba4c5dd..9fbea2dfb2 100644
+--- a/Source/Core/Core/SavestateLayout.h
++++ b/Source/Core/Core/SavestateLayout.h
+@@ -42,6 +42,9 @@ inline constexpr std::string_view AUTOMATIC_PREFIX = "recovery-";
+ // Prefix for a state the player asked for.
+ inline constexpr std::string_view MANUAL_PREFIX = "state-";
+ 
++// Dolphin moves the file a save overwrites here (its "undo save"): not a state of its own to offer.
++inline constexpr std::string_view UNDO_BACKUP_NAME = "lastState.sav";
++
+ inline std::tm LocalTime(std::time_t when)
+ {
+   std::tm out{};
+@@ -98,7 +101,8 @@ inline std::vector<fs::path> List(const fs::path& directory)
+   while (!ec && entry != end)
+   {
+     std::error_code type_ec;
+-    if (entry->is_regular_file(type_ec) && entry->path().extension() == EXTENSION)
++    if (entry->is_regular_file(type_ec) && entry->path().extension() == EXTENSION &&
++        entry->path().filename() != UNDO_BACKUP_NAME)
+     {
+       std::error_code time_ec;
+       const fs::file_time_type write_time = entry->last_write_time(time_ec);
+diff --git a/Source/Core/Core/SkiesSettings.cpp b/Source/Core/Core/SkiesSettings.cpp
+new file mode 100644
+index 0000000000..6580c269bd
+--- /dev/null
++++ b/Source/Core/Core/SkiesSettings.cpp
+@@ -0,0 +1,149 @@
++// Copyright 2026 Dolphin Emulator Project
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++#include "Core/SkiesSettings.h"
++
++#include <bit>
++#include <cstdlib>
++
++#include "Common/Config/Config.h"
++#include "Common/FileUtil.h"
++#include "Common/HookableEvent.h"
++#include "Common/Logging/Log.h"
++#include "Core/Config/GraphicsSettings.h"
++#include "Core/Config/SkiesSettings.h"
++#include "Core/Core.h"
++#include "Core/HW/Memmap.h"
++#include "Core/System.h"
++#include "VideoCommon/FrameInterpolator.h"
++#include "VideoCommon/VideoConfig.h"
++
++namespace SkiesSettings
++{
++namespace
++{
++constexpr u32 WS_CONFIG_ADDRESS = 0x80002A00;
++constexpr u32 WS_CONFIG_MAGIC = 0x57534346;  // 'WSCF'
++constexpr u32 WS_DISPLAY_ASPECT_OFFSET = 8;
++constexpr float WIDE_ASPECT = 16.0f / 9.0f;
++
++bool s_initialized = false;
++// This thread is applying, and writes settings itself (first-boot migration): its own config
++// callbacks are skipped. Per thread, so a change made elsewhere meanwhile still applies.
++thread_local bool s_applying = false;
++Common::EventHook s_state_hook;
++Config::ConfigChangedCallbackID s_config_callback;
++
++bool ReadMagic(Core::System& system)
++{
++  auto& memory = system.GetMemory();
++  if (!memory.IsInitialized())
++    return false;
++  return memory.Read_U32(WS_CONFIG_ADDRESS) == WS_CONFIG_MAGIC;
++}
++
++// What the old switches say: the frontend's RECOMP_FRAME_INTERPOLATION (from its config.ini) or
++// FrameInterpolation.on in the user directory.
++bool LegacyInterpolationSwitch()
++{
++  if (const char* env = std::getenv("RECOMP_FRAME_INTERPOLATION"))
++    return env[0] == '1' || env[0] == '2';
++  return File::Exists(File::GetUserPath(D_USER_IDX) + "FrameInterpolation.on");
++}
++
++// Runs on the host thread (a queued host job) or the CPU thread (a state load). The RAM write is
++// one aligned word the game reads once per frame.
++void ApplyNow(Core::System& system)
++{
++  s_applying = true;
++  bool save = false;
++
++  int widescreen = Config::Get(Config::SKIES_WIDESCREEN);
++  const bool patched = ReadMagic(system);
++  if (patched)
++  {
++    if (widescreen < 0)
++    {
++      // First boot with the patch: the patch's own default is 16:9.
++      widescreen = 1;
++      Config::SetBase(Config::SKIES_WIDESCREEN, widescreen);
++      save = true;
++    }
++    auto& memory = system.GetMemory();
++    const float aspect = widescreen ? WIDE_ASPECT : 0.0f;
++    const u32 address = WS_CONFIG_ADDRESS + WS_DISPLAY_ASPECT_OFFSET;
++    if (memory.Read_U32(address) != std::bit_cast<u32>(aspect))
++    {
++      memory.Write_U32(std::bit_cast<u32>(aspect), address);
++      NOTICE_LOG_FMT(CORE, "[skies] picture {}", widescreen ? "16:9" : "4:3");
++    }
++    // Letterbox to match: a custom 16:9 picture, or Dolphin's 4:3.
++    const AspectMode want = widescreen ? AspectMode::CustomStretch : AspectMode::ForceStandard;
++    if (Config::Get(Config::GFX_ASPECT_RATIO) != want)
++    {
++      Config::SetBaseOrCurrent(Config::GFX_ASPECT_RATIO, want);
++      save = true;
++    }
++    if (widescreen && (Config::Get(Config::GFX_CUSTOM_ASPECT_RATIO_WIDTH) != 16 ||
++                       Config::Get(Config::GFX_CUSTOM_ASPECT_RATIO_HEIGHT) != 9))
++    {
++      Config::SetBaseOrCurrent(Config::GFX_CUSTOM_ASPECT_RATIO_WIDTH, 16);
++      Config::SetBaseOrCurrent(Config::GFX_CUSTOM_ASPECT_RATIO_HEIGHT, 9);
++      save = true;
++    }
++  }
++
++  int mode = Config::Get(Config::SKIES_FRAME_MODE);
++  if (mode < 0)
++  {
++    mode = LegacyInterpolationSwitch() ? 1 : 0;
++    Config::SetBase(Config::SKIES_FRAME_MODE, mode);
++    save = true;
++  }
++  FrameInterpolator::RequestEnabled(mode >= 1);
++
++  if (save)
++    Config::Save();
++  s_applying = false;
++}
++
++void Apply(Core::System& system)
++{
++  // Non-blocking: queued for the host thread's next host-job point (the platform's main loop).
++  // From the CPU thread itself (single core, or a state load) it runs at once.
++  if (Core::IsCPUThread())
++  {
++    ApplyNow(system);
++    return;
++  }
++  Core::QueueHostJob([](Core::System& sys) { ApplyNow(sys); }, false);
++}
++}  // namespace
++
++bool HasWidescreenPatch(Core::System& system)
++{
++  return ReadMagic(system);
++}
++
++void Init(Core::System& system)
++{
++  if (s_initialized)
++    return;
++  s_initialized = true;
++  s_state_hook = Core::AddOnStateChangedCallback([&system](Core::State state) {
++    if (state == Core::State::Running)
++      Apply(system);
++  });
++  s_config_callback = Config::AddConfigChangedCallback([&system] {
++    if (!s_applying && Core::IsRunning(system))
++      Apply(system);
++  });
++}
++
++void OnStateLoaded(Core::System& system)
++{
++  // A load runs with the CPU thread held (on it, or paused under RunOnCPUThread from another
++  // thread), so apply now, before the next frame, instead of from a host job some frames later.
++  ApplyNow(system);
++}
++}  // namespace SkiesSettings
+diff --git a/Source/Core/Core/SkiesSettings.h b/Source/Core/Core/SkiesSettings.h
+new file mode 100644
+index 0000000000..f48b6f6555
+--- /dev/null
++++ b/Source/Core/Core/SkiesSettings.h
+@@ -0,0 +1,27 @@
++// Copyright 2026 Dolphin Emulator Project
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++#pragma once
++
++// Applies the [Skies] settings (Core/Config/SkiesSettings.h) to the running game:
++//  - widescreen: the widescreen game patch keeps its config block at a fixed address
++//    (patches/game/widescreen.c, ws_config at 0x80002A00: magic 'WSCF', version, then the
++//    target display aspect as a float, 0 = the original 4:3) and applies it every frame, so the
++//    aspect is one memory write on the CPU thread; Dolphin's own aspect setting follows so the
++//    window letterboxes to match.
++//  - frame mode: frame interpolation (VideoCommon/FrameInterpolator) switched at the next frame
++//    boundary.
++// Applied when the core starts running, after a savestate load (a state restores RAM and so the
++// old aspect value), and whenever the settings change (the config-changed callback).
++namespace Core
++{
++class System;
++}
++
++namespace SkiesSettings
++{
++void Init(Core::System& system);
++void OnStateLoaded(Core::System& system);
++// True when the running DOL carries the widescreen patch (its config magic is in RAM).
++bool HasWidescreenPatch(Core::System& system);
++}  // namespace SkiesSettings
+diff --git a/Source/Core/Core/State.cpp b/Source/Core/Core/State.cpp
+index 4ff19e8ff9..2684dbf834 100644
+--- a/Source/Core/Core/State.cpp
++++ b/Source/Core/Core/State.cpp
+@@ -44,6 +44,7 @@
+ #include "Core/Movie.h"
+ #include "Core/NetPlay/NetPlayProto.h"
+ #include "Core/PowerPC/PowerPC.h"
++#include "Core/SkiesSettings.h"
+ #include "Core/System.h"
+ 
+ #include "UICommon/UICommon.h"
+@@ -387,6 +388,7 @@ static void LoadAsFromCore(Core::System& system, std::string filename)
+     }
+   }
+ 
++  SkiesSettings::OnStateLoaded(system);
+   if (s_on_after_load_callback)
+     s_on_after_load_callback();
+ }
+diff --git a/Source/Core/VideoCommon/BPStructs.cpp b/Source/Core/VideoCommon/BPStructs.cpp
+index 7ec50bc9fd..363e0fe569 100644
+--- a/Source/Core/VideoCommon/BPStructs.cpp
++++ b/Source/Core/VideoCommon/BPStructs.cpp
+@@ -419,6 +419,8 @@ static void BPWritten(PixelShaderManager& pixel_shader_manager, XFStateManager&
+                                          bpmem.scissorBR, bpmem.scissorOffset, xfmem.viewport);
+     }
+ 
++    if (PE_copy.copy_to_xfb == 1 && destStride != 0 && !FrameInterpolator::IsReplaying())
++      FrameInterpolator::ApplyPendingEnabled();
+     if (PE_copy.copy_to_xfb == 1 && destStride != 0 && FrameInterpolator::IsEnabled() &&
+         !FrameInterpolator::IsReplaying())
+     {
+diff --git a/Source/Core/VideoCommon/CMakeLists.txt b/Source/Core/VideoCommon/CMakeLists.txt
+index 61de4097d4..f7066ac6f1 100644
+--- a/Source/Core/VideoCommon/CMakeLists.txt
++++ b/Source/Core/VideoCommon/CMakeLists.txt
+@@ -128,6 +128,8 @@ add_library(videocommon
+   OnScreenUI.cpp
+   OnScreenUI.h
+   OnScreenUIKeyMap.h
++  SkiesMenu.cpp
++  SkiesMenu.h
+   OpcodeDecoding.cpp
+   OpcodeDecoding.h
+   PerfQueryBase.cpp
+diff --git a/Source/Core/VideoCommon/FrameInterpolator.cpp b/Source/Core/VideoCommon/FrameInterpolator.cpp
+index 28fe8d761f..3d18d7b56e 100644
+--- a/Source/Core/VideoCommon/FrameInterpolator.cpp
++++ b/Source/Core/VideoCommon/FrameInterpolator.cpp
+@@ -27,6 +27,7 @@
+ #include "Common/FileUtil.h"
+ #include "Common/Swap.h"
+ #include "Core/Config/MainSettings.h"
++#include "Core/Config/SkiesSettings.h"
+ #include "Core/Core.h"
+ #include "Core/CoreTiming.h"
+ #include "Core/HW/Memmap.h"
+@@ -1034,8 +1035,11 @@ bool ReadEnabled()
+   const char* env = std::getenv("RECOMP_FRAME_INTERPOLATION");
+   // Without the variable (Android has no frontend to set it), a file named
+   // FrameInterpolation.on in the user directory turns it on.
+-  const bool enabled = env ? (env[0] == '1' || env[0] == '2') :
+-                             File::Exists(File::GetUserPath(D_USER_IDX) + "FrameInterpolation.on");
++  // The [Skies] FrameMode setting wins when it's set (Core/SkiesSettings.cpp).
++  const int mode = Config::Get(Config::SKIES_FRAME_MODE);
++  const bool enabled = mode >= 0 ? mode >= 1 :
++                       env       ? (env[0] == '1' || env[0] == '2') :
++                                   File::Exists(File::GetUserPath(D_USER_IDX) + "FrameInterpolation.on");
+   s_verbose = (env && env[0] == '2') ||
+               File::Exists(File::GetUserPath(D_USER_IDX) + "FrameInterpolation.stats");
+   s_test_norecord = File::Exists(File::GetUserPath(D_USER_IDX) + "FrameInterpolation.norecord");
+@@ -1048,6 +1052,33 @@ bool ReadEnabled()
+ }
+ }  // namespace detail
+ 
++static std::atomic<s8> s_pending_enabled{-1};
++
++void RequestEnabled(bool enabled)
++{
++  s_pending_enabled.store(enabled ? 1 : 0);
++}
++
++void ApplyPendingEnabled()
++{
++  const s8 pending = s_pending_enabled.exchange(-1);
++  if (pending < 0 || pending == detail::s_enabled)
++    return;
++  if (pending == 0)
++  {
++    // Drop everything recorded and queued; the real pictures show from the next retrace on.
++    Shutdown();
++    detail::s_enabled = 0;
++    Log("[interp] frame interpolation off (setting)\n");
++  }
++  else
++  {
++    // Recording starts with the frame that begins at this boundary.
++    detail::s_enabled = 1;
++    Log("[interp] frame interpolation on (setting)\n");
++  }
++}
++
+ void OnXF(u16 address, u8 count)
+ {
+   if (!s_recording)
+diff --git a/Source/Core/VideoCommon/FrameInterpolator.h b/Source/Core/VideoCommon/FrameInterpolator.h
+index 11b04469c6..78212865d4 100644
+--- a/Source/Core/VideoCommon/FrameInterpolator.h
++++ b/Source/Core/VideoCommon/FrameInterpolator.h
+@@ -62,6 +62,11 @@ extern std::atomic<bool> s_replaying;
+ bool ReadEnabled();
+ }  // namespace detail
+ 
++// Settings screen: switch interpolation on or off at the next frame boundary (any thread).
++void RequestEnabled(bool enabled);
++// GPU thread, at a frame boundary (the game's XFB copy): applies a pending request.
++void ApplyPendingEnabled();
++
+ // Inline: they're checked for every command the GPU processes.
+ inline bool IsEnabled()
+ {
+diff --git a/Source/Core/VideoCommon/OnScreenUI.cpp b/Source/Core/VideoCommon/OnScreenUI.cpp
+index 451109bbeb..86fa3eafab 100644
+--- a/Source/Core/VideoCommon/OnScreenUI.cpp
++++ b/Source/Core/VideoCommon/OnScreenUI.cpp
+@@ -28,6 +28,7 @@
+ #include "VideoCommon/PerformanceMetrics.h"
+ #include "VideoCommon/Present.h"
+ #include "VideoCommon/Statistics.h"
++#include "VideoCommon/SkiesMenu.h"
+ #include "VideoCommon/VertexManagerBase.h"
+ #include "VideoCommon/VideoConfig.h"
+ 
+@@ -95,6 +96,7 @@ bool OnScreenUI::Initialize(u32 width, u32 height, float scale)
+     io.Fonts->Clear();
+     io.Fonts->AddFontFromFileTTF(file.c_str());
+   }
++  SkiesMenu::LoadFonts();
+ 
+   // Setup new font management behavior
+   io.BackendFlags |= ImGuiBackendFlags_RendererHasTextures | ImGuiBackendFlags_RendererHasVtxOffset;
+@@ -422,6 +424,7 @@ void OnScreenUI::Finalize()
+   DrawDebugText();
+   OSD::DrawMessages();
+   DrawChallengesAndLeaderboards();
++  SkiesMenu::Draw(m_backbuffer_scale);
+   ImGui::Render();
+ 
+   // Check for font changes
+diff --git a/Source/Core/VideoCommon/SkiesMenu.cpp b/Source/Core/VideoCommon/SkiesMenu.cpp
+new file mode 100644
+index 0000000000..fd7d2c40c5
+--- /dev/null
++++ b/Source/Core/VideoCommon/SkiesMenu.cpp
+@@ -0,0 +1,1776 @@
++// Copyright 2026 Dolphin Emulator Project
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++#include "VideoCommon/SkiesMenu.h"
++
++
++#include <algorithm>
++#include <array>
++#include <bit>
++#include <cfloat>
++#include <chrono>
++#include <cmath>
++#include <cstdlib>
++#include <cstring>
++#include <ctime>
++#include <filesystem>
++#include <initializer_list>
++#include <mutex>
++#include <span>
++#include <string>
++#include <string_view>
++#include <system_error>
++#include <vector>
++
++#include <fmt/chrono.h>
++#include <fmt/format.h>
++#include <imgui.h>
++
++#include "AudioCommon/AudioCommon.h"
++#include "Common/Config/Config.h"
++#include "Common/CommonPaths.h"
++#include "Common/FileUtil.h"
++#include "Common/Logging/Log.h"
++#include "Common/Swap.h"
++#include "Common/TimeUtil.h"
++#include "Core/Config/GraphicsSettings.h"
++#include "Core/Config/MainSettings.h"
++#include "Core/Config/SkiesSettings.h"
++#include "Core/Config/ConfigManager.h"
++#include "Core/Core.h"
++#include "Core/HW/EXI/EXI_DeviceMemoryCard.h"
++#include "Core/HW/GCPad.h"
++#include "Core/HW/GCPadEmu.h"
++#include "Core/HW/Memmap.h"
++#include "Core/SavestateLayout.h"
++#include "Core/State.h"
++#include "InputCommon/ControlReference/ControlReference.h"
++#include "InputCommon/ControllerEmu/Control/Control.h"
++#include "InputCommon/ControllerEmu/ControlGroup/ControlGroup.h"
++#include "InputCommon/ControllerEmu/ControllerEmu.h"
++#include "InputCommon/ControllerEmu/Setting/NumericSetting.h"
++#include "InputCommon/ControllerInterface/ControllerInterface.h"
++#include "InputCommon/InputConfig.h"
++#include "Core/System.h"
++#include "VideoCommon/FrameInterpolator.h"
++#include "VideoCommon/OnScreenDisplay.h"
++#include "VideoCommon/PerformanceMetrics.h"
++#include "VideoCommon/VideoConfig.h"
++
++namespace SkiesMenu
++{
++namespace
++{
++using Clock = std::chrono::steady_clock;
++using std::chrono::milliseconds;
++
++// Z is held back from the game this long after it goes down, to see whether Start follows (the
++// open combo); a Z the game was denied that way is replayed as a tap when it's released early.
++constexpr milliseconds Z_HOLD_BACK{150};
++constexpr milliseconds REPEAT_DELAY{350};
++constexpr milliseconds REPEAT_RATE{110};
++constexpr int STICK_THRESHOLD = 0x40;
++
++enum class Option
++{
++  SaveState,
++  LoadState,
++  AutoSave,
++  Picture,
++  FrameRate,
++  Resolution,
++  Antialiasing,
++  Camera,
++  DeadZone,
++  Rumble,
++  VSync,
++  Volume,
++  ShowFps,
++  Encounters,
++  Exp,
++  Gold,
++  MagicExp,
++  BattleSpeed,
++  Invincible,
++};
++
++// The menu's tabs, laid out like the launchers' Settings windows (tools/moderngekko_launcher.cpp,
++// SkiesSettingsPanel.kt), with Saves first since in game that's the one used most. L / R switch tabs.
++constexpr std::array SAVES_ROWS{Option::SaveState, Option::LoadState, Option::AutoSave};
++constexpr std::array GRAPHICS_ROWS{Option::Picture,      Option::FrameRate, Option::Resolution,
++                                   Option::Antialiasing, Option::VSync,     Option::ShowFps};
++constexpr std::array GAMEPLAY_ROWS{Option::Camera, Option::BattleSpeed, Option::Encounters,
++                                   Option::Exp,    Option::Gold,        Option::MagicExp,
++                                   Option::Invincible};
++constexpr std::array SOUND_ROWS{Option::Volume};
++constexpr std::array CONTROLS_ROWS{Option::DeadZone, Option::Rumble};
++struct Tab
++{
++  const char* name;
++  std::span<const Option> rows;
++};
++constexpr std::array TABS{Tab{"Saves", SAVES_ROWS}, Tab{"Graphics", GRAPHICS_ROWS},
++                          Tab{"Gameplay", GAMEPLAY_ROWS}, Tab{"Sound", SOUND_ROWS},
++                          Tab{"Controls", CONTROLS_ROWS}};
++
++// The launchers' text size (A- / A+), percent; the menu scales with it, within the screen.
++const Config::Info<int> LAUNCHER_TEXT_SIZE{{Config::System::Main, "Skies", "LauncherTextSize"}, 100};
++// Set once the menu has opened by itself on Frame rate (slowprompt below), so it happens only once.
++const Config::Info<bool> SLOW_NOTE_SHOWN{{Config::System::Main, "Skies", "SlowFrameRateNoted"}, false};
++
++// Save states, in the user directory's StateSaves with ModernGekko's names (Core/SavestateLayout.h),
++// so the launcher offers them too: the player's five slots are state-skies-slot1..5.sav, auto-saves
++// recovery-skies-<date>-<time>.sav, the newest three kept.
++constexpr int SAVE_SLOTS = 5;
++constexpr int AUTO_KEEP = 3;
++constexpr std::string_view AUTO_PREFIX = "recovery-skies-";
++// Minutes between auto-saves (0 = off).
++constexpr std::array AUTO_SAVE_MINUTES{0, 5, 10, 15, 30};
++
++// Quality-of-life choices, in percent of the game's (patches/game/qol.c).
++constexpr std::array ENCOUNTER_RATES{0, 25, 50, 100, 200, 400};
++constexpr std::array REWARD_RATES{0, 50, 100, 200, 300, 400};
++constexpr std::array BATTLE_SPEEDS{1, 2, 3, 4};
++
++// Stick dead zone choices in percent (the main stick and the C-stick of controller 1's profile).
++constexpr std::array DEAD_ZONES{0, 5, 10, 15, 20, 25, 30};
++
++// Internal resolution: the EFB scales the desktop launcher offers (tools/frontend_config.cpp).
++constexpr std::array EFB_SCALES{1, 2, 3, 4, 6};
++
++struct Values
++{
++  int widescreen = 1;
++  int frame_mode = 0;
++  int efb_scale = 1;
++  int msaa = 1;
++  int camera = 1;
++  int encounters = 100;
++  int exp = 100;
++  int gold = 100;
++  int magic_exp = 100;
++  int battle_speed = 1;
++  int invincible = 0;
++  bool vsync = false;
++  int volume = 100;
++  bool show_fps = false;
++  int auto_save = 10;
++  int dead_zone = 0;  // percent, controller 1's sticks
++  int rumble = 1;     // controller 1's motor: on (range 100%) or off (0)
++};
++
++enum class Mode
++{
++  Closed,
++  Open,
++  Closing,  // closed, but the buttons that closed it are still down: the game doesn't get them yet
++};
++
++std::mutex s_mutex;
++Mode s_mode = Mode::Closed;
++int s_tab = 0;
++int s_selected = 0;  // row within the tab, TAB_BAR = the tab bar itself (as in the launchers)
++constexpr int TAB_BAR = -1;
++int s_text_percent = 100;
++Values s_staged;
++Values s_current;
++
++// Set by Close (under the lock), applied by FilterPad after it lets go of the lock: the config
++// callbacks behind it take a while (Config::Save).
++bool s_apply_pending = false;
++Values s_apply_values;
++Values s_apply_before;
++
++// Z hold-back for the open combo (and, where the camera can be moved, for the camera hold).
++bool s_z_held_back = false;
++bool s_z_camera_used = false;
++bool s_z_passed = false;
++Clock::time_point s_z_down;
++int s_z_replay_polls = 0;
++
++// Save states: the slot each row points at, the load row's "press A again", when each slot was
++// saved (0 = empty; [0] is the newest auto-save; read when the menu opens), and a save or load to
++// start once the menu has closed.
++int s_save_slot = 1;
++int s_load_slot = 0;  // 0 = the newest auto-save
++bool s_load_confirm = false;
++// The menu opened by itself on Frame rate because 60 fps ran below full speed (slowprompt): the
++// row's description says why while it is open; the flag is saved once the lock is let go.
++bool s_slow_note = false;
++bool s_slow_note_save = false;
++std::array<std::time_t, SAVE_SLOTS + 1> s_slot_time{};
++std::string s_newest_auto;
++enum class StateAction
++{
++  None,
++  Save,
++  Load,
++};
++StateAction s_state_action = StateAction::None;
++std::string s_state_path;
++
++// Menu navigation edges and repeat.
++u16 s_previous = 0;
++u16 s_repeat_button = 0;
++Clock::time_point s_repeat_next;
++
++bool IsSkies()
++{
++  return SConfig::GetInstance().GetGameID() == "GEAE8P";
++}
++
++GCPadStatus Released(const GCPadStatus& raw)
++{
++  GCPadStatus status;
++  status.isConnected = raw.isConnected;
++  return status;
++}
++
++// Controller 1's profile (GCPadNew.ini): the sticks' dead zone and the rumble motor's range. Read
++// when the menu opens, written and saved when it closes with a change.
++namespace pad
++{
++ControllerEmu::NumericSetting<double>* DeadZone(ControllerEmu::ControlGroup* group)
++{
++  if (!group)
++    return nullptr;
++  for (const auto& setting : group->numeric_settings)
++  {
++    if (std::string_view(setting->GetININame()) == "Dead Zone" &&
++        setting->GetType() == ControllerEmu::SettingType::Double)
++    {
++      return static_cast<ControllerEmu::NumericSetting<double>*>(setting.get());
++    }
++  }
++  return nullptr;
++}
++
++GCPad* Controller()
++{
++  return static_cast<GCPad*>(Pad::GetConfig()->GetController(0));
++}
++
++int ReadDeadZone()
++{
++  const auto* setting = DeadZone(Controller()->GetGroup(PadGroup::MainStick));
++  return setting ? static_cast<int>(std::lround(setting->GetValue())) : 0;
++}
++
++bool ReadRumble()
++{
++  const auto* group = Controller()->GetGroup(PadGroup::Rumble);
++  return !group || group->controls.empty() || group->controls[0]->control_ref->range > 0;
++}
++
++void Write(int dead_zone, bool rumble)
++{
++  {
++    const auto lock = ControllerEmu::EmulatedController::GetStateLock();
++    GCPad* controller = Controller();
++    for (const PadGroup stick : {PadGroup::MainStick, PadGroup::CStick})
++    {
++      if (auto* setting = DeadZone(controller->GetGroup(stick)))
++        setting->SetValue(dead_zone);
++    }
++    if (auto* group = controller->GetGroup(PadGroup::Rumble); group && !group->controls.empty())
++      group->controls[0]->control_ref->range = rumble ? 1.0 : 0.0;
++  }
++  Pad::GetConfig()->SaveConfig();
++}
++}  // namespace pad
++
++Values ReadValues()
++{
++  Values values;
++  const int widescreen = Config::Get(Config::SKIES_WIDESCREEN);
++  values.widescreen = widescreen < 0 ? 1 : widescreen;
++  const int frame_mode = Config::Get(Config::SKIES_FRAME_MODE);
++  values.frame_mode = frame_mode < 0 ? 0 : frame_mode;
++  values.efb_scale = Config::Get(Config::GFX_EFB_SCALE);
++  values.msaa = static_cast<int>(Config::Get(Config::GFX_MSAA));
++  values.camera = Config::Get(Config::SKIES_CAMERA_CONTROL) != 0 ? 1 : 0;
++  values.encounters = Config::Get(Config::SKIES_ENCOUNTERS);
++  values.exp = Config::Get(Config::SKIES_EXP);
++  values.gold = Config::Get(Config::SKIES_GOLD);
++  values.magic_exp = Config::Get(Config::SKIES_MAGIC_EXP);
++  values.battle_speed = Config::Get(Config::SKIES_BATTLE_SPEED);
++  values.invincible = Config::Get(Config::SKIES_INVINCIBLE) != 0 ? 1 : 0;
++  values.vsync = Config::Get(Config::GFX_VSYNC);
++  values.volume = Config::Get(Config::MAIN_AUDIO_VOLUME);
++  values.show_fps = Config::Get(Config::GFX_SHOW_FPS);
++  values.auto_save = Config::Get(Config::SKIES_AUTO_SAVE);
++  values.dead_zone = pad::ReadDeadZone();
++  values.rumble = pad::ReadRumble() ? 1 : 0;
++  return values;
++}
++
++// CPU thread, menu just closed: the [Skies] values reach the game through SkiesSettings' config
++// callback (aspect at once, frame mode at the next frame end); Dolphin picks up the graphics ones
++// at its next frame.
++void Apply(const Values& values, const Values& before)
++{
++  bool changed = false;
++  if (values.widescreen != before.widescreen)
++  {
++    Config::SetBase(Config::SKIES_WIDESCREEN, values.widescreen);
++    changed = true;
++  }
++  if (values.frame_mode != before.frame_mode)
++  {
++    Config::SetBase(Config::SKIES_FRAME_MODE, values.frame_mode);
++    changed = true;
++  }
++  if (values.efb_scale != before.efb_scale)
++  {
++    Config::SetBase(Config::GFX_EFB_SCALE, values.efb_scale);
++    changed = true;
++  }
++  if (values.msaa != before.msaa)
++  {
++    Config::SetBase(Config::GFX_MSAA, static_cast<u32>(values.msaa));
++    changed = true;
++  }
++  if (values.camera != before.camera)
++  {
++    Config::SetBase(Config::SKIES_CAMERA_CONTROL, values.camera);
++    changed = true;
++  }
++  const auto set = [&](const Config::Info<int>& info, int value, int old) {
++    if (value != old)
++    {
++      Config::SetBase(info, value);
++      changed = true;
++    }
++  };
++  set(Config::SKIES_ENCOUNTERS, values.encounters, before.encounters);
++  set(Config::SKIES_EXP, values.exp, before.exp);
++  set(Config::SKIES_GOLD, values.gold, before.gold);
++  set(Config::SKIES_MAGIC_EXP, values.magic_exp, before.magic_exp);
++  set(Config::SKIES_BATTLE_SPEED, values.battle_speed, before.battle_speed);
++  set(Config::SKIES_INVINCIBLE, values.invincible, before.invincible);
++  set(Config::SKIES_AUTO_SAVE, values.auto_save, before.auto_save);
++  if (values.vsync != before.vsync)
++  {
++    Config::SetBase(Config::GFX_VSYNC, values.vsync);
++    changed = true;
++  }
++  if (values.show_fps != before.show_fps)
++  {
++    Config::SetBase(Config::GFX_SHOW_FPS, values.show_fps);
++    changed = true;
++  }
++  if (values.volume != before.volume)
++  {
++    Config::SetBase(Config::MAIN_AUDIO_VOLUME, values.volume);
++    AudioCommon::UpdateSoundStream(Core::System::GetInstance());
++    changed = true;
++  }
++  if (changed)
++    Config::Save();
++  if (values.dead_zone != before.dead_zone || values.rumble != before.rumble)
++    pad::Write(values.dead_zone, values.rumble != 0);
++}
++
++// The MSAA sample counts the video backend offers (1 = off).
++std::vector<int> MsaaModes()
++{
++  std::vector<int> modes;
++  for (const u32 mode : g_backend_info.AAModes)
++    modes.push_back(static_cast<int>(mode));
++  if (modes.empty())
++    modes.push_back(1);
++  return modes;
++}
++
++// The next value in a list: Left/Right stop at the ends, A (wrap) goes round. A value that isn't in
++// the list (set elsewhere) moves to the nearest entry in that direction.
++int Step(std::span<const int> list, int value, int direction, bool wrap)
++{
++  const int count = static_cast<int>(list.size());
++  int index = -1;
++  for (int i = 0; i < count; ++i)
++  {
++    if (list[i] == value)
++      index = i;
++  }
++  if (index < 0)
++  {
++    for (int i = 0; i < count; ++i)
++    {
++      if (direction > 0 ? list[i] > value : list[i] < value)
++        index = direction > 0 ? (index < 0 ? i : index) : i;
++    }
++    return index < 0 ? (wrap ? list[0] : value) : list[index];
++  }
++  index += direction;
++  if (wrap)
++    index = (index + count) % count;
++  return list[std::clamp(index, 0, count - 1)];
++}
++
++std::string ResolutionText(int scale)
++{
++  switch (scale)
++  {
++  case 1:
++    return "Native (480p)";
++  case 2:
++    return "2x (720p)";
++  case 3:
++    return "3x (1080p)";
++  case 4:
++    return "4x (1440p)";
++  case 6:
++    return "6x (4K)";
++  default:
++    return std::to_string(scale) + "x";
++  }
++}
++
++std::string RateText(int percent)
++{
++  switch (percent)
++  {
++  case 0:
++    return "Off";
++  case 25:
++    return "1/4";
++  case 50:
++    return "1/2";
++  case 100:
++    return "Normal";
++  default:
++    return percent % 100 == 0 ? std::to_string(percent / 100) + "x" : std::to_string(percent) + "%";
++  }
++}
++
++std::string SpeedText(int speed)
++{
++  return speed <= 1 ? "Normal (Z in battle)" : std::to_string(speed) + "x (Z in battle)";
++}
++
++std::string MsaaText(int samples)
++{
++  return samples <= 1 ? "Off" : std::to_string(samples) + "x MSAA";
++}
++
++std::filesystem::path StateDirectory()
++{
++  return std::filesystem::path(File::GetUserPath(D_STATESAVES_IDX));
++}
++
++std::string SlotPath(int slot)
++{
++  return (StateDirectory() / fmt::format("state-skies-slot{}.sav", slot)).string();
++}
++
++// When a file was last written, 0 if it isn't there.
++std::time_t WriteTime(const std::filesystem::path& path)
++{
++  std::error_code ec;
++  const auto written = std::filesystem::last_write_time(path, ec);
++  if (ec)
++    return 0;
++  const auto system = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
++      written - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
++  return std::chrono::system_clock::to_time_t(system);
++}
++
++void ReadSlotTimes()
++{
++  for (int slot = 1; slot <= SAVE_SLOTS; ++slot)
++    s_slot_time[slot] = WriteTime(SlotPath(slot));
++  const auto newest = State::Layout::LatestAutomatic(StateDirectory(), AUTO_PREFIX);
++  s_newest_auto = newest ? newest->string() : std::string();
++  s_slot_time[0] = newest ? WriteTime(*newest) : 0;
++}
++
++std::string SlotTime(int slot)
++{
++  if (s_slot_time[slot] == 0)
++    return "empty";
++  const auto local = Common::LocalTime(s_slot_time[slot]);
++  return local ? fmt::format("{:%b %d %H:%M}", *local) : "saved";
++}
++
++void Change(Option option, int direction, bool wrap)
++{
++  Values& v = s_staged;
++  switch (option)
++  {
++  case Option::Picture:
++    v.widescreen = v.widescreen ? 0 : 1;
++    break;
++  case Option::FrameRate:
++    v.frame_mode = v.frame_mode ? 0 : 1;
++    break;
++  case Option::Resolution:
++    v.efb_scale = Step(EFB_SCALES, v.efb_scale, direction, wrap);
++    break;
++  case Option::Antialiasing:
++  {
++    const std::vector<int> modes = MsaaModes();
++    v.msaa = Step(modes, v.msaa, direction, wrap);
++    break;
++  }
++  case Option::Camera:
++    v.camera = v.camera ? 0 : 1;
++    break;
++  case Option::DeadZone:
++    v.dead_zone = Step(DEAD_ZONES, v.dead_zone, direction, wrap);
++    break;
++  case Option::Rumble:
++    v.rumble = v.rumble ? 0 : 1;
++    break;
++  case Option::Encounters:
++    v.encounters = Step(ENCOUNTER_RATES, v.encounters, direction, wrap);
++    break;
++  case Option::Exp:
++    v.exp = Step(REWARD_RATES, v.exp, direction, wrap);
++    break;
++  case Option::Gold:
++    v.gold = Step(REWARD_RATES, v.gold, direction, wrap);
++    break;
++  case Option::MagicExp:
++    v.magic_exp = Step(REWARD_RATES, v.magic_exp, direction, wrap);
++    break;
++  case Option::BattleSpeed:
++    v.battle_speed = Step(BATTLE_SPEEDS, v.battle_speed, direction, wrap);
++    break;
++  case Option::Invincible:
++    v.invincible = v.invincible ? 0 : 1;
++    break;
++  case Option::VSync:
++    v.vsync = !v.vsync;
++    break;
++  case Option::Volume:
++    v.volume = std::clamp(v.volume + direction * 10, 0, 100);
++    break;
++  case Option::ShowFps:
++    v.show_fps = !v.show_fps;
++    break;
++  case Option::SaveState:
++    s_save_slot = (s_save_slot - 1 + direction + SAVE_SLOTS) % SAVE_SLOTS + 1;
++    break;
++  case Option::LoadState:
++    s_load_slot = (s_load_slot + direction + SAVE_SLOTS + 1) % (SAVE_SLOTS + 1);
++    s_load_confirm = false;
++    break;
++  case Option::AutoSave:
++    v.auto_save = Step(AUTO_SAVE_MINUTES, v.auto_save, direction, wrap);
++    break;
++  }
++}
++
++// Buttons, with the main stick folded into the D-pad.
++u16 MenuButtons(const GCPadStatus& raw)
++{
++  u16 buttons = raw.button;
++  if (raw.stickY > GCPadStatus::MAIN_STICK_CENTER_Y + STICK_THRESHOLD)
++    buttons |= PAD_BUTTON_UP;
++  if (raw.stickY < GCPadStatus::MAIN_STICK_CENTER_Y - STICK_THRESHOLD)
++    buttons |= PAD_BUTTON_DOWN;
++  if (raw.stickX > GCPadStatus::MAIN_STICK_CENTER_X + STICK_THRESHOLD)
++    buttons |= PAD_BUTTON_RIGHT;
++  if (raw.stickX < GCPadStatus::MAIN_STICK_CENTER_X - STICK_THRESHOLD)
++    buttons |= PAD_BUTTON_LEFT;
++  // L / R switch tabs: the analog triggers count once pressed most of the way
++  if (raw.triggerLeft > 0xA0)
++    buttons |= PAD_TRIGGER_L;
++  if (raw.triggerRight > 0xA0)
++    buttons |= PAD_TRIGGER_R;
++  return buttons;
++}
++
++// Up/Down repeat while held, and Left/Right too on a ranged option (repeating them on a toggle
++// would flip it back and forth); other buttons act once per press.
++u16 Pressed(u16 buttons, bool repeat_sideways)
++{
++  const Clock::time_point now = Clock::now();
++  u16 pressed = buttons & ~s_previous;
++  const u16 repeating = PAD_BUTTON_UP | PAD_BUTTON_DOWN |
++                        (repeat_sideways ? PAD_BUTTON_LEFT | PAD_BUTTON_RIGHT : 0);
++  const u16 new_direction = pressed & repeating;
++  if (new_direction)
++  {
++    s_repeat_button = new_direction & -new_direction;  // one of them
++    s_repeat_next = now + REPEAT_DELAY;
++  }
++  else if ((s_repeat_button & repeating) && (buttons & s_repeat_button) && now >= s_repeat_next)
++  {
++    pressed |= s_repeat_button;
++    s_repeat_next = now + REPEAT_RATE;
++  }
++  if (!(buttons & s_repeat_button))
++    s_repeat_button = 0;
++  s_previous = buttons;
++  return pressed;
++}
++
++void Open()
++{
++  s_mode = Mode::Open;
++  s_tab = 0;
++  s_selected = 0;
++  s_text_percent = std::clamp(Config::Get(LAUNCHER_TEXT_SIZE), 80, 160);
++  s_current = ReadValues();
++  s_staged = s_current;
++  s_previous = 0xFFFF;  // nothing counts as pressed until it's released once
++  s_repeat_button = 0;
++  s_load_confirm = false;
++  s_slow_note = false;
++  ReadSlotTimes();
++  NOTICE_LOG_FMT(CORE, "[skies] menu open");
++}
++
++void Close()
++{
++  s_mode = Mode::Closing;
++  s_apply_pending = true;
++  s_apply_values = s_staged;
++  s_apply_before = s_current;
++  NOTICE_LOG_FMT(CORE, "[skies] menu closed");
++}
++
++// A ship battle runs inside field mode 6, on a map from 500 to 599 (the game's own test, in
++// fn_8012A26C). The ship battle's data pointer (0x8034727C) isn't enough: the game frees the data
++// after the battle but leaves the pointer set.
++bool InShipBattle(Memory::MemoryManager& memory)
++{
++  constexpr u32 GAME_MODE = 0x803475CC;
++  constexpr u32 MAP_ID = 0x80311AC4;
++  constexpr u32 SHIP_BATTLE_DATA = 0x8034727C;
++  const u32 map = memory.Read_U32(MAP_ID);
++  return memory.Read_U32(GAME_MODE) == 6 && map >= 500 && map <= 599 &&
++         memory.Read_U32(SHIP_BATTLE_DATA) != 0;
++}
++
++// Camera control: hold Z, then the C-stick tilts the camera (and on the world map turns it around
++// the ship) and the L/R triggers zoom; the game patch (patches/game/camera.c) applies the offsets
++// it finds in cam_input. Only where the game's camera manager follows the field camera object:
++// towns, dungeons and the world map.
++namespace camera
++{
++constexpr u32 GAME_MODE = 0x803475CC;       // 6 = field / world map
++constexpr u32 MANAGER = 0x80311970;         // +0 mode (2 = follow), +8 eye source
++constexpr u32 FIELD_CAMERA_EYE = 0x80302F94;  // the field camera object's eye
++constexpr u32 FIELD_CAMERA_PITCH = 0x80302FA0;
++constexpr u32 MAP_ID = 0x80311AC4;          // 0x63 = the world map
++constexpr u32 WORLD_MAP = 0x63;
++constexpr u32 HOOK_SITE = 0x8022D910;       // bl fn_8022D1F8 in the unpatched game
++constexpr u32 HOOK_ORIGINAL = 0x4BFFF8E9;
++constexpr u32 INPUT = 0x80002EC0;           // camera.c's cam_input
++constexpr u32 INPUT_MAGIC = 0x43414D43;     // 'CAMC'
++
++constexpr float DEGREES = 65536.0f / 360.0f;  // Ninja angle units
++constexpr float PITCH_SPEED = 80.0f * DEGREES;  // per second, stick fully over
++constexpr float YAW_SPEED = 120.0f * DEGREES;
++constexpr float ZOOM_SPEED = 0.8f;              // distance factor per second, trigger fully in
++constexpr float YAW_RETURN = 3.0f;              // world map: the turn eases back at this rate
++constexpr int STICK_DEAD = 24;
++constexpr int TRIGGER_DEAD = 40;
++
++struct Offsets
++{
++  float pitch = 0.0f;
++  float yaw = 0.0f;
++  float zoom = 1.0f;
++};
++struct Limits
++{
++  float pitch_lo, pitch_hi;  // the tilted pitch, in Ninja units (negative: looking down)
++  float zoom_lo, zoom_hi;
++  float rise;  // > 0: the eye stays within this of the game's own eye height (camera.c)
++};
++// Field: the camera stays between the game's own camera and Vyse, since rooms have low ceilings and
++// walls close behind and the game has no camera collision: no higher than the game's eye (tilting
++// further down brings it closer instead), no further than the game's distance, never under Vyse's
++// head, down to -40 degrees.
++constexpr Limits FIELD_LIMITS{-40.0f * DEGREES, -1.0f * DEGREES, 0.5f, 1.0f, 0.5f};
++constexpr Limits WORLD_LIMITS{-35.0f * DEGREES, 25.0f * DEGREES, 0.6f, 2.0f, 0.0f};
++
++Offsets s_field;
++Offsets s_world;
++Clock::time_point s_last_poll;
++
++struct Context
++{
++  bool movable = false;  // the game is following the field camera object
++  bool world_map = false;
++  float game_pitch = 0.0f;
++};
++
++Context ReadContext(Memory::MemoryManager& memory)
++{
++  Context context;
++  if (memory.Read_U32(HOOK_SITE) == HOOK_ORIGINAL)  // a DOL without camera.c
++    return context;
++  context.movable = memory.Read_U32(GAME_MODE) == 6 && memory.Read_U32(MANAGER) == 2 &&
++                    memory.Read_U32(MANAGER + 8) == FIELD_CAMERA_EYE;
++  context.world_map = memory.Read_U32(MAP_ID) == WORLD_MAP;
++  context.game_pitch = static_cast<float>(static_cast<s16>(memory.Read_U32(FIELD_CAMERA_PITCH)));
++  return context;
++}
++
++float Axis(u8 value, u8 center)
++{
++  const int v = static_cast<int>(value) - center;
++  if (std::abs(v) < STICK_DEAD)
++    return 0.0f;
++  return std::clamp(static_cast<float>(v) / 100.0f, -1.0f, 1.0f);
++}
++
++float Trigger(u8 value)
++{
++  return value < TRIGGER_DEAD ? 0.0f : static_cast<float>(value - TRIGGER_DEAD) / (255 - TRIGGER_DEAD);
++}
++
++// Applies one poll of camera input (z: Z is held). Returns true if the player moved the camera.
++bool Update(const Context& context, const GCPadStatus& raw, bool z, float dt)
++{
++  Offsets& offsets = context.world_map ? s_world : s_field;
++  const Limits& limits = context.world_map ? WORLD_LIMITS : FIELD_LIMITS;
++  bool moved = false;
++  if (z)
++  {
++    const float stick_y = Axis(raw.substickY, GCPadStatus::C_STICK_CENTER_Y);
++    const float stick_x = Axis(raw.substickX, GCPadStatus::C_STICK_CENTER_X);
++    const float zoom = Trigger(raw.triggerRight) - Trigger(raw.triggerLeft);
++    // Up: the camera rises and looks down more.
++    offsets.pitch -= stick_y * PITCH_SPEED * dt;
++    offsets.zoom += zoom * ZOOM_SPEED * dt;
++    if (context.world_map)
++      offsets.yaw -= stick_x * YAW_SPEED * dt;
++    // In the field the game turns the camera with C-stick X itself; that counts too (a Z hold that
++    // turned the camera mustn't become a tap on release).
++    moved = stick_y != 0.0f || zoom != 0.0f || stick_x != 0.0f;
++  }
++  if (context.world_map && !(z && Axis(raw.substickX, GCPadStatus::C_STICK_CENTER_X) != 0.0f))
++    offsets.yaw -= offsets.yaw * std::min(1.0f, YAW_RETURN * dt);
++  // Keep the total pitch in range, so pushing past a limit doesn't wind up.
++  offsets.pitch = std::clamp(offsets.pitch, std::min(0.0f, limits.pitch_lo - context.game_pitch),
++                             std::max(0.0f, limits.pitch_hi - context.game_pitch));
++  offsets.zoom = std::clamp(offsets.zoom, limits.zoom_lo, limits.zoom_hi);
++  return moved;
++}
++
++void Write(Memory::MemoryManager& memory, const Context& context, bool enabled)
++{
++  if (memory.Read_U32(HOOK_SITE) == HOOK_ORIGINAL)
++    return;
++  const Offsets& offsets = context.world_map ? s_world : s_field;
++  const Limits& limits = context.world_map ? WORLD_LIMITS : FIELD_LIMITS;
++  memory.Write_U32(INPUT_MAGIC, INPUT);
++  memory.Write_U32(enabled ? 1 : 0, INPUT + 4);
++  memory.Write_U32(static_cast<u32>(static_cast<s32>(offsets.pitch)), INPUT + 8);
++  memory.Write_U32(static_cast<u32>(static_cast<s32>(offsets.yaw)), INPUT + 12);
++  memory.Write_U32(std::bit_cast<u32>(offsets.zoom), INPUT + 16);
++  memory.Write_U32(static_cast<u32>(static_cast<s32>(limits.pitch_lo)), INPUT + 20);
++  memory.Write_U32(static_cast<u32>(static_cast<s32>(limits.pitch_hi)), INPUT + 24);
++  memory.Write_U32(std::bit_cast<u32>(limits.rise), INPUT + 28);
++}
++}  // namespace camera
++
++// Quality-of-life options: the settings go to the game patch (patches/game/qol.c) through
++// qol_input every poll; a Z tap in battle cycles the battle speed; frame interpolation steps aside
++// while a battle runs fast (the game then draws a real picture for every retrace or more).
++namespace qol
++{
++constexpr u32 HOOK_SITE = 0x800C207C;      // bl fn_8025ECC4 (rand) in the unpatched game
++constexpr u32 HOOK_ORIGINAL = 0x4819CC49;
++constexpr u32 INPUT = 0x80002EA0;          // qol.c's qol_input
++constexpr u32 INPUT_MAGIC = 0x514F4C43;    // 'QOLC'
++constexpr u32 GAME_MODE = 0x803475CC;      // 7 = battle (ship battles: InShipBattle)
++
++bool s_interpolation_held = false;  // turned off for a fast battle
++int s_speed_pending = 0;            // a new battle speed to save (after the lock is let go)
++int s_invincible_pending = -1;      // a new Invincible setting to save (after the lock is let go)
++// A battle at 3x or 4x the host can't keep up with (the emulation drops under 95% for 1.5 s) steps
++// down, to 2x at the lowest, until the battle ends: the Retroid manages about 2.5x.
++int s_speed_cap = 4;
++Clock::time_point s_slow_since{};
++bool s_stick_click = false;         // L3 / R3 down at the last poll
++// A ship battle frame takes about a retrace of the emulated CPU's time, so skipping the waits takes
++// it to 2x and no further. At 3x and 4x the emulated CPU runs speed / 2 times faster while the
++// battle lasts (CurrentRun layer: the player's own overclock setting is left alone and comes back).
++float s_overclock = 1.0f;           // the factor asked for at the last poll
++float s_overclock_pending = 0.0f;   // a new factor to apply (after the lock is let go)
++
++bool Present(Memory::MemoryManager& memory)
++{
++  return memory.Read_U32(HOOK_SITE) != HOOK_ORIGINAL &&
++         memory.Read_U32(HOOK_SITE) >> 26 == 18;  // a bl, to qol.c
++}
++
++bool InBattle(Memory::MemoryManager& memory)
++{
++  return memory.Read_U32(GAME_MODE) == 7 || InShipBattle(memory);
++}
++
++int EffectiveSpeed(Memory::MemoryManager& memory, int speed)
++{
++  if (!InBattle(memory))
++  {
++    s_speed_cap = 4;
++    s_slow_since = {};
++    return speed;
++  }
++  const int effective = std::min(speed, s_speed_cap);
++  if (effective < 3)
++    return effective;
++  const Clock::time_point now = Clock::now();
++  if (Core::System::GetInstance().GetPerfMetrics().GetSpeed() >= 0.95)
++  {
++    s_slow_since = {};
++  }
++  else if (s_slow_since == Clock::time_point{})
++  {
++    s_slow_since = now;
++  }
++  else if (now - s_slow_since > std::chrono::milliseconds(1500))
++  {
++    s_speed_cap = effective - 1;
++    s_slow_since = {};
++    OSD::AddMessage(fmt::format("Battle speed: {}x (the most this device keeps up with)", s_speed_cap),
++                    2500);
++  }
++  return std::min(speed, s_speed_cap);
++}
++
++void Write(Memory::MemoryManager& memory)
++{
++  const int speed = EffectiveSpeed(
++      memory, s_speed_pending ? s_speed_pending : Config::Get(Config::SKIES_BATTLE_SPEED));
++  memory.Write_U32(INPUT_MAGIC, INPUT);
++  // Percentages, held to the menus' range: a hand-edited Dolphin.ini can say anything.
++  const auto percent = [](const Config::Info<int>& info, int most) {
++    return static_cast<u32>(std::clamp(Config::Get(info), 0, most));
++  };
++  memory.Write_U32(percent(Config::SKIES_ENCOUNTERS, ENCOUNTER_RATES.back()), INPUT + 4);
++  memory.Write_U32(percent(Config::SKIES_EXP, REWARD_RATES.back()), INPUT + 8);
++  memory.Write_U32(percent(Config::SKIES_GOLD, REWARD_RATES.back()), INPUT + 12);
++  memory.Write_U32(percent(Config::SKIES_MAGIC_EXP, REWARD_RATES.back()), INPUT + 16);
++  memory.Write_U32(static_cast<u32>(std::clamp(speed, 1, 4)), INPUT + 20);
++  const int invincible =
++      s_invincible_pending >= 0 ? s_invincible_pending : Config::Get(Config::SKIES_INVINCIBLE);
++  memory.Write_U32(invincible ? 1 : 0, INPUT + 24);
++
++  const bool hold = InBattle(memory) && speed >= 2;
++  if (hold != s_interpolation_held)
++  {
++    s_interpolation_held = hold;
++    FrameInterpolator::RequestEnabled(!hold && Config::Get(Config::SKIES_FRAME_MODE) >= 1);
++  }
++
++  const float overclock = InBattle(memory) && speed >= 3 ? std::clamp(speed, 1, 4) / 2.0f : 1.0f;
++  if (overclock != s_overclock)
++  {
++    s_overclock = overclock;
++    s_overclock_pending = overclock;
++  }
++}
++
++void ApplyOverclock(float factor)
++{
++  if (factor > 1.0f)
++  {
++    Config::SetCurrent(Config::MAIN_OVERCLOCK, factor);
++    Config::SetCurrent(Config::MAIN_OVERCLOCK_ENABLE, true);
++  }
++  else
++  {
++    Config::DeleteKey(Config::LayerType::CurrentRun, Config::MAIN_OVERCLOCK);
++    Config::DeleteKey(Config::LayerType::CurrentRun, Config::MAIN_OVERCLOCK_ENABLE);
++  }
++}
++
++// L3 / R3: the stick clicks of controller 1's real device. They aren't GameCube buttons, so they're
++// read from the device itself: "Thumb L" / "Thumb R" on desktop (SDL, XInput, WGInput), "Button
++// L3" / "Button R3" on Android. The device is looked up again every 2 s (it can be reconnected).
++bool StickClick()
++{
++  static std::weak_ptr<ciface::Core::Device> s_device;
++  static std::vector<ciface::Core::Device::Input*> s_inputs;
++  static Clock::time_point s_next_lookup;
++  const Clock::time_point now = Clock::now();
++  std::shared_ptr<ciface::Core::Device> device = s_device.lock();
++  if (!device || now >= s_next_lookup)
++  {
++    s_next_lookup = now + std::chrono::seconds(2);
++    device = g_controller_interface.FindDevice(Pad::GetConfig()->GetController(0)->GetDefaultDevice());
++    s_device = device;
++    s_inputs.clear();
++    if (device)
++    {
++      for (const char* name : {"Thumb L", "Thumb R", "Button L3", "Button R3"})
++      {
++        if (ciface::Core::Device::Input* input = device->FindInput(name))
++          s_inputs.push_back(input);
++      }
++    }
++  }
++  if (!device)
++    return false;
++  return std::ranges::any_of(s_inputs, [](auto* input) { return input->GetState() > 0.5; });
++}
++
++// A new stick click: toggle Invincible (saved and shown once the lock is let go).
++void PollStickClick()
++{
++  const bool down = StickClick();
++  if (down && !s_stick_click)
++  {
++    const int now_on =
++        s_invincible_pending >= 0 ? s_invincible_pending : Config::Get(Config::SKIES_INVINCIBLE);
++    s_invincible_pending = now_on ? 0 : 1;
++  }
++  s_stick_click = down;
++}
++
++// Z tapped in battle: next speed, saved and shown once the lock is let go.
++void CycleSpeed()
++{
++  const int speed = s_speed_pending ? s_speed_pending : Config::Get(Config::SKIES_BATTLE_SPEED);
++  s_speed_pending = speed >= 4 ? 1 : speed + 1;
++}
++}  // namespace qol
++
++// Auto-save: every [Skies] AutoSave minutes a save state goes to the oldest of slots 6-8, but only
++// at a quiet moment: on the field or world map (game mode 6, outside a ship battle, which runs in
++// mode 6 too) and with the memory card left alone for a while (a state doesn't hold a card transfer
++// in progress). Waits for such a moment once it's due.
++namespace autosave
++{
++constexpr u32 GAME_MODE = 0x803475CC;          // 6 = field / world map
++constexpr double CARD_QUIET_SECONDS = 10.0;
++
++Clock::time_point s_due{};
++int s_minutes = 0;
++bool s_pending = false;  // a save to start once the lock is let go
++
++void Poll(Memory::MemoryManager& memory)
++{
++  const int minutes = Config::Get(Config::SKIES_AUTO_SAVE);
++  const Clock::time_point now = Clock::now();
++  if (minutes <= 0)
++  {
++    s_due = {};
++    s_minutes = 0;
++    return;
++  }
++  if (s_due == Clock::time_point{} || minutes != s_minutes)
++  {
++    s_minutes = minutes;
++    s_due = now + std::chrono::minutes(minutes);
++    return;
++  }
++  if (now < s_due || memory.Read_U32(GAME_MODE) != 6 || InShipBattle(memory) ||
++      ExpansionInterface::CEXIMemoryCard::SecondsSinceLastAccess() < CARD_QUIET_SECONDS)
++  {
++    return;
++  }
++  s_due = now + std::chrono::minutes(minutes);
++  s_pending = true;
++}
++
++// Host thread: the oldest auto-saves go so that, with this one, the newest AUTO_KEEP remain.
++void Save(Core::System& system)
++{
++  const std::filesystem::path directory = StateDirectory();
++  std::error_code ec;
++  std::filesystem::create_directories(directory, ec);
++  State::Layout::PruneAutomatic(directory, AUTO_KEEP - 1, AUTO_PREFIX);
++  const std::string path =
++      (directory / State::Layout::TimestampedName(std::time(nullptr), AUTO_PREFIX)).string();
++  NOTICE_LOG_FMT(CORE, "[skies] auto-save to {}", path);
++  State::SaveAs(system, path);
++}
++}  // namespace autosave
++
++// Continue from a memory card save (the launchers' Continue, when the card save is the newest):
++// the game loads one only itself, through the title screen's Continue and its load screen, so this
++// presses the buttons for the player, each only on the screen it belongs to. The title menu task
++// and the load screen task are found in memory by their functions; their steps and cursors are
++// from the decomp (ui.md *Save and load*, traced 2026-10-11). The player pressing anything, a
++// cancelled load or two minutes stop it.
++namespace autoload
++{
++const Config::Info<int> AUTO_LOAD_CARD{{Config::System::Main, "Skies", "AutoLoadCard"}, 0};
++constexpr u32 TITLE_MENU = 0x801D8DBC;      // New Game / Continue: step 5 waits, work +1: 1 = Continue
++constexpr u32 TITLE_CONTINUE = 0x801D8B94;  // after Continue: opens the load screen, waits for it
++constexpr u32 SAVE_LOAD = 0x8019E248;       // SaveLoadTask: step 4 slot, 9 file (work +5), 15 Yes / No
++                                            // (work +8, 0 = Yes), 19 loading, 32 idle
++constexpr u32 LOAD_RESULT = 0x803473C4;     // 0 running, 1 loaded, 2 cancelled
++constexpr u32 SCAN_START = 0x80800000;
++constexpr u32 SCAN_END = 0x81400000;
++constexpr u8 IDLE_STEP = 32;
++
++int s_file = 0;  // 1..3: the file to load (0 = off)
++Clock::time_point s_deadline, s_press_until, s_next_action;
++u16 s_press = 0;
++bool s_seen_load = false;
++
++struct Task
++{
++  u32 address = 0;
++  u8 step = 0;
++  u32 work = 0;
++};
++
++u32 Word(const u8* ram, u32 size, u32 address)
++{
++  const u32 offset = address & 0x01FFFFFF;
++  if (offset + 4 > size)
++    return 0;
++  u32 value;
++  std::memcpy(&value, ram + offset, 4);
++  return Common::swap32(value);
++}
++
++u8 Byte(const u8* ram, u32 size, u32 address)
++{
++  const u32 offset = address & 0x01FFFFFF;
++  return offset < size ? ram[offset] : 0;
++}
++
++// A live task running func: a heap block (header 0x20 bytes before, pointing at the task) whose
++// first word is the function. The load screen leaves an idle task behind (step 32): skipped.
++Task Find(const u8* ram, u32 size, u32 func)
++{
++  u32 be_func = Common::swap32(func);
++  const u32 end = std::min<u32>(SCAN_END & 0x01FFFFFF, size - 4);
++  for (u32 offset = SCAN_START & 0x01FFFFFF; offset < end; offset += 4)
++  {
++    if (std::memcmp(ram + offset, &be_func, 4) != 0)
++      continue;
++    const u32 address = 0x80000000 | offset;
++    // header: [-0x20] the task's address, [-0x1C] size, [-0x18] 0, [-0x14] 0xFFFFFFFF
++    if (Word(ram, size, address - 0x20) != address || Word(ram, size, address - 0x18) != 0 ||
++        Word(ram, size, address - 0x14) != 0xFFFFFFFF)
++    {
++      continue;
++    }
++    const u8 step = Byte(ram, size, address + 0x19);
++    if (func == SAVE_LOAD && step == IDLE_STEP)
++      continue;
++    return {address, step, Word(ram, size, address + 0x24)};
++  }
++  return {};
++}
++
++void Stop(const char* message)
++{
++  s_file = 0;
++  s_press = 0;
++  if (message)
++    OSD::AddMessage(message, 4000);
++  NOTICE_LOG_FMT(CORE, "[skies] auto-load: {}", message ? message : "done");
++}
++
++bool Active()
++{
++  if (s_file > 0)
++    return true;
++  // One shot, set by the launcher for the boot it starts and consumed here at once (checked while
++  // no auto-load runs: Android keeps the process between boots)
++  const int file = Config::Get(AUTO_LOAD_CARD);
++  if (file == 0)
++    return false;
++  Config::SetBase(AUTO_LOAD_CARD, 0);
++  Config::Save();
++  if (file < 1 || file > 3)
++    return false;
++  s_file = file;
++  s_seen_load = false;
++  s_press = 0;
++  s_deadline = Clock::now() + std::chrono::minutes(2);
++  s_next_action = Clock::now();
++  OSD::AddMessage(fmt::format("Loading your memory card save (file {})...", file), 4000);
++  NOTICE_LOG_FMT(CORE, "[skies] auto-load: file {}", file);
++  return true;
++}
++
++void Press(u16 button, Clock::time_point now, milliseconds wait)
++{
++  s_press = button;
++  s_press_until = now + milliseconds(100);
++  s_next_action = now + wait;
++}
++
++GCPadStatus Drive(const GCPadStatus& raw)
++{
++  const Clock::time_point now = Clock::now();
++  const u16 player = raw.button & (PAD_BUTTON_A | PAD_BUTTON_B | PAD_BUTTON_X | PAD_BUTTON_Y |
++                                   PAD_BUTTON_START | PAD_TRIGGER_Z | PAD_BUTTON_UP |
++                                   PAD_BUTTON_DOWN | PAD_BUTTON_LEFT | PAD_BUTTON_RIGHT);
++  GCPadStatus out = Released(raw);
++  if (player != 0 || MenuButtons(raw) != raw.button)
++  {
++    Stop("Auto-load stopped: the controller took over");
++    return raw;
++  }
++  if (now > s_deadline)
++  {
++    Stop("Auto-load stopped: the load screen didn't come up in time");
++    return out;
++  }
++  if (now < s_press_until)
++  {
++    out.button |= s_press;
++    return out;
++  }
++  if (now < s_next_action)
++    return out;
++
++  auto& memory = Core::System::GetInstance().GetMemory();
++  const u8* ram = memory.GetRAM();
++  const u32 size = memory.GetRamSizeReal();
++  if (!ram)
++    return out;
++
++  if (const Task load = Find(ram, size, SAVE_LOAD); load.address)
++  {
++    s_seen_load = true;
++    switch (load.step)
++    {
++    case 4:  // Slot A (the only card Dolphin gives the game)
++      Press(PAD_BUTTON_A, now, milliseconds(600));
++      break;
++    case 9:  // the file list
++    {
++      const int cursor = Byte(ram, size, load.work + 5);
++      const int target = s_file - 1;
++      Press(cursor < target ? PAD_BUTTON_DOWN : cursor > target ? PAD_BUTTON_UP : PAD_BUTTON_A, now,
++            milliseconds(450));
++      break;
++    }
++    case 15:  // "Load this file. Is this ok?"
++      Press(Byte(ram, size, load.work + 8) == 0 ? PAD_BUTTON_A : PAD_BUTTON_UP, now,
++            milliseconds(450));
++      break;
++    default:  // between screens, or loading
++      s_next_action = now + milliseconds(250);
++      break;
++    }
++    return out;
++  }
++  if (s_seen_load)
++  {
++    const u32 result = Word(ram, size, LOAD_RESULT);
++    if (result == 1)
++      Stop(nullptr);
++    else if (result == 2)
++      Stop("Auto-load stopped: the load was cancelled");
++    else
++      s_next_action = now + milliseconds(250);
++    return out;
++  }
++  if (const Task menu = Find(ram, size, TITLE_MENU); menu.address)
++  {
++    if (menu.step == 5)
++    {
++      Press(Byte(ram, size, menu.work + 1) == 1 ? PAD_BUTTON_A : PAD_BUTTON_UP, now,
++            milliseconds(600));
++    }
++    else
++    {
++      s_next_action = now + milliseconds(250);
++    }
++    return out;
++  }
++  if (Find(ram, size, TITLE_CONTINUE).address)
++  {
++    s_next_action = now + milliseconds(250);
++    return out;
++  }
++  // Logos, intro, "Press Start": Start skips ahead
++  Press(PAD_BUTTON_START, now, milliseconds(1200));
++  return out;
++}
++}  // namespace autoload
++
++GCPadStatus FilterClosed(const GCPadStatus& raw)
++{
++  GCPadStatus out = raw;
++  const bool z = raw.button & PAD_TRIGGER_Z;
++  const bool start = raw.button & PAD_BUTTON_START;
++  const Clock::time_point now = Clock::now();
++  const float dt = std::clamp(std::chrono::duration<float>(now - camera::s_last_poll).count(), 0.0f, 0.1f);
++  camera::s_last_poll = now;
++
++  auto& memory = Core::System::GetInstance().GetMemory();
++  const bool qol_present = qol::Present(memory);
++  if (qol_present)
++  {
++    qol::PollStickClick();
++    qol::Write(memory);
++  }
++  autosave::Poll(memory);
++  const camera::Context context = camera::ReadContext(memory);
++  const bool camera_on = context.movable && Config::Get(Config::SKIES_CAMERA_CONTROL) != 0;
++
++  if (z && !s_z_held_back && !s_z_passed)
++  {
++    s_z_held_back = true;
++    s_z_camera_used = false;
++    s_z_down = now;
++  }
++  // Z+Start opens the menu however long Z was held first: also once Z has been passed on to the
++  // game (where it was held back only briefly).
++  if (z && start && (s_z_held_back || s_z_passed))
++  {
++    s_z_held_back = false;
++    Open();
++    return Released(raw);
++  }
++  if (camera_on)
++  {
++    if (camera::Update(context, raw, s_z_held_back && z, dt))
++      s_z_camera_used = true;
++    camera::Write(memory, context, true);
++    if (s_z_held_back && z)
++    {
++      // The camera has the C-stick's tilt (and on the world map its turn) and the triggers.
++      out.substickY = GCPadStatus::C_STICK_CENTER_Y;
++      if (context.world_map)
++        out.substickX = GCPadStatus::C_STICK_CENTER_X;
++      out.triggerLeft = 0;
++      out.triggerRight = 0;
++      out.button &= ~(PAD_TRIGGER_Z | PAD_TRIGGER_L | PAD_TRIGGER_R);
++      return out;
++    }
++  }
++  else if (context.movable)
++  {
++    camera::Write(memory, context, false);
++  }
++  if (s_z_held_back)
++  {
++    if (!z)
++    {
++      // Released before Start came (and without moving the camera): in battle that's the battle
++      // speed (the game doesn't use Z there), elsewhere the game gets its tap late.
++      s_z_held_back = false;
++      if (qol_present && qol::InBattle(memory))
++        qol::CycleSpeed();
++      else if (!s_z_camera_used)
++        s_z_replay_polls = 4;
++    }
++    else if (now - s_z_down < Z_HOLD_BACK || (qol_present && qol::InBattle(memory)))
++    {
++      // In battle the game has no use for Z: held back until it's released (a tap: the battle
++      // speed) or Start comes (the menu).
++      out.button &= ~PAD_TRIGGER_Z;
++      return out;
++    }
++    else
++    {
++      s_z_held_back = false;
++      s_z_passed = true;
++    }
++  }
++  if (!z)
++    s_z_passed = false;
++  if (s_z_replay_polls > 0)
++  {
++    --s_z_replay_polls;
++    out.button |= PAD_TRIGGER_Z;
++  }
++  return out;
++}
++
++GCPadStatus FilterOpen(const GCPadStatus& raw)
++{
++  const std::span<const Option> rows = TABS[s_tab].rows;
++  const bool on_tabs = s_selected == TAB_BAR;
++  const u16 pressed = Pressed(MenuButtons(raw), !on_tabs && rows[s_selected] == Option::Volume);
++  const int tab_count = static_cast<int>(TABS.size());
++  const auto switch_tab = [&](int direction) {
++    s_tab = (s_tab + direction + tab_count) % tab_count;
++    s_load_confirm = false;
++  };
++  if (pressed & (PAD_TRIGGER_L | PAD_TRIGGER_R))
++  {
++    switch_tab((pressed & PAD_TRIGGER_R) ? 1 : -1);
++    if (!on_tabs)
++      s_selected = 0;
++    return Released(raw);
++  }
++  const int count = static_cast<int>(rows.size());
++  if (on_tabs)
++  {
++    // The tab bar: Left / Right switch tabs, Down or A go into the tab's settings
++    if (pressed & PAD_BUTTON_LEFT)
++      switch_tab(-1);
++    if (pressed & PAD_BUTTON_RIGHT)
++      switch_tab(1);
++    if (pressed & (PAD_BUTTON_DOWN | PAD_BUTTON_A))
++      s_selected = 0;
++    else if (pressed & PAD_BUTTON_UP)
++      s_selected = static_cast<int>(TABS[s_tab].rows.size()) - 1;
++    else if (pressed & (PAD_BUTTON_B | PAD_BUTTON_START))
++      Close();
++    return Released(raw);
++  }
++  if (pressed & (PAD_BUTTON_UP | PAD_BUTTON_DOWN))
++    s_load_confirm = false;
++  // Up from the first setting and Down from the last reach the tab bar
++  if (pressed & PAD_BUTTON_UP)
++    s_selected = s_selected == 0 ? TAB_BAR : s_selected - 1;
++  else if (pressed & PAD_BUTTON_DOWN)
++    s_selected = s_selected == count - 1 ? TAB_BAR : s_selected + 1;
++  if (s_selected == TAB_BAR)
++    return Released(raw);
++  const Option option = rows[s_selected];
++  if (pressed & PAD_BUTTON_LEFT)
++    Change(option, -1, false);
++  if (pressed & PAD_BUTTON_RIGHT)
++    Change(option, 1, false);
++  if (pressed & PAD_BUTTON_A)
++  {
++    if (option == Option::SaveState)
++    {
++      s_state_action = StateAction::Save;
++      s_state_path = SlotPath(s_save_slot);
++      Close();
++    }
++    else if (option == Option::LoadState)
++    {
++      // Loading throws away the play since that state, so it takes a second A.
++      if (s_slot_time[s_load_slot] != 0)
++      {
++        if (s_load_confirm)
++        {
++          s_state_action = StateAction::Load;
++          s_state_path = s_load_slot == 0 ? s_newest_auto : SlotPath(s_load_slot);
++          Close();
++        }
++        s_load_confirm = true;
++      }
++    }
++    else
++    {
++      Change(option, 1, true);
++    }
++  }
++  else if (pressed & (PAD_BUTTON_B | PAD_BUTTON_START))
++  {
++    Close();
++  }
++  return Released(raw);
++}
++
++const char* OnOff(bool value)
++{
++  return value ? "On" : "Off";
++}
++}  // namespace
++
++// 60 fps a device can't keep up with: after 20 s in a row under 90% speed (not in a fast battle,
++// which turns the in-between frames off anyway, and not in the first minute, when shaders compile)
++// the menu opens once by itself on Frame rate and says why. The player decides: nothing switches
++// by itself, and it never opens like this again.
++namespace slowprompt
++{
++Clock::time_point s_started{};
++Clock::time_point s_slow_since{};
++
++// Under the lock, with the menu closed. True when it opened the menu.
++bool Poll()
++{
++  const Clock::time_point now = Clock::now();
++  if (s_started == Clock::time_point{})
++    s_started = now;
++  if (Config::Get(Config::SKIES_FRAME_MODE) < 1 || qol::s_interpolation_held ||
++      Config::Get(SLOW_NOTE_SHOWN) || now - s_started < std::chrono::seconds(60) ||
++      Core::System::GetInstance().GetPerfMetrics().GetSpeed() >= 0.90)
++  {
++    s_slow_since = {};
++    return false;
++  }
++  if (s_slow_since == Clock::time_point{})
++    s_slow_since = now;
++  if (now - s_slow_since < std::chrono::seconds(20))
++    return false;
++  s_slow_since = {};
++  Open();
++  for (int t = 0; t < static_cast<int>(TABS.size()); ++t)
++  {
++    const auto& rows = TABS[t].rows;
++    const auto found = std::find(rows.begin(), rows.end(), Option::FrameRate);
++    if (found != rows.end())
++    {
++      s_tab = t;
++      s_selected = static_cast<int>(found - rows.begin());
++    }
++  }
++  s_slow_note = true;
++  s_slow_note_save = true;
++  NOTICE_LOG_FMT(CORE, "[skies] 60 fps below full speed for 20 s: menu opened on Frame rate");
++  return true;
++}
++}  // namespace slowprompt
++
++GCPadStatus FilterPad(int pad_num, const GCPadStatus& raw)
++{
++  if (pad_num != 0 || !IsSkies())
++    return raw;
++  std::unique_lock lock(s_mutex);
++  GCPadStatus out = raw;
++  switch (s_mode)
++  {
++  case Mode::Closed:
++    out = autoload::Active() ? autoload::Drive(raw) : FilterClosed(raw);
++    if (s_mode == Mode::Closed && !autoload::Active() && slowprompt::Poll())
++      out = Released(raw);
++    break;
++  case Mode::Open:
++    out = FilterOpen(raw);
++    break;
++  case Mode::Closing:
++    if (MenuButtons(raw) != 0)
++    {
++      out = Released(raw);
++    }
++    else
++    {
++      s_mode = Mode::Closed;
++      s_z_held_back = false;
++      s_z_passed = false;
++    }
++    break;
++  }
++  if (qol::s_invincible_pending >= 0)
++  {
++    const int on = qol::s_invincible_pending;
++    qol::s_invincible_pending = -1;
++    lock.unlock();
++    Config::SetBase(Config::SKIES_INVINCIBLE, on);
++    Config::Save();
++    OSD::AddMessage(on ? "Invincible: on (HP, MP and Spirit full in battle)" : "Invincible: off",
++                    2000);
++    return out;
++  }
++  if (s_slow_note_save)
++  {
++    s_slow_note_save = false;
++    lock.unlock();
++    Config::SetBase(SLOW_NOTE_SHOWN, true);
++    Config::Save();
++    return out;
++  }
++  if (qol::s_overclock_pending > 0.0f)
++  {
++    const float factor = qol::s_overclock_pending;
++    qol::s_overclock_pending = 0.0f;
++    lock.unlock();
++    qol::ApplyOverclock(factor);
++    return out;
++  }
++  if (qol::s_speed_pending)
++  {
++    const int speed = qol::s_speed_pending;
++    qol::s_speed_pending = 0;
++    lock.unlock();
++    Config::SetBase(Config::SKIES_BATTLE_SPEED, speed);
++    Config::Save();
++    OSD::AddMessage(speed <= 1 ? "Battle speed: normal" : fmt::format("Battle speed: {}x", speed),
++                    1500);
++    return out;
++  }
++  // Save states run as host jobs: the host thread pauses the emulation at a safe point (a load from
++  // in here, the middle of the game's pad read, would pull the CPU state out from under it).
++  const StateAction state_action = s_state_action;
++  const std::string state_path = s_state_path;
++  const bool auto_save = autosave::s_pending;
++  s_state_action = StateAction::None;
++  autosave::s_pending = false;
++  if (s_apply_pending)
++  {
++    s_apply_pending = false;
++    const Values values = s_apply_values;
++    const Values before = s_apply_before;
++    lock.unlock();
++    Apply(values, before);
++  }
++  else
++  {
++    lock.unlock();
++  }
++  if (state_action == StateAction::Save)
++  {
++    NOTICE_LOG_FMT(CORE, "[skies] save state to {}", state_path);
++    Core::QueueHostJob([state_path](Core::System& system) {
++      std::error_code ec;
++      std::filesystem::create_directories(StateDirectory(), ec);
++      State::SaveAs(system, state_path);
++    });
++  }
++  else if (state_action == StateAction::Load)
++  {
++    NOTICE_LOG_FMT(CORE, "[skies] load state from {}", state_path);
++    Core::QueueHostJob([state_path](Core::System& system) { State::LoadAs(system, state_path); });
++  }
++  if (auto_save)
++    Core::QueueHostJob([](Core::System& system) { autosave::Save(system); });
++  return out;
++}
++
++bool IsOpen()
++{
++  std::lock_guard lock(s_mutex);
++  return s_mode == Mode::Open;
++}
++
++// Video thread only: the menu's typefaces (LoadFonts), null = ImGui's default (the OSD font).
++ImFont* s_ui_font = nullptr;
++ImFont* s_title_font = nullptr;
++
++void LoadFonts()
++{
++  // The launchers' faces: Segoe UI on Windows (as the desktop launcher), Roboto on Android,
++  // DejaVu Sans on Linux. The OSD's own font (monospace) stays the default for Dolphin's messages.
++  const auto add = [](std::initializer_list<std::string> candidates) -> ImFont* {
++    for (const std::string& path : candidates)
++    {
++      if (!path.empty() && File::Exists(path))
++        return ImGui::GetIO().Fonts->AddFontFromFileTTF(path.c_str());
++    }
++    return nullptr;
++  };
++  const char* windir = std::getenv("windir");
++  const std::string windows = windir ? std::string(windir) + "\\Fonts\\" : std::string();
++  s_ui_font = add({windows.empty() ? "" : windows + "segoeui.ttf", "/system/fonts/Roboto-Regular.ttf",
++                   "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"});
++  s_title_font = add({windows.empty() ? "" : windows + "segoeuib.ttf",
++                      "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"});
++  if (!s_title_font)
++    s_title_font = s_ui_font;
++}
++
++void Draw(float scale)
++{
++  Values v;
++  int tab, selected;
++  int save_slot, load_slot, text_percent;
++  bool load_confirm, slow_note;
++  std::string save_time, load_time;
++  {
++    std::lock_guard lock(s_mutex);
++    if (s_mode != Mode::Open)
++      return;
++    v = s_staged;
++    tab = s_tab;
++    selected = s_selected;
++    save_slot = s_save_slot;
++    load_slot = s_load_slot;
++    text_percent = s_text_percent;
++    load_confirm = s_load_confirm;
++    slow_note = s_slow_note;
++    save_time = SlotTime(s_save_slot);
++    load_time = SlotTime(s_load_slot);
++  }
++
++  struct Row
++  {
++    const char* label;
++    std::string value;
++    const char* description;
++  };
++  const auto row_of = [&](Option option) -> Row {
++    switch (option)
++    {
++    case Option::SaveState:
++      return {"Save state", fmt::format("Slot {}   {}", save_slot, save_time),
++              "Left / Right picks a slot, A saves to it."};
++    case Option::LoadState:
++      return {"Load state",
++              load_confirm   ? std::string("Press A again to load") :
++              load_slot == 0 ? fmt::format("Auto-save   {}", load_time) :
++                               fmt::format("Slot {}   {}", load_slot, load_time),
++              "Left / Right picks a slot or the newest auto-save, A twice loads it."};
++    case Option::AutoSave:
++      return {"Auto-save",
++              v.auto_save <= 0 ? std::string("Off") : fmt::format("Every {} min", v.auto_save),
++              "Saves your place at quiet moments. Continue picks up from the newest."};
++    case Option::Picture:
++      return {"Picture", v.widescreen ? "Widescreen 16:9" : "Original 4:3",
++              "Widescreen fills a 16:9 screen; Original keeps the GameCube's 4:3 picture."};
++    case Option::FrameRate:
++      return {"Frame rate", v.frame_mode ? "60 fps (interpolated)" : "30 fps (original)",
++              slow_note ? "This device runs the game below full speed at 60 fps. 30 fps keeps it "
++                          "at full speed; 60 fps stays if you keep it." :
++                          "60 fps adds in-between frames for smoother motion. 30 fps is the original."};
++    case Option::Resolution:
++      return {"Resolution", ResolutionText(v.efb_scale),
++              "Higher is sharper but needs a faster graphics chip."};
++    case Option::Antialiasing:
++      return {"Anti-aliasing", MsaaText(v.msaa),
++              "Smooths jagged edges. Higher settings need a faster graphics chip."};
++    case Option::VSync:
++      return {"V-Sync", OnOff(v.vsync), "Stops screen tearing. Can add a little input delay."};
++    case Option::ShowFps:
++      return {"Show FPS", OnOff(v.show_fps), "Show the frame rate in a corner of the screen."};
++    case Option::Camera:
++      return {"Camera", v.camera ? "Hold Z to move" : "Original",
++              "Hold Z, then tilt with the C-stick and zoom with L / R. Original keeps the game's "
++              "fixed camera."};
++    case Option::BattleSpeed:
++      return {"Battle speed", SpeedText(v.battle_speed),
++              "Plays battles faster. Tap Z during a battle to switch speeds."};
++    case Option::Encounters:
++      return {"Encounters", RateText(v.encounters),
++              "How often random battles happen. Off means none."};
++    case Option::Exp:
++      return {"EXP", RateText(v.exp), "Experience from battles, for levelling up."};
++    case Option::Gold:
++      return {"Gold", RateText(v.gold), "Gold won from battles."};
++    case Option::MagicExp:
++      return {"Magic EXP", RateText(v.magic_exp),
++              "Magic experience from battles, for learning new spells."};
++    case Option::Invincible:
++      return {"Invincible", v.invincible ? "On (L3 / R3)" : "Off (L3 / R3)",
++              "Keeps the party's HP and MP full. L3 or R3 switches it in game."};
++    case Option::Volume:
++      return {"Volume", v.volume == 0 ? std::string("0% (muted)") : std::to_string(v.volume) + "%",
++              "Music and sound effects."};
++    case Option::DeadZone:
++      return {"Stick dead zone",
++              v.dead_zone <= 0 ? std::string("Off") : fmt::format("{}%", v.dead_zone),
++              "Ignores small stick movements. Raise it if a stick drifts."};
++    case Option::Rumble:
++      return {"Rumble", OnOff(v.rumble != 0), "Controller vibration."};
++    }
++    return {"", "", ""};
++  };
++  const std::span<const Option> options = TABS[tab].rows;
++  const bool on_tabs = selected == TAB_BAR;
++  const Option current = on_tabs ? options[0] : options[selected];
++  const char* const hint =
++      on_tabs                      ? "Left / Right or L / R: tab    Down or A: settings    B: close" :
++      current == Option::SaveState ? "L / R: tab    Up / Down: choose    Left / Right: slot    A: save    B: close" :
++      current == Option::LoadState ? "L / R: tab    Up / Down: choose    Left / Right: slot    A: load    B: close" :
++                                     "L / R: tab    Up / Down: choose    Left / Right or A: change    B: close";
++
++  // The layout is in units of the picture (a 480-line picture = 1 unit per pixel), times the
++  // launchers' text size, shrunk to fit the screen. Every length comes from these constants, not
++  // from last frame's measurements, so the menu can't settle between two sizes.
++  constexpr float PAD = 22.0f, LABEL_W = 190.0f, VALUE_W = 340.0f, CONTENT_W = 690.0f;
++  constexpr float TITLE = 24.0f, TEXT = 15.0f, SMALL = 12.5f;
++  constexpr float TITLE_H = 34.0f, TAB_H = 28.0f, BOX_H = 28.0f, ROW_GAP = 9.0f, FOOTER_H = 30.0f;
++  ImFont* const ui = s_ui_font ? s_ui_font : ImGui::GetFont();
++  ImFont* const bold = s_title_font ? s_title_font : ui;
++  const float desc_w = CONTENT_W - LABEL_W;
++  // One row's height (units): its value box and its description, wrapped
++  const auto row_height = [&](const Row& row, float unit) {
++    const float px = std::max(1.0f, std::floor(SMALL * unit));
++    const float desc = ui->CalcTextSizeA(px, FLT_MAX, desc_w * unit, row.description).y / unit;
++    return BOX_H + 3.0f + desc + ROW_GAP;
++  };
++  const auto window_height = [&](float unit) {
++    float tallest = 0.0f;
++    for (const Tab& t : TABS)
++    {
++      float h = 0.0f;
++      for (Option option : t.rows)
++        h += row_height(row_of(option), unit);
++      tallest = std::max(tallest, h);
++    }
++    return PAD + TITLE_H + 6.0f + TAB_H + 12.0f + tallest + FOOTER_H + PAD * 0.6f;
++  };
++  const ImGuiViewport* viewport = ImGui::GetMainViewport();
++  const float base = std::max(scale, viewport->Size.y / 480.0f) * text_percent / 100.0f;
++  const float width_units = CONTENT_W + 2.0f * PAD;
++  float u = base;
++  // Fit: twice, since the wrapped descriptions' height depends on the size
++  for (int pass = 0; pass < 2; ++pass)
++  {
++    const float fit = std::min(viewport->Size.x * 0.94f / (width_units * u),
++                               viewport->Size.y * 0.94f / (window_height(u) * u));
++    if (fit >= 1.0f)
++      break;
++    u *= fit;
++  }
++  const auto px = [&](float size) { return std::max(1.0f, std::floor(size * u)); };
++
++  const ImVec2 size(width_units * u, window_height(u) * u);
++  const ImVec2 origin(viewport->Pos.x + (viewport->Size.x - size.x) * 0.5f,
++                      viewport->Pos.y + (viewport->Size.y - size.y) * 0.5f);
++  const auto at = [&](float x, float y) { return ImVec2(origin.x + x * u, origin.y + y * u); };
++  ImDrawList* draw = ImGui::GetForegroundDrawList();
++  const ImU32 white = IM_COL32(242, 242, 242, 255);
++  const ImU32 gold = IM_COL32(255, 201, 74, 255);
++  const ImU32 dim = IM_COL32(168, 184, 214, 255);
++  const ImU32 blue = IM_COL32(41, 87, 173, 255);
++
++  // The game dimmed behind, the window
++  draw->AddRectFilled(viewport->Pos,
++                      ImVec2(viewport->Pos.x + viewport->Size.x, viewport->Pos.y + viewport->Size.y),
++                      IM_COL32(0, 5, 15, 110));
++  draw->AddRectFilled(origin, ImVec2(origin.x + size.x, origin.y + size.y),
++                      IM_COL32(9, 14, 28, 242), 14.0f * u);
++  draw->AddRect(origin, ImVec2(origin.x + size.x, origin.y + size.y), IM_COL32(255, 255, 255, 56),
++                14.0f * u, 0, std::max(1.0f, 1.5f * u));
++
++  float y = PAD;
++  draw->AddText(bold, px(TITLE), at(PAD, y), white, "Settings");
++  y += TITLE_H + 6.0f;
++
++  // Tabs: the current one blue with a gold line on top
++  float x = PAD;
++  for (int i = 0; i < static_cast<int>(TABS.size()); ++i)
++  {
++    const float text_w = ui->CalcTextSizeA(px(TEXT), FLT_MAX, 0.0f, TABS[i].name).x / u;
++    const float w = text_w + 26.0f;
++    const ImVec2 a = at(x, y), b = at(x + w, y + TAB_H);
++    draw->AddRectFilled(a, b, i == tab ? blue : IM_COL32(26, 41, 77, 230), 6.0f * u,
++                        ImDrawFlags_RoundCornersTop);
++    if (i == tab)
++      draw->AddRectFilled(a, ImVec2(b.x, a.y + std::max(1.0f, 2.5f * u)), gold, 6.0f * u,
++                          ImDrawFlags_RoundCornersTop);
++    // The tab bar has the focus: the current tab gets the gold edge, like a selected value
++    if (i == tab && on_tabs)
++      draw->AddRect(a, b, gold, 6.0f * u, ImDrawFlags_RoundCornersTop, std::max(1.0f, 2.0f * u));
++    draw->AddText(ui, px(TEXT), at(x + 13.0f, y + (TAB_H - TEXT * 1.33f) * 0.5f),
++                  i == tab ? white : IM_COL32(242, 242, 242, 200), TABS[i].name);
++    x += w + 6.0f;
++  }
++  y += TAB_H;
++  draw->AddRectFilled(at(PAD, y), at(PAD + CONTENT_W, y + 1.5f), blue);
++  y += 12.0f;
++
++  // Rows: label, value box (the selected one gold-edged, with arrows), description
++  for (int i = 0; i < static_cast<int>(options.size()); ++i)
++  {
++    const Row row = row_of(options[i]);
++    const bool is_selected = !on_tabs && i == selected;
++    const float text_y = y + (BOX_H - TEXT * 1.33f) * 0.5f;
++    draw->AddText(ui, px(TEXT), at(PAD, text_y), is_selected ? gold : white, row.label);
++    const ImVec2 box_a = at(PAD + LABEL_W, y), box_b = at(PAD + LABEL_W + VALUE_W, y + BOX_H);
++    draw->AddRectFilled(box_a, box_b,
++                        is_selected ? IM_COL32(41, 66, 118, 255) : IM_COL32(26, 41, 77, 255),
++                        6.0f * u);
++    if (is_selected)
++    {
++      draw->AddRect(box_a, box_b, gold, 6.0f * u, 0, std::max(1.0f, 2.0f * u));
++      const float mid = y + BOX_H * 0.5f, s = 5.0f;
++      const float lx = PAD + LABEL_W + 10.0f, rx = PAD + LABEL_W + VALUE_W - 10.0f;
++      draw->AddTriangleFilled(at(lx, mid), at(lx + s, mid - s), at(lx + s, mid + s), gold);
++      draw->AddTriangleFilled(at(rx, mid), at(rx - s, mid - s), at(rx - s, mid + s), gold);
++    }
++    const bool confirm = options[i] == Option::LoadState && load_confirm;
++    draw->AddText(ui, px(TEXT), at(PAD + LABEL_W + 22.0f, text_y), confirm ? gold : white,
++                  row.value.c_str());
++    draw->AddText(ui, px(SMALL), at(PAD + LABEL_W, y + BOX_H + 3.0f),
++                  slow_note && options[i] == Option::FrameRate ? gold : dim, row.description,
++                  nullptr, desc_w * u);
++    y += row_height(row, u);
++  }
++
++  // Footer: the controls for the selected row
++  const float footer_y = size.y / u - PAD * 0.6f - FOOTER_H;
++  draw->AddRectFilled(at(PAD, footer_y), at(PAD + CONTENT_W, footer_y + 1.0f),
++                      IM_COL32(255, 255, 255, 40));
++  draw->AddText(ui, px(SMALL), at(PAD, footer_y + 9.0f), dim, hint);
++}
++}  // namespace SkiesMenu
+diff --git a/Source/Core/VideoCommon/SkiesMenu.h b/Source/Core/VideoCommon/SkiesMenu.h
+new file mode 100644
+index 0000000000..febf243765
+--- /dev/null
++++ b/Source/Core/VideoCommon/SkiesMenu.h
+@@ -0,0 +1,26 @@
++// Copyright 2026 Dolphin Emulator Project
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++#pragma once
++
++#include "InputCommon/GCPadStatus.h"
++
++// The in-game settings menu for Skies of Arcadia Legends (GEAE8P), on every platform: hold Z and
++// press Start on controller 1 to open it. While it's open the game sees a released controller and
++// keeps running; the menu takes L / R (tab), the D-pad / stick (select, change), A (change), B or
++// Start (close).
++// Changes are staged and applied when the menu closes, through the same config keys the launcher
++// and the runtime use (Core/SkiesSettings.cpp for the [Skies] ones), and saved.
++namespace SkiesMenu
++{
++// CPU thread, from Pad::GetStatus: returns what the game should see of controller pad_num.
++GCPadStatus FilterPad(int pad_num, const GCPadStatus& raw);
++
++// Video thread, inside the on-screen UI's ImGui frame: draws the menu while it's open.
++void Draw(float scale);
++
++// Video thread, when the on-screen UI sets up its fonts: adds the menu's own typefaces.
++void LoadFonts();
++
++bool IsOpen();
++}  // namespace SkiesMenu

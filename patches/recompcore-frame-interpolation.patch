@@ -1,0 +1,3096 @@
+diff --git a/Source/Core/Core/CoreTiming.cpp b/Source/Core/Core/CoreTiming.cpp
+index 26e9973fcc..af3df70a30 100644
+--- a/Source/Core/Core/CoreTiming.cpp
++++ b/Source/Core/Core/CoreTiming.cpp
+@@ -26,6 +26,7 @@
+ #include "Core/System.h"
+ 
+ #include "VideoCommon/Fifo.h"
++#include "VideoCommon/FrameInterpolator.h"
+ #include "VideoCommon/OnScreenDisplay.h"
+ #include "VideoCommon/PerformanceMetrics.h"
+ #include "VideoCommon/VideoBackendBase.h"
+@@ -578,7 +579,13 @@ void CoreTimingManager::Idle()
+     // When the FIFO is processing data we must not advance because in this way
+     // the VI will be desynchronized. So, We are waiting until the FIFO finish and
+     // while we process only the events required by the FIFO.
+-    m_system.GetFifo().FlushGpu();
++    // With frame interpolation the GPU thread draws in-between pictures whenever the FIFO is
++    // empty: wait for the FIFO, not for those. (Not waiting at all lets games that count retraces
++    // while they wait for the GPU, Skies of Arcadia among them, decide the GPU has hung.)
++    if (FrameInterpolator::IsEnabled())
++      m_system.GetFifo().WaitForGpuToDrain(1);
++    else
++      m_system.GetFifo().FlushGpu();
+   }
+ 
+   auto& ppc_state = m_system.GetPPCState();
+diff --git a/Source/Core/Core/State.cpp b/Source/Core/Core/State.cpp
+index 4f8d2c0e9c..4ff19e8ff9 100644
+--- a/Source/Core/Core/State.cpp
++++ b/Source/Core/Core/State.cpp
+@@ -26,6 +26,7 @@
+ #include "Common/IOFile.h"
+ #include "Common/Logging/Log.h"
+ #include "Common/MsgHandler.h"
++#include "Common/ScopeGuard.h"
+ #include "Common/Thread.h"
+ #include "Common/TimeUtil.h"
+ #include "Common/TransferableSharedMutex.h"
+@@ -47,6 +48,7 @@
+ 
+ #include "UICommon/UICommon.h"
+ 
++#include "VideoCommon/Fifo.h"
+ #include "VideoCommon/FrameDumpFFMpeg.h"
+ #include "VideoCommon/OnScreenDisplay.h"
+ #include "VideoCommon/VideoBackendBase.h"
+@@ -91,6 +93,21 @@ static Common::WorkQueueThreadSP<CompressAndDumpStateArgs> s_compress_and_dump_t
+ 
+ static void DoState(Core::System& system, PointerWrap& p)
+ {
++  // Dual core: states are read and written on the CPU thread while the GPU thread runs. A load
++  // restores the command processor on the GPU thread (VideoCommon_DoState) but RAM only later
++  // (HW), so a GPU thread left running reads the FIFO at the restored pointers from the old RAM
++  // ("Unknown Opcode"). VideoCommon_DoState expects the GPU synced around save/load: let it
++  // finish what is in the FIFO, and hold it until the whole state is done.
++  auto& fifo = system.GetFifo();
++  const bool hold_gpu = system.IsDualCoreMode();
++  const bool gpu_was_running = fifo.IsEmulatorRunning();
++  if (hold_gpu)
++    fifo.PauseAndLock();
++  Common::ScopeGuard resume_gpu{[&] {
++    if (hold_gpu)
++      fifo.RestoreState(gpu_was_running);
++  }};
++
+   bool is_wii = system.IsWii() || system.IsMIOS();
+   const bool is_wii_currently = is_wii;
+   p.Do(is_wii);
+diff --git a/Source/Core/VideoCommon/BPStructs.cpp b/Source/Core/VideoCommon/BPStructs.cpp
+index 180bc86151..7ec50bc9fd 100644
+--- a/Source/Core/VideoCommon/BPStructs.cpp
++++ b/Source/Core/VideoCommon/BPStructs.cpp
+@@ -3,6 +3,7 @@
+ 
+ #include "VideoCommon/BPStructs.h"
+ 
++
+ #include <algorithm>
+ #include <cstring>
+ #include <string>
+@@ -22,6 +23,7 @@
+ 
+ #include "VideoCommon/BPFunctions.h"
+ #include "VideoCommon/BPMemory.h"
++#include "VideoCommon/FrameInterpolator.h"
+ #include "VideoCommon/BoundingBox.h"
+ #include "VideoCommon/Fifo.h"
+ #include "VideoCommon/FramebufferManager.h"
+@@ -94,6 +96,30 @@ static void BPWritten(PixelShaderManager& pixel_shader_manager, XFStateManager&
+ 
+   ((u32*)&bpmem)[bp.address] = bp.newvalue;
+ 
++  // A frame interpolation replay draws a frame again: nothing the CPU can see may happen twice.
++  // Nor may it load TMEM: the replay binds the cache entries its frame's draws got, and a TLUT
++  // load or a TMEM preload replayed in a slice between the game's own load and its bind copies
++  // what RAM holds now over the game's data, so the game's draw gets a texture decoded from the
++  // wrong bytes (the cloud sea below the Valuan ladder drawn as a dark garbage texture for a
++  // frame on the Retroid, where slices fall inside the game's frame; 2026-10-10).
++  if (FrameInterpolator::IsReplaying())
++  {
++    switch (bp.address)
++    {
++    case BPMEM_SETDRAWDONE:
++    case BPMEM_PE_TOKEN_ID:
++    case BPMEM_PE_TOKEN_INT_ID:
++    case BPMEM_CLEARBBOX1:
++    case BPMEM_CLEARBBOX2:
++    case BPMEM_CLEAR_PIXEL_PERF:
++    case BPMEM_LOADTLUT1:
++    case BPMEM_PRELOAD_MODE:
++      return;
++    default:
++      break;
++    }
++  }
++
+   switch (bp.address)
+   {
+   case BPMEM_GENMODE:  // Set the Generation Mode
+@@ -350,7 +376,8 @@ static void BPWritten(PixelShaderManager& pixel_shader_manager, XFStateManager&
+         // render multiple sub-frames and arrange the XFB copies in next to each-other in main
+         // memory so they form a single completed XFB. See
+         // https://dolphin-emu.org/blog/2017/11/19/hybridxfb/ for examples and more detail.
+-        system.GetVideoEvents().after_frame_event.Trigger(system);
++        if (!FrameInterpolator::IsReplaying())
++          system.GetVideoEvents().after_frame_event.Trigger(system);
+ 
+         // Note: Theoretically, in the future we could track the VI configuration and try to detect
+         //       when an XFB is the last XFB copy of a frame. Not only would we get a clean "end of
+@@ -392,6 +419,11 @@ static void BPWritten(PixelShaderManager& pixel_shader_manager, XFStateManager&
+                                          bpmem.scissorBR, bpmem.scissorOffset, xfmem.viewport);
+     }
+ 
++    if (PE_copy.copy_to_xfb == 1 && destStride != 0 && FrameInterpolator::IsEnabled() &&
++        !FrameInterpolator::IsReplaying())
++    {
++      FrameInterpolator::OnXFBCopy(destAddr);
++    }
+     return;
+   }
+   case BPMEM_LOADTLUT0:  // This updates bpmem.tmem_config.tlut_src, no need to do anything here.
+diff --git a/Source/Core/VideoCommon/CMakeLists.txt b/Source/Core/VideoCommon/CMakeLists.txt
+index 69a0968e4d..61de4097d4 100644
+--- a/Source/Core/VideoCommon/CMakeLists.txt
++++ b/Source/Core/VideoCommon/CMakeLists.txt
+@@ -62,6 +62,8 @@ add_library(videocommon
+   Fifo.cpp
+   Fifo.h
+   FramebufferManager.cpp
++  FrameInterpolator.cpp
++  FrameInterpolator.h
+   FramebufferManager.h
+   FramebufferShaderGen.cpp
+   FramebufferShaderGen.h
+diff --git a/Source/Core/VideoCommon/CommandProcessor.cpp b/Source/Core/VideoCommon/CommandProcessor.cpp
+index 1dbf466f1c..9f64b05f28 100644
+--- a/Source/Core/VideoCommon/CommandProcessor.cpp
++++ b/Source/Core/VideoCommon/CommandProcessor.cpp
+@@ -386,6 +386,7 @@ void CommandProcessorManager::GatherPipeBursted()
+   m_fifo.CPReadWriteDistance.fetch_add(GPFifo::GATHER_PIPE_SIZE, std::memory_order_seq_cst);
+ 
+   m_system.GetFifo().RunGpu();
++  m_system.GetFifo().WaitForFifoSpace();
+ 
+   ASSERT_MSG(COMMANDPROCESSOR,
+              m_fifo.CPReadWriteDistance.load(std::memory_order_relaxed) <=
+diff --git a/Source/Core/VideoCommon/DriverDetails.cpp b/Source/Core/VideoCommon/DriverDetails.cpp
+index b657d7721c..6e445ccc20 100644
+--- a/Source/Core/VideoCommon/DriverDetails.cpp
++++ b/Source/Core/VideoCommon/DriverDetails.cpp
+@@ -123,6 +123,8 @@ constexpr BugInfo m_known_bugs[] = {
+      -1.0, -1.0, true},
+     {API_VULKAN, OS_ALL, VENDOR_QUALCOMM, DRIVER_QUALCOMM, Family::UNKNOWN,
+      BUG_BROKEN_REVERSED_DEPTH_RANGE, -1.0, -1.0, true},
++    {API_VULKAN, OS_ALL, VENDOR_QUALCOMM, DRIVER_QUALCOMM, Family::UNKNOWN,
++     BUG_EFB_COPY_NEEDS_READBACK, -1.0, -1.0, true},
+     {API_VULKAN, OS_OSX, VENDOR_ALL, DRIVER_PORTABILITY, Family::UNKNOWN,
+      BUG_BROKEN_REVERSED_DEPTH_RANGE, -1.0, -1.0, true},
+     {API_METAL, OS_OSX, VENDOR_ALL, DRIVER_APPLE, Family::UNKNOWN, BUG_BROKEN_REVERSED_DEPTH_RANGE,
+@@ -313,6 +315,7 @@ static const char* to_string(Bug bug)
+     case BUG_BROKEN_DYNAMIC_SAMPLER_INDEXING:            return "broken-dynamic-sampler-indexing";
+     case BUG_SLOW_OPTIMAL_IMAGE_TO_BUFFER_COPY:          return "slow-optimal-image-to-buffer-copy";
+     case BUG_BROKEN_DEPTH_CLAMP_CONTROL:                 return "broken-depth-clamp-control";
++    case BUG_EFB_COPY_NEEDS_READBACK:      return "efb-copy-needs-readback";
+   }
+   return "Unknown";
+ }
+diff --git a/Source/Core/VideoCommon/DriverDetails.h b/Source/Core/VideoCommon/DriverDetails.h
+index 64ed656f3f..c35a905458 100644
+--- a/Source/Core/VideoCommon/DriverDetails.h
++++ b/Source/Core/VideoCommon/DriverDetails.h
+@@ -349,7 +349,16 @@ enum Bug
+   // Affected devices: Official AMD (RADV is unaffected)
+   // Started Version: -1
+   // Ended Version: -1
+-  BUG_BROKEN_DEPTH_CLAMP_CONTROL
++  BUG_BROKEN_DEPTH_CLAMP_CONTROL,
++
++  // BUG: A texture written by an EFB copy's render pass and sampled by draws right after it shows
++  // rows the copy hadn't finished (the top rows of each tile), with the layout barrier in place and
++  // the validation layers content. Not when the copy is followed by an image-to-buffer transfer of
++  // the encoded copy, as Dolphin's copies to RAM are. Seen on Adreno 7xx with frame interpolation's
++  // replay copies, which went to VRAM only.
++  // Started version: -1
++  // Ended version: -1
++  BUG_EFB_COPY_NEEDS_READBACK
+ };
+ 
+ // Initializes our internal vendor, device family, and driver version
+diff --git a/Source/Core/VideoCommon/Fifo.cpp b/Source/Core/VideoCommon/Fifo.cpp
+index d12fbe4af1..c9ca59a0c7 100644
+--- a/Source/Core/VideoCommon/Fifo.cpp
++++ b/Source/Core/VideoCommon/Fifo.cpp
+@@ -3,8 +3,11 @@
+ 
+ #include "VideoCommon/Fifo.h"
+ 
++#include <algorithm>
+ #include <atomic>
++#include <chrono>
+ #include <cstring>
++#include <thread>
+ 
+ #include "Common/Assert.h"
+ #include "Common/BlockingLoop.h"
+@@ -13,6 +16,7 @@
+ #include "Common/FPURoundMode.h"
+ #include "Common/MemoryUtil.h"
+ #include "Common/MsgHandler.h"
++#include "Common/ScopeGuard.h"
+ 
+ #include "Core/Config/MainSettings.h"
+ #include "Core/Config/ConfigManager.h"
+@@ -25,6 +29,7 @@
+ #include "VideoCommon/AsyncRequests.h"
+ #include "VideoCommon/CPMemory.h"
+ #include "VideoCommon/CommandProcessor.h"
++#include "VideoCommon/FrameInterpolator.h"
+ #include "VideoCommon/DataReader.h"
+ #include "VideoCommon/FramebufferManager.h"
+ #include "VideoCommon/OpcodeDecoding.h"
+@@ -212,16 +217,15 @@ void* FifoManager::PopFifoAuxBuffer(size_t size)
+ }
+ 
+ // Description: RunGpuLoop() sends data through this function.
+-void FifoManager::ReadDataFromFifo(u32 read_ptr)
++void FifoManager::ReadDataFromFifo(u32 read_ptr, u32 size)
+ {
+-  if (GPFifo::GATHER_PIPE_SIZE >
+-      static_cast<size_t>(m_video_buffer + FIFO_SIZE - m_video_buffer_write_ptr))
++  if (size > static_cast<size_t>(m_video_buffer + FIFO_SIZE - m_video_buffer_write_ptr))
+   {
+     const size_t existing_len = m_video_buffer_write_ptr - m_video_buffer_read_ptr;
+-    if (GPFifo::GATHER_PIPE_SIZE > static_cast<size_t>(FIFO_SIZE - existing_len))
++    if (size > static_cast<size_t>(FIFO_SIZE - existing_len))
+     {
+-      PanicAlertFmt("FIFO out of bounds (existing {} + new {} > {})", existing_len,
+-                    GPFifo::GATHER_PIPE_SIZE, FIFO_SIZE);
++      PanicAlertFmt("FIFO out of bounds (existing {} + new {} > {})", existing_len, size,
++                    FIFO_SIZE);
+       return;
+     }
+     memmove(m_video_buffer, m_video_buffer_read_ptr, existing_len);
+@@ -230,8 +234,8 @@ void FifoManager::ReadDataFromFifo(u32 read_ptr)
+   }
+   // Copy new video instructions to m_video_buffer for future use in rendering the new picture
+   auto& memory = m_system.GetMemory();
+-  memory.CopyFromEmu(m_video_buffer_write_ptr, read_ptr, GPFifo::GATHER_PIPE_SIZE);
+-  m_video_buffer_write_ptr += GPFifo::GATHER_PIPE_SIZE;
++  memory.CopyFromEmu(m_video_buffer_write_ptr, read_ptr, size);
++  m_video_buffer_write_ptr += size;
+ }
+ 
+ // The deterministic_gpu_thread version.
+@@ -314,6 +318,8 @@ void FifoManager::RunGpuLoop()
+           command_processor.SetCPStatusFromGPU();
+ 
+           // check if we are able to run this buffer
++          bool did_work = false;
++          const auto pass_start = std::chrono::steady_clock::now();
+           while (!command_processor.IsInterruptWaiting() &&
+                  fifo.bFF_GPReadEnable.load(std::memory_order_relaxed) &&
+                  fifo.CPReadWriteDistance.load(std::memory_order_relaxed) &&
+@@ -324,16 +330,39 @@ void FifoManager::RunGpuLoop()
+ 
+             u32 cyclesExecuted = 0;
+             u32 readPtr = fifo.CPReadPointer.load(std::memory_order_relaxed);
+-            ReadDataFromFifo(readPtr);
+-
+-            if (readPtr == fifo.CPEnd.load(std::memory_order_relaxed))
+-              readPtr = fifo.CPBase.load(std::memory_order_relaxed);
+-            else
++            const u32 start = readPtr;
++
++            // Take every chunk that is already there, up to where the FIFO wraps (and at most
++            // 2 KiB): each pass costs status updates and atomics, which were a large part of the
++            // GPU thread's time when it ran a chunk at a time. One chunk at a time when a
++            // breakpoint is armed (it's checked per chunk) or with SyncGPU (ticks per chunk).
++            u32 chunks = 0;
++            u32 available = fifo.CPReadWriteDistance.load(std::memory_order_acquire) /
++                            GPFifo::GATHER_PIPE_SIZE;
++            if (available == 0 || fifo.bFF_BPEnable.load(std::memory_order_relaxed) ||
++                m_config_sync_gpu)
++            {
++              available = 1;
++            }
++            available = std::min<u32>(available, 64);
++            const u32 end = fifo.CPEnd.load(std::memory_order_relaxed);
++            while (chunks < available)
++            {
++              ++chunks;
++              if (readPtr == end)
++              {
++                readPtr = fifo.CPBase.load(std::memory_order_relaxed);
++                break;
++              }
+               readPtr += GPFifo::GATHER_PIPE_SIZE;
++            }
++            const u32 size = chunks * GPFifo::GATHER_PIPE_SIZE;
++            ReadDataFromFifo(start, size);
++            did_work = true;
+ 
+             const s32 distance =
+                 static_cast<s32>(fifo.CPReadWriteDistance.load(std::memory_order_relaxed)) -
+-                GPFifo::GATHER_PIPE_SIZE;
++                static_cast<s32>(size);
+             ASSERT_MSG(COMMANDPROCESSOR, distance >= 0,
+                        "Negative fifo.CPReadWriteDistance = {} in FIFO Loop !\nThat can produce "
+                        "instability in the game. Please report it.",
+@@ -344,7 +373,7 @@ void FifoManager::RunGpuLoop()
+                 DataReader(m_video_buffer_read_ptr, write_ptr), &cyclesExecuted);
+ 
+             fifo.CPReadPointer.store(readPtr, std::memory_order_relaxed);
+-            fifo.CPReadWriteDistance.fetch_sub(GPFifo::GATHER_PIPE_SIZE, std::memory_order_seq_cst);
++            fifo.CPReadWriteDistance.fetch_sub(size, std::memory_order_seq_cst);
+             if ((write_ptr - m_video_buffer_read_ptr) == 0)
+             {
+               fifo.SafeCPReadPointer.store(fifo.CPReadPointer.load(std::memory_order_relaxed),
+@@ -379,10 +408,28 @@ void FifoManager::RunGpuLoop()
+               m_sync_wakeup_event.Set();
+           }
+ 
+-          // The fifo is empty and it's unlikely we will get any more work in the near future.
+-          // Make sure VertexManager finishes drawing any primitives it has stored in it's buffer.
+-          g_vertex_manager->Flush();
+-          g_framebuffer_manager->RefreshPeekCache();
++          // The loop runs again and again while it waits for work (until the CPU lets it
++          // sleep); the end-of-work steps only need to follow work.
++          if (did_work)
++          {
++            if (FrameInterpolator::IsEnabled())
++              FrameInterpolator::CountGpuWork(std::chrono::steady_clock::now() - pass_start);
++
++            // The fifo is empty and it's unlikely we will get any more work in the near future.
++            // Make sure VertexManager finishes drawing any primitives it has stored in it's
++            // buffer.
++            g_vertex_manager->Flush();
++            g_framebuffer_manager->RefreshPeekCache();
++          }
++
++          // With the FIFO empty, the GPU thread draws a slice of a frame interpolation picture;
++          // the loop comes back here (or to new commands first) until it's done.
++          if (FrameInterpolator::IsEnabled() &&
++              fifo.CPReadWriteDistance.load(std::memory_order_acquire) == 0 &&
++              FrameInterpolator::OnGpuIdle())
++          {
++            m_gpu_mainloop.Wakeup();
++          }
+         }
+       },
+       100);
+@@ -576,6 +623,76 @@ void FifoManager::SyncGPUCallback(Core::System& system, u64 ticks, s64 cyclesLat
+     system.GetCoreTiming().ScheduleEvent(next, fifo.m_event_sync_gpu, next);
+ }
+ 
++void FifoManager::WaitForGpuToDrain(int reason)
++{
++  if (!m_system.IsDualCoreMode() || m_use_deterministic_gpu_thread)
++    return;
++  const auto wait_start = std::chrono::steady_clock::now();
++  Common::ScopeGuard count_wait{[&] {
++    if (FrameInterpolator::IsEnabled())
++      FrameInterpolator::CountCpuWait(reason, std::chrono::steady_clock::now() - wait_start);
++  }};
++  auto& command_processor = m_system.GetCommandProcessor();
++  auto& fifo = command_processor.GetFifo();
++  const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(250);
++  // Wake the GPU thread once; waking it on every spin takes its lock each time and slows it down.
++  m_gpu_mainloop.Wakeup();
++  // Spin: the CPU thread has nothing else to do, and short sleeps overshoot (by a millisecond or
++  // more on Windows), which would cost more than the wait itself.
++  while (fifo.CPReadWriteDistance.load(std::memory_order_acquire) != 0 &&
++         fifo.bFF_GPReadEnable.load(std::memory_order_relaxed) &&
++         !command_processor.IsInterruptWaiting() && !AtBreakpoint(m_system) &&
++         m_emu_running_state.IsSet())
++  {
++    if (std::chrono::steady_clock::now() > deadline)
++      break;
++    std::this_thread::yield();
++  }
++}
++
++// A game stops writing at the high watermark through the CP overflow interrupt, which suspends the
++// writing thread (GXOverflowHandler). Recompiled code takes interrupts only between dispatches
++// (one can run a whole function with its callees), so it can write past the watermark's margin
++// while the GPU thread lags, and then overwrites commands the GPU thread hasn't read ("FIFO is
++// overflowed by GatherPipe"). Waiting here instead keeps emulated time still, as if the GPU had
++// kept up.
++void FifoManager::WaitForFifoSpace()
++{
++  if (!m_system.IsDualCoreMode() || m_use_deterministic_gpu_thread)
++    return;
++  auto& command_processor = m_system.GetCommandProcessor();
++  auto& fifo = command_processor.GetFifo();
++  // The largest distance the overflow check allows.
++  const u32 capacity = fifo.CPEnd.load(std::memory_order_relaxed) -
++                       fifo.CPBase.load(std::memory_order_relaxed);
++  if (fifo.CPReadWriteDistance.load(std::memory_order_acquire) + GPFifo::GATHER_PIPE_SIZE <=
++      capacity)
++  {
++    return;
++  }
++  u32 target = fifo.CPHiWatermark;
++  if (target == 0 || target >= capacity)
++    target = capacity / 2;
++
++  static std::atomic<u32> s_waits{0};
++  if (s_waits.fetch_add(1, std::memory_order_relaxed) < 8)
++    WARN_LOG_FMT(COMMANDPROCESSOR, "FIFO full ({} bytes): CPU thread waits for the GPU thread",
++                 capacity);
++
++  // Longer than WaitForGpuToDrain's limit: giving up here means the overflow.
++  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
++  m_gpu_mainloop.Wakeup();
++  while (fifo.CPReadWriteDistance.load(std::memory_order_acquire) > target &&
++         fifo.bFF_GPReadEnable.load(std::memory_order_relaxed) &&
++         !command_processor.IsInterruptWaiting() && !AtBreakpoint(m_system) &&
++         m_emu_running_state.IsSet())
++  {
++    if (std::chrono::steady_clock::now() > deadline)
++      break;
++    std::this_thread::yield();
++  }
++}
++
+ void FifoManager::SyncGPUForRegisterAccess()
+ {
+   SyncGPU(SyncGPUReason::Other);
+diff --git a/Source/Core/VideoCommon/Fifo.h b/Source/Core/VideoCommon/Fifo.h
+index 2afa110532..0bff25886a 100644
+--- a/Source/Core/VideoCommon/Fifo.h
++++ b/Source/Core/VideoCommon/Fifo.h
+@@ -54,6 +54,7 @@ public:
+   void DoState(PointerWrap& f);
+   void PauseAndLock();
+   void RestoreState(bool was_running);
++  bool IsEmulatorRunning() const { return m_emu_running_state.IsSet(); }
+   void UpdateWantDeterminism(bool want);
+   bool UseDeterministicGPUThread() const { return m_use_deterministic_gpu_thread; }
+   bool UseSyncGPU() const { return m_config_sync_gpu; }
+@@ -64,6 +65,13 @@ public:
+   // In single core mode, this runs the GPU for a single slice.
+   // In dual core mode, this synchronizes with the GPU thread.
+   void SyncGPUForRegisterAccess();
++  // Dual core: until the GPU thread has processed everything in the FIFO, as long as it can make
++  // progress (bounded by a timeout). For register reads that report the GPU's progress.
++  // reason: 0 = a register read (draw-sync token), 1 = the CPU idling; for statistics only.
++  void WaitForGpuToDrain(int reason = 0);
++  // Dual core, after a gather pipe burst: if one more burst would overflow the FIFO, wait until
++  // the GPU thread is back at the game's high watermark.
++  void WaitForFifoSpace();
+ 
+   void PushFifoAuxBuffer(const void* ptr, size_t size);
+   void* PopFifoAuxBuffer(size_t size);
+@@ -78,7 +86,7 @@ public:
+ 
+ private:
+   void RefreshConfig();
+-  void ReadDataFromFifo(u32 read_ptr);
++  void ReadDataFromFifo(u32 read_ptr, u32 size = 32);
+   void ReadDataFromFifoOnCPU(u32 read_ptr);
+   int RunGpuOnCpu(int ticks);
+   int WaitForGpuThread(int ticks);
+diff --git a/Source/Core/VideoCommon/FrameInterpolator.cpp b/Source/Core/VideoCommon/FrameInterpolator.cpp
+new file mode 100644
+index 0000000000..28fe8d761f
+--- /dev/null
++++ b/Source/Core/VideoCommon/FrameInterpolator.cpp
+@@ -0,0 +1,1930 @@
++// Copyright 2026 Dolphin Emulator Project
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++#include "VideoCommon/FrameInterpolator.h"
++
++#ifdef ANDROID
++#include <android/log.h>
++#endif
++
++#include <algorithm>
++#include <array>
++#include <cstdarg>
++#include <atomic>
++#include <bit>
++#include <cmath>
++#include <cstdio>
++#include <cstdlib>
++#include <cstring>
++#include <string>
++#include <deque>
++#include <map>
++#include <tuple>
++#include <utility>
++#include <vector>
++
++#include "Common/ChunkFile.h"
++#include "Common/FileUtil.h"
++#include "Common/Swap.h"
++#include "Core/Config/MainSettings.h"
++#include "Core/Core.h"
++#include "Core/CoreTiming.h"
++#include "Core/HW/Memmap.h"
++#include "Core/HW/SystemTimers.h"
++#include "Core/System.h"
++#include "VideoCommon/AbstractFramebuffer.h"
++#include "VideoCommon/AbstractGfx.h"
++#include "VideoCommon/AbstractTexture.h"
++#include "VideoCommon/BPMemory.h"
++#include "VideoCommon/BPStructs.h"
++#include "VideoCommon/CPMemory.h"
++#include "VideoCommon/FramebufferManager.h"
++#include "VideoCommon/GeometryShaderManager.h"
++#include "VideoCommon/OnScreenDisplay.h"
++#include "VideoCommon/OpcodeDecoding.h"
++#include "VideoCommon/PerformanceMetrics.h"
++#include "VideoCommon/PixelShaderManager.h"
++#include "VideoCommon/TMEM.h"
++#include "VideoCommon/VertexLoaderManager.h"
++#include "VideoCommon/VertexLoader_Color.h"
++#include "VideoCommon/VertexLoader_Normal.h"
++#include "VideoCommon/VertexLoader_Position.h"
++#include "VideoCommon/VertexLoader_TextCoord.h"
++#include "VideoCommon/VertexManagerBase.h"
++#include "VideoCommon/VertexShaderManager.h"
++#include "VideoCommon/XFMemory.h"
++#include "VideoCommon/XFStateManager.h"
++
++namespace FrameInterpolator
++{
++// Trace and statistics lines: stderr, and logcat on Android.
++static void Log(const char* format, ...);
++
++namespace
++{
++// An XF load that sets matrices or the projection, and where its data sits in the stream.
++struct Load
++{
++  u32 data_offset;  // first data word in the recorded stream
++  u16 address;
++  u8 count;         // words
++  u64 key;          // the next draw's vertex format, count and texture, to tell objects apart
++  u32 occurrence;   // how many earlier loads in the frame had the same address, count and key
++};
++
++// A draw with its vertex positions in the stream. Ninja transforms vertices on the CPU, so the
++// positions (already in view space) carry both object and camera motion.
++struct Prim
++{
++  u32 data_offset;  // first vertex in the recorded stream
++  u16 num_vertices;
++  u16 vertex_size;
++  u8 pos_offset;    // within a vertex
++  u8 pos_format;    // ComponentFormat
++  u8 pos_count;     // 2 or 3
++  u64 key;
++  u32 occurrence;
++  u32 texture;      // texture unit 0's image address: draws of one object share it
++};
++
++// Vertex array data a draw reads by index, copied when it was drawn.
++struct ArrayCopy
++{
++  CPArray array;
++  u32 data_offset;  // in Frame::array_data
++  u32 lo;           // bytes from the array base to the first byte copied
++};
++
++// A cache entry held for the replay. EFB/XFB copies get the cache's content lock as well (as
++// Present does for the XFB it shows): without it the cache hands an invalidated pending copy's
++// texture back to its pool, or copies into the same entry again, while the replay still binds it
++// (green bands and garbage clouds on the Retroid). Other textures aren't locked: the cache never
++// changes their contents in place except by partial updates, which refuse locked entries.
++class HeldTexture
++{
++public:
++  explicit HeldTexture(RcTcacheEntry entry) : m_entry(std::move(entry))
++  {
++    if (m_entry && m_entry->IsCopy())
++    {
++      m_entry->AcquireContentLock();
++      m_locked = true;
++    }
++  }
++  HeldTexture(HeldTexture&& other) noexcept
++      : m_entry(std::move(other.m_entry)), m_locked(std::exchange(other.m_locked, false))
++  {
++  }
++  HeldTexture& operator=(HeldTexture&& other) noexcept
++  {
++    if (this != &other)
++    {
++      Release();
++      m_entry = std::move(other.m_entry);
++      m_locked = std::exchange(other.m_locked, false);
++    }
++    return *this;
++  }
++  HeldTexture(const HeldTexture&) = delete;
++  HeldTexture& operator=(const HeldTexture&) = delete;
++  ~HeldTexture() { Release(); }
++
++  const RcTcacheEntry& Get() const { return m_entry; }
++
++private:
++  void Release()
++  {
++    if (m_locked && m_entry)
++      m_entry->ReleaseContentLock();
++    m_locked = false;
++  }
++
++  RcTcacheEntry m_entry;
++  bool m_locked = false;
++};
++
++// A texture the frame's draws bound, and the cache entry they got: the replay runs later (a frame
++// later in dual core, in slices), when the game may have written other data over that memory.
++struct TextureUse
++{
++  u32 address;
++  u32 format;
++  u32 width, height;
++  HeldTexture entry;
++};
++
++struct Frame
++{
++  std::vector<u8> stream;
++  std::vector<Load> loads;
++  std::vector<Prim> prims;
++  // The vertex array data the draws read by index: the replay runs later (a frame later in dual
++  // core), when the game may have reused that memory. Draw k's copies are
++  // array_copies[arrays_begin[k]] up to array_copies[arrays_begin[k + 1]].
++  std::vector<u8> array_data;
++  std::vector<ArrayCopy> array_copies;
++  std::vector<u32> arrays_begin;
++  std::vector<TextureUse> textures;  // in the order the draws bound them
++  // Snapshots of entries the cache pieced together from EFB copies, by the entry they copy (held,
++  // so its address can't be reused for another entry meanwhile).
++  std::vector<std::pair<RcTcacheEntry, RcTcacheEntry>> snapshots;
++  // Loads by address, count, key and occurrence, and draws by key (then draw order), as indices:
++  // sorted once, the current frame's order serves again when it becomes the previous frame.
++  std::vector<u32> load_order, prim_order;
++  bool sorted = false;
++
++  void Clear()
++  {
++    stream.clear();
++    loads.clear();
++    prims.clear();
++    array_data.clear();
++    array_copies.clear();
++    arrays_begin.clear();
++    textures.clear();
++    snapshots.clear();
++    load_order.clear();
++    prim_order.clear();
++    sorted = false;
++  }
++};
++
++auto LoadTuple(const Load& load)
++{
++  return std::make_tuple(load.address, load.count, load.key, load.occurrence);
++}
++
++void Sort(Frame& frame)
++{
++  if (frame.sorted)
++    return;
++  frame.load_order.resize(frame.loads.size());
++  for (u32 i = 0; i < frame.load_order.size(); ++i)
++    frame.load_order[i] = i;
++  std::sort(frame.load_order.begin(), frame.load_order.end(), [&](u32 a, u32 b) {
++    return LoadTuple(frame.loads[a]) < LoadTuple(frame.loads[b]);
++  });
++  frame.prim_order.resize(frame.prims.size());
++  for (u32 i = 0; i < frame.prim_order.size(); ++i)
++    frame.prim_order[i] = i;
++  std::sort(frame.prim_order.begin(), frame.prim_order.end(), [&](u32 a, u32 b) {
++    const u64 ka = frame.prims[a].key, kb = frame.prims[b].key;
++    return ka != kb ? ka < kb : a < b;
++  });
++  frame.sorted = true;
++}
++
++bool s_verbose = false;  // RECOMP_FRAME_INTERPOLATION=2: statistics every 300 frames
++// Test switches (files in the user directory), to measure the parts' costs:
++// FrameInterpolation.noreplay records but never replays, .norecord doesn't record either.
++bool s_test_noreplay = false, s_test_norecord = false;
++using detail::s_replaying;
++// Whether this frame's stream is being recorded: not while the budget keeps interpolation off,
++// except for the frames just before it would come back on.
++bool s_recording = true;
++Frame s_current, s_previous;
++std::vector<size_t> s_unkeyed;  // loads in s_current still waiting for the draw that uses them
++
++// The last few frames' pictures, oldest first: a copy of the real one (the XFB cache entry is
++// overwritten when the XFB is reused) and the in-between picture that leads up to it, once drawn.
++struct Shown
++{
++  u32 address = 0;
++  u64 frame = 0;
++  RcTcacheEntry real;
++  RcTcacheEntry interp;
++  bool interp_due = false;  // a replay for it is on its way
++  u32 retraces = 0;         // how often this XFB has been presented
++};
++std::deque<Shown> s_shown;
++
++u64 s_frames = 0, s_interpolated = 0;
++u64 s_stat_loads = 0, s_stat_found = 0, s_stat_blended = 0;
++u64 s_stat_interp_shown = 0, s_stat_real_shown = 0, s_stat_changed = 0;
++u64 s_stat_prims[4] = {}, s_stat_verts[4] = {}, s_stat_indexed_loads = 0, s_stat_prims_blended = 0;
++bool s_end_pending = false;
++bool s_skip_command = false;  // the indexed load OnIndexedLoad already recorded as an immediate one
++u32 s_end_address = 0;
++
++// Interpolation only where it fits. In single-core mode the replay runs on the emulation thread,
++// so a frame whose game work plus replay doesn't fit its real-time budget would slow the game
++// down. Each frame measures the thread's work (wall time minus throttle sleep, without the
++// replay) and the replay's cost; the replay is skipped while the two together don't fit, and
++// switched back on once they have fit with room to spare for a while. Off with
++// RECOMP_FRAME_INTERPOLATION_ADAPTIVE=0 (always interpolate, to measure the full cost).
++bool Tracing();
++
++struct Budget
++{
++  bool have_last = false;
++  Clock::time_point last_time;
++  DT last_sleep{};
++  u64 last_ticks = 0;
++  double last_replay = 0.0;  // seconds the previous frame's replay took
++  double replay = 0.0;       // recent replay cost
++  double work = 0.0;         // recent game work per frame
++  double budget = 0.0;       // real time the last frame had
++  bool on = true;
++  u32 fitting = 0;  // frames in a row that would have fit while off
++};
++Budget s_budget;
++u64 s_stat_skipped = 0;
++u64 s_trace_indexed_prims = 0;
++u64 s_trace_big_loads = 0;  // loads traced in this blend
++u64 s_trace_pos_moved = 0;  // blended vertices that moved more than 5 units  // this frame's draws with an indexed attribute (trace)
++double s_stat_work = 0.0, s_stat_replay = 0.0, s_stat_budget = 0.0, s_stat_replay_reported = 0.0;
++u64 s_stat_budget_frames = 0;
++// Replay cost by part: pairing and blending ([0]), the replay's slices with their EFB and state
++// switches ([2]).
++double s_stat_parts[4] = {};
++
++bool Adaptive()
++{
++  static const bool on = [] {
++    const char* env = std::getenv("RECOMP_FRAME_INTERPOLATION_ADAPTIVE");
++    return !env || env[0] != '0';
++  }();
++  return on;
++}
++
++// Measures the frame that just ended and decides whether to replay it.
++bool ReplayFits()
++{
++  auto& system = Core::System::GetInstance();
++  // Dual core always replays; the timing below is the CPU thread's, not this (GPU) thread's to read
++  if (system.IsDualCoreMode())
++    return true;
++  Budget& b = s_budget;
++  const Clock::time_point now = Clock::now();
++  const DT sleep = system.GetPerfMetrics().GetTimeSleeping();
++  const u64 ticks = system.GetCoreTiming().GetTicks();
++  const bool had_last = b.have_last;
++  const Budget previous = b;
++  b.have_last = true;
++  b.last_time = now;
++  b.last_sleep = sleep;
++  b.last_ticks = ticks;
++  b.last_replay = 0.0;
++  if (!Adaptive())
++    return true;
++  const float speed = Config::Get(Config::MAIN_EMULATION_SPEED);
++  if (speed <= 0.0f || Core::GetIsThrottlerTempDisabled())
++    return true;  // no frame limit: any frame rate is full speed
++  if (!had_last || sleep < previous.last_sleep || ticks <= previous.last_ticks)
++    return b.on;  // first frame, or the metrics were reset (state load, pause)
++  const double wall = DT_s(now - previous.last_time).count();
++  const double slept = DT_s(sleep - previous.last_sleep).count();
++  const double work = std::max(wall - slept - previous.last_replay, 0.0);
++  const double budget =
++      static_cast<double>(ticks - previous.last_ticks) / system.GetSystemTimers().GetTicksPerSecond() /
++      speed;
++  if (budget > 0.25)
++    return b.on;  // a long gap (loading, a pause): says nothing about the scene
++  b.budget = budget;
++  // Averaged over about ten frames: the throttle catches up after a single slow frame, so only
++  // a scene that stays slow should turn interpolation off.
++  b.work = b.work == 0.0 ? work : b.work * 0.9 + work * 0.1;
++  const double need = b.work + b.replay;
++  if (b.on && need > 0.95 * budget)
++  {
++    b.on = false;
++    b.fitting = 0;
++  }
++  else if (!b.on)
++  {
++    // Back on only after a second that would have fit with room, so a scene at the edge doesn't
++    // switch every frame.
++    b.fitting = need < 0.88 * budget ? b.fitting + 1 : 0;
++    if (b.fitting >= 30)
++      b.on = true;
++  }
++  s_stat_work += work;
++  s_stat_budget += budget;
++  ++s_stat_budget_frames;
++  if (Tracing())
++  {
++    Log(
++                 "[interp-trace]   budget %.2f ms, work %.2f (recent %.2f), replay %.2f, %s\n",
++                 budget * 1e3, work * 1e3, b.work * 1e3, b.replay * 1e3, b.on ? "on" : "off");
++  }
++  return b.on;
++}
++
++void CountReplay(double seconds)
++{
++  s_budget.last_replay = seconds;
++  s_budget.replay = s_budget.replay == 0.0 ? seconds : s_budget.replay * 0.8 + seconds * 0.2;
++  s_stat_replay += seconds;
++}
++
++// RECOMP_FRAME_INTERPOLATION_TRACE, or a file FrameInterpolation.trace in the user directory
++// (Android, where there's no environment to set; the lines go to logcat).
++bool Tracing()
++{
++  static const bool on =
++      std::getenv("RECOMP_FRAME_INTERPOLATION_TRACE") != nullptr ||
++      File::Exists(File::GetUserPath(D_USER_IDX) + "FrameInterpolation.trace");
++  return on;
++}
++
++bool IsMatrixOrProjection(u32 address)
++{
++  return address < XFMEM_POSMATRICES_END ||
++         (address >= XFMEM_NORMALMATRICES && address < XFMEM_NORMALMATRICES_END) ||
++         (address >= XFMEM_POSTMATRICES && address < XFMEM_POSTMATRICES_END) ||
++         (address >= XFMEM_SETPROJECTION && address < XFMEM_SETPROJECTION + 6);
++}
++
++float ReadFloat(const u8* p)
++{
++  u32 word;
++  std::memcpy(&word, p, 4);
++  return std::bit_cast<float>(Common::swap32(word));
++}
++
++void WriteFloat(u8* p, float value)
++{
++  const u32 word = Common::swap32(std::bit_cast<u32>(value));
++  std::memcpy(p, &word, 4);
++}
++
++// Whether two loads of the same matrix are close enough to blend: a large jump means a camera cut
++// or a different object, which should snap rather than smear.
++bool Blendable(const Load& load, const u8* cur, const u8* prev)
++{
++  for (u32 i = 0; i < load.count; ++i)
++  {
++    const u32 address = load.address + i;
++    const float c = ReadFloat(cur + i * 4), p = ReadFloat(prev + i * 4);
++    if (!std::isfinite(c) || !std::isfinite(p))
++      return false;
++    const bool translation =
++        (address < XFMEM_POSMATRICES_END || (address >= XFMEM_POSTMATRICES &&
++                                             address < XFMEM_POSTMATRICES_END)) &&
++        (address & 3) == 3;
++    const float slack = translation ? 200.0f : 0.5f;
++    if (std::fabs(c - p) > 0.5f * std::max(std::fabs(c), std::fabs(p)) + slack)
++      return false;
++  }
++  return true;
++}
++
++// Whether a float vertex position jumps between frames: a coordinate moves more than half its value
++// and more than 50 units, or a tenth of the vertex's distance from the camera if that is more. The
++// positions are in view space, so turning the camera moves a coordinate near zero by a lot when the
++// vertex is far off to the side (a cliff beside the ship: z 99.6 -> 43.4 at x = -1790); without the
++// distance term, that snapped the cliff's texture groups while its other pieces moved halfway (cracks).
++bool VertexJumps(const u8* cur, const u8* prev, u32 count)
++{
++  float c[3] = {}, p[3] = {};
++  for (u32 k = 0; k < count; ++k)
++  {
++    c[k] = ReadFloat(cur + k * 4);
++    p[k] = ReadFloat(prev + k * 4);
++    if (!std::isfinite(c[k]) || !std::isfinite(p[k]))
++      return true;
++  }
++  const float length = std::sqrt(std::max(c[0] * c[0] + c[1] * c[1] + c[2] * c[2],
++                                          p[0] * p[0] + p[1] * p[1] + p[2] * p[2]));
++  const float slack = std::max(50.0f, 0.1f * length);
++  for (u32 k = 0; k < count; ++k)
++  {
++    if (std::fabs(c[k] - p[k]) > std::max(0.5f * std::max(std::fabs(c[k]), std::fabs(p[k])), slack))
++      return true;
++  }
++  return false;
++}
++
++// Pairs two lists of alike items, n_cur in this frame and n_prev in the previous one, allowing for
++// items that appear or go: when one of many alike items (cloud strips, say) is dropped, pairing the
++// n-th with the n-th would put every later one halfway to its neighbour. The lists are aligned
++// (dynamic programming in a band around the diagonal) by distance(i, j); pair(i, j) is called for
++// each pair. Returns how many items were left without a partner.
++template <typename Distance, typename PairFn>
++int Align(int n_cur, int n_prev, const Distance& distance, const PairFn& pair)
++{
++  if (n_cur == 1 && n_prev == 1)
++  {
++    pair(0, 0);
++    return 0;
++  }
++  const int band = std::abs(n_cur - n_prev) + 3;
++  const int width = 2 * band + 1;
++  // A kind whose count changes by hundreds (particles) would make the table huge: pair those in
++  // order.
++  if (static_cast<s64>(n_cur + 1) * width > 200000)
++  {
++    for (int i = 0; i < std::min(n_cur, n_prev); ++i)
++      pair(i, i);
++    return std::abs(n_cur - n_prev);
++  }
++  static std::vector<float> cost_table, typical;
++  static std::vector<u8> move_table;
++  // A gap costs a few times the typical motion of an item, so unpaired items only win over a
++  // pairing that is clearly wrong.
++  typical.clear();
++  for (int i = 0; i < n_cur; ++i)
++  {
++    float nearest = 1e30f;
++    for (int j = std::max(0, i - 1); j <= std::min(n_prev - 1, i + 1); ++j)
++      nearest = std::min(nearest, distance(i, j));
++    typical.push_back(nearest);
++  }
++  std::nth_element(typical.begin(), typical.begin() + typical.size() / 2, typical.end());
++  const float gap = std::max(4.0f * typical[typical.size() / 2], 1.0f);
++  // cost_table[i][d]: best cost with i current and j = i + d - band previous items used.
++  cost_table.assign(static_cast<size_t>(n_cur + 1) * width, 1e30f);
++  move_table.assign(static_cast<size_t>(n_cur + 1) * width, 0);
++  const auto at = [&](int i, int j) -> int {
++    const int d = j - i + band;
++    return (d < 0 || d >= width || j < 0 || j > n_prev) ? -1 : i * width + d;
++  };
++  cost_table[at(0, 0)] = 0.0f;
++  for (int i = 0; i <= n_cur; ++i)
++  {
++    for (int j = std::max(0, i - band); j <= std::min(n_prev, i + band); ++j)
++    {
++      const int here = at(i, j);
++      if (here < 0 || (i == 0 && j == 0))
++        continue;
++      float best = 1e30f;
++      u8 move = 0;
++      if (i > 0 && j > 0 && at(i - 1, j - 1) >= 0)
++      {
++        const float c = cost_table[at(i - 1, j - 1)] + distance(i - 1, j - 1);
++        if (c < best)
++          best = c, move = 1;  // pair
++      }
++      if (i > 0 && at(i - 1, j) >= 0)
++      {
++        const float c = cost_table[at(i - 1, j)] + gap;
++        if (c < best)
++          best = c, move = 2;  // a new item
++      }
++      if (j > 0 && at(i, j - 1) >= 0)
++      {
++        const float c = cost_table[at(i, j - 1)] + gap;
++        if (c < best)
++          best = c, move = 3;  // an item that went
++      }
++      cost_table[here] = best;
++      move_table[here] = move;
++    }
++  }
++  int i = n_cur, j = n_prev;
++  int unpaired = 0;
++  if (at(i, j) < 0)
++    return n_cur;  // outside the band: leave this kind unblended
++  // As many items as before: in order, unless the alignment is far better (alike cloud strips
++  // scrolling by, one leaving at one end as another comes in). Motion faster than the items'
++  // spacing makes a neighbour's old position look closer, and the alignment then paired items
++  // with neighbours for little gain (the battle-entry shatter's spinning strips got seams).
++  if (n_cur == n_prev)
++  {
++    float in_order = 0.0f;
++    for (int k = 0; k < n_cur; ++k)
++      in_order += distance(k, k);
++    if (!(cost_table[at(i, j)] < 0.5f * in_order))
++    {
++      for (int k = 0; k < n_cur; ++k)
++        pair(k, k);
++      return 0;
++    }
++  }
++  while (i > 0 || j > 0)
++  {
++    const u8 move = move_table[at(i, j)];
++    if (move == 1)
++    {
++      pair(i - 1, j - 1);
++      --i, --j;
++    }
++    else if (move == 2)
++    {
++      --i, ++unpaired;
++    }
++    else if (move == 3)
++    {
++      --j, ++unpaired;
++    }
++    else
++    {
++      break;
++    }
++  }
++  return unpaired;
++}
++
++// Writes the halfway matrices into a copy of the current stream. Returns false when too few loads
++// have a partner in the previous frame to be worth it (a scene change).
++bool BuildBlendedStream(std::vector<u8>* out)
++{
++  // This runs for every frame, over thousands of loads and draws: both frames' loads and draws are
++  // matched by merging their sorted orders, with buffers kept from frame to frame.
++  Sort(s_previous);
++  Sort(s_current);
++  s_trace_big_loads = 0;
++  s_trace_pos_moved = 0;
++
++  static const float t = [] {
++    const char* env = std::getenv("RECOMP_FRAME_INTERPOLATION_T");
++    return env ? static_cast<float>(std::atof(env)) : 0.5f;
++  }();
++  *out = s_current.stream;
++  size_t paired = 0;
++  s_stat_loads += s_current.loads.size();
++  const auto blend_load = [&](const Load& load, const Load& match) {
++    ++s_stat_found;
++    const u8* cur = s_current.stream.data() + load.data_offset;
++    const u8* prev = s_previous.stream.data() + match.data_offset;
++    if (!Blendable(load, cur, prev))
++      return;
++    if (Tracing())
++    {
++      float worst = 0.0f;
++      for (u32 i = 0; i < load.count; ++i)
++      {
++        if (load.address + i >= XFMEM_SETPROJECTION + 6)
++          continue;
++        const float c = ReadFloat(cur + i * 4), p = ReadFloat(prev + i * 4);
++        worst = std::max(worst,
++                         std::fabs(c - p) / std::max(std::max(std::fabs(c), std::fabs(p)), 1e-6f));
++      }
++      if (worst > 0.2f && s_trace_big_loads++ < 12)
++      {
++        Log( "[interp-trace]   load %03x+%u changes %.0f%%:", load.address,
++                     load.count, worst * 100.0f);
++        for (u32 i = 0; i < std::min<u32>(load.count, 12); ++i)
++          Log( " %g/%g", ReadFloat(prev + i * 4), ReadFloat(cur + i * 4));
++        Log( "\n");
++      }
++    }
++    ++paired;
++    ++s_stat_blended;
++    if (std::memcmp(cur, prev, load.count * 4) != 0)
++      ++s_stat_changed;
++    for (u32 i = 0; i < load.count; ++i)
++    {
++      // The projection type (the word after the six parameters) isn't a float.
++      if (load.address + i >= XFMEM_SETPROJECTION + 6)
++        continue;
++      const float c = ReadFloat(cur + i * 4), p = ReadFloat(prev + i * 4);
++      WriteFloat(out->data() + load.data_offset + i * 4, p + (c - p) * t);
++    }
++  };
++  // Loads of a kind (address, count and the next draw's key) are aligned like draws (Align): when
++  // the game culls one of many alike objects (cloud strips while turning), pairing them by
++  // occurrence put every later object's matrix halfway to its neighbour's (stray bands).
++  {
++    static std::vector<const Load*> cur_loads, prev_loads;
++    const auto kind = [](const Load& l) { return std::make_tuple(l.address, l.count, l.key); };
++    const std::vector<u32>& cur_lo = s_current.load_order;
++    const std::vector<u32>& prev_lo = s_previous.load_order;
++    size_t la = 0, lb = 0;
++    while (la < cur_lo.size() && lb < prev_lo.size())
++    {
++      const auto k = kind(s_current.loads[cur_lo[la]]);
++      const auto pk = kind(s_previous.loads[prev_lo[lb]]);
++      if (k != pk)
++      {
++        if (k < pk)
++          ++la;
++        else
++          ++lb;
++        continue;
++      }
++      cur_loads.clear();
++      prev_loads.clear();
++      for (; la < cur_lo.size() && kind(s_current.loads[cur_lo[la]]) == k; ++la)
++        cur_loads.push_back(&s_current.loads[cur_lo[la]]);
++      for (; lb < prev_lo.size() && kind(s_previous.loads[prev_lo[lb]]) == k; ++lb)
++        prev_loads.push_back(&s_previous.loads[prev_lo[lb]]);
++      // The projection type word isn't a float: compare the six parameters only.
++      const u32 address = std::get<0>(k);
++      u32 words = cur_loads[0]->count;
++      if (address <= XFMEM_SETPROJECTION + 6 && address + words > XFMEM_SETPROJECTION + 6)
++        words = XFMEM_SETPROJECTION + 6 - address;
++      const auto distance = [&](int i, int j) {
++        const u8* c = s_current.stream.data() + cur_loads[i]->data_offset;
++        const u8* p = s_previous.stream.data() + prev_loads[j]->data_offset;
++        float sum = 0.0f;
++        for (u32 w = 0; w < words; ++w)
++          sum += std::fabs(ReadFloat(c + w * 4) - ReadFloat(p + w * 4));
++        return std::isfinite(sum) ? sum : 1e30f;
++      };
++      const int n_cur = static_cast<int>(cur_loads.size());
++      const int n_prev = static_cast<int>(prev_loads.size());
++      const int unpaired = Align(n_cur, n_prev, distance,
++                                 [&](int i, int j) { blend_load(*cur_loads[i], *prev_loads[j]); });
++      if (Tracing() && (unpaired != 0 || n_cur != n_prev))
++      {
++        Log(
++                     "[interp-trace]   loads %03x+%u key %016llx: %d, previous %d, %d left unpaired\n",
++                     std::get<0>(k), std::get<1>(k), static_cast<unsigned long long>(std::get<2>(k)),
++                     n_cur, n_prev, unpaired);
++      }
++    }
++  }
++
++  // Draws with the same key are aligned (Align) by the distance between their first vertices; a
++  // draw left without a partner is drawn as it is.
++  // partner[i]: the previous frame's draw for s_current.prims[i].
++  static std::vector<const Prim*> partner;
++  partner.assign(s_current.prims.size(), nullptr);
++  const auto set_partner = [&](const Prim* cur, const Prim* prev) {
++    partner[static_cast<size_t>(cur - s_current.prims.data())] = prev;
++  };
++  static std::vector<const Prim*> cur_list, prev_list;
++  static std::vector<std::array<float, 3>> cur_first, prev_first;
++  const std::vector<u32>& cur_order = s_current.prim_order;
++  const std::vector<u32>& prev_order = s_previous.prim_order;
++  size_t a = 0, b = 0;
++  while (a < cur_order.size() && b < prev_order.size())
++  {
++    // The next key both frames draw.
++    const u64 key = s_current.prims[cur_order[a]].key;
++    const u64 prev_key = s_previous.prims[prev_order[b]].key;
++    if (key != prev_key)
++    {
++      if (key < prev_key)
++        ++a;
++      else
++        ++b;
++      continue;
++    }
++    cur_list.clear();
++    prev_list.clear();
++    for (; a < cur_order.size() && s_current.prims[cur_order[a]].key == key; ++a)
++      cur_list.push_back(&s_current.prims[cur_order[a]]);
++    for (; b < prev_order.size() && s_previous.prims[prev_order[b]].key == key; ++b)
++      prev_list.push_back(&s_previous.prims[prev_order[b]]);
++    const int n_cur = static_cast<int>(cur_list.size()), n_prev = static_cast<int>(prev_list.size());
++    if (cur_list[0]->pos_format != static_cast<u8>(ComponentFormat::Float) ||
++        (n_cur == 1 && n_prev == 1))
++    {
++      for (int i = 0; i < std::min(n_cur, n_prev); ++i)
++        set_partner(cur_list[i], prev_list[i]);
++      continue;
++    }
++    // First vertex of each draw, decoded once.
++    const auto first_vertices = [](const Frame& frame, const std::vector<const Prim*>& list,
++                                   std::vector<std::array<float, 3>>* firsts) {
++      firsts->resize(list.size());
++      for (size_t i = 0; i < list.size(); ++i)
++      {
++        const u8* p = frame.stream.data() + list[i]->data_offset + list[i]->pos_offset;
++        std::array<float, 3>& f = (*firsts)[i];
++        f = {0.0f, 0.0f, 0.0f};
++        for (u32 k = 0; k < list[i]->pos_count; ++k)
++          f[k] = ReadFloat(p + k * 4);
++      }
++    };
++    first_vertices(s_current, cur_list, &cur_first);
++    first_vertices(s_previous, prev_list, &prev_first);
++    const auto distance = [&](int i, int j) {
++      const float sum = std::fabs(cur_first[i][0] - prev_first[j][0]) +
++                        std::fabs(cur_first[i][1] - prev_first[j][1]) +
++                        std::fabs(cur_first[i][2] - prev_first[j][2]);
++      return std::isfinite(sum) ? sum : 1e30f;
++    };
++    const int unpaired = Align(n_cur, n_prev, distance,
++                               [&](int i, int j) { set_partner(cur_list[i], prev_list[j]); });
++    if (Tracing() && (unpaired != 0 || n_cur != n_prev))
++      Log( "[interp-trace]   key %016llx: %d draws, previous %d, %d left unpaired\n",
++                   static_cast<unsigned long long>(key), n_cur, n_prev, unpaired);
++  }
++  // Which paired draws jump (VertexJumps: a coordinate moves more than half its value and more than
++  // 50 units or a tenth of the vertex's distance; with the two added, a full-screen quad Skies moves from z = 100 to 0.001 after a menu passed, and
++  // halfway it covered the scene). When one draw jumps, every draw with the same texture snaps
++  // rather than smears: deciding per draw (or per vertex, or per key) tore objects made of many
++  // draws apart (the battle-entry shatter spins the copied screen away as a card of strips, edge
++  // strips of another size; some snapped while the others moved halfway).
++  static std::vector<u8> jumps;
++  jumps.assign(s_current.prims.size(), 0);
++  static std::vector<std::pair<u64, std::pair<u32, u32>>> group_counts;  // texture -> paired, jumping
++  group_counts.clear();
++  for (size_t index = 0; index < s_current.prims.size(); ++index)
++  {
++    if (!partner[index])
++      continue;
++    const Prim& prim = s_current.prims[index];
++    const Prim& old = *partner[index];
++    if (prim.pos_format != static_cast<u8>(ComponentFormat::Float) ||
++        old.num_vertices != prim.num_vertices || old.vertex_size != prim.vertex_size ||
++        old.pos_offset != prim.pos_offset || old.pos_format != prim.pos_format ||
++        old.pos_count != prim.pos_count)
++    {
++      continue;
++    }
++    bool jump = false;
++    for (u32 v = 0; v < prim.num_vertices && !jump; ++v)
++    {
++      const u32 at = v * prim.vertex_size + prim.pos_offset;
++      const u8* cur = s_current.stream.data() + prim.data_offset + at;
++      const u8* prev = s_previous.stream.data() + old.data_offset + at;
++      jump = VertexJumps(cur, prev, prim.pos_count);
++    }
++    jumps[index] = jump ? 1 : 0;
++    if (group_counts.empty() || group_counts.back().first != prim.texture)
++    {
++      auto it = std::find_if(group_counts.begin(), group_counts.end(),
++                             [&](const auto& g) { return g.first == prim.texture; });
++      if (it == group_counts.end())
++      {
++        group_counts.push_back({prim.texture, {0, 0}});
++      }
++      else
++      {
++        std::swap(*it, group_counts.back());
++      }
++    }
++    group_counts.back().second.first += 1;
++    group_counts.back().second.second += jump ? 1 : 0;
++  }
++  std::sort(group_counts.begin(), group_counts.end());
++  if (Tracing())
++  {
++    // Why draws are drawn as they are (not blended): no partner, or a jump that snaps their group.
++    u32 lone = 0, lone_verts = 0, traced = 0;
++    for (size_t index = 0; index < s_current.prims.size(); ++index)
++    {
++      const Prim& prim = s_current.prims[index];
++      if (partner[index] || prim.pos_format != static_cast<u8>(ComponentFormat::Float))
++        continue;
++      ++lone;
++      lone_verts += prim.num_vertices;
++      if (traced++ < 8)
++      {
++        const u8* p = s_current.stream.data() + prim.data_offset + prim.pos_offset;
++        Log( "[interp-trace]   lone draw %zu key %016llx tex %06x %u verts: %g,%g,%g\n",
++                     index, static_cast<unsigned long long>(prim.key), prim.texture,
++                     prim.num_vertices, ReadFloat(p), ReadFloat(p + 4),
++                     prim.pos_count > 2 ? ReadFloat(p + 8) : 0.0f);
++      }
++    }
++    if (lone != 0)
++      Log( "[interp-trace]   %u draws (%u vertices) without a partner\n", lone, lone_verts);
++    for (const auto& g : group_counts)
++    {
++      if (g.second.second == 0)
++        continue;
++      Log( "[interp-trace]   group tex %06llx snaps: %u of %u draws jump\n",
++                   static_cast<unsigned long long>(g.first), g.second.second, g.second.first);
++    }
++    u32 shown = 0;
++    for (size_t index = 0; index < s_current.prims.size() && shown < 6; ++index)
++    {
++      if (!jumps[index])
++        continue;
++      const Prim& prim = s_current.prims[index];
++      const Prim& old = *partner[index];
++      for (u32 v = 0; v < prim.num_vertices; ++v)
++      {
++        const u32 at = v * prim.vertex_size + prim.pos_offset;
++        const u8* cur = s_current.stream.data() + prim.data_offset + at;
++        const u8* prev = s_previous.stream.data() + old.data_offset + at;
++        if (!VertexJumps(cur, prev, prim.pos_count))
++          continue;
++        Log(
++                     "[interp-trace]   jump draw %zu tex %06x vertex %u/%u: %g,%g,%g -> %g,%g,%g\n",
++                     index, prim.texture, v, prim.num_vertices, ReadFloat(prev), ReadFloat(prev + 4),
++                     prim.pos_count > 2 ? ReadFloat(prev + 8) : 0.0f, ReadFloat(cur),
++                     ReadFloat(cur + 4), prim.pos_count > 2 ? ReadFloat(cur + 8) : 0.0f);
++        ++shown;
++        break;
++      }
++    }
++  }
++  const auto group_snaps = [&](u64 key) {
++    const auto it = std::lower_bound(group_counts.begin(), group_counts.end(),
++                                     std::make_pair(key, std::make_pair(0u, 0u)));
++    return it != group_counts.end() && it->first == key && it->second.second != 0;
++  };
++  for (size_t index = 0; index < s_current.prims.size(); ++index)
++  {
++    if (!partner[index])
++      continue;
++    const Prim& prim = s_current.prims[index];
++    const Prim& old = *partner[index];
++    if (old.num_vertices != prim.num_vertices || old.vertex_size != prim.vertex_size ||
++        old.pos_offset != prim.pos_offset || old.pos_format != prim.pos_format ||
++        old.pos_count != prim.pos_count)
++    {
++      continue;
++    }
++    if (jumps[index] || group_snaps(prim.texture))
++      continue;
++    ++paired;
++    ++s_stat_prims_blended;
++    for (u32 v = 0; v < prim.num_vertices; ++v)
++    {
++      const u32 at = v * prim.vertex_size + prim.pos_offset;
++      const u8* cur = s_current.stream.data() + prim.data_offset + at;
++      const u8* prev = s_previous.stream.data() + old.data_offset + at;
++      u8* dst = out->data() + prim.data_offset + at;
++      if (prim.pos_format == static_cast<u8>(ComponentFormat::Float))
++      {
++        float c[3], p[3];
++        for (u32 k = 0; k < prim.pos_count; ++k)
++        {
++          c[k] = ReadFloat(cur + k * 4);
++          p[k] = ReadFloat(prev + k * 4);
++        }
++        if (Tracing())
++        {
++          float worst = 0.0f;
++          for (u32 k = 0; k < prim.pos_count; ++k)
++            worst = std::max(worst, std::fabs(c[k] - p[k]));
++          s_trace_pos_moved += worst > 5.0f ? 1 : 0;
++          if (worst > 5.0f && s_trace_big_loads++ < 12)
++          {
++            Log( "[interp-trace]   draw key %016llx vertex %u: %g,%g,%g -> %g,%g,%g\n",
++                         static_cast<unsigned long long>(prim.key), v, p[0], p[1],
++                         prim.pos_count > 2 ? p[2] : 0.0f, c[0], c[1],
++                         prim.pos_count > 2 ? c[2] : 0.0f);
++          }
++        }
++        for (u32 k = 0; k < prim.pos_count; ++k)
++          WriteFloat(dst + k * 4, p[k] + (c[k] - p[k]) * t);
++      }
++      else if (prim.pos_format == static_cast<u8>(ComponentFormat::Short) ||
++               prim.pos_format == static_cast<u8>(ComponentFormat::UShort))
++      {
++        const bool is_signed = prim.pos_format == static_cast<u8>(ComponentFormat::Short);
++        for (u32 k = 0; k < prim.pos_count; ++k)
++        {
++          const u32 cu = (u32{cur[k * 2]} << 8) | cur[k * 2 + 1];
++          const u32 pu = (u32{prev[k * 2]} << 8) | prev[k * 2 + 1];
++          const float c = is_signed ? static_cast<s16>(cu) : static_cast<float>(cu);
++          const float pf = is_signed ? static_cast<s16>(pu) : static_cast<float>(pu);
++          const s32 value = static_cast<s32>(std::lround(pf + (c - pf) * t));
++          dst[k * 2] = static_cast<u8>(value >> 8);
++          dst[k * 2 + 1] = static_cast<u8>(value);
++        }
++      }
++      else
++      {
++        const bool is_signed = prim.pos_format == static_cast<u8>(ComponentFormat::Byte);
++        for (u32 k = 0; k < prim.pos_count; ++k)
++        {
++          const float c = is_signed ? static_cast<s8>(cur[k]) : static_cast<float>(cur[k]);
++          const float pf = is_signed ? static_cast<s8>(prev[k]) : static_cast<float>(prev[k]);
++          dst[k] = static_cast<u8>(static_cast<s32>(std::lround(pf + (c - pf) * t)));
++        }
++      }
++    }
++  }
++  const size_t total = s_current.loads.size() + s_current.prims.size();
++  if (Tracing())
++  {
++    Log(
++                 "[interp-trace]   blend: %zu of %zu loads+draws paired (%zu loads, %zu draws), "
++                 "%llu vertices moved > 5\n",
++                 paired, total, s_current.loads.size(), s_current.prims.size(),
++                 static_cast<unsigned long long>(s_trace_pos_moved));
++  }
++  return total != 0 && paired * 2 >= total;
++}
++
++// The GPU state the replay changes, saved with the same code as savestates.
++std::vector<u8> SaveState()
++{
++  auto& system = Core::System::GetInstance();
++  const auto do_state = [&](PointerWrap& p) {
++    p.Do(bpmem);
++    p.Do(g_main_cp_state);
++    p.Do(xfmem);
++    system.GetPixelShaderManager().DoState(p);
++    system.GetVertexShaderManager().DoState(p);
++    system.GetGeometryShaderManager().DoState(p);
++    system.GetXFStateManager().DoState(p);
++    TMEM::DoState(p);
++  };
++  u8* ptr = nullptr;
++  PointerWrap measure(&ptr, 0, PointerWrap::Mode::Measure);
++  do_state(measure);
++  std::vector<u8> buffer(reinterpret_cast<size_t>(ptr));
++  ptr = buffer.data();
++  PointerWrap write(&ptr, buffer.size(), PointerWrap::Mode::Write);
++  do_state(write);
++  return buffer;
++}
++
++void RestoreState(std::vector<u8>& buffer)
++{
++  auto& system = Core::System::GetInstance();
++  u8* ptr = buffer.data();
++  PointerWrap p(&ptr, buffer.size(), PointerWrap::Mode::Read);
++  p.Do(bpmem);
++  p.Do(g_main_cp_state);
++  p.Do(xfmem);
++  system.GetPixelShaderManager().DoState(p);
++  system.GetVertexShaderManager().DoState(p);
++  system.GetGeometryShaderManager().DoState(p);
++  system.GetXFStateManager().DoState(p);
++  TMEM::DoState(p);
++  CopyPreprocessCPStateFromMain();
++  BPReload();
++  VertexLoaderManager::MarkAllDirty();
++}
++
++Shown* FindShown(u64 frame)
++{
++  for (Shown& shown : s_shown)
++  {
++    if (shown.frame == frame)
++      return &shown;
++  }
++  return nullptr;
++}
++}  // namespace
++
++std::atomic<s64> s_cpu_wait_ns[2] = {};
++std::atomic<s64> s_gpu_work_ns{0};
++
++// Debug timeline (a file FrameInterpolation.timeline in the user directory): frames 600-610's
++// events with timestamps, to logcat / stderr.
++static std::atomic<bool> s_timeline_on{false};
++static Clock::time_point s_timeline_zero;
++static void Timeline(const char* what, double ms = 0.0);
++
++void CountCpuWait(int reason, std::chrono::steady_clock::duration time)
++{
++  if (s_timeline_on.load(std::memory_order_relaxed) && time > std::chrono::microseconds(300))
++    Timeline(reason ? "cpu idle-wait end" : "cpu token-wait end", DT_s(time).count() * 1e3);
++  s_cpu_wait_ns[reason & 1].fetch_add(
++      std::chrono::duration_cast<std::chrono::nanoseconds>(time).count(), std::memory_order_relaxed);
++}
++
++void CountGpuWork(std::chrono::steady_clock::duration time)
++{
++  s_gpu_work_ns.fetch_add(std::chrono::duration_cast<std::chrono::nanoseconds>(time).count(),
++                          std::memory_order_relaxed);
++}
++
++static void Log(const char* format, ...);
++static void Timeline(const char* what, double ms)
++{
++  Log("[interp-timeline] %8.2f %s %.2f\n", DT_s(Clock::now() - s_timeline_zero).count() * 1e3,
++      what, ms);
++}
++
++// Statistics go to stderr, and on Android (no console) to logcat as well.
++static void Log(const char* format, ...)
++{
++  va_list args;
++  va_start(args, format);
++#ifdef ANDROID
++  va_list copy;
++  va_copy(copy, args);
++  __android_log_vprint(ANDROID_LOG_INFO, "FrameInterpolation", format, copy);
++  va_end(copy);
++#endif
++  std::vfprintf(stderr, format, args);
++  va_end(args);
++}
++
++namespace detail
++{
++std::atomic<s8> s_enabled{-1};
++std::atomic<bool> s_replaying{false};
++
++bool ReadEnabled()
++{
++  const char* env = std::getenv("RECOMP_FRAME_INTERPOLATION");
++  // Without the variable (Android has no frontend to set it), a file named
++  // FrameInterpolation.on in the user directory turns it on.
++  const bool enabled = env ? (env[0] == '1' || env[0] == '2') :
++                             File::Exists(File::GetUserPath(D_USER_IDX) + "FrameInterpolation.on");
++  s_verbose = (env && env[0] == '2') ||
++              File::Exists(File::GetUserPath(D_USER_IDX) + "FrameInterpolation.stats");
++  s_test_norecord = File::Exists(File::GetUserPath(D_USER_IDX) + "FrameInterpolation.norecord");
++  s_test_noreplay =
++      s_test_norecord || File::Exists(File::GetUserPath(D_USER_IDX) + "FrameInterpolation.noreplay");
++  if (enabled)
++    Log( "[interp] frame interpolation on\n");
++  s_enabled = enabled ? 1 : 0;
++  return enabled;
++}
++}  // namespace detail
++
++void OnXF(u16 address, u8 count)
++{
++  if (!s_recording)
++    return;
++  // An XF write covers registers address..address+count-1.
++  bool relevant = false;
++  for (u32 i = 0; i < count && !relevant; ++i)
++    relevant = IsMatrixOrProjection(address + i);
++  if (!relevant)
++    return;
++  // OnXF comes before OnCommand appends the command: the data follows the 5-byte header.
++  s_unkeyed.push_back(s_current.loads.size());
++  s_current.loads.push_back(
++      Load{static_cast<u32>(s_current.stream.size() + 5), address, count, 0, 0});
++}
++
++void OnIndexedLoad(CPArray array, u32 index, u16 address, u8 size)
++{
++  if (!s_recording)
++    return;
++  ++s_stat_indexed_loads;
++  // The replay would read the matrix from RAM again, which by then holds the next frame's. Record
++  // it as an immediate XF load of the values read now instead, which can also be blended.
++  auto& memory = Core::System::GetInstance().GetMemory();
++  const u32 bytes = size * 4u;
++  const u8* data = memory.GetPointerForRange(
++      g_main_cp_state.array_bases[array] + g_main_cp_state.array_strides[array] * index, bytes);
++  if (!data)
++    return;  // record the indexed command as it is
++  const u32 header = Common::swap32((static_cast<u32>(size - 1) << 16) | address);
++  OnXF(address, size);  // registers the load at the current end of the stream
++  s_current.stream.push_back(static_cast<u8>(OpcodeDecoder::Opcode::GX_LOAD_XF_REG));
++  const u8* header_bytes = reinterpret_cast<const u8*>(&header);
++  s_current.stream.insert(s_current.stream.end(), header_bytes, header_bytes + 4);
++  s_current.stream.insert(s_current.stream.end(), data, data + bytes);  // already big-endian
++  s_skip_command = true;
++}
++
++// Copies the vertex array data this draw reads by index (see Frame::array_data).
++static void RecordArrays(u8 vat, u16 num_vertices, const u8* vertex_data, u32 size)
++{
++  Frame& frame = s_current;
++  if (frame.arrays_begin.empty())
++    frame.arrays_begin.push_back(0);
++  struct Indexed
++  {
++    CPArray array;
++    u32 offset;      // of the index within a vertex
++    u8 index_size;   // 1 or 2
++    u8 count;        // indices per vertex (3 for separately indexed normal, binormal, tangent)
++    u32 span;        // bytes one index reads
++  };
++  std::array<Indexed, 12> indexed;
++  size_t n = 0;
++  const TVtxDesc& desc = g_main_cp_state.vtx_desc;
++  const VAT& vtx = g_main_cp_state.vtx_attr[vat];
++  u32 offset = (desc.low.PosMatIdx ? 1 : 0);
++  for (u32 i = 0; i < 8; ++i)
++    offset += desc.low.TexMatIdx[i] ? 1 : 0;
++  const auto add = [&](CPArray array, VertexComponentFormat type, u32 bytes, u32 span, u8 count) {
++    if (IsIndexed(type))
++    {
++      indexed[n++] = Indexed{array, offset,
++                             static_cast<u8>(type == VertexComponentFormat::Index16 ? 2 : 1), count,
++                             span};
++    }
++    offset += bytes;
++  };
++  using VCF = VertexComponentFormat;
++  add(CPArray::Position, desc.low.Position,
++      VertexLoader_Position::GetSize(desc.low.Position, vtx.g0.PosFormat, vtx.g0.PosElements),
++      VertexLoader_Position::GetSize(VCF::Direct, vtx.g0.PosFormat, vtx.g0.PosElements), 1);
++  const bool index3 =
++      vtx.g0.NormalIndex3 && vtx.g0.NormalElements == NormalComponentCount::NTB;
++  add(CPArray::Normal, desc.low.Normal,
++      VertexLoader_Normal::GetSize(desc.low.Normal, vtx.g0.NormalFormat, vtx.g0.NormalElements,
++                                   vtx.g0.NormalIndex3),
++      VertexLoader_Normal::GetSize(VCF::Direct, vtx.g0.NormalFormat, NormalComponentCount::NTB,
++                                   false),
++      index3 ? 3 : 1);
++  for (u32 i = 0; i < 2; ++i)
++  {
++    if (desc.low.Color[i] == VCF::NotPresent)
++      continue;
++    add(CPArray::Color0 + static_cast<u8>(i), desc.low.Color[i],
++        VertexLoader_Color::GetSize(desc.low.Color[i], vtx.GetColorFormat(i)),
++        VertexLoader_Color::GetSize(VCF::Direct, vtx.GetColorFormat(i)), 1);
++  }
++  for (u32 i = 0; i < 8; ++i)
++  {
++    add(CPArray::TexCoord0 + static_cast<u8>(i), desc.high.TexCoord[i],
++        VertexLoader_TextCoord::GetSize(desc.high.TexCoord[i], vtx.GetTexFormat(i),
++                                        vtx.GetTexElements(i)),
++        VertexLoader_TextCoord::GetSize(VCF::Direct, vtx.GetTexFormat(i), vtx.GetTexElements(i)),
++        1);
++  }
++  // A layout that doesn't add up means a format read differently here: leave the draw alone.
++  if (num_vertices != 0 && offset * num_vertices == size)
++  {
++    auto& memory = Core::System::GetInstance().GetMemory();
++    for (size_t c = 0; c < n; ++c)
++    {
++      const Indexed& item = indexed[c];
++      const u32 all_ones = item.index_size == 1 ? 0xFFu : 0xFFFFu;
++      u32 lo_index = all_ones, hi_index = 0;
++      bool skip_index = false;
++      for (u32 v = 0; v < num_vertices; ++v)
++      {
++        const u8* p = vertex_data + v * offset + item.offset;
++        for (u32 k = 0; k < item.count; ++k)
++        {
++          const u32 index = item.index_size == 1 ? p[k] : (u32{p[2 * k]} << 8) | p[2 * k + 1];
++          skip_index = skip_index || index == all_ones;
++          lo_index = std::min(lo_index, index);
++          hi_index = std::max(hi_index, index);
++        }
++      }
++      // The loader reads a skipped position too, outside any range worth copying: leave that
++      // array in RAM for this draw.
++      if (skip_index && item.array == CPArray::Position)
++        continue;
++      const u32 stride = g_main_cp_state.array_strides[item.array];
++      const u32 lo = lo_index * stride;
++      const u32 bytes = (hi_index - lo_index) * stride + item.span;
++      if (bytes > 1024 * 1024)
++        continue;
++      const u8* data =
++          memory.GetPointerForRange(g_main_cp_state.array_bases[item.array] + lo, bytes);
++      if (!data)
++        continue;
++      frame.array_copies.push_back(
++          ArrayCopy{item.array, static_cast<u32>(frame.array_data.size()), lo});
++      frame.array_data.insert(frame.array_data.end(), data, data + bytes);
++    }
++  }
++  frame.arrays_begin.push_back(static_cast<u32>(frame.array_copies.size()));
++}
++
++void OnPrimitive(u8 vat, u16 num_vertices, const u8* vertex_data, u32 size)
++{
++  if (!s_recording)
++    return;
++  RecordArrays(vat, num_vertices, vertex_data, size);
++  {
++    const u32 mode = static_cast<u32>(g_main_cp_state.vtx_desc.low.Position.Value());
++    ++s_stat_prims[mode & 3];
++    s_stat_verts[mode & 3] += num_vertices;
++  }
++  const auto& desc = g_main_cp_state.vtx_desc.low;
++  if (Tracing())
++  {
++    bool indexed = IsIndexed(desc.Position) || IsIndexed(desc.Normal) || IsIndexed(desc.Color0) ||
++                   IsIndexed(desc.Color1);
++    for (u32 i = 0; i < 8; ++i)
++      indexed = indexed || IsIndexed(g_main_cp_state.vtx_desc.high.TexCoord[i]);
++    if (indexed)
++      ++s_trace_indexed_prims;
++  }
++  if (desc.Position == VertexComponentFormat::Direct && num_vertices != 0)
++  {
++    const auto& g0 = g_main_cp_state.vtx_attr[vat].g0;
++    u8 pos_offset = desc.PosMatIdx ? 1 : 0;
++    for (u32 i = 0; i < 8; ++i)
++      pos_offset += desc.TexMatIdx[i] ? 1 : 0;
++    // The primitive command is the opcode and a 16-bit vertex count, then the vertices.
++    s_current.prims.push_back(Prim{
++        static_cast<u32>(s_current.stream.size() + 3), num_vertices,
++        static_cast<u16>(size / num_vertices), pos_offset, static_cast<u8>(g0.PosFormat.Value()),
++        static_cast<u8>(g0.PosElements == CoordComponentCount::XYZ ? 3 : 2),
++        (u64{vat} << 56) ^ (u64{num_vertices} << 32) ^ (u64{size} << 8) ^
++            (u64{bpmem.tex.GetUnit(0).texImage3.image_base} << 20),
++        0, bpmem.tex.GetUnit(0).texImage3.image_base});
++  }
++  if (s_unkeyed.empty())
++    return;
++  // Not the vertex data itself: CPU-skinned models change it every frame.
++  const u64 key = (u64{vat} << 56) ^ (u64{num_vertices} << 32) ^ (u64{size} << 8) ^
++                  (u64{bpmem.tex.GetUnit(0).texImage3.image_base} << 20);
++  for (size_t index : s_unkeyed)
++    s_current.loads[index].key = key;
++  s_unkeyed.clear();
++}
++
++static void EndFrame(u32 dest_address);
++
++// A frame's recording beyond this (no XFB copy ending it: a game drawing without one, or a long
++// load) is dropped and recording waits for the next frame end.
++constexpr std::size_t MAX_RECORDED_BYTES = 64u << 20;
++
++void OnCommand(const u8* data, u32 size)
++{
++  if (s_skip_command)
++    s_skip_command = false;
++  else if (s_recording)
++    s_current.stream.insert(s_current.stream.end(), data, data + size);
++  if (s_recording && s_current.stream.size() + s_current.array_data.size() > MAX_RECORDED_BYTES)
++  {
++    s_current.Clear();  // an empty frame is never replayed (EndFrame)
++    s_recording = false;
++  }
++  if (s_end_pending)
++  {
++    s_end_pending = false;
++    EndFrame(s_end_address);
++  }
++}
++
++void OnXFBCopy(u32 dest_address)
++{
++  s_end_pending = true;
++  s_end_address = dest_address;
++}
++
++// The replay of one frame, drawn on the spare EFB in slices (dual core) or at once.
++namespace
++{
++struct Job
++{
++  bool active = false;
++  bool blended = false;
++  bool started = false;
++  u64 frame = 0;
++  u32 address = 0, width = 0, height = 0, stride = 0;
++  std::vector<u8> stream;  // the blended stream
++  size_t position = 0;
++  u32 prim = 0;           // draws replayed so far
++  size_t texture = 0;     // where the next texture lookup starts in the frame's textures
++  std::vector<u8> state;  // the replay's video state between slices
++  std::vector<u8> start_state;  // the video state the frame started with
++  Clock::time_point start;
++  double blend_seconds = 0.0, replay_seconds = 0.0;
++};
++Job s_job;
++// The replay's own EFB copies (texture only: the game's RAM must not see them) and its XFB copy.
++std::vector<std::pair<u32, RcTcacheEntry>> s_replay_copies;
++RcTcacheEntry s_replay_xfb;
++// The video state where the frame being recorded started (taken at the previous frame's end).
++std::vector<u8> s_frame_start_state;
++}  // namespace
++static Frame s_ready;  // the frame the job will draw (s_current records the next one meanwhile)
++
++// Dual core: the replay is drawn on the GPU thread when it has nothing else to do, in slices, on a
++// second EFB, so the game's commands always come first and the CPU never waits for it. Games that
++// sync on the GPU (Skies polls a draw-sync token, and waits for draw-done before the retrace)
++// would otherwise wait for the whole replay. The pictures are then presented one retrace later
++// (previous real, in-between, real) to leave the replay time. RECOMP_FRAME_INTERPOLATION_DEFER=0
++// replays at once and presents as in single core.
++static bool Deferred()
++{
++  static const bool allowed = [] {
++    const char* env = std::getenv("RECOMP_FRAME_INTERPOLATION_DEFER");
++    if (env)
++      return env[0] != '0';
++    // Android has no environment: a file FrameInterpolation.nodefer in the user directory.
++    return !File::Exists(File::GetUserPath(D_USER_IDX) + "FrameInterpolation.nodefer");
++  }();
++  return allowed && Core::System::GetInstance().IsDualCoreMode();
++}
++
++// Bytes of the replay stream per slice: small enough that commands arriving meanwhile wait little,
++// large enough that switching EFB and state between slices doesn't dominate.
++static size_t SliceBytes()
++{
++  static const size_t bytes = [] {
++    const char* env = std::getenv("RECOMP_FRAME_INTERPOLATION_SLICE");
++    if (env)
++      return static_cast<size_t>(std::strtoull(env, nullptr, 10));
++    // Android: a file FrameInterpolation.slice in the user directory holding the byte count.
++    std::string spec;
++    if (File::ReadFileToString(File::GetUserPath(D_USER_IDX) + "FrameInterpolation.slice", spec))
++      return static_cast<size_t>(std::strtoull(spec.c_str(), nullptr, 10));
++    return size_t{96 * 1024};
++  }();
++  return bytes;
++}
++
++static void DumpPictures(const Shown& shown)
++{
++  // Debug: RECOMP_FRAME_INTERPOLATION_DUMP=<dir> saves the real and in-between pictures of
++  // frames 300-305 there, to check that the in-between ones fall between their neighbours.
++  // RECOMP_FRAME_INTERPOLATION_DUMP_FRAME moves the first one, _DUMP_COUNT sets how many.
++  // Android has no environment to set: a file FrameInterpolation.dump in the user directory
++  // holding "first count" dumps to InterpDump/ there.
++  static std::string dump_dir;
++  static u64 dump_first = 300, dump_count = 6;
++  static const bool dump_on = [] {
++    if (const char* env = std::getenv("RECOMP_FRAME_INTERPOLATION_DUMP"))
++    {
++      dump_dir = env;
++      if (const char* first = std::getenv("RECOMP_FRAME_INTERPOLATION_DUMP_FRAME"))
++        dump_first = std::strtoull(first, nullptr, 10);
++      if (const char* count = std::getenv("RECOMP_FRAME_INTERPOLATION_DUMP_COUNT"))
++        dump_count = std::strtoull(count, nullptr, 10);
++      return true;
++    }
++    const std::string user = File::GetUserPath(D_USER_IDX);
++    std::string spec;
++    if (!File::ReadFileToString(user + "FrameInterpolation.dump", spec))
++      return false;
++    unsigned long long first = 300, count = 6;
++    std::sscanf(spec.c_str(), "%llu %llu", &first, &count);
++    dump_first = first;
++    dump_count = count;
++    dump_dir = user + "InterpDump";
++    File::CreateDir(dump_dir);
++    return true;
++  }();
++  if (!dump_on || shown.frame < dump_first || shown.frame >= dump_first + dump_count)
++    return;
++  const std::string base = dump_dir + "/f" + std::to_string(shown.frame);
++  if (shown.interp && shown.interp->texture)
++    shown.interp->texture->Save(base + "-interp.png", 0);
++  if (shown.real && shown.real->texture)
++    shown.real->texture->Save(base + "-real.png", 0);
++}
++
++// The job's frame becomes the previous one, which the next frame is blended with.
++static void RotateReady()
++{
++  std::swap(s_previous, s_ready);
++  s_ready.Clear();
++}
++
++static void EndJob(bool drawn)
++{
++  if (Shown* shown = FindShown(s_job.frame))
++  {
++    shown->interp_due = false;
++    if (drawn && s_replay_xfb)
++    {
++      shown->interp = std::move(s_replay_xfb);
++      DumpPictures(*shown);
++    }
++  }
++  s_replay_xfb.reset();
++  s_replay_copies.clear();
++  s_job.active = false;
++}
++
++// Runs the job's next step: the blend, or a slice of the replay (all of it when `whole`). Returns
++// whether the job still has work.
++static bool RunJob(bool whole)
++{
++  if (!s_job.active)
++    return false;
++  if (!s_job.blended)
++  {
++    const Clock::time_point blend_start = Clock::now();
++    std::swap(s_current, s_ready);
++    const bool ok = BuildBlendedStream(&s_job.stream);
++    std::swap(s_current, s_ready);
++    RotateReady();
++    s_job.blend_seconds = DT_s(Clock::now() - blend_start).count();
++    s_stat_parts[0] += s_job.blend_seconds;
++    if (!ok)
++    {
++      EndJob(false);
++      return false;
++    }
++    s_job.blended = true;
++    s_job.position = 0;
++    s_job.prim = 0;
++    s_job.texture = 0;
++    s_job.started = false;
++    s_job.replay_seconds = 0.0;
++    if (s_timeline_on)
++      Timeline("gpu replay blended", s_job.blend_seconds * 1e3);
++    if (!whole)
++      return true;
++  }
++
++  const Clock::time_point slice_start = Clock::now();
++  g_vertex_manager->Flush();
++  // The game's texture bindings go with its state: the replay binds its own, and a slice can fall
++  // between the game's bind of a texture and a draw that samples it. Invalidating TMEM there made
++  // the draw look the texture up again from RAM, which the game may have overwritten by then
++  // (on the console the texture is in TMEM): the cloud sea below the Valuan ladder drawn as a
++  // dark garbage texture for one game frame, now and then, on the Retroid.
++  std::vector<u8> game_state = SaveState();
++  std::array<RcTcacheEntry, 8> game_bound = g_texture_cache->GetBoundTextures();
++  if (!g_framebuffer_manager->SwapEFB())
++  {
++    // No memory for the replay's EFB (a high resolution with MSAA on a phone GPU): the real
++    // pictures only, until the setting is changed again (and a smaller EFB may then fit)
++    Shutdown();
++    detail::s_enabled = 0;
++    Log("[interp] frame interpolation off: the second EFB can't be created\n");
++    OSD::AddMessage("60 fps is off: not enough graphics memory at this resolution", 10000);
++    return false;
++  }
++  // The first slice starts from the state the frame started with, not the game's state now: the
++  // game writes only registers that changed, so the stream leaves out what an earlier frame set
++  // (a projection, blending), and after a menu or a fade "now" is a different scene.
++  RestoreState(s_job.started ? s_job.state : s_job.start_state);
++  s_job.started = true;
++  TMEM::InvalidateAll();
++
++  const u8* const data = s_job.stream.data();
++  const u8* const end = data + s_job.stream.size();
++  const u8* const begin = data + s_job.position;
++  const u8* slice_end = whole ? end : std::min(end, begin + SliceBytes());
++  s_replaying = true;
++  const u8* stop =
++      OpcodeDecoder::RunFifo<false>(DataReader(const_cast<u8*>(begin), const_cast<u8*>(slice_end)),
++                                    nullptr);
++  if (stop == begin && slice_end != end)
++  {
++    // One command larger than a slice: give it the rest.
++    stop = OpcodeDecoder::RunFifo<false>(
++        DataReader(const_cast<u8*>(begin), const_cast<u8*>(end)), nullptr);
++  }
++  g_vertex_manager->Flush();
++  s_replaying = false;
++  s_job.position = static_cast<size_t>(stop - data);
++  const bool finished = s_job.position >= s_job.stream.size() || stop == begin;
++
++  if (!finished)
++    s_job.state = SaveState();
++  // Debug (paint test, 2026-10-10): FrameInterpolation.paintefb in the user directory paints the
++  // replay's EFB magenta once its picture is copied out, so a game copy reading the wrong EFB shows.
++  static const bool paint_efb =
++      File::Exists(File::GetUserPath(D_USER_IDX) + "FrameInterpolation.paintefb");
++  if (finished && paint_efb)
++  {
++    g_framebuffer_manager->ClearEFB(
++        MathUtil::Rectangle<int>(0, 0, g_framebuffer_manager->GetEFBWidth(),
++                                 g_framebuffer_manager->GetEFBHeight()),
++        true, true, false, 0xFFFF00FF, 0, bpmem.zcontrol.pixel_format);
++  }
++  // The spare exists now, so the swap back can't fail
++  g_framebuffer_manager->SwapEFB();
++  RestoreState(game_state);
++  g_texture_cache->SetBoundTextures(std::move(game_bound));
++  s_job.replay_seconds += DT_s(Clock::now() - slice_start).count();
++
++  if (!finished)
++    return true;
++  s_stat_parts[2] += s_job.replay_seconds;
++  CountReplay(s_job.blend_seconds + s_job.replay_seconds);
++  ++s_interpolated;
++  if (Tracing())
++    Log( "[interp-trace]   replayed frame %llu\n",
++                 static_cast<unsigned long long>(s_job.frame));
++  if (s_timeline_on)
++    Timeline("gpu replay end", s_job.replay_seconds * 1e3);
++  EndJob(true);
++  return false;
++}
++
++static void FinishJob()
++{
++  if (s_job.active && s_timeline_on)
++    Timeline("gpu replay finished synchronously");
++  while (RunJob(true))
++  {
++  }
++}
++
++static void PrintStatistics()
++{
++  Log(
++               "[interp] primitives by position mode (none/direct/idx8/idx16): %llu/%llu/%llu/%llu, "
++               "vertices %llu/%llu/%llu/%llu, indexed XF loads %llu, draws blended %llu\n",
++               (unsigned long long)s_stat_prims[0], (unsigned long long)s_stat_prims[1],
++               (unsigned long long)s_stat_prims[2], (unsigned long long)s_stat_prims[3],
++               (unsigned long long)s_stat_verts[0], (unsigned long long)s_stat_verts[1],
++               (unsigned long long)s_stat_verts[2], (unsigned long long)s_stat_verts[3],
++               (unsigned long long)s_stat_indexed_loads,
++               (unsigned long long)s_stat_prims_blended);
++  Log(
++               "[interp] %llu of %llu frames interpolated; matrix loads %llu, matched %llu, "
++               "blended %llu (changed %llu); stream %zu bytes, %zu loads; shown %llu in-between, "
++               "%llu real\n",
++               static_cast<unsigned long long>(s_interpolated),
++               static_cast<unsigned long long>(s_frames),
++               static_cast<unsigned long long>(s_stat_loads),
++               static_cast<unsigned long long>(s_stat_found),
++               static_cast<unsigned long long>(s_stat_blended),
++               static_cast<unsigned long long>(s_stat_changed), s_current.stream.size(),
++               s_current.loads.size(), static_cast<unsigned long long>(s_stat_interp_shown),
++               static_cast<unsigned long long>(s_stat_real_shown));
++  if (s_stat_budget_frames != 0)
++  {
++    Log(
++                 "[interp] per frame: budget %.2f ms, game work %.2f ms, replay %.2f ms (when "
++                 "run); skipped to keep full speed: %llu\n",
++                 s_stat_budget / s_stat_budget_frames * 1e3, s_stat_work / s_stat_budget_frames * 1e3,
++                 s_interpolated ? s_stat_replay / s_interpolated * 1e3 : 0.0,
++                 static_cast<unsigned long long>(s_stat_skipped));
++  }
++  if (s_interpolated != 0)
++  {
++    Log(
++                 "[interp] replay parts: blend %.2f ms, replay slices %.2f ms\n",
++                 s_stat_parts[0] / s_interpolated * 1e3, s_stat_parts[2] / s_interpolated * 1e3);
++  }
++  // Wall time per game frame and how it was spent, since the last report.
++  static Clock::time_point last_report = Clock::now();
++  static u64 last_frames = 0;
++  const Clock::time_point now = Clock::now();
++  const double frames = static_cast<double>(s_frames - last_frames);
++  if (frames > 0)
++  {
++    const double per_frame_ms = 1e3 / frames;
++    Log("[interp] per frame (last %.0f): wall %.2f ms; CPU waits for the GPU %.2f ms at "
++        "draw-sync reads, %.2f ms idling; GPU thread: FIFO work %.2f ms, in-between %.2f ms\n",
++        frames, DT_s(now - last_report).count() * per_frame_ms,
++        s_cpu_wait_ns[0].exchange(0) * 1e-9 * per_frame_ms,
++        s_cpu_wait_ns[1].exchange(0) * 1e-9 * per_frame_ms,
++        s_gpu_work_ns.exchange(0) * 1e-9 * per_frame_ms,
++        (s_stat_replay - s_stat_replay_reported) * per_frame_ms);
++  }
++  s_stat_replay_reported = s_stat_replay;
++  last_report = now;
++  last_frames = s_frames;
++}
++
++static void EndFrame(u32 dest_address)
++{
++  // The previous replay has to be done before its frame's data are replaced.
++  FinishJob();
++
++  // Number the loads now that every key is known.
++  std::map<std::tuple<u16, u8, u64>, u32> seen;
++  for (Load& load : s_current.loads)
++    load.occurrence = seen[std::make_tuple(load.address, load.count, load.key)]++;
++  std::map<u64, u32> seen_prims;
++  for (Prim& prim : s_current.prims)
++    prim.occurrence = seen_prims[prim.key]++;
++  s_unkeyed.clear();
++  ++s_frames;
++  {
++    static const bool timeline_wanted =
++        File::Exists(File::GetUserPath(D_USER_IDX) + "FrameInterpolation.timeline");
++    if (timeline_wanted && s_frames == 600)
++    {
++      s_timeline_zero = Clock::now();
++      s_timeline_on = true;
++    }
++    if (s_frames == 611)
++      s_timeline_on = false;
++    if (s_timeline_on)
++      Timeline("gpu end frame (xfb copy)");
++  }
++  if (Tracing())
++  {
++    Log(
++                 "[interp-trace] end frame %llu xfb %08x, %llu draws with indexed attributes, "
++                 "%zu bytes of array data in %zu copies\n",
++                 static_cast<unsigned long long>(s_frames), dest_address,
++                 static_cast<unsigned long long>(s_trace_indexed_prims), s_current.array_data.size(),
++                 s_current.array_copies.size());
++    s_trace_indexed_prims = 0;
++  }
++
++  const bool fits = ReplayFits() && !s_test_noreplay;
++  if (!fits)
++    ++s_stat_skipped;
++
++  // Keep a copy of the real picture: the XFB cache entry is overwritten when the XFB is reused.
++  Shown shown;
++  shown.address = dest_address;
++  shown.frame = s_frames;
++  const u32 width = bpmem.copyTexSrcWH.x + 1;
++  const u32 stride = bpmem.copyDestStride << 5;
++  const float y_scale = bpmem.triggerEFBCopy.scale_invert ?
++                            256.0f / static_cast<float>(bpmem.dispcopyyscale) :
++                            static_cast<float>(bpmem.dispcopyyscale) / 256.0f;
++  const u32 height = static_cast<u32>(1.0f + bpmem.copyTexSrcWH.y * y_scale);
++  MathUtil::Rectangle<int> rect;
++  const RcTcacheEntry cached =
++      g_texture_cache->GetXFBTexture(dest_address, width, height, stride, &rect);
++  if (cached && cached->texture)
++  {
++    const TextureConfig& config = cached->texture->GetConfig();
++    std::unique_ptr<AbstractTexture> copy =
++        g_gfx->CreateTexture(config, "Frame interpolation real XFB");
++    if (copy)
++    {
++      copy->CopyRectangleFromTexture(cached->texture.get(), config.GetRect(), 0, 0,
++                                     config.GetRect(), 0, 0);
++      // The entry returns its texture to the cache's pool when it goes, and pooled render
++      // targets are expected to come with their framebuffer.
++      std::unique_ptr<AbstractFramebuffer> framebuffer;
++      if (config.IsRenderTarget())
++        framebuffer = g_gfx->CreateFramebuffer(copy.get(), nullptr);
++      shown.real = std::make_shared<TCacheEntry>(std::move(copy), std::move(framebuffer));
++    }
++  }
++  std::vector<u8> start_state = std::move(s_frame_start_state);
++  const bool replay = fits && shown.real && !s_previous.stream.empty() &&
++                      !s_current.stream.empty() && !start_state.empty();
++  // This XFB copy is done: the video state is where the next frame starts.
++  s_frame_start_state = SaveState();
++  if (Tracing() && !replay)
++  {
++    Log(
++                 "[interp-trace]   no replay: fits %d real %d previous %zu current %zu start %d\n",
++                 fits ? 1 : 0, shown.real ? 1 : 0, s_previous.stream.size(),
++                 s_current.stream.size(), start_state.empty() ? 0 : 1);
++  }
++  shown.interp_due = replay;
++  s_shown.push_back(std::move(shown));
++  while (s_shown.size() > 3)
++    s_shown.pop_front();
++
++  if (s_verbose && (s_frames % 300) == 0)
++    PrintStatistics();
++
++  // Record the next frame if it can be interpolated: two recorded frames are needed for a replay,
++  // so recording starts again two frames before the budget would switch interpolation back on.
++  s_recording = (s_budget.on || s_budget.fitting >= 28) && !s_test_norecord;
++
++  std::swap(s_ready, s_current);
++  s_current.Clear();
++  if (!replay)
++  {
++    RotateReady();
++    return;
++  }
++  s_job = {};
++  s_job.active = true;
++  s_job.frame = s_frames;
++  s_job.address = dest_address;
++  s_job.start_state = std::move(start_state);
++  s_job.start = Clock::now();
++  if (!Deferred())
++    FinishJob();
++}
++
++bool OnReplayPrimitive()
++{
++  // Debug: FrameInterpolation.skip in the user directory holding "lo hi" skips the replay's draws
++  // lo..hi-1 (counted from the frame's start), to find which draw makes a picture wrong.
++  static const std::pair<u32, u32> skip = [] {
++    std::string spec;
++    unsigned long long lo = 0, hi = 0;
++    if (File::ReadFileToString(File::GetUserPath(D_USER_IDX) + "FrameInterpolation.skip", spec))
++      std::sscanf(spec.c_str(), "%llu %llu", &lo, &hi);
++    return std::pair<u32, u32>(static_cast<u32>(lo), static_cast<u32>(hi));
++  }();
++  // The replayed frame is the previous one by now (RotateReady after the blend).
++  const Frame& frame = s_previous;
++  const u32 k = s_job.prim++;
++  const bool draw = !(k >= skip.first && k < skip.second);
++  if (k + 1 >= frame.arrays_begin.size())
++    return draw;
++  VertexLoaderManager::UpdateVertexArrayPointers();
++  u8* const data = const_cast<u8*>(frame.array_data.data());
++  for (u32 i = frame.arrays_begin[k]; i < frame.arrays_begin[k + 1]; ++i)
++  {
++    const ArrayCopy& copy = frame.array_copies[i];
++    // The base the loader indexes from can lie before the copy (lo > data_offset): computed as
++    // an integer, since that pointer would be outside the vector; the loader's reads stay inside
++    VertexLoaderManager::cached_arraybases[copy.array] = reinterpret_cast<u8*>(
++        reinterpret_cast<uintptr_t>(data) + copy.data_offset - copy.lo);
++  }
++  return draw;
++}
++
++bool OnGpuIdle()
++{
++  return RunJob(false);
++}
++
++void AddReplayCopy(u32 address, RcTcacheEntry entry, bool is_xfb_copy)
++{
++  if (Tracing())
++  {
++    Log("[interp-trace]   replay %s copy %08x %ux%u (job frame %llu) at draw %u\n",
++        is_xfb_copy ? "xfb" : "efb", address, entry ? entry->native_width : 0,
++        entry ? entry->native_height : 0, static_cast<unsigned long long>(s_job.frame),
++        s_job.prim);
++  }
++  if (is_xfb_copy)
++  {
++    s_replay_xfb = std::move(entry);
++    return;
++  }
++  for (auto& [copy_address, copy] : s_replay_copies)
++  {
++    if (copy_address == address)
++    {
++      copy = std::move(entry);
++      return;
++    }
++  }
++  s_replay_copies.emplace_back(address, std::move(entry));
++}
++
++// A copy of an entry's picture as it is now. For entries the cache builds from parts of EFB copies
++// (partial texture updates): it pastes newer copies into the same entry in place, so by the time
++// the replay binds it the picture can be another frame's, or the RAM under it (Skies samples strips
++// of a screen grab it copies into its XFB buffer at the bottom of a ladder: green bands).
++static RcTcacheEntry Snapshot(const RcTcacheEntry& entry)
++{
++  const TextureConfig& config = entry->texture->GetConfig();
++  std::unique_ptr<AbstractTexture> texture =
++      g_gfx->CreateTexture(config, "Frame interpolation texture snapshot");
++  if (!texture)
++    return entry;
++  for (u32 layer = 0; layer < config.layers; ++layer)
++  {
++    for (u32 level = 0; level < config.levels; ++level)
++    {
++      const MathUtil::Rectangle<int> rect = config.GetMipRect(level);
++      texture->CopyRectangleFromTexture(entry->texture.get(), rect, layer, level, rect, layer,
++                                        level);
++    }
++  }
++  // The entry returns its texture to the cache's pool when it goes, and pooled render targets
++  // are expected to come with their framebuffer.
++  std::unique_ptr<AbstractFramebuffer> framebuffer;
++  if (config.IsRenderTarget())
++    framebuffer = g_gfx->CreateFramebuffer(texture.get(), nullptr);
++  RcTcacheEntry copy = std::make_shared<TCacheEntry>(std::move(texture), std::move(framebuffer));
++  copy->SetGeneralParameters(entry->addr, entry->size_in_bytes, entry->format, false);
++  copy->SetDimensions(entry->native_width, entry->native_height, entry->native_levels);
++  copy->memory_stride = entry->memory_stride;
++  copy->has_arbitrary_mips = entry->has_arbitrary_mips;
++  copy->may_have_overlapping_textures = false;
++  return copy;
++}
++
++void OnTextureLoad(u32 address, TextureFormat format, u32 width, u32 height,
++                   RcTcacheEntry entry)
++{
++  if (!s_recording || s_replaying || !entry)
++    return;
++  if (!entry->IsCopy() && !entry->references.empty() && entry->texture)
++  {
++    auto& snapshots = s_current.snapshots;
++    const auto it = std::find_if(snapshots.begin(), snapshots.end(),
++                                 [&](const auto& s) { return s.first == entry; });
++    if (it != snapshots.end())
++    {
++      entry = it->second;
++    }
++    else
++    {
++      RcTcacheEntry copy = Snapshot(entry);
++      snapshots.emplace_back(entry, copy);
++      entry = std::move(copy);
++    }
++  }
++  // Keyed by the image the draw asked for, not the entry's address: the cache shares one entry
++  // between identical images at different addresses (Skies' text draws each glyph from its own
++  // slot of a ring, and equal glyphs got each other's slots: garbled menu text).
++  std::vector<TextureUse>& textures = s_current.textures;
++  if (!textures.empty() && textures.back().entry.Get() == entry &&
++      textures.back().address == address && textures.back().format == static_cast<u32>(format) &&
++      textures.back().width == width && textures.back().height == height)
++  {
++    return;
++  }
++  textures.push_back(
++      TextureUse{address, static_cast<u32>(format), width, height, HeldTexture(entry)});
++}
++
++RcTcacheEntry FindRecordedTexture(u32 address, TextureFormat format, u32 width, u32 height)
++{
++  // The replayed frame is the previous one by now (RotateReady after the blend). The replay binds
++  // textures in the order the frame did, so look from where the last match was, then from the start
++  // (the same image bound twice with different contents, say, gets its own entry each time).
++  const std::vector<TextureUse>& textures = s_previous.textures;
++  const auto matches = [&](const TextureUse& use) {
++    return use.address == address && use.format == static_cast<u32>(format) &&
++           use.width == width && use.height == height;
++  };
++  for (size_t i = s_job.texture; i < textures.size(); ++i)
++  {
++    if (matches(textures[i]))
++    {
++      s_job.texture = i + 1;
++      return textures[i].entry.Get();
++    }
++  }
++  for (size_t i = 0; i < std::min(s_job.texture, textures.size()); ++i)
++  {
++    if (matches(textures[i]))
++      return textures[i].entry.Get();
++  }
++  return {};
++}
++
++RcTcacheEntry FindReplayCopy(u32 address, TextureFormat format, u32 width, u32 height)
++{
++  for (const auto& [copy_address, copy] : s_replay_copies)
++  {
++    if (copy_address == address && copy->format.texfmt == format &&
++        copy->native_width == width && copy->native_height == height)
++    {
++      return copy;
++    }
++  }
++  return {};
++}
++
++void Shutdown()
++{
++  s_shown.clear();
++  s_job = {};
++  s_replay_copies.clear();
++  s_replay_xfb.reset();
++  s_frame_start_state.clear();
++  s_current = {};
++  s_previous = {};
++  s_ready = {};
++  s_unkeyed.clear();
++  s_end_pending = false;
++  s_skip_command = false;
++  s_budget = {};
++  s_recording = true;
++}
++
++RcTcacheEntry PictureForRetrace(u32 xfb_address, bool is_duplicate)
++{
++  // The newest frame in this XFB, and the one before it.
++  Shown* current = nullptr;
++  Shown* before = nullptr;
++  for (size_t i = s_shown.size(); i-- > 0;)
++  {
++    if (s_shown[i].address == xfb_address)
++    {
++      current = &s_shown[i];
++      before = i > 0 ? &s_shown[i - 1] : nullptr;
++      break;
++    }
++  }
++  if (!current)
++    return {};
++  ++current->retraces;
++  if (Tracing())
++    Log( "[interp-trace] retrace xfb %08x dup %d frame %llu retrace %u\n",
++                 xfb_address, is_duplicate ? 1 : 0,
++                 static_cast<unsigned long long>(current->frame), current->retraces);
++
++  RcTcacheEntry picture;
++  const char* what = "real";
++  if (Deferred())
++  {
++    // One retrace later: the previous real picture, then the in-between one, then this one.
++    if (current->retraces == 1)
++    {
++      picture = before && before->real ? before->real : current->real;
++      what = "previous real";
++    }
++    else if (current->retraces == 2)
++    {
++      if (current->interp_due && s_job.active && s_job.frame == current->frame)
++        FinishJob();
++      picture = current->interp ? current->interp : current->real;
++      what = current->interp ? "in-between" : "real (no in-between)";
++    }
++    else
++    {
++      picture = current->real;
++    }
++  }
++  else
++  {
++    if (current->retraces == 1 && current->interp)
++    {
++      picture = current->interp;
++      what = "in-between";
++    }
++    else
++    {
++      picture = current->real;
++    }
++  }
++  if (picture == current->interp && picture)
++    ++s_stat_interp_shown;
++  else
++    ++s_stat_real_shown;
++  if (s_timeline_on)
++    Timeline(what);
++  return picture;
++}
++}  // namespace FrameInterpolator
+diff --git a/Source/Core/VideoCommon/FrameInterpolator.h b/Source/Core/VideoCommon/FrameInterpolator.h
+new file mode 100644
+index 0000000000..11b04469c6
+--- /dev/null
++++ b/Source/Core/VideoCommon/FrameInterpolator.h
+@@ -0,0 +1,118 @@
++// Copyright 2026 Dolphin Emulator Project
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++// Frame interpolation for 30 fps games: draws an extra picture between two of the game's frames.
++//
++// While a frame is processed, the GX command stream (display lists expanded, indexed matrix loads
++// turned into immediate ones) is recorded, together with where each XF matrix load and each draw's
++// inline vertex positions sit in it. When the frame's XFB copy is done, the stream is replayed once
++// more with every matrix and position that has a counterpart in the previous frame replaced by the
++// average of the two, which renders the scene halfway between the frames. Positions matter as much
++// as matrices: games that transform vertices on the CPU (Sega's Ninja library, for one) send them
++// already in view space, with static matrices. Counterparts are found by XF address, in order of
++// appearance, or for draws by vertex format, count and texture, with the two frames' lists of alike
++// draws aligned by their first vertices so a draw that appears or goes (one of a hundred cloud
++// strips) doesn't pair every later one with its neighbour. A frame with too few counterparts (a
++// scene change) isn't interpolated, and a value that jumps too far snaps instead of being blended.
++//
++// The replay draws on a second EFB (FramebufferManager::SwapEFB) with its own video state, and its
++// EFB and XFB copies go to textures of its own (FindReplayCopy), never to RAM or the texture cache:
++// it doesn't disturb the game's frame in progress, and the game never sees its copies. The real
++// picture of each frame is copied aside when its XFB copy is done.
++//
++// Single core: the replay runs when the frame ends, and the in-between picture is presented on the
++// first retrace of the new XFB, the real one on the next (one retrace of latency). The replay then
++// costs the emulation thread a second pass of the frame's GPU work, so it's only made while it
++// fits: each frame measures the thread's work (wall time minus throttle sleep) and the replay's
++// cost against the frame's real-time budget, and a scene where they don't fit is shown at the
++// game's own rate, at full speed, until there is room again (RECOMP_FRAME_INTERPOLATION_ADAPTIVE=0
++// interpolates every frame regardless). Nothing is recorded meanwhile.
++//
++// Dual core: the GPU thread draws the replay in slices whenever its FIFO is empty, so the game's
++// commands always come first and the CPU never waits for an in-between picture; it is presented
++// one retrace later (previous real, in-between, real: two retraces of latency) to leave it the
++// time. If it isn't done when due, or when the next frame ends, the rest is drawn at once.
++//
++// Prototype: on with the environment variable RECOMP_FRAME_INTERPOLATION=1 (2 adds statistics), or,
++// when the variable isn't set, with a file named FrameInterpolation.on in the user directory.
++// Debugging: RECOMP_FRAME_INTERPOLATION_TRACE=1 logs each frame end, replay, retrace and unpaired
++// draws; RECOMP_FRAME_INTERPOLATION_DUMP=<dir> saves real and in-between pictures (frames from
++// _DUMP_FRAME, default 300, for _DUMP_COUNT, default 6); _DEFER=0 replays at once in dual core,
++// _SLICE sets the slice size in bytes. Files in the user directory (Android has no environment):
++// FrameInterpolation.stats (statistics, also to logcat), .timeline (frames 600-610's events),
++// .noreplay and .norecord (to measure the parts' costs).
++
++#pragma once
++
++#include <atomic>
++#include <chrono>
++
++#include "Common/CommonTypes.h"
++#include "VideoCommon/CPMemory.h"
++#include "VideoCommon/TextureCacheBase.h"
++
++namespace FrameInterpolator
++{
++namespace detail
++{
++// Written on the GPU thread, read on the CPU thread too (CoreTiming's idle, the GPU drain): atomic,
++// relaxed (a frame's disagreement is harmless; the reads are on every command)
++extern std::atomic<s8> s_enabled;  // -1 until the switch has been read
++extern std::atomic<bool> s_replaying;
++bool ReadEnabled();
++}  // namespace detail
++
++// Inline: they're checked for every command the GPU processes.
++inline bool IsEnabled()
++{
++  const s8 enabled = detail::s_enabled.load(std::memory_order_relaxed);
++  return enabled >= 0 ? enabled != 0 : detail::ReadEnabled();
++}
++inline bool IsReplaying()
++{
++  return detail::s_replaying.load(std::memory_order_relaxed);
++}
++
++// Statistics (RECOMP_FRAME_INTERPOLATION=2, or a file FrameInterpolation.stats in the user
++// directory): the CPU thread waiting for the GPU thread, and the GPU thread's busy time.
++void CountCpuWait(int reason, std::chrono::steady_clock::duration time);
++void CountGpuWork(std::chrono::steady_clock::duration time);
++
++// From the opcode decoder (not while replaying).
++void OnXF(u16 address, u8 count);
++void OnIndexedLoad(CPArray array, u32 index, u16 address, u8 size);
++void OnPrimitive(u8 vat, u16 num_vertices, const u8* vertex_data, u32 size);
++// While replaying, before a draw: points indexed vertex arrays at the data copied when the frame
++// was recorded.
++// Returns whether to draw it (the debug file FrameInterpolation.skip leaves a range out).
++bool OnReplayPrimitive();
++void OnCommand(const u8* data, u32 size);
++
++// From the BP handler once an XFB copy to dest_address (and its clear) is done. The frame ends, and
++// the replay runs, when that command reaches OnCommand, so the recording includes it.
++void OnXFBCopy(u32 dest_address);
++
++// Dual core: from the GPU thread when the FIFO is empty. Draws a slice of the pending replay (see
++// FrameInterpolator.cpp); returns whether more is left, to be called again.
++bool OnGpuIdle();
++
++// From the texture cache while replaying: the replay's EFB copies stay out of the game's RAM and
++// texture cache; the replay's own texture loads find them here.
++void AddReplayCopy(u32 address, RcTcacheEntry entry, bool is_xfb_copy);
++RcTcacheEntry FindReplayCopy(u32 address, TextureFormat format, u32 width, u32 height);
++// From the texture cache: a texture the game's frame bound (not while replaying), and, while
++// replaying, the entry the recorded frame got for the same image. EFB copies too: one made in an
++// earlier frame may have been replaced by the time the replay runs; the replay's own copies
++// (FindReplayCopy) come first.
++void OnTextureLoad(u32 address, TextureFormat format, u32 width, u32 height,
++                   RcTcacheEntry entry);
++RcTcacheEntry FindRecordedTexture(u32 address, TextureFormat format, u32 width, u32 height);
++
++// Releases the held pictures and forgets the recorded frames; from the video backend's shutdown,
++// before the texture cache goes, and after a savestate load.
++void Shutdown();
++
++// From the presenter, for each retrace that shows xfb_address: the picture to present instead of
++// the XFB cache's, if any.
++RcTcacheEntry PictureForRetrace(u32 xfb_address, bool is_duplicate);
++}  // namespace FrameInterpolator
+diff --git a/Source/Core/VideoCommon/FramebufferManager.cpp b/Source/Core/VideoCommon/FramebufferManager.cpp
+index 6277598d92..e92d62cded 100644
+--- a/Source/Core/VideoCommon/FramebufferManager.cpp
++++ b/Source/Core/VideoCommon/FramebufferManager.cpp
+@@ -299,8 +299,68 @@ bool FramebufferManager::CreateEFBFramebuffer(int efb_scale)
+   return true;
+ }
+ 
++void FramebufferManager::ExchangeEFB(EFBSet& other)
++{
++  std::swap(m_efb_color_texture, other.color);
++  std::swap(m_efb_convert_color_texture, other.convert_color);
++  std::swap(m_efb_depth_texture, other.depth);
++  std::swap(m_efb_resolve_color_texture, other.resolve_color);
++  std::swap(m_efb_depth_resolve_texture, other.depth_resolve);
++  std::swap(m_efb_framebuffer, other.framebuffer);
++  std::swap(m_efb_convert_framebuffer, other.convert_framebuffer);
++  std::swap(m_efb_color_resolve_framebuffer, other.color_resolve_framebuffer);
++  std::swap(m_efb_depth_resolve_framebuffer, other.depth_resolve_framebuffer);
++  std::swap(m_prev_efb_format, other.prev_format);
++}
++
++bool FramebufferManager::CreateSpareEFB()
++{
++  if (m_spare_efb_created)
++    return true;
++  if (m_spare_efb_failed)
++    return false;
++  // Build a second set the same way as the first, then park it.
++  EFBSet game;
++  ExchangeEFB(game);
++  const bool created = CreateEFBFramebuffer(static_cast<int>(m_efb_scale));
++  m_prev_efb_format = game.prev_format;
++  ExchangeEFB(game);  // the game's back in place, the new set in `game`
++  if (!created)
++  {
++    // A half-made set is never swapped in (its null framebuffer was bound next)
++    WARN_LOG_FMT(VIDEO, "Can't create the spare EFB for frame interpolation");
++    m_spare_efb_failed = true;
++    return false;
++  }
++  m_spare_efb = std::move(game);
++  m_spare_efb_created = true;
++  return true;
++}
++
++bool FramebufferManager::SwapEFB()
++{
++  if (!CreateSpareEFB())
++    return false;
++  FlushEFBPokes();
++  // The EFB going out of use comes back later for another render pass with nothing reading it in
++  // between, so nothing would order that pass after this one's writes (Dolphin's own switches
++  // away from the EFB always read it first: an EFB copy). Desktop GPUs run the passes in order
++  // anyway; a tiled GPU loads the next pass's tiles from memory and got the previous pass's
++  // stores half done (the Retroid: bands of stale rows at the top of each tile, in the game's
++  // frames and the in-between ones). Ending the pass and changing the layout puts the barrier in.
++  m_efb_color_texture->FinishedRendering();
++  m_efb_depth_texture->FinishedRendering();
++  ExchangeEFB(m_spare_efb);
++  InvalidatePeekCache(true);
++  BindEFBFramebuffer();
++  return true;
++}
++
+ void FramebufferManager::DestroyEFBFramebuffer()
+ {
++  m_spare_efb = {};
++  m_spare_efb_created = false;
++  m_spare_efb_failed = false;
+   m_efb_framebuffer.reset();
+   m_efb_convert_framebuffer.reset();
+   m_efb_color_texture.reset();
+diff --git a/Source/Core/VideoCommon/FramebufferManager.h b/Source/Core/VideoCommon/FramebufferManager.h
+index 9f10918ac2..7aac5cdf9f 100644
+--- a/Source/Core/VideoCommon/FramebufferManager.h
++++ b/Source/Core/VideoCommon/FramebufferManager.h
+@@ -96,6 +96,12 @@ public:
+   // This is virtual, because D3D has both normalized and integer framebuffers.
+   void BindEFBFramebuffer();
+ 
++  // A second EFB, for drawing a frame interpolation picture while the game's EFB keeps the frame in
++  // progress: exchanges the two (created on first use, same size and formats) and binds the other.
++  // False, with nothing changed, when the second EFB can't be created (it doubles EFB memory, which
++  // a phone GPU can refuse at a high resolution with MSAA); tried again after the EFB is recreated.
++  bool SwapEFB();
++
+   // Resolve color/depth textures to a non-msaa texture, and return it.
+   AbstractTexture* ResolveEFBColorTexture(const MathUtil::Rectangle<int>& region);
+   AbstractTexture* ResolveEFBDepthTexture(const MathUtil::Rectangle<int>& region,
+@@ -207,6 +213,20 @@ protected:
+   std::unique_ptr<AbstractFramebuffer> m_efb_convert_framebuffer;
+   std::unique_ptr<AbstractFramebuffer> m_efb_color_resolve_framebuffer;
+   std::unique_ptr<AbstractFramebuffer> m_efb_depth_resolve_framebuffer;
++
++  // The other EFB of SwapEFB.
++  struct EFBSet
++  {
++    std::unique_ptr<AbstractTexture> color, convert_color, depth, resolve_color, depth_resolve;
++    std::unique_ptr<AbstractFramebuffer> framebuffer, convert_framebuffer, color_resolve_framebuffer,
++        depth_resolve_framebuffer;
++    PixelFormat prev_format{};
++  };
++  void ExchangeEFB(EFBSet& other);
++  bool CreateSpareEFB();
++  EFBSet m_spare_efb;
++  bool m_spare_efb_created = false;
++  bool m_spare_efb_failed = false;
+   std::unique_ptr<AbstractPipeline> m_efb_color_resolve_pipeline;
+   std::unique_ptr<AbstractPipeline> m_efb_depth_resolve_pipeline;
+ 
+diff --git a/Source/Core/VideoCommon/OpcodeDecoding.cpp b/Source/Core/VideoCommon/OpcodeDecoding.cpp
+index fc6f896cd7..bbf40f36bd 100644
+--- a/Source/Core/VideoCommon/OpcodeDecoding.cpp
++++ b/Source/Core/VideoCommon/OpcodeDecoding.cpp
+@@ -20,6 +20,7 @@
+ #include "Core/HW/Memmap.h"
+ #include "Core/System.h"
+ #include "VideoCommon/BPMemory.h"
++#include "VideoCommon/FrameInterpolator.h"
+ #include "VideoCommon/CPMemory.h"
+ #include "VideoCommon/CommandProcessor.h"
+ #include "VideoCommon/DataReader.h"
+@@ -44,6 +45,8 @@ public:
+ 
+     if constexpr (!is_preprocess)
+     {
++      if (FrameInterpolator::IsEnabled() && !FrameInterpolator::IsReplaying())
++        FrameInterpolator::OnXF(address, count);
+       LoadXFReg(address, count, data);
+ 
+       INCSTAT(g_stats.this_frame.num_xf_loads);
+@@ -119,18 +122,45 @@ public:
+     m_cycles += 6;
+ 
+     if constexpr (is_preprocess)
++    {
+       PreprocessIndexedXF(array, index, address, size);
++    }
+     else
++    {
++      if (FrameInterpolator::IsEnabled() && !FrameInterpolator::IsReplaying())
++        FrameInterpolator::OnIndexedLoad(array, index, address, size);
+       LoadIndexedXF(array, index, address, size);
++    }
+   }
+   OPCODE_CALLBACK(void OnPrimitiveCommand(OpcodeDecoder::Primitive primitive, u8 vat,
+                                           u32 vertex_size, u16 num_vertices, const u8* vertex_data))
+   {
+     // load vertices
+     const u32 size = vertex_size * num_vertices;
++    if constexpr (!is_preprocess)
++    {
++      if (FrameInterpolator::IsEnabled() && !FrameInterpolator::IsReplaying())
++        FrameInterpolator::OnPrimitive(vat, num_vertices, vertex_data, size);
++    }
++
++    bool draw = true;
++    if constexpr (!is_preprocess)
++    {
++      if (FrameInterpolator::IsReplaying())
++        draw = FrameInterpolator::OnReplayPrimitive();
++    }
+ 
+     const u32 bytes =
+-        VertexLoaderManager::RunVertices<is_preprocess>(vat, primitive, num_vertices, vertex_data);
++        draw ? VertexLoaderManager::RunVertices<is_preprocess>(vat, primitive, num_vertices,
++                                                                vertex_data) :
++               size;
++
++    // The next draw (the replay's or the game's) looks its arrays up again.
++    if constexpr (!is_preprocess)
++    {
++      if (FrameInterpolator::IsReplaying())
++        VertexLoaderManager::g_bases_dirty = true;
++    }
+ 
+     ASSERT(bytes == size);
+ 
+@@ -235,6 +265,12 @@ public:
+       {
+         Core::System::GetInstance().GetFifoRecorder().WriteGPCommand(data, size);
+       }
++      // The same for frame interpolation's recording: display lists arrive expanded.
++      if (FrameInterpolator::IsEnabled() && !FrameInterpolator::IsReplaying() &&
++          static_cast<Opcode>(data[0]) != Opcode::GX_CMD_CALL_DL)
++      {
++        FrameInterpolator::OnCommand(data, size);
++      }
+     }
+   }
+ 
+diff --git a/Source/Core/VideoCommon/PerformanceMetrics.h b/Source/Core/VideoCommon/PerformanceMetrics.h
+index 538360a05b..15df18f391 100644
+--- a/Source/Core/VideoCommon/PerformanceMetrics.h
++++ b/Source/Core/VideoCommon/PerformanceMetrics.h
+@@ -35,6 +35,8 @@ public:
+   void CountThrottleSleep(DT sleep);
+   void AdjustClockSpeed(s64 ticks, u32 new_ppc_clock, u32 old_ppc_clock);
+   void CountPerformanceMarker(s64 ticks, u32 ticks_per_second);
++  // Time the CPU thread has spent sleeping in the throttle since the last Reset().
++  DT GetTimeSleeping() const { return m_time_sleeping; }
+ 
+   // Getter Functions. May be called from any thread.
+   double GetFPS() const;
+diff --git a/Source/Core/VideoCommon/PixelEngine.cpp b/Source/Core/VideoCommon/PixelEngine.cpp
+index acc4c32ca6..75f76404e2 100644
+--- a/Source/Core/VideoCommon/PixelEngine.cpp
++++ b/Source/Core/VideoCommon/PixelEngine.cpp
+@@ -144,7 +144,18 @@ void PixelEngineManager::RegisterMMIO(MMIO::Mapping* mmio, u32 base)
+                  }));
+ 
+   // Token register, readonly.
+-  mmio->Register(base | PE_TOKEN_REG, MMIO::DirectRead<u16>(&m_token), MMIO::InvalidWrite<u16>());
++  // In dual core, a game polling for a token it has just sent would otherwise see the GPU thread's
++  // lag as the GPU being slow. Skies of Arcadia counts retraces while it polls and resets the FIFO
++  // after two (its "GPU hang" recovery), which desyncs the GPU thread. So a read first lets the
++  // GPU thread work through the FIFO, with emulated time standing still, and then reports the
++  // token it reached (the CPU-side event that publishes it may not have run yet).
++  mmio->Register(base | PE_TOKEN_REG, MMIO::ComplexRead<u16>([](Core::System& system, u32) {
++                   auto& pe = system.GetPixelEngine();
++                   system.GetFifo().WaitForGpuToDrain();
++                   std::lock_guard lk(pe.m_token_finish_mutex);
++                   return pe.m_event_raised ? pe.m_token_pending : pe.m_token;
++                 }),
++                 MMIO::InvalidWrite<u16>());
+ 
+   // BBOX registers, readonly and need to update a flag.
+   for (int i = 0; i < 4; ++i)
+diff --git a/Source/Core/VideoCommon/Present.cpp b/Source/Core/VideoCommon/Present.cpp
+index 7c62730667..997e87cf6a 100644
+--- a/Source/Core/VideoCommon/Present.cpp
++++ b/Source/Core/VideoCommon/Present.cpp
+@@ -16,6 +16,7 @@
+ #include "Present.h"
+ #include "VideoCommon/AbstractGfx.h"
+ #include "VideoCommon/FrameDumper.h"
++#include "VideoCommon/FrameInterpolator.h"
+ #include "VideoCommon/FramebufferManager.h"
+ #include "VideoCommon/OnScreenUI.h"
+ #include "VideoCommon/PostProcessing.h"
+@@ -170,6 +171,22 @@ void Presenter::ViSwap(u32 xfb_addr, u32 fb_width, u32 fb_stride, u32 fb_height,
+ {
+   bool is_duplicate = FetchXFB(xfb_addr, fb_width, fb_stride, fb_height, ticks);
+ 
++  // With frame interpolation the cache holds the in-between picture for a new XFB, which this
++  // retrace shows; the next retrace of the same XFB shows the real one.
++  // Not while the VI shows nothing (0x0, the game reconfiguring it): FetchXFB has just dropped
++  // the picture, and the last one would come back with an empty rectangle.
++  bool force_present = false;
++  if (FrameInterpolator::IsEnabled() && fb_width != 0 && fb_height != 0)
++  {
++    if (RcTcacheEntry real = FrameInterpolator::PictureForRetrace(xfb_addr, is_duplicate))
++    {
++      ReleaseXFBContentLock();
++      m_xfb_entry = std::move(real);
++      m_xfb_entry->AcquireContentLock();
++      force_present = true;
++    }
++  }
++
+   PresentInfo present_info{
+       .present_count = m_present_count++,
+       .emulated_timestamp = ticks,
+@@ -210,7 +227,7 @@ void Presenter::ViSwap(u32 xfb_addr, u32 fb_width, u32 fb_stride, u32 fb_height,
+ 
+   video_events.before_present_event.Trigger(present_info);
+ 
+-  if (!is_duplicate || !g_ActiveConfig.bSkipPresentingDuplicateXFBs)
++  if (!is_duplicate || force_present || !g_ActiveConfig.bSkipPresentingDuplicateXFBs)
+   {
+     Present(&present_info);
+     ProcessFrameDumping(ticks);
+diff --git a/Source/Core/VideoCommon/TextureCacheBase.cpp b/Source/Core/VideoCommon/TextureCacheBase.cpp
+index c5d6096391..b902fc02e1 100644
+--- a/Source/Core/VideoCommon/TextureCacheBase.cpp
++++ b/Source/Core/VideoCommon/TextureCacheBase.cpp
+@@ -40,6 +40,35 @@
+ #include "VideoCommon/Assets/CustomTextureData.h"
+ #include "VideoCommon/Assets/TextureAssetUtils.h"
+ #include "VideoCommon/BPMemory.h"
++#include "VideoCommon/DriverDetails.h"
++#include "VideoCommon/FrameInterpolator.h"
++#ifdef ANDROID
++#include <android/log.h>
++#endif
++#include <cstdarg>
++
++// Debug (2026-10-10): the life of the game's 640-wide EFB copies (copy, flush, prune, with hashes),
++// to logcat tag FrameInterpolation / stderr, with a file FrameInterpolation.copytrace in the user
++// directory. It showed the Retroid's garbage cloud sea was not a copy pruned on a hash mismatch.
++static void CopyTrace(const char* format, ...)
++{
++  static int budget = [] {
++    return File::Exists(File::GetUserPath(D_USER_IDX) + "FrameInterpolation.copytrace") ? 12000 : 0;
++  }();
++  if (budget-- <= 0)
++    return;
++  char buffer[512];
++  va_list args;
++  va_start(args, format);
++  std::vsnprintf(buffer, sizeof(buffer), format, args);
++  va_end(args);
++#ifdef ANDROID
++  __android_log_print(ANDROID_LOG_INFO, "FrameInterpolation", "%s", buffer);
++#else
++  std::fputs(buffer, stderr);
++  std::fputc('\n', stderr);
++#endif
++}
+ #include "VideoCommon/FramebufferManager.h"
+ #include "VideoCommon/GraphicsModSystem/Runtime/FBInfo.h"
+ #include "VideoCommon/GraphicsModSystem/Runtime/GraphicsModActionData.h"
+@@ -1233,22 +1262,49 @@ private:
+ 
+ TCacheEntry* TextureCacheBase::Load(u32 stage)
+ {
+-  if (auto entry = LoadImpl(stage, false))
++  TCacheEntry* entry = LoadImpl(stage, false);
++  if (entry && DidLinkedAssetsChange(*entry))
+   {
+-    if (!DidLinkedAssetsChange(*entry))
+-    {
+-      return entry;
+-    }
+-
+     InvalidateTexture(GetTexCacheIter(entry));
+-    return LoadImpl(stage, true);
++    entry = LoadImpl(stage, true);
+   }
+-
+-  return nullptr;
++  // Frame interpolation: the replay draws later, when this memory may hold something else.
++  // Textures the game preloaded into TMEM too: the replay runs during the next frame on the
++  // GPU thread, and that frame's preloads have replaced TMEM's contents by then (the sky's
++  // clouds drawn white, black or in the wrong colours on the Retroid).
++  if (entry && FrameInterpolator::IsEnabled() && !FrameInterpolator::IsReplaying())
++  {
++    const TextureInfo info = TextureInfo::FromStage(stage);
++    FrameInterpolator::OnTextureLoad(info.GetRawAddress(), info.GetTextureFormat(),
++                                     info.GetRawWidth(), info.GetRawHeight(),
++                                     m_bound_textures[stage]);
++  }
++  return entry;
+ }
+ 
+ TCacheEntry* TextureCacheBase::LoadImpl(u32 stage, bool force_reload)
+ {
++  // A frame interpolation replay reads its own EFB copies (FrameInterpolator::AddReplayCopy).
++  if (FrameInterpolator::IsReplaying())
++  {
++    const TextureInfo info = TextureInfo::FromStage(stage);
++    if (RcTcacheEntry copy = FrameInterpolator::FindReplayCopy(
++            info.GetRawAddress(), info.GetTextureFormat(), info.GetRawWidth(),
++            info.GetRawHeight()))
++    {
++      m_bound_textures[stage] = copy;
++      return copy.get();
++    }
++    // Otherwise the texture the recorded frame got, not what the memory or TMEM holds now.
++    if (RcTcacheEntry recorded = FrameInterpolator::FindRecordedTexture(
++            info.GetRawAddress(), info.GetTextureFormat(), info.GetRawWidth(),
++            info.GetRawHeight()))
++    {
++      m_bound_textures[stage] = recorded;
++      return recorded.get();
++    }
++  }
++
+   // if this stage was not invalidated by changes to texture registers, keep the current texture
+   if (!force_reload && TMEM::IsValid(stage) && m_bound_textures[stage])
+   {
+@@ -1456,6 +1512,16 @@ RcTcacheEntry TextureCacheBase::GetTexture(const int textureCacheSafetyColorSamp
+         // never be useful again.  It's theoretically possible for a game to do
+         // something weird where the copy could become useful in the future, but in
+         // practice it doesn't happen.
++        if (entry->native_width == 640)
++        {
++          CopyTrace("[copy-trace] frame %u PRUNE %08x fmt %u: ram hash %016llx entry hash %016llx "
++                    "pending %d xfb %d replaying %d",
++                    g_presenter ? g_presenter->FrameCount() : 0u, entry->addr,
++                    static_cast<unsigned>(entry->format.texfmt),
++                    static_cast<unsigned long long>(base_hash),
++                    static_cast<unsigned long long>(entry->hash), entry->pending_efb_copy ? 1 : 0,
++                    entry->is_xfb_copy ? 1 : 0, FrameInterpolator::IsReplaying() ? 1 : 0);
++        }
+         iter = InvalidateTexture(iter);
+         continue;
+       }
+@@ -2300,6 +2366,55 @@ void TextureCacheBase::CopyRenderTargetToTexture(
+       !is_depth_copy &&
+       (scaleByHalf || g_framebuffer_manager->GetEFBScale() != 1 || y_scale > 1.0f);
+ 
++  // A frame interpolation replay draws a frame again, possibly while the next one is in
++  // progress: its copies go to textures of its own, never to RAM or the cache.
++  if (FrameInterpolator::IsReplaying())
++  {
++    if (!copy_to_vram)
++      return;
++    const TextureConfig config(scaled_tex_w, scaled_tex_h, 1, g_framebuffer_manager->GetEFBLayers(),
++                               1, AbstractTextureFormat::RGBA8, AbstractTextureFlag_RenderTarget,
++                               AbstractTextureType::Texture_2DArray);
++    RcTcacheEntry replay_entry = AllocateCacheEntry(config);
++    if (!replay_entry)
++      return;
++    replay_entry->SetGeneralParameters(dstAddr, 0, baseFormat, is_xfb_copy);
++    replay_entry->SetDimensions(tex_w, tex_h, 1);
++    replay_entry->frameCount = FRAMECOUNT_INVALID;
++    if (is_xfb_copy)
++      replay_entry->SetXfbCopy(dstStride);
++    else
++      replay_entry->SetEfbCopy(dstStride);
++    replay_entry->may_have_overlapping_textures = false;
++    replay_entry->is_custom_tex = false;
++    CopyEFBToCacheEntry(replay_entry, is_depth_copy, srcRect, scaleByHalf, linear_filter, dstFormat,
++                        isIntensity, gamma, clamp_top, clamp_bottom,
++                        GetVRAMCopyFilterCoefficients(filter_coefficients));
++    // The game's copies to RAM also run the encode pass (a render pass reading the EFB and an
++    // image-to-buffer transfer). Adreno needs that: without it, draws sampling the copy right
++    // after it got rows the copy hadn't finished (DriverDetails::BUG_EFB_COPY_NEEDS_READBACK; the
++    // Retroid's green bands at the bottom of the Valuan ladder, where the game copies the screen
++    // and draws it back two draws later). Run it the same way and drop the result: the replay
++    // must never write RAM.
++    if (copy_to_ram && DriverDetails::HasBug(DriverDetails::BUG_EFB_COPY_NEEDS_READBACK))
++    {
++      const std::array<u32, 3> coefficients = GetRAMCopyFilterCoefficients(filter_coefficients);
++      EFBCopyParams format(bpmem.zcontrol.pixel_format, dstFormat, is_depth_copy, isIntensity,
++                           AllCopyFilterCoefsNeeded(coefficients),
++                           CopyFilterCanOverflow(coefficients), gamma != 1.0);
++      std::unique_ptr<AbstractStagingTexture> staging_texture = GetEFBCopyStagingTexture();
++      if (staging_texture)
++      {
++        CopyEFB(staging_texture.get(), format, tex_w, bytes_per_row, num_blocks_y, dstStride,
++                srcRect, scaleByHalf, linear_filter, y_scale, gamma, clamp_top, clamp_bottom,
++                coefficients);
++        ReleaseEFBCopyStagingTexture(std::move(staging_texture));
++      }
++    }
++    FrameInterpolator::AddReplayCopy(dstAddr, std::move(replay_entry), is_xfb_copy);
++    return;
++  }
++
+   RcTcacheEntry entry;
+   if (copy_to_vram)
+   {
+@@ -2329,6 +2444,19 @@ void TextureCacheBase::CopyRenderTargetToTexture(
+                           isIntensity, gamma, clamp_top, clamp_bottom,
+                           GetVRAMCopyFilterCoefficients(filter_coefficients));
+ 
++      // Debug (paint test, 2026-10-10): FrameInterpolation.paintgrab in the user directory paints
++      // the game's 640-wide EFB copies yellow after the copy: a draw showing something else did not
++      // sample this texture.
++      static const bool paint_grab =
++          File::Exists(File::GetUserPath(D_USER_IDX) + "FrameInterpolation.paintgrab");
++      if (paint_grab && tex_w == 640 && !is_xfb_copy && entry->framebuffer)
++      {
++        g_gfx->BeginUtilityDrawing();
++        g_gfx->SetAndClearFramebuffer(entry->framebuffer.get(), ClearColor{1.0f, 1.0f, 0.0f, 1.0f});
++        g_gfx->EndUtilityDrawing();
++        entry->texture->FinishedRendering();
++      }
++
+       if (g_ActiveConfig.bGraphicMods)
+       {
+         FBInfo info;
+@@ -2509,6 +2637,13 @@ void TextureCacheBase::CopyRenderTargetToTexture(
+   {
+     const u64 hash = entry->CalculateHash();
+     entry->SetHashes(hash, hash);
++    if (tex_w == 640)
++    {
++      CopyTrace("[copy-trace] frame %u COPY %08x fmt %u xfb %d ram hash %016llx pending %d",
++                g_presenter ? g_presenter->FrameCount() : 0u, dstAddr,
++                static_cast<unsigned>(baseFormat), is_xfb_copy ? 1 : 0,
++                static_cast<unsigned long long>(hash), entry->pending_efb_copy ? 1 : 0);
++    }
+     m_textures_by_address.emplace(dstAddr, std::move(entry));
+   }
+ }
+@@ -2559,6 +2694,13 @@ void TextureCacheBase::FlushEFBCopy(TCacheEntry* entry)
+   // Re-hash the texture now that the guest memory is populated.
+   // This should be safe because we'll catch any writes before the game can modify it.
+   const u64 hash = entry->CalculateHash();
++  if (entry->native_width == 640)
++  {
++    CopyTrace("[copy-trace] frame %u FLUSH %08x fmt %u xfb %d hash %016llx -> %016llx",
++              g_presenter ? g_presenter->FrameCount() : 0u, entry->addr,
++              static_cast<unsigned>(entry->format.texfmt), entry->is_xfb_copy ? 1 : 0,
++              static_cast<unsigned long long>(entry->hash), static_cast<unsigned long long>(hash));
++  }
+   entry->SetHashes(hash, hash);
+ 
+   // Check for any overlapping XFB copies which now need the hash recomputed.
+diff --git a/Source/Core/VideoCommon/TextureCacheBase.h b/Source/Core/VideoCommon/TextureCacheBase.h
+index d596f84e5e..7f10d34b2e 100644
+--- a/Source/Core/VideoCommon/TextureCacheBase.h
++++ b/Source/Core/VideoCommon/TextureCacheBase.h
+@@ -285,6 +285,10 @@ public:
+                               MathUtil::Rectangle<int>* display_rect);
+ 
+   virtual void BindTextures(BitSet32 used_textures, const std::array<SamplerState, 8>& samplers);
++  // Frame interpolation: a replay slice binds its own textures; the game's bindings are saved
++  // before it and put back after, so its next draws keep their textures without a new lookup.
++  std::array<RcTcacheEntry, 8> GetBoundTextures() const { return m_bound_textures; }
++  void SetBoundTextures(std::array<RcTcacheEntry, 8> bound) { m_bound_textures = std::move(bound); }
+   void CopyRenderTargetToTexture(u32 dstAddr, EFBCopyFormat dstFormat, u32 width, u32 height,
+                                  u32 dstStride, bool is_depth_copy,
+                                  const MathUtil::Rectangle<int>& srcRect, bool isIntensity,
+diff --git a/Source/Core/VideoCommon/VideoBackendBase.cpp b/Source/Core/VideoCommon/VideoBackendBase.cpp
+index 2a7aa1e988..7ff663104b 100644
+--- a/Source/Core/VideoCommon/VideoBackendBase.cpp
++++ b/Source/Core/VideoCommon/VideoBackendBase.cpp
+@@ -51,6 +51,7 @@
+ #include "VideoCommon/EFBInterface.h"
+ #include "VideoCommon/Fifo.h"
+ #include "VideoCommon/FrameDumper.h"
++#include "VideoCommon/FrameInterpolator.h"
+ #include "VideoCommon/FramebufferManager.h"
+ #include "VideoCommon/GeometryShaderManager.h"
+ #include "VideoCommon/GraphicsModSystem/Runtime/GraphicsModManager.h"
+@@ -387,6 +388,7 @@ void VideoBackendBase::ShutdownShared()
+   g_bounding_box.reset();
+   g_perf_query.reset();
+   g_graphics_mod_manager.reset();
++  FrameInterpolator::Shutdown();
+   g_texture_cache.reset();
+   g_framebuffer_manager.reset();
+   g_shader_cache.reset();
+diff --git a/Source/Core/VideoCommon/VideoState.cpp b/Source/Core/VideoCommon/VideoState.cpp
+index 4b1892ad8f..79fda740b5 100644
+--- a/Source/Core/VideoCommon/VideoState.cpp
++++ b/Source/Core/VideoCommon/VideoState.cpp
+@@ -11,6 +11,7 @@
+ #include "VideoCommon/CPMemory.h"
+ #include "VideoCommon/CommandProcessor.h"
+ #include "VideoCommon/Fifo.h"
++#include "VideoCommon/FrameInterpolator.h"
+ #include "VideoCommon/FrameDumper.h"
+ #include "VideoCommon/FramebufferManager.h"
+ #include "VideoCommon/GeometryShaderManager.h"
+@@ -107,6 +108,11 @@ void VideoCommon_DoState(PointerWrap& p)
+   system.GetXFStateManager().DoState(p);
+   p.DoMarker("XFStateManager");
+ 
++  // Frame interpolation keeps no state in savestates: what it recorded before a load belongs to
++  // another moment.
++  if (p.IsReadMode())
++    FrameInterpolator::Shutdown();
++
+   // Refresh state.
+   if (p.IsReadMode())
+   {

@@ -1,0 +1,202 @@
+# Handoff: release v0.9.0 beta (Windows, Linux, Android)
+
+Decided by the user (2026-10-11): first release **v0.9.0 beta**, **Windows + Android** (Linux later),
+source in a **private repo for now**, Android app ID **`com.skiesofarcadia.recomp`** (like the user's
+other ports). Hard rule: **no game files in anything we build or publish** (no disc, no DOL, no
+extracted files); the player's own disc supplies them at import.
+
+## Set up like the N64 recomps (2026-10-12, afternoon)
+
+User: "prepare for release, set up like the N64 recomps" (Hybrid Heaven / Goemon). Decisions:
+**Linux joins v0.9.0**; **repos the Hybrid Heaven way** (the full working history goes to a private
+`SkiesOfArcadiaLegends-Recomp-draft`; `SkiesOfArcadiaLegends-Recomp` starts from ONE clean root
+commit, noreply identity, branches `main` + `dev`, private until the user flips it); **the decomp
+gets a private repo** (`SkiesOfArcadiaLegends-Decomp`, one clean root commit). Android GPU-driver
+problems (Mali etc.) are handled through bug reports, no extra toggle (Dolphin's `DriverDetails`
+already carries per-driver workarounds, Mali's readback one included).
+
+Done:
+- **Docs split like Hybrid Heaven's:** a player `README.md` (download table, getting started,
+  quick fixes, controls, features, known issues, reporting), `BUILDING.md` (source, dependencies,
+  codegen, per-platform builds, CI and releases), `docs/development-notes.md` (was `NOTES.md`) and
+  `docs/handoffs/` (these files). `release/README.md` stays the copy shipped in every package.
+- **Bug report template** `.github/ISSUE_TEMPLATE/bug_report.md` (Goemon's, for all three platforms:
+  no game files, settings, Android *Copy device info*, desktop `Logs/ModernGekko.log`).
+- **Linux in CI:** `tools/ci-codegen.sh` gains the `linux` target (x86_64-pc-linux-gnu, the desktop
+  profile `pgo/windows.profdata`, which was trained on Linux anyway; `TARGETS=` limits a local run);
+  `tools/module-linux.sh` links the module (system compiler, no DOL: prebuilt tables);
+  `validate.yml` job `linux` on ubuntu-24.04 (older glibc than the 26.04 build machine, whose
+  binaries need glibc 2.43) packages `SkiesOfArcadiaLegends-<ver>-linux.tar.gz`; `release.yml`
+  downloads it, unpacks tarballs in the game-file check, wants each package's own module, sums it.
+  Checked locally through the CI path (DolRecomp built as CI does, `TARGETS=linux`, module, package
+  `v0.9.0-beta`): import of the RVZ with the packaged launcher (scratch HOME) gives DOL `39dd1e6c`,
+  the runner boots into the opening in 16:9 with 0 fallbacks; the release check passes on the
+  tarball; DOL byte sampling of the module 0/293 (control 13/13). 12 profile hash-mismatch warnings
+  (the profile predates ws18; same for Windows). The runtime itself is not yet built on 24.04 (CI's
+  first run is the check).
+- **Fix:** an empty or relative `XDG_DATA_HOME` put the Linux user folder in the current directory;
+  now it counts as unset (launcher + runner, `moderngekko-local.patch`, check-patches OK).
+- `tools/release.sh VERSION SHA NOTES.md` (Hybrid Heaven's `hh-release` script, generic): refuses
+  unless SHA is on `origin/dev` with a green validate run and `main` is behind it; fast-forwards
+  `main`, tags, waits for the release, replaces its text with the notes.
+- PII sweep script `~/projects/skies-pii-sweep.sh` (outside the repo: its patterns are PII; broad
+  Hybrid Heaven patterns, `-i`, controls with planted strings incl. a PNG comment): recomp tree and
+  decomp tree clean.
+
+Next: commit; create the draft + decomp repos, push; clean root to `SkiesOfArcadiaLegends-Recomp`
+(`main`, `dev`); check Actions is really enabled there (Hybrid Heaven's repo had it off despite the
+API); first `validate` run; at go-public: rulesets on `main` / `v*`, secret scanning + Dependabot.
+
+## Status (2026-10-11, late)
+
+Done:
+
+- **PII sweep** (the Hybrid Heaven recipe: tracked tree, every added line in history, commit
+  messages, identities, filenames, tags, image metadata, the decomp repo, the shipped binaries; every
+  pattern controlled with a planted string). Decomp repo clean. Recomp repo: local paths and the
+  device serial removed from 7 tools and the Android handoff (`18a560e`); the APK's `libmain.so`
+  carried the build machine's paths (~420 source-file strings): `tools/android-ws-build.sh` now passes
+  `-ffile-prefix-map` (not rebuilt yet); the app ID that carried a personal domain is renamed
+  (`0a4f289`). Windows release binaries, release images and the Windows zip: clean. **History still
+  holds the old tool lines**: before the repo goes public, publish a fresh root commit or rewrite
+  history (content AND messages), then re-sweep.
+- **No game data in the binaries, checked:** 1,289 32-byte samples from all 8 sections of the
+  original DOL (control: 13/13 planted samples found): 0 in the Windows module and the APK's module;
+  the only hits anywhere (7, in `libmain.so` / the exes) are counting tables (`1b00 1c00 1d00 ...`).
+  The module stores FNV hashes of the DOL's code ranges (`gen_module_tables.py`), not its bytes. The
+  DOL patch (`release/skies-widescreen.dolpatch`, 27 KB) is our changes keyed to the original DOL's
+  SHA-256, plus a few relocated game instructions around the hooks (as in ROM-hack patches).
+- **Source reproduces the build:** fresh worktrees of the pinned ModernGekko / RecompCore /
+  DolRecomp + `patches/` (README order) are byte-identical to the working copies (64 + 11 + 17
+  files; the only extra is a stray `.profraw`). The three pinned commits exist on the public
+  ExpansionPak remotes.
+- **Licences:** `COPYING` (GPL-3.0, as ModernGekko / DolRecomp and the user's other ports),
+  `release/THIRD-PARTY.md`, Dolphin's `Externals/licenses.md` shipped as `THIRD-PARTY-DOLPHIN.md`
+  plus its `LICENSES/` texts. Fonts aren't bundled (system fonts).
+- **Player README** `release/README.md` (requirements, getting started, features, controls, known
+  issues, credits, licence).
+- **Windows package:** `tools\build-release-win.bat package MODULE [VERSION]` makes
+  `build\SkiesOfArcadiaLegends-v0.9.0-windows.zip` (named `SkiesRecomp-...` before the rename) + `.sha256` (one top-level folder: exes, module, `Sys`,
+  `patches\skies-widescreen.dolpatch`, launcher art, app-local Visual C++ runtime, README, COPYING,
+  notices; 56 MB). Checked: unzipped copy imports the RVZ (scratch `LOCALAPPDATA`) to DOL `7b4c416c`.
+  Module: `C:\dev\SkiesRecomp\build\modules-llvm-pgo-ws16`. Not yet: a boot from the zip, a clean
+  Windows machine (VM or Windows Sandbox).
+
+**Later the same night (user: rename to "Skies of Arcadia Legends", "proceed"):**
+
+- **Name:** Android app label, Windows launcher `Skies of Arcadia Legends.exe`, Windows user folder
+  `%LOCALAPPDATA%\Skies of Arcadia Legends`, release files `SkiesOfArcadiaLegends-v<ver>-windows.zip` /
+  `-android.apk`. The user's Windows folder was copied (robocopy, 5,580 files identical,
+  `default-game.txt` re-pointed); the old `SkiesRecomp` folder is kept as a backup, and so is the
+  old `SkiesRecomp.exe` in `build-release`.
+- **Android shell** (`recompcore-skies-android-app.patch`, audit by a worker): Back menu cut to
+  Pause / Overlay Controls / Exit (no Dolphin settings, its savestate slots, screenshot, disc swap),
+  own boot hint, Dolphin's game list / TV UI / deep link not exported (`dolphinExported`), Files-app
+  root with the app's icon, import and memory-card (`recompcore-skies-branding.patch`) messages
+  without "Dolphin", licences in `assets/licenses`. Class names stay `org.dolphinemu.*` (invisible
+  to players; renaming means every JNI symbol). `RELEASE=1 VERSION=x tools/android-ws-build.sh` builds
+  a minified APK signed with the release key; checked with a throwaway key: signer, ID, label,
+  `0.9.0-beta`, exports, no local paths, no DOL bytes. Not installed anywhere yet.
+- **Windows zip** rebuilt under the new names; import from the unpacked zip checked again.
+- **CI written** (`.github/workflows/validate.yml`, `release.yml`), not run yet (no repo). Helpers:
+  `tools/apply-patches.sh` (verified: fresh worktrees + all patches == working copies),
+  `tools/applydolpatch.py`, `tools/ci-codegen.sh` (the only step that sees the DOL),
+  `-DMODULE_TABLES_INC` (`recompcore-module-tables-prebuilt.patch`), `PREGEN=` in
+  `android-ws-build.sh`, the `.bat` files skip the local vcvars when MSVC is set up,
+  `tools/make-release-key.sh`, `tools/set-release-secrets.sh`.
+
+**Linux caught up (10-11, user request):** `tools/build-release-linux.sh configure|build|package
+MODULE.so [VERSION]` (the bat's branding + EGL + `-ffile-prefix-map`) in
+`lib/ModernGekko/build-release-linux`: launcher `SkiesOfArcadiaLegends` (no spaces, like the Hybrid
+Heaven Linux binary), runner `skies-run`, user folder `~/.local/share/Skies of Arcadia Legends`,
+`build/SkiesOfArcadiaLegends-v0.9.0-linux.tar.gz` (67 MB, module `build/modules-llvm-ws16`, not PGO).
+Checked on WSLg from the unpacked tarball: import (patched DOL `7b4c416c`), the art home screen and
+the Settings window (captures), boot to the opening in widescreen; no PII, no DOL bytes in the module.
+No window icon on Linux (Windows embeds it; `icon.png` ships for a desktop entry). Not in CI; Linux
+isn't in v0.9.0 (user decision), adding it = a third codegen target (x86_64 Linux) + a job.
+
+**Device support (10-11, user: "2-4 now", from the Goemon / Hybrid Heaven review):** Android GPU
+driver row + crash safeguard, About tab with Copy device info and Licences, the one-time 60 fps
+prompt (NOTES *Slower devices and GPU drivers*), README *Reporting a problem*. Tools:
+`patches/recompcore.series`, `tools/regen-recompcore-patch.sh`, `tools/check-patches.sh` (passes).
+Other devices (Galaxy A15 Mali, Pixel 3 XL Adreno 630) are for later (user).
+
+Open, in order:
+
+1. **User steps for CI:** done 10-11 (secrets repo filled: main.dol + both profiles, checked by API;
+   release key `~/skies-release-key/release.jks`, alias `skiesrecomp-release`; all six Actions secrets
+   set on the port repo). Left: push the port repo (`skies-windows-android` as `main`, user's OK), then
+   a first `workflow_dispatch` run of validate.
+2. **Retroid (2026-10-12, user OK; done, HANDOFF-android top):** a debug-signed branded test build is on
+   as the new app with the saves copied over (backup first: `C:\dev\SkiesRecomp\build\backup\retroid-before-rename-2026-10-12`;
+   HANDOFF-android top). Claude can't build release-signed APKs locally (the key's password is a hidden
+   prompt, by design), so the release-signed APK comes from CI (or the user's own terminal); installing it
+   over the debug-signed test app needs an uninstall first, i.e. back up and restore the saves once more.
+   The old-ID app stays until the user says to remove it.
+3. Clean-machine tests (Windows Sandbox for the zip; Android fresh install), disc formats, a
+   wrong-region disc refused, 4:3, both Continue paths, the Back menu, Import a save through the real
+   pickers (a Dolphin `.gci` and `.raw`; done on the Retroid 2026-10-12, NOTES *Importing saves*).
+4. **Review fixes (2026-10-12, [HANDOFF-review.md](HANDOFF-review.md)):** section A (9 items) before the
+   tag: the Android driver-guard never runs after a crash (A1), disc import trusts FST file names on
+   all platforms (A2), the stale ship-battle pointer in `qol.c` (A3), spare-EFB alloc failure (A4),
+   card-save block count and state `uncompressed_size` unchecked at import (A5, A6), import failure
+   can destroy a working install (A7), Activity recreation mid-import (A8), Dolphin Settings still
+   reachable from the Back menu (A9). Section B's CI items (B7 guard-in-tagged-workflow, B8 publish
+   check, B10 keystore check) before the first secret-bearing workflow run.
+   **A1-A9 fixed 2026-10-12 (`0afcabc`; details and checks under each item in HANDOFF-review.md).** The game
+   patch is now **ws17** (A3; `release/skies-widescreen.dolpatch` output `0fcdb786`), so the release
+   builds need `configure` again. **ws18** later the same day (review section C's three game-patch
+   items; output `39dd1e6c`; release builds reconfigured, ws18 APK built, not installed). The ws17 debug APK is on the Retroid (A2, A7, A8, A9 checked there;
+   your ws16 auto-save Continues at 59.85 fps). Still open: A1 on a device (needs a marker in the
+   app's private files; recipe under A1); B7 (needs Environments: a public repo or a paid plan;
+   steps under B7). B8 and B10 done 2026-10-12; for B10, pin the release cert once (command under B10).
+5. Changelog, tag `v0.9.0-beta` on main, the release workflow publishes.
+6. Before going public: history scrub / fresh root, re-sweep, the source link in THIRD-PARTY.md.
+
+## CI plan (like Hybrid Heaven / Goemon)
+
+Same shape as `HybridHeavenRecomp/.github/workflows/{validate,release}.yml`:
+
+- **Private secrets repo** (e.g. `<handle>/SkiesOfArcadiaLegends-RecompSecrets`) holding the
+  original `main.dol` (SHA-256 `87c240ac...`, 3 MB; the only game input codegen needs) and the PGO
+  profiles (`skies-android-gp.profdata`, 22 MB, and the Windows `merged.profdata`; function counters,
+  no game bytes, but they're game-derived, so private). A read-only fine-grained token for it goes in
+  the port repo's secrets; the clone is deleted right after copying (its `.git/config` holds the token).
+- **`validate.yml`** (push to dev/main + `workflow_dispatch`, never `pull_request`, so forks never
+  reach the secret; also `workflow_call` with `release: true` for tags):
+  1. *codegen* (ubuntu): checkout with submodules, apply `patches/`, build `dolrecomp`, patch the DOL
+     with the dolpatch (checked against its own `output-sha256`, ws18 `39dd1e6c...` since 2026-10-12 late), run DolRecomp (LLVM backend, PGO) for
+     x86_64-windows and aarch64-android; encrypt the output with `ARTIFACT_KEY` and upload it
+     short-lived (generated code is game-derived).
+  2. *windows* (windows-latest): MSVC + LLVM 20, build the module (clang) and the launcher / runner
+     (`build-release-win.bat configure|build|package`), upload the zip.
+  3. *android* (ubuntu): NDK 29, module + `assembleRelease` (`-PskiesBrand`, `-ffile-prefix-map`),
+     signed from `RELEASE_KEYSTORE_BASE64` etc. on release, verify the signature, upload the APK.
+- **`release.yml`** (tag `v*` only): guard (tag on main), version from the tag (Android versionCode
+  from it too, replacing minutes-since-2026), call validate, then **refuse anything game-shaped**
+  (`*.dol`, `*.iso`, `*.gcm`, `*.rvz`, `*.gcz`, `*.wia`, `*.ciso`, `opening.bnr`, `*.elf`,
+  generated chunks, any file whose SHA-256 matches the DOL) before `gh release create` (prerelease
+  for `-beta`).
+- Secrets: `SOAL_SECRETS_REPO_WITH_PAT`, `ARTIFACT_KEY`, `RELEASE_KEYSTORE_BASE64`,
+  `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_PASSWORD`, `RELEASE_KEY_ALIAS` (a new Skies release key,
+  backed up like the Hybrid Heaven one; `~/projects/hh-make-release-key.sh` /
+  `hh-public-secrets.sh` are the patterns: hidden input, each value proven before it is stored).
+- Cost: on a private repo Actions minutes are metered (Windows at 2x); a cold Dolphin build on
+  windows-latest is long, so cache with ccache / sccache keyed on the submodule pins + patches.
+
+**User steps** (Claude can't create repos or enter secrets): create the private port repo and the
+private secrets repo, push the DOL + profiles to the secrets repo, make the token, run the secrets
+script, make the release key.
+
+### User steps
+
+1. (Created 10-11, private: `ogdanimal/SkiesOfArcadiaLegends-Recomp` and
+   `ogdanimal/SkiesOfArcadiaLegends-RecompSecrets`, the user's `<Game>-Recomp` / `-RecompSecrets` naming.)
+   Fill them: the port (push this repo's `skies-windows-android` branch as
+   `main`; the release guard wants tags on main) and a secrets repo with the ORIGINAL `main.dol` at
+   its root plus `pgo/windows.profdata` (`build/modules-llvm-pgo-gp/GEAE8P/pgo/merged.profdata`) and
+   `pgo/android.profdata` (`build/android/pgo/skies-android-gp.profdata`).
+2. A fine-grained token with read-only Contents access to the secrets repo only.
+3. `tools/make-release-key.sh` (asks for a password; back the key up off this PC), then
+   `tools/set-release-secrets.sh ogdanimal/SkiesOfArcadiaLegends-Recomp ogdanimal/SkiesOfArcadiaLegends-RecompSecrets` (asks for the token and the password).
+4. Actions -> validate -> Run workflow.

@@ -1,0 +1,18 @@
+iso/
+extracted/
+generated/
+build/
+extern/
+database/
+build-*/
+cmake-build-*/
+CMakeUserPresets.json
+.cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local build logs
+*.log
+__pycache__/

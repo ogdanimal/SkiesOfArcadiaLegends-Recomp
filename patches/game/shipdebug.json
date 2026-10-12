@@ -1,0 +1,12 @@
+{
+  "comment": "Debug aid (shipdebug.c): give the party a ship on request, for ship-battle test states. Combine with widescreen.json; not for play builds.",
+  "sources": ["shipdebug.c", "shipdebug.S"],
+  "redirect_sites": [
+    {
+      "site": "0x801DC358",
+      "target": "fn_80101828",
+      "to": "dbg_field",
+      "why": "fn_801DC288: game mode 3 / 6 dispatch to the field main"
+    }
+  ]
+}

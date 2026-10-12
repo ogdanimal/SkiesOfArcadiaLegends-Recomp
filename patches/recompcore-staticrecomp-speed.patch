@@ -1,0 +1,310 @@
+diff --git a/Source/Core/Core/PowerPC/JitInterface.cpp b/Source/Core/Core/PowerPC/JitInterface.cpp
+index d098c19a64..23efe15644 100644
+--- a/Source/Core/Core/PowerPC/JitInterface.cpp
++++ b/Source/Core/Core/PowerPC/JitInterface.cpp
+@@ -327,6 +327,8 @@ void JitInterface::CompileExceptionCheck(ExceptionType type)
+   // the fallback is what reads these sets when it compiles, and what retires
+   // the call site by recompiling with the check folded inline.
+   JitBase* const target = m_jit->GetExceptionCheckTarget();
++  if (!target)
++    return;
+ 
+   std::unordered_set<u32>* exception_addresses = nullptr;
+ 
+diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.cpp b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.cpp
+index e3581cc938..7ff11bbf65 100644
+--- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.cpp
++++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.cpp
+@@ -148,6 +148,7 @@ void StaticRecompCore::Init()
+   g_static_recomp_core = this;
+   RefreshConfig();
+   m_collect_dispatch_samples = std::getenv("STATICRECOMP_DISPATCH_SAMPLES") != nullptr;
++  m_collect_fallback_samples = std::getenv("STATICRECOMP_FALLBACK_SAMPLES") != nullptr;
+   const char* fallback_override = std::getenv("STATICRECOMP_FALLBACK_RANGES");
+   std::istringstream fallback_ranges(fallback_override ? fallback_override :
+                                                          Config::Get(Config::MAIN_STATICRECOMP_FALLBACK_RANGES));
+@@ -219,6 +220,15 @@ void StaticRecompCore::Shutdown()
+                  dispatch_samples[i].first,
+                  static_cast<unsigned long long>(dispatch_samples[i].second));
+   }
++  std::vector<std::pair<u32, u64>> fallback_samples(m_fallback_samples.begin(),
++                                                    m_fallback_samples.end());
++  std::sort(fallback_samples.begin(), fallback_samples.end(),
++            [](const auto& left, const auto& right) { return left.second > right.second; });
++  for (std::size_t i = 0; i < std::min<std::size_t>(fallback_samples.size(), 48); ++i)
++  {
++    std::fprintf(stderr, "[staticrecomp] fallback pc=%08x count=%llu\n", fallback_samples[i].first,
++                 static_cast<unsigned long long>(fallback_samples[i].second));
++  }
+   NOTICE_LOG_FMT(POWERPC,
+                  "StaticRecomp: shutdown. native_dispatches={} fallback_steps={} "
+                  "native_exceptions={} hook_fallback_instructions={} smc_failed_chunks={} "
+diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.h b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.h
+index d084fea634..8b18215695 100644
+--- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.h
++++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.h
+@@ -67,8 +67,13 @@ public:
+   // That core reads fifoWriteAddresses at compile time and owns the block that
+   // has to be invalidated, so registering against this core instead left the
+   // check uncompiled and the hook firing on every gather-pipe store forever.
++  // Inside a native burst the store is module code: there is no JIT block to retire, and
++  // ppc_state.pc is stale, so the check would re-decode an unrelated instruction on every
++  // gather-pipe flush. nullptr tells JitInterface to skip it.
+   JitBase* GetExceptionCheckTarget() override
+   {
++    if (m_in_native_burst)
++      return nullptr;
+     return m_fallback_jit ? m_fallback_jit.get() : this;
+   }
+ 
+@@ -128,7 +133,12 @@ private:
+   void VerifyChunk(u32 index);
+   bool ResolveNativeAddress(u32 runtime_address, u32* linked_address, u32* rel_section_index);
+   bool ResolveRuntimeAddress(u32 linked_address, u32* runtime_address) const;
+-  u32 TranslateRelAddress(u32 linked_address);
++  // Identity without REL modules (most GameCube games); called on every hook.
++  u32 TranslateRelAddress(u32 linked_address)
++  {
++    return m_has_rel_modules ? TranslateRelAddressSlow(linked_address) : linked_address;
++  }
++  u32 TranslateRelAddressSlow(u32 linked_address);
+   void RefreshRelSections();
+ 
+   static void SetPPCStateFromGuestState(const CPUState& s, PowerPC::PowerPCState& ppc);
+@@ -143,6 +153,9 @@ private:
+   // is the StaticRecompCore*.
+   static u64 HookExternalRead(CPUState* cpu, u32 ea, u8 size);
+   static void HookExternalWrite(CPUState* cpu, u32 ea, u64 value, u8 size);
++  static void HookExternalWriteSlow(CPUState* cpu, u32 ea, u64 value, u8 size);
++  static void HookGatherPipeFlush(CPUState* cpu);
++  void WriteGatherPipe(u64 value, u8 size);
+   static u32 HookExternalRead32(CPUState* cpu, u32 ea, u8 rid);
+   static void HookExternalWrite32(CPUState* cpu, u32 ea, u32 value, u8 rid);
+   static void* HookExternalPointer(CPUState* cpu, u32 ea, u32 size);
+@@ -175,6 +188,9 @@ private:
+   u64 m_hook_fallback_instructions = 0;
+   u64 m_timebase_cycle_remainder = 0;
+   std::unordered_map<u32, u64> m_dispatch_samples;
++  std::unordered_map<u32, u64> m_fallback_samples;  // STATICRECOMP_FALLBACK_SAMPLES
++  bool m_collect_fallback_samples = false;
++  bool m_in_native_burst = false;  // between SyncIn and SyncOut in Run()
+   u64 m_bursts = 0;          // SyncIn..SyncOut native runs (diagnostic)
+   u64 m_charged_cycles = 0;  // cycles flushed from module charges (diagnostic)
+ 
+diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp
+index 7b3d845cee..6f943c3649 100644
+--- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp
++++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp
+@@ -10,9 +10,18 @@
+ #include "Core/PowerPC/StaticRecomp/StaticRecompLockstep.h"
+ #include "Core/HW/GPFifo.h"
+ #include "Core/HW/SystemTimers.h"
++#include "Common/Inline.h"
+ #include "Common/Logging/Log.h"
++#include "Common/Swap.h"
+ 
+ #include <cstdio>
++#include <cstring>
++
++#ifdef _MSC_VER
++#define STATICRECOMP_NOINLINE __declspec(noinline)
++#else
++#define STATICRECOMP_NOINLINE __attribute__((noinline))
++#endif
+ 
+ namespace
+ {
+@@ -62,7 +71,81 @@ u64 StaticRecompCore::HookExternalRead(CPUState* cpu, u32 ea, u8 size)
+   return value;
+ }
+ 
++// Odd sizes only; out of line so the vectorized loop stays out of the fast path's prologue.
++STATICRECOMP_NOINLINE static void WriteGatherPipeBytes(u8* ptr, u64 value, u8 size)
++{
++  for (u32 i = 0; i < size; ++i)
++    ptr[i] = static_cast<u8>(value >> ((size - 1u - i) * 8u));
++}
++
++// GPFifo::Write8/16/32/64 inlined: the store, then UpdateGatherPipe once a whole burst is queued.
++// CheckGatherPipe's CompileExceptionCheck is left out: hooks only run inside a native burst, where
++// it is a no-op (GetExceptionCheckTarget returns nullptr).
++DOLPHIN_FORCE_INLINE void StaticRecompCore::WriteGatherPipe(u64 value, u8 size)
++{
++  auto& ppc = m_ppc_state;
++  u8* const ptr = ppc.gather_pipe_ptr;
++  switch (size)
++  {
++  case 1:
++    *ptr = static_cast<u8>(value);
++    break;
++  case 2:
++  {
++    const u16 swapped = Common::swap16(static_cast<u16>(value));
++    std::memcpy(ptr, &swapped, sizeof(swapped));
++    break;
++  }
++  case 4:
++  {
++    const u32 swapped = Common::swap32(static_cast<u32>(value));
++    std::memcpy(ptr, &swapped, sizeof(swapped));
++    break;
++  }
++  case 8:
++  {
++    const u64 swapped = Common::swap64(value);
++    std::memcpy(ptr, &swapped, sizeof(swapped));
++    break;
++  }
++  default:
++    WriteGatherPipeBytes(ptr, value, size);
++    break;
++  }
++  ppc.gather_pipe_ptr = ptr + size;
++  if (static_cast<size_t>(ppc.gather_pipe_ptr - ppc.gather_pipe_base_ptr) >=
++      GPFifo::GATHER_PIPE_SIZE)
++  {
++    m_system.GetGPFifo().UpdateGatherPipe();
++  }
++}
++
++// Gather-pipe stores (immediate-mode vertex data) are the hottest hook: through GPFifo::Write*,
++// with its out-of-line System lookups, they were ~11% of the game thread on Android. This entry
++// handles the common case and leaves everything else to HookExternalWriteSlow, kept out of line
++// so the fast path doesn't pay its prologue (callee-saved spills and a stack-protector check).
+ void StaticRecompCore::HookExternalWrite(CPUState* cpu, u32 ea, u64 value, u8 size)
++{
++  auto* core = static_cast<StaticRecompCore*>(cpu->external_user_data);
++  if ((ea & 0xFFFFF000) == 0xCC008000u && !core->m_has_rel_modules &&
++      !core->m_lockstep_verifier->m_ls_journaling)
++  {
++    core->WriteGatherPipe(value, size);
++    return;
++  }
++  HookExternalWriteSlow(cpu, ea, value, size);
++}
++
++// Generated code queues gather-pipe stores itself (CPUState::gather_pipe_ptr_ref) and calls this
++// once a burst is queued.
++void StaticRecompCore::HookGatherPipeFlush(CPUState* cpu)
++{
++  auto* core = static_cast<StaticRecompCore*>(cpu->external_user_data);
++  core->m_system.GetGPFifo().UpdateGatherPipe();
++}
++
++STATICRECOMP_NOINLINE void StaticRecompCore::HookExternalWriteSlow(CPUState* cpu, u32 ea,
++                                                                   u64 value, u8 size)
+ {
+   auto* core = static_cast<StaticRecompCore*>(cpu->external_user_data);
+   ea = core->TranslateRelAddress(ea);
+@@ -79,26 +162,8 @@ void StaticRecompCore::HookExternalWrite(CPUState* cpu, u32 ea, u64 value, u8 si
+   {
+     if (core->m_lockstep_verifier->m_ls_journaling)
+       core->m_lockstep_verifier->m_journal.native_mmio.push_back({ea, static_cast<u32>(value), size});
+-    auto& gpfifo = core->m_system.GetGPFifo();
+-    switch (size)
+-    {
+-    case 1:
+-      gpfifo.Write8(static_cast<u8>(value));
+-      return;
+-    case 2:
+-      gpfifo.Write16(static_cast<u16>(value));
+-      return;
+-    case 4:
+-      gpfifo.Write32(static_cast<u32>(value));
+-      return;
+-    default:
+-      for (u32 i = size * 8u; i > 0;)
+-      {
+-        i -= 8;
+-        gpfifo.Write8(static_cast<u8>(value >> i));
+-      }
+-      return;
+-    }
++    core->WriteGatherPipe(value, size);
++    return;
+   }
+ 
+   core->PropagateGuestMSR();
+@@ -408,6 +473,8 @@ void StaticRecompCore::HookInstructionFallback(CPUState* cpu, u32 raw, u32 cia)
+   // The recompiled segment resumes via the dispatcher at the PC this leaves
+   // behind, so this must execute exactly the instruction at cia via
+   // Dolphin's interpreter and hand the register state back.
++  if (core->m_collect_fallback_samples)
++    ++core->m_fallback_samples[cia];
+   core->SyncOut();
+   ppc.pc = cia;
+   ppc.npc = cia + 4;
+diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Run.cpp b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Run.cpp
+index d91ec2dc19..2b8e63aaf1 100644
+--- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Run.cpp
++++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Run.cpp
+@@ -64,6 +64,12 @@ void StaticRecompCore::Run()
+   m_guest.exram_size = memory.GetExRamSizeReal();
+   InitLookupTable(m_guest.ram_size, m_guest.exram_size);
+   const bool lockstep_enabled = m_lockstep_verifier->IsEnabled();
++  // Generated stores to the gather pipe append to GPFifo's buffer directly (see CPUState) and
++  // call HookGatherPipeFlush per burst. Lockstep journals each such store in HookExternalWrite,
++  // so under lockstep they stay there.
++  m_guest.gather_pipe_ptr_ref = lockstep_enabled ? nullptr : &ppc.gather_pipe_ptr;
++  m_guest.gather_pipe_base = ppc.gather_pipe_base_ptr;
++  m_guest.gather_pipe_flush = HookGatherPipeFlush;
+   const auto fast_dispatchable_at = [this](u32 address) {
+     if (m_has_rel_modules || !m_forced_fallback_ranges.empty())
+       return FastDispatchableAt(address);
+@@ -132,6 +138,7 @@ void StaticRecompCore::Run()
+       {
+         SyncIn();
+         ++m_bursts;
++        m_in_native_burst = true;
+         do
+         {
+           if (dispatch_trace && (m_native_dispatches & 0xFFFFFu) == 0)
+@@ -206,6 +213,7 @@ void StaticRecompCore::Run()
+         } while (m_module_active && fast_dispatchable_at(m_guest.pc) &&
+                  !(m_guest.host_call && IsHostCallAddress(m_guest.pc)) && ppc.downcount > 0 &&
+                  *state_ptr == CPU::State::Running);
++        m_in_native_burst = false;
+         SyncOut();
+         if ((ppc.Exceptions & SYNC_EXCEPTION_MASK) != 0)
+           power_pc.CheckExceptions();
+diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_SMC.cpp b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_SMC.cpp
+index 491c57ef3a..46cbe45a28 100644
+--- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_SMC.cpp
++++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_SMC.cpp
+@@ -151,7 +151,7 @@ bool StaticRecompCore::ResolveRuntimeAddress(u32 linked_address, u32* runtime_ad
+   return true;
+ }
+ 
+-u32 StaticRecompCore::TranslateRelAddress(u32 linked_address)
++u32 StaticRecompCore::TranslateRelAddressSlow(u32 linked_address)
+ {
+   u32 runtime_address = linked_address;
+   ResolveRuntimeAddress(linked_address, &runtime_address);
+@@ -339,11 +339,24 @@ void StaticRecompCore::OnICacheInvalidate(u32 address, u32 length)
+ 
+   if (!m_module_active || length == 0)
+     return;
+-  u32 linked_address = address;
+-  ResolveNativeAddress(address, &linked_address, nullptr);
+-  address = linked_address;
++  // Without REL modules the mapping is the identity, and ResolveNativeAddress would only cost a
++  // lookup-table miss plus a RefreshRelSections call for every data-buffer line.
++  if (m_has_rel_modules)
++  {
++    u32 linked_address = address;
++    ResolveNativeAddress(address, &linked_address, nullptr);
++    address = linked_address;
++  }
+   const u32 last = address + (length - 1u);
+ 
++  // Most icbi traffic targets data buffers, outside every chunk; skip the search for it.
++  const u32 num_chunks = m_module->num_chunk_ranges;
++  if (num_chunks == 0 || last < m_module->chunk_ranges[0].start ||
++      address >= m_module->chunk_ranges[num_chunks - 1].end)
++  {
++    return;
++  }
++
+   // Binary search to find the first chunk index that could possibly overlap (chunk.end > address)
+   u32 lo = 0;
+   u32 hi = m_module->num_chunk_ranges;

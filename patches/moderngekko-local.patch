@@ -1,0 +1,3927 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index c0548a0..4a160ee 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -58,6 +58,8 @@ set(MODERNGEKKO_ACCEPTED_SOURCE_DISC_ID "" CACHE STRING
+     "Source disc ID accepted by the optional disc preparer")
+ option(MODERNGEKKO_USER_DIRECTORY_IN_DOCUMENTS
+        "Place the branded user directory in Documents" OFF)
++set(MODERNGEKKO_WINDOWS_ICON "" CACHE FILEPATH
++    "Optional .ico embedded in the Windows launcher and runner (their file, window and taskbar icon)")
+ set(MODERNGEKKO_FRONTEND_SDK "" CACHE PATH
+     "Optional non-root sysroot containing X11 and audio development packages")
+ 
+@@ -113,7 +115,10 @@ if(MODERNGEKKO_ENABLE_DOLPHIN_RUNTIME)
+     set(ENABLE_HWDB OFF CACHE BOOL "" FORCE)
+     set(ENABLE_EVDEV OFF CACHE BOOL "" FORCE)
+     set(ENABLE_WAYLAND ON CACHE BOOL "" FORCE)
+-    set(ENABLE_EGL OFF CACHE BOOL "" FORCE)
++    # EGL is Dolphin's only OpenGL context path on Linux; without it the OGL
++    # backend fails to initialize. Off by default to match upstream.
++    option(MODERNGEKKO_ENABLE_EGL "Build Dolphin's EGL OpenGL interface" OFF)
++    set(ENABLE_EGL ${MODERNGEKKO_ENABLE_EGL} CACHE BOOL "" FORCE)
+     set(USE_SYSTEM_SDL3 OFF CACHE BOOL "" FORCE)
+     # SDL bundles its own copy of the macOS hidapi backend
+     if(APPLE)
+@@ -516,7 +521,9 @@ if(MODERNGEKKO_ENABLE_DOLPHIN_RUNTIME)
+     add_executable(moderngekko-launcher
+         tools/moderngekko_launcher.cpp
+         tools/frontend_config.cpp
++        tools/disc_extract.cpp
+         tools/dol_patch.cpp
++        tools/save_import.cpp
+         vendor/dolphin/Externals/imgui/imgui/backends/imgui_impl_sdl3.cpp
+         vendor/dolphin/Externals/imgui/imgui/backends/imgui_impl_sdlrenderer3.cpp)
+     target_include_directories(moderngekko-launcher PRIVATE
+@@ -599,6 +606,23 @@ if(MODERNGEKKO_ENABLE_DOLPHIN_RUNTIME)
+             INSTALL_RPATH "$ORIGIN/lib")
+     endif()
+     add_dependencies(moderngekko-launcher moderngekko-run)
++    if(WIN32)
++        # UTF-8 as the process code page (Windows 10 1903 and later): narrow paths and environment
++        # variables (path::string(), getenv, --game / --user-dir) keep names like "José" intact
++        # between the launcher, the runner and Dolphin.
++        target_sources(moderngekko-launcher PRIVATE tools/utf8.manifest)
++        target_sources(moderngekko-run PRIVATE tools/utf8.manifest)
++    endif()
++    if(WIN32 AND MODERNGEKKO_WINDOWS_ICON)
++        # Resource 1 = the icon: Explorer shows the first icon of an .exe, and the launcher points
++        # SDL's window icon hints at it.
++        file(TO_CMAKE_PATH "${MODERNGEKKO_WINDOWS_ICON}" _moderngekko_icon)
++        set(_moderngekko_icon_rc "${CMAKE_CURRENT_BINARY_DIR}/moderngekko_icon.rc")
++        file(WRITE "${_moderngekko_icon_rc}" "1 ICON \"${_moderngekko_icon}\"\n")
++        target_sources(moderngekko-launcher PRIVATE "${_moderngekko_icon_rc}")
++        target_sources(moderngekko-run PRIVATE "${_moderngekko_icon_rc}")
++        target_compile_definitions(moderngekko-launcher PRIVATE MODERNGEKKO_HAS_WINDOWS_ICON)
++    endif()
+ 
+     add_executable(moderngekko-port
+         tools/moderngekko_port.cpp
+diff --git a/include/moderngekko/cpu_state.h b/include/moderngekko/cpu_state.h
+index 9248431..7ef9856 100644
+--- a/include/moderngekko/cpu_state.h
++++ b/include/moderngekko/cpu_state.h
+@@ -34,6 +34,7 @@ typedef uint32_t (*PPCSPRRead)(CPUState* cpu, uint16_t spr, uint32_t address);
+ typedef void (*PPCSPRWrite)(CPUState* cpu, uint16_t spr, uint32_t value, uint32_t address);
+ typedef void (*PPCCacheControl)(CPUState* cpu, uint8_t operation, uint32_t address,
+                                 uint32_t instruction_address);
++typedef void (*PPCGatherPipeFlush)(CPUState* cpu);
+ 
+ struct CPUState
+ {
+@@ -87,6 +88,10 @@ struct CPUState
+     PPCSPRRead spr_read;
+     PPCSPRWrite spr_write;
+     PPCCacheControl cache_control;
++    /* Write-gather pipe; must match GXRuntime's core/cpu.h (patches/recompcore-gxruntime-gather-pipe.patch). */
++    uint8_t** gather_pipe_ptr_ref;
++    uint8_t* gather_pipe_base;
++    PPCGatherPipeFlush gather_pipe_flush;
+ };
+ 
+ #ifdef __cplusplus
+diff --git a/include/moderngekko/game.hpp b/include/moderngekko/game.hpp
+index aeafd0e..881517f 100644
+--- a/include/moderngekko/game.hpp
++++ b/include/moderngekko/game.hpp
+@@ -24,6 +24,7 @@ struct GameMetadata
+   std::uint32_t entry_point = 0;
+   std::string dol_sha256;
+   std::string rel_sha256;
++  // Empty when InspectGame was asked not to hash the assets.
+   std::string assets_sha256;
+ };
+ 
+@@ -35,7 +36,9 @@ struct GameInspectResult
+   explicit operator bool() const { return metadata.has_value(); }
+ };
+ 
+-GameInspectResult InspectGame(const std::filesystem::path& root);
++// hash_assets = false skips assets_sha256, which reads and hashes every file under
++// files/ (1.4 GB for some games, tens of seconds per launch).
++GameInspectResult InspectGame(const std::filesystem::path& root, bool hash_assets = true);
+ std::optional<std::string> HashFileSha256(const std::filesystem::path& path);
+ std::optional<std::string> HashDirectorySha256(const std::filesystem::path& root);
+ }  // namespace moderngekko
+diff --git a/include/moderngekko/runtime.hpp b/include/moderngekko/runtime.hpp
+index 0adc855..99fead1 100644
+--- a/include/moderngekko/runtime.hpp
++++ b/include/moderngekko/runtime.hpp
+@@ -4,6 +4,7 @@
+ #include "moderngekko/module_abi.h"
+ 
+ #include <filesystem>
++#include <functional>
+ #include <memory>
+ #include <optional>
+ #include <string>
+@@ -32,6 +33,9 @@ struct GraphicsSettings
+ {
+   std::string backend;
+   std::optional<int> internal_resolution_scale;
++  // Called (on the thread that changed it) when the internal resolution changes while running,
++  // e.g. from a game's in-game settings menu, so the frontend can keep its own copy in step.
++  std::function<void(int scale)> on_internal_resolution_changed;
+ };
+ 
+ struct AudioSettings
+diff --git a/src/runtime/dolphin_runtime.cpp b/src/runtime/dolphin_runtime.cpp
+index f9b5405..391124e 100644
+--- a/src/runtime/dolphin_runtime.cpp
++++ b/src/runtime/dolphin_runtime.cpp
+@@ -346,6 +346,21 @@ std::optional<RuntimeError> ApplyAutomationCommand(Runtime& runtime,
+   case automation::CommandType::Stop:
+     runtime.RequestStop();
+     break;
++  case automation::CommandType::SetConfig:
++  {
++    const auto config_system = Config::GetSystemFromName(command.config_system);
++    if (!config_system)
++    {
++      return RuntimeError{RuntimeErrorCode::InvalidState,
++                          "set_config: unknown config system " + command.config_system};
++    }
++    const Config::Location location{*config_system, command.config_section, command.config_key};
++    // Stored as text like an ini line; typed readers parse it. The active layer keeps a
++    // game-ini override from shadowing the write.
++    Config::GetLayer(Config::GetActiveLayerForConfig(location))->Set(location, command.config_value);
++    Config::OnConfigChanged();
++    break;
++  }
+   }
+   MarkAutomationCommand(state, command.source_name);
+   return {};
+@@ -363,6 +378,7 @@ bool AutomationCommandNeedsReadyCore(automation::CommandType type)
+   case automation::CommandType::ReadMemory:
+   case automation::CommandType::WriteMemory:
+   case automation::CommandType::PadFrames:
++  case automation::CommandType::SetConfig:
+     return true;
+   case automation::CommandType::Pad:
+   case automation::CommandType::ClearPad:
+@@ -515,6 +531,8 @@ struct Runtime::Impl {
+   Common::EventHook present_hook;
+   bool automation_registered = false;
+   std::jthread automation_thread;
++  std::optional<Config::ConfigChangedCallbackID> resolution_callback;
++  std::atomic<int> reported_efb_scale = 0;
+ };
+ 
+ namespace detail {
+@@ -554,7 +572,9 @@ RuntimeCreateResult Runtime::Create(RuntimeConfig config) {
+         RuntimeError{RuntimeErrorCode::AlreadyActive,
+                      "only one ModernGekko runtime may be active per process"}};
+ 
+-  GameInspectResult inspected = InspectGame(config.game_root);
++  // The runtime only needs the disc ID and name; the runner has already
++  // validated the game, including any pinned assets hash.
++  GameInspectResult inspected = InspectGame(config.game_root, false);
+   if (!inspected)
+     return {{}, RuntimeError{RuntimeErrorCode::InvalidGame, inspected.error}};
+ 
+@@ -609,6 +629,9 @@ RuntimeCreateResult Runtime::Create(RuntimeConfig config) {
+ 
+   if (!s_external_ui_common) {
+     UICommon::SetUserDirectory(impl->config.user_directory.string());
++    // As Dolphin's own frontends do: without Config/ in a fresh user directory, no setting the
++    // runtime changes (the [Skies] keys on first boot, or anything saved at exit) reaches disk.
++    UICommon::CreateDirectories();
+     UICommon::Init();
+     impl->ui_initialized = true;
+   }
+@@ -665,6 +688,17 @@ RuntimeCreateResult Runtime::Create(RuntimeConfig config) {
+   if (impl->config.graphics.internal_resolution_scale)
+     Config::SetBase(Config::GFX_EFB_SCALE,
+                     *impl->config.graphics.internal_resolution_scale);
++  if (impl->config.graphics.on_internal_resolution_changed && !impl->resolution_callback) {
++    impl->reported_efb_scale = Config::Get(Config::GFX_EFB_SCALE);
++    Runtime::Impl* raw = impl.get();
++    impl->resolution_callback = Config::AddConfigChangedCallback([raw] {
++      // Config callbacks run on whichever thread changed a setting.
++      const int scale = Config::Get(Config::GFX_EFB_SCALE);
++      if (raw->reported_efb_scale.exchange(scale) == scale)
++        return;
++      raw->config.graphics.on_internal_resolution_changed(scale);
++    });
++  }
+   Config::SetBase(Config::GFX_SHADER_CACHE, true);
+   Config::SetBase(Config::GFX_SHADER_COMPILATION_MODE,
+                   ShaderCompilationMode::AsynchronousUberShaders);
+@@ -700,11 +734,15 @@ RuntimeCreateResult Runtime::Create(RuntimeConfig config) {
+     recomp_source = StaticRecompModuleSource::Attached(
+         reinterpret_cast<const StaticRecompModuleDesc *>(
+             impl->config.module.descriptor));
+-  recomp_source.host_call = &ModManager::HostCall;
+-  recomp_source.host_call_contains = &ModManager::HostCallContains;
+-  recomp_source.host_call_range_contains =
+-      &ModManager::HostCallRangeContains;
+-  recomp_source.host_call_user = impl->mods.get();
++  // With no mods nothing can intercept, so leave host_call unset: generated
++  // code then skips the per-call / per-region interception queries entirely.
++  if (!impl->mods->GetLoadedMods().empty()) {
++    recomp_source.host_call = &ModManager::HostCall;
++    recomp_source.host_call_contains = &ModManager::HostCallContains;
++    recomp_source.host_call_range_contains =
++        &ModManager::HostCallRangeContains;
++    recomp_source.host_call_user = impl->mods.get();
++  }
+   jit.SetStaticRecompModuleSource(std::move(recomp_source));
+ 
+   s_runtime_active = true;
+@@ -730,6 +768,10 @@ Runtime::~Runtime() {
+     m_impl->automation_registered = false;
+   }
+   m_impl->state_hook = {};
++  if (m_impl->resolution_callback) {
++    Config::RemoveConfigChangedCallback(*m_impl->resolution_callback);
++    m_impl->resolution_callback.reset();
++  }
+   if (m_impl->controllers_initialized)
+     UICommon::ShutdownControllers();
+   if (m_impl->ui_initialized)
+diff --git a/src/runtime/game.cpp b/src/runtime/game.cpp
+index 85860a5..a6b824e 100644
+--- a/src/runtime/game.cpp
++++ b/src/runtime/game.cpp
+@@ -69,7 +69,7 @@ std::optional<std::string> HashDirectorySha256(const std::filesystem::path& root
+   return Sha256(std::move(manifest));
+ }
+ 
+-GameInspectResult InspectGame(const std::filesystem::path& input_root)
++GameInspectResult InspectGame(const std::filesystem::path& input_root, bool hash_assets)
+ {
+   std::error_code ec;
+   const auto root = std::filesystem::weakly_canonical(input_root, ec);
+@@ -143,10 +143,13 @@ GameInspectResult InspectGame(const std::filesystem::path& input_root)
+       return {{}, "can't hash files/_Main.rel"};
+     metadata.rel_sha256 = *rel_hash;
+   }
+-  const auto assets_hash = HashDirectorySha256(root / "files");
+-  if (!assets_hash)
+-    return {{}, "can't hash the files directory"};
+-  metadata.assets_sha256 = *assets_hash;
++  if (hash_assets)
++  {
++    const auto assets_hash = HashDirectorySha256(root / "files");
++    if (!assets_hash)
++      return {{}, "can't hash the files directory"};
++    metadata.assets_sha256 = *assets_hash;
++  }
+   return {std::move(metadata), {}};
+ }
+ }  // namespace moderngekko
+diff --git a/src/runtime/mod_loader.cpp b/src/runtime/mod_loader.cpp
+index 4b2345f..95b640e 100644
+--- a/src/runtime/mod_loader.cpp
++++ b/src/runtime/mod_loader.cpp
+@@ -666,8 +666,21 @@ bool ModManager::Empty() const { return m_impl->mods.empty(); }
+ 
+ bool ModManager::HostCall(CPUState *state, std::uint32_t address,
+                           void *user_data) {
+-  return user_data &&
+-         static_cast<ModManager *>(user_data)->Dispatch(state, address);
++  if (!user_data)
++    return false;
++  auto *mods = static_cast<ModManager *>(user_data);
++  // LLVM-backend native regions ask before entry whether anything intercepts
++  // [external_addr, external_value); unanswered, every region falls back.
++  // Constants mirror DolRecomp's PPC_HOST_CALL_NATIVE_REGION_QUERY & co.
++  constexpr std::uint32_t kNativeRegionQuery = 0xFFFFFFFCu;
++  constexpr std::uint8_t kQueryPending = 0xFEu;
++  constexpr std::uint8_t kQueryHandled = 0xFFu;
++  if (address == kNativeRegionQuery && state &&
++      state->external_rid == kQueryPending) {
++    state->external_rid = kQueryHandled;
++    return mods->HandlesRange(state->external_addr, state->external_value);
++  }
++  return mods->Dispatch(state, address);
+ }
+ 
+ bool ModManager::HostCallContains(std::uint32_t address, void *user_data) {
+diff --git a/tools/automation_protocol.cpp b/tools/automation_protocol.cpp
+index 25f4167..7aa1b86 100644
+--- a/tools/automation_protocol.cpp
++++ b/tools/automation_protocol.cpp
+@@ -175,6 +175,8 @@ std::optional<CommandType> ParseCommandType(std::string_view value)
+     return CommandType::WriteMemory;
+   if (text == "stop")
+     return CommandType::Stop;
++  if (text == "set_config")
++    return CommandType::SetConfig;
+   return std::nullopt;
+ }
+ 
+@@ -389,6 +391,35 @@ bool ParseWriteMemoryCommand(const std::map<std::string, std::string>& values, C
+   command->size = static_cast<std::uint32_t>(data->size());
+   return true;
+ }
++bool ParseSetConfigCommand(const std::map<std::string, std::string>& values, Command* command,
++                           std::string* error)
++{
++  for (const auto& [key, value] : values)
++  {
++    if (key != "command" && key != "system" && key != "section" && key != "key" && key != "value")
++    {
++      if (error)
++        *error = "unknown set_config field: " + key;
++      return false;
++    }
++  }
++  const auto system_it = values.find("system");
++  const auto section_it = values.find("section");
++  const auto key_it = values.find("key");
++  const auto value_it = values.find("value");
++  if (system_it == values.end() || section_it == values.end() || key_it == values.end() ||
++      value_it == values.end())
++  {
++    if (error)
++      *error = "set_config requires system=, section=, key= and value=";
++    return false;
++  }
++  command->config_system = Trim(system_it->second);
++  command->config_section = Trim(section_it->second);
++  command->config_key = Trim(key_it->second);
++  command->config_value = Trim(value_it->second);
++  return true;
++}
+ }  // namespace
+ 
+ std::filesystem::path ResolveControlPath(const std::filesystem::path& automation_directory,
+@@ -499,6 +530,10 @@ bool ParseCommandFile(const std::filesystem::path& path, Command* command, std::
+     if (!ParseWriteMemoryCommand(values, &parsed, error))
+       return false;
+     break;
++  case CommandType::SetConfig:
++    if (!ParseSetConfigCommand(values, &parsed, error))
++      return false;
++    break;
+   case CommandType::Pause:
+   case CommandType::Resume:
+   case CommandType::Stop:
+diff --git a/tools/automation_protocol.hpp b/tools/automation_protocol.hpp
+index 2396f01..06a8e87 100644
+--- a/tools/automation_protocol.hpp
++++ b/tools/automation_protocol.hpp
+@@ -24,6 +24,7 @@ enum class CommandType
+   ReadMemory,
+   WriteMemory,
+   Stop,
++  SetConfig,
+ };
+ 
+ struct PadState
+@@ -43,6 +44,8 @@ struct Command
+   std::uint32_t size = 0;
+   std::uint32_t frames = 0;
+   std::vector<std::uint8_t> data;
++  // set_config: a Dolphin config value (system=Main|GFX|..., section, key, value as text).
++  std::string config_system, config_section, config_key, config_value;
+ };
+ 
+ struct Status
+diff --git a/tools/disc_extract.cpp b/tools/disc_extract.cpp
+new file mode 100644
+index 0000000..37e96bd
+--- /dev/null
++++ b/tools/disc_extract.cpp
+@@ -0,0 +1,221 @@
++#include "disc_extract.hpp"
++
++#include <algorithm>
++#include <array>
++#include <cctype>
++#include <set>
++#include <string_view>
++#include <system_error>
++
++#include "Common/FileUtil.h"
++#include "DiscIO/DiscExtractor.h"
++#include "DiscIO/Filesystem.h"
++#include "DiscIO/Volume.h"
++
++namespace fs = std::filesystem;
++
++namespace moderngekko::frontend
++{
++namespace
++{
++// A real disc's tree is a few levels deep and a few thousand entries; a crafted one is cut off long
++// before the recursion or the duplicate sets get large.
++constexpr int MAX_DEPTH = 32;
++constexpr std::size_t MAX_ENTRIES = 1u << 20;
++
++std::string Lower(std::string_view text)
++{
++  std::string lower(text);
++  std::ranges::transform(lower, lower.begin(),
++                         [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
++  return lower;
++}
++
++// "" if `name` can only ever mean a file or folder inside its parent, on every platform.
++std::string NameProblem(std::string_view name)
++{
++  if (name.empty() || name == "." || name == "..")
++    return "an empty or relative name";
++  for (const char c : name)
++  {
++    if (c == '/' || c == '\\' || c == ':' || static_cast<unsigned char>(c) < 0x20 || c == 0x7f)
++      return "a path separator or control character";
++  }
++  if (name.back() == '.' || name.back() == ' ')
++    return "a name ending in a dot or space";
++  // Windows opens these as devices, with or without an extension
++  const std::string stem = Lower(name.substr(0, name.find('.')));
++  static constexpr std::array<std::string_view, 4> DEVICES{"con", "prn", "aux", "nul"};
++  if (std::ranges::find(DEVICES, stem) != DEVICES.end() ||
++      (stem.size() == 4 && (stem.starts_with("com") || stem.starts_with("lpt")) &&
++       stem[3] >= '1' && stem[3] <= '9'))
++  {
++    return "a device name";
++  }
++  return "";
++}
++
++std::string CheckDirectory(const DiscIO::FileInfo& directory, const std::string& path, int depth,
++                           std::size_t* entries, std::uint64_t* total_bytes,
++                           std::size_t* file_count)
++{
++  if (depth > MAX_DEPTH)
++    return "the disc's folders nest too deep (" + path + ")";
++  std::set<std::string> seen;
++  for (const DiscIO::FileInfo& entry : directory)
++  {
++    if (++*entries > MAX_ENTRIES)
++      return "the disc lists too many files";
++    const std::string name = entry.GetName();
++    if (const std::string problem = NameProblem(name); !problem.empty())
++      return "the disc has a file with " + problem + " in " + (path.empty() ? "/" : path);
++    if (!seen.insert(Lower(name)).second)
++      return "the disc lists " + path + name + " twice";
++    if (entry.IsDirectory())
++    {
++      if (std::string error =
++              CheckDirectory(entry, path + name + "/", depth + 1, entries, total_bytes, file_count);
++          !error.empty())
++      {
++        return error;
++      }
++    }
++    else
++    {
++      *total_bytes += entry.GetSize();
++      ++*file_count;
++    }
++  }
++  return "";
++}
++
++bool ExportDirectory(const DiscIO::Volume& volume, const DiscIO::Partition& partition,
++                     const DiscIO::FileInfo& directory, const std::string& disc_path,
++                     const std::string& folder,
++                     const std::function<void(const std::string& path)>& progress,
++                     std::string* error)
++{
++  if (!File::IsDirectory(folder) && !File::CreateDir(folder))
++  {
++    *error = "can't create " + folder;
++    return false;
++  }
++  for (const DiscIO::FileInfo& entry : directory)
++  {
++    const std::string name = entry.GetName();
++    const std::string output = folder + '/' + name;
++    if (entry.IsDirectory())
++    {
++      if (!ExportDirectory(volume, partition, entry, disc_path + name + "/", output, progress,
++                           error))
++      {
++        return false;
++      }
++      continue;
++    }
++    if (progress)
++      progress(disc_path + name);
++    // The folder started empty and names are unique, so anything already there is a collision
++    if (File::Exists(output))
++    {
++      *error = output + " already exists";
++      return false;
++    }
++    if (!DiscIO::ExportFile(volume, partition, &entry, output) ||
++        File::GetSize(output) != entry.GetSize())
++    {
++      *error = "can't copy " + disc_path + name + " from the disc (damaged image, or the drive is full)";
++      return false;
++    }
++  }
++  return true;
++}
++}  // namespace
++
++std::string CheckDiscFileNames(const DiscIO::FileInfo& root, std::uint64_t* total_bytes,
++                               std::size_t* file_count)
++{
++  *total_bytes = 0;
++  *file_count = 0;
++  std::size_t entries = 0;
++  return CheckDirectory(root, "/", 0, &entries, total_bytes, file_count);
++}
++
++bool ExportDiscFiles(const DiscIO::Volume& volume, const DiscIO::Partition& partition,
++                     const DiscIO::FileInfo& root, const std::string& export_folder,
++                     const std::function<void(const std::string& path)>& progress,
++                     std::string* error)
++{
++  // Names are checked here too, so a caller that skipped CheckDiscFileNames still can't escape
++  std::uint64_t total_bytes = 0;
++  std::size_t file_count = 0;
++  if (std::string problem = CheckDiscFileNames(root, &total_bytes, &file_count); !problem.empty())
++  {
++    *error = std::move(problem);
++    return false;
++  }
++  return ExportDirectory(volume, partition, root, "", export_folder, progress, error);
++}
++
++bool HasFreeSpace(const fs::path& directory, std::uint64_t bytes, std::string* error)
++{
++  std::error_code ec;
++  fs::path existing = directory;
++  while (!existing.empty() && !fs::exists(existing, ec))
++    existing = existing.parent_path();
++  const fs::space_info space = fs::space(existing.empty() ? fs::path(".") : existing, ec);
++  if (ec)
++    return true;  // can't tell: let the copy itself report a full drive
++  if (space.available >= bytes)
++    return true;
++  constexpr std::uint64_t MIB = 1024 * 1024;
++  *error = "not enough free space: the game needs " + std::to_string(bytes / MIB) + " MB, " +
++           std::to_string(space.available / MIB) + " MB are free";
++  return false;
++}
++
++fs::path ReplacedDirectory(const fs::path& destination)
++{
++  fs::path old = destination;
++  old += ".old";
++  return old;
++}
++
++void RecoverReplacedDirectory(const fs::path& destination)
++{
++  std::error_code ec;
++  const fs::path old = ReplacedDirectory(destination);
++  if (!fs::exists(destination, ec) && fs::is_directory(old, ec))
++    fs::rename(old, destination, ec);
++}
++
++bool ReplaceDirectory(const fs::path& staging, const fs::path& destination, std::string* error)
++{
++  std::error_code ec;
++  RecoverReplacedDirectory(destination);
++  const fs::path old = ReplacedDirectory(destination);
++  fs::remove_all(old, ec);
++  ec.clear();
++  const bool had_destination = fs::exists(destination, ec);
++  if (had_destination)
++  {
++    fs::rename(destination, old, ec);
++    if (ec)
++    {
++      *error = "can't move the old game folder aside: " + ec.message();
++      return false;
++    }
++  }
++  fs::rename(staging, destination, ec);
++  if (ec)
++  {
++    *error = "can't move the new game folder into place: " + ec.message();
++    std::error_code restore_ec;
++    if (had_destination)
++      fs::rename(old, destination, restore_ec);
++    return false;
++  }
++  fs::remove_all(old, ec);
++  return true;
++}
++}  // namespace moderngekko::frontend
+diff --git a/tools/disc_extract.hpp b/tools/disc_extract.hpp
+new file mode 100644
+index 0000000..1dae3db
+--- /dev/null
++++ b/tools/disc_extract.hpp
+@@ -0,0 +1,55 @@
++#pragma once
++
++// Extracting the player's disc into a game folder, shared by the desktop launcher (ExtractDisc) and
++// the Android app (jni/SkiesImport.cpp). Dolphin's DiscIO::ExportDirectory builds each output path
++// from the disc's own file-system (FST) names and only logs a file it couldn't write, so a crafted
++// image could write outside the folder ("..", "/") and a damaged one gave a "successful" import with
++// files missing. These check every name first, fail on any file that isn't written whole, and swap
++// a finished folder in without losing the old one if the swap fails.
++
++#include <cstddef>
++#include <cstdint>
++#include <filesystem>
++#include <functional>
++#include <string>
++
++namespace DiscIO
++{
++class FileInfo;
++class Volume;
++struct Partition;
++}  // namespace DiscIO
++
++namespace moderngekko::frontend
++{
++// Checks the whole FST under `root` before anything is written: every name must be a plain file
++// or folder name (not empty, ".", "..", no '/', '\\', ':' or control characters, no Windows
++// device name, no trailing dot or space) and unique in its folder ignoring case. Adds up the
++// file sizes in *total_bytes and counts them in *file_count. "" if it is fine, else what is wrong.
++std::string CheckDiscFileNames(const DiscIO::FileInfo& root, std::uint64_t* total_bytes,
++                               std::size_t* file_count);
++
++// Exports every file under `root` into `export_folder` (UTF-8, as Dolphin's File:: functions
++// take it), which must be new and empty. Call CheckDiscFileNames first. Fails on the first file that
++// can't be written or doesn't end up its FST size. `progress` gets each file's disc path.
++bool ExportDiscFiles(const DiscIO::Volume& volume, const DiscIO::Partition& partition,
++                     const DiscIO::FileInfo& root, const std::string& export_folder,
++                     const std::function<void(const std::string& path)>& progress,
++                     std::string* error);
++
++// Whether the drive holding `directory` (or its nearest existing parent) has `bytes` free.
++bool HasFreeSpace(const std::filesystem::path& directory, std::uint64_t bytes, std::string* error);
++
++// Puts the finished `staging` folder at `destination`: an existing destination is renamed aside
++// first and only deleted once the new one is in place, and renamed back if that fails, so a failed
++// swap never leaves no game. Also finishes a swap an earlier run was killed in the middle of.
++bool ReplaceDirectory(const std::filesystem::path& staging,
++                      const std::filesystem::path& destination, std::string* error);
++
++// The folder ReplaceDirectory parks the old destination in.
++std::filesystem::path ReplacedDirectory(const std::filesystem::path& destination);
++
++// Before reading `destination`: if a swap was killed between its two renames (no destination, the
++// old one parked), the old one is put back.
++void RecoverReplacedDirectory(const std::filesystem::path& destination);
++}  // namespace moderngekko::frontend
+diff --git a/tools/dol_patch.cpp b/tools/dol_patch.cpp
+index d8b1aba..ecdaf43 100644
+--- a/tools/dol_patch.cpp
++++ b/tools/dol_patch.cpp
+@@ -1,5 +1,7 @@
+ #include "dol_patch.hpp"
+ 
++#include "moderngekko/sha256.hpp"
++
+ #include <array>
+ #include <charconv>
+ #include <cstdint>
+@@ -72,6 +74,8 @@ bool LoadManifest(const fs::path &path, std::vector<Patch> *patches,
+     ++line_number;
+     if (!line.empty() && line.back() == '\r')
+       line.pop_back();
++    if (line.empty())  // a trailing blank line, as editors leave
++      continue;
+     const std::size_t first_comma = line.find(',');
+     const std::size_t second_comma =
+         line.find(',', first_comma == std::string::npos ? 0 : first_comma + 1);
+@@ -158,12 +162,134 @@ bool ReplaceFile(const fs::path &path, const std::vector<std::uint8_t> &bytes,
+ #endif
+   return true;
+ }
++
++// A whole-file patch for a DOL that a game patch extends with new sections (word patches can't add
++// them):
++//   moderngekko-dol-file-patch 1
++//   input-sha256 <hex>     the original DOL it applies to
++//   output-sha256 <hex>    the patched DOL (what the recomp module was built from)
++//   output-size <decimal>
++//   <hex file offset> <hex bytes>   one run per line, ascending
++// It only applies to that exact input and checks its output, so the result is byte for byte the DOL
++// the module expects; a DOL that already is the output is left alone.
++constexpr std::string_view FILE_PATCH_HEADER = "moderngekko-dol-file-patch 1";
++
++bool ParseHexBytes(std::string_view text, std::vector<std::uint8_t> *bytes) {
++  if (text.empty() || text.size() % 2 != 0)
++    return false;
++  bytes->clear();
++  for (std::size_t i = 0; i < text.size(); i += 2) {
++    std::uint8_t value = 0;
++    const auto parsed =
++        std::from_chars(text.data() + i, text.data() + i + 2, value, 16);
++    if (parsed.ec != std::errc{} || parsed.ptr != text.data() + i + 2)
++      return false;
++    bytes->push_back(value);
++  }
++  return true;
++}
++
++bool ApplyFilePatch(const fs::path &dol_path, std::ifstream &input,
++                    bool *changed, std::string *error) {
++  std::string input_sha, output_sha;
++  std::uint64_t output_size = 0;
++  struct Run {
++    std::uint64_t offset;
++    std::vector<std::uint8_t> bytes;
++  };
++  std::vector<Run> runs;
++  std::string line;
++  unsigned line_number = 1;
++  while (std::getline(input, line)) {
++    ++line_number;
++    if (!line.empty() && line.back() == '\r')
++      line.pop_back();
++    if (line.empty())
++      continue;
++    const std::size_t space = line.find(' ');
++    if (space == std::string::npos) {
++      *error = "invalid DOL file patch line " + std::to_string(line_number);
++      return false;
++    }
++    const std::string_view key = std::string_view(line).substr(0, space);
++    const std::string_view value = std::string_view(line).substr(space + 1);
++    if (key == "input-sha256") {
++      input_sha = value;
++    } else if (key == "output-sha256") {
++      output_sha = value;
++    } else if (key == "output-size") {
++      const auto parsed =
++          std::from_chars(value.data(), value.data() + value.size(), output_size);
++      if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size()) {
++        *error = "invalid DOL file patch size";
++        return false;
++      }
++    } else {
++      Run run{};
++      const auto parsed =
++          std::from_chars(key.data(), key.data() + key.size(), run.offset, 16);
++      if (parsed.ec != std::errc{} || parsed.ptr != key.data() + key.size() ||
++          !ParseHexBytes(value, &run.bytes)) {
++        *error = "invalid DOL file patch line " + std::to_string(line_number);
++        return false;
++      }
++      runs.push_back(std::move(run));
++    }
++  }
++  if (input_sha.size() != 64 || output_sha.size() != 64 || output_size == 0 ||
++      output_size > (64u << 20) || runs.empty()) {
++    *error = "incomplete DOL file patch";
++    return false;
++  }
++  // Every run in order and inside the output, compared without adding to an untrusted offset.
++  std::uint64_t previous_end = 0;
++  for (const Run &run : runs) {
++    if (run.offset < previous_end || run.offset > output_size ||
++        run.bytes.size() > output_size - run.offset) {
++      *error = "invalid DOL file patch run at " + std::to_string(run.offset);
++      return false;
++    }
++    previous_end = run.offset + run.bytes.size();
++  }
++
++  std::vector<std::uint8_t> bytes;
++  if (!ReadFile(dol_path, &bytes, error))
++    return false;
++  const std::string actual = moderngekko::Sha256(bytes);
++  if (actual == output_sha)
++    return true;
++  if (actual != input_sha) {
++    *error = "main.dol isn't the one this release patches (SHA-256 " + actual +
++             ", expected " + input_sha + ")";
++    return false;
++  }
++  bytes.resize(static_cast<std::size_t>(output_size), 0);
++  for (const Run &run : runs)
++    std::copy(run.bytes.begin(), run.bytes.end(),
++              bytes.begin() + static_cast<std::ptrdiff_t>(run.offset));
++  if (moderngekko::Sha256(bytes) != output_sha) {
++    *error = "patched main.dol doesn't match the release (patch file damaged?)";
++    return false;
++  }
++  *changed = true;
++  return ReplaceFile(dol_path, bytes, error);
++}
+ } // namespace
+ 
+ bool ApplyDolPatchManifest(const fs::path &dol_path,
+                            const fs::path &manifest_path, bool *changed,
+                            std::string *error) {
+   *changed = false;
++  {
++    std::ifstream input(manifest_path);
++    std::string header;
++    if (input && std::getline(input, header)) {
++      if (!header.empty() && header.back() == '\r')
++        header.pop_back();
++      if (header == FILE_PATCH_HEADER)
++        return ApplyFilePatch(dol_path, input, changed, error);
++    }
++  }
+   std::vector<Patch> patches;
+   if (!LoadManifest(manifest_path, &patches, error))
+     return false;
+diff --git a/tools/frontend_config.cpp b/tools/frontend_config.cpp
+index 03740d4..f0eea3e 100644
+--- a/tools/frontend_config.cpp
++++ b/tools/frontend_config.cpp
+@@ -94,7 +94,8 @@ const std::vector<GraphicsBackendOption> &SupportedGraphicsBackends() {
+ ConfigResult LoadConfig(const fs::path &user_directory,
+                         bool create_if_missing) {
+   const fs::path path = user_directory / "config.ini";
+-  if (!fs::exists(path) && create_if_missing) {
++  std::error_code exists_error;
++  if (!fs::exists(path, exists_error) && create_if_missing) {
+     std::string error;
+     if (!SaveConfig(user_directory, "1920x1080", true, {}, &error))
+       return {.error = std::move(error)};
+@@ -140,6 +141,9 @@ ConfigResult LoadConfig(const fs::path &user_directory,
+     } else if (key == "fullscreen") {
+       if (!ParseBoolean(value, &config.fullscreen))
+         return {.error = "fullscreen must be true or false"};
++    } else if (key == "frame_interpolation") {
++      if (!ParseBoolean(value, &config.frame_interpolation))
++        return {.error = "frame_interpolation must be true or false"};
+     } else if (key == "nickname")
+       config.netplay_nickname = raw_value;
+     else if (key == "address")
+@@ -242,10 +246,14 @@ bool SaveConfig(const fs::path &user_directory, const ConfigResult &config,
+       *error = "can't create user directory: " + ec.message();
+     return false;
+   }
+-  std::ofstream file(user_directory / "config.ini", std::ios::trunc);
++  // Written beside it and renamed over it, so a kill mid-write leaves the old file whole.
++  const fs::path path = user_directory / "config.ini";
++  fs::path staged = path;
++  staged += ".tmp";
++  std::ofstream file(staged, std::ios::trunc);
+   if (!file) {
+     if (error)
+-      *error = "can't write " + (user_directory / "config.ini").string();
++      *error = "can't write " + staged.string();
+     return false;
+   }
+   file << "# ModernGekko frontend settings\n"
+@@ -257,6 +265,7 @@ bool SaveConfig(const fs::path &user_directory, const ConfigResult &config,
+        << "fullscreen=" << (config.fullscreen ? "true" : "false") << '\n'
+        << "show_fps_in_title=" << (config.show_fps_in_title ? "true" : "false")
+        << '\n'
++       << "frame_interpolation=" << (config.frame_interpolation ? "true" : "false") << '\n'
+        << "[Input]\n";
+   for (std::size_t i = 0; i < config.controllers.size() && i < 4; ++i) {
+     if (config.controllers[i].find_first_of("\r\n") != std::string::npos) {
+@@ -271,6 +280,21 @@ bool SaveConfig(const fs::path &user_directory, const ConfigResult &config,
+        << "address=" << config.netplay_address << '\n'
+        << "port=" << config.netplay_port << '\n'
+        << "buffer=" << config.netplay_buffer << '\n';
++  file.close();
++  if (!file) {
++    if (error)
++      *error = "can't write " + staged.string();
++    fs::remove(staged, ec);
++    return false;
++  }
++  fs::rename(staged, path, ec);
++  if (ec) {
++    if (error)
++      *error = "can't replace " + path.string() + ": " + ec.message();
++    std::error_code cleanup;
++    fs::remove(staged, cleanup);
++    return false;
++  }
+   return true;
+ }
+ 
+@@ -278,8 +302,17 @@ bool SaveConfig(const fs::path &user_directory, std::string_view resolution,
+                 bool show_fps_in_title, std::string_view controller,
+                 std::string *error) {
+   ConfigResult config = LoadConfig(user_directory, false);
+-  if (!config)
++  if (!config) {
++    // Only a missing file starts from defaults; one with a mistake in it (a hand-edited netplay
++    // address) would otherwise lose its backend, fullscreen and netplay settings here.
++    std::error_code ec;
++    if (fs::exists(user_directory / "config.ini", ec)) {
++      if (error)
++        *error = "config.ini: " + config.error;
++      return false;
++    }
+     config = {};
++  }
+   config.resolution = resolution;
+   config.show_fps_in_title = show_fps_in_title;
+   config.controller = controller;
+diff --git a/tools/frontend_config.hpp b/tools/frontend_config.hpp
+index 3b18d05..7998f2c 100644
+--- a/tools/frontend_config.hpp
++++ b/tools/frontend_config.hpp
+@@ -25,6 +25,8 @@ struct ConfigResult {
+   std::string controller;
+   std::vector<std::string> controllers;
+   bool show_fps_in_title = true;
++  // Draw an in-between picture between frames (RecompCore's frame interpolation prototype).
++  bool frame_interpolation = false;
+   bool fullscreen = false;
+   std::string netplay_nickname = "Player";
+   std::string netplay_address = "127.0.0.1";
+diff --git a/tools/moderngekko_launcher.cpp b/tools/moderngekko_launcher.cpp
+index 7699c3d..322bec1 100644
+--- a/tools/moderngekko_launcher.cpp
++++ b/tools/moderngekko_launcher.cpp
+@@ -1,9 +1,14 @@
+ #include "frontend_config.hpp"
++#include "disc_extract.hpp"
+ #include "dol_patch.hpp"
+ #include "launcher_savestates.hpp"
+ #include "moderngekko/game.hpp"
+ #include "netplay_session.hpp"
++#include "save_import.hpp"
+ 
++#include "Common/Image.h"
++#include "Common/IniFile.h"
++#include "Common/StringUtil.h"
+ #include "DiscIO/DiscExtractor.h"
+ #include "DiscIO/Filesystem.h"
+ #include "DiscIO/Volume.h"
+@@ -19,7 +24,12 @@
+ #include <cstdio>
+ #include <cstdlib>
+ #include <filesystem>
++#include <cctype>
++#include <chrono>
++#include <ctime>
+ #include <fstream>
++#include <initializer_list>
++#include <iterator>
+ #include <iostream>
+ #include <mutex>
+ #include <optional>
+@@ -51,7 +61,22 @@ namespace
+ #ifdef MODERNGEKKO_GAMECUBE_CONTROLLERS
+ constexpr std::string_view CONTROLLER_PROFILE_NAME = "GCPadNew.ini";
+ constexpr std::string_view GENERATED_PROFILE_LABEL = "GameCube profile";
++// GameCube disc images the import was checked with (2026-10-11, Skies: the same files and DOL from
++// each): RVZ, ISO, GCM, GCZ, WIA, CISO. WBFS is a Wii backup format, so it isn't offered.
++constexpr std::array<std::string_view, 6> DISC_EXTENSIONS{".rvz", ".iso", ".gcm", ".gcz", ".wia",
++                                                          ".ciso"};
++constexpr const char* DISC_FORMATS_TEXT = "RVZ, ISO, GCM, GCZ, WIA or CISO";
++constexpr SDL_DialogFileFilter DISC_FILTERS[] = {{"Disc images", "rvz;iso;gcm;gcz;wia;ciso"},
++                                                 {"RVZ", "rvz"},
++                                                 {"ISO / GCM", "iso;gcm"},
++                                                 {"GCZ", "gcz"},
++                                                 {"WIA", "wia"},
++                                                 {"CISO", "ciso"}};
+ #else
++constexpr std::array<std::string_view, 3> DISC_EXTENSIONS{".wbfs", ".iso", ".rvz"};
++constexpr const char* DISC_FORMATS_TEXT = "ISO, WBFS or RVZ";
++constexpr SDL_DialogFileFilter DISC_FILTERS[] = {
++    {"Disc images", "iso;wbfs;rvz"}, {"ISO", "iso"}, {"WBFS", "wbfs"}, {"RVZ", "rvz"}};
+ constexpr std::string_view CONTROLLER_PROFILE_NAME = "WiimoteNew.ini";
+ constexpr std::string_view GENERATED_PROFILE_LABEL = "sideways profile";
+ #endif
+@@ -74,12 +99,141 @@ struct DialogState
+   std::string error;
+ };
+ 
++// Settings, Saves: the save file picked to import (UTF-8, as SDL hands it over)
++struct SaveDialogState
++{
++  std::mutex mutex;
++  std::optional<std::string> selected;
++  bool cancelled = false;
++  std::string error;  // the picker itself failed (SDL's reason)
++};
++
+ struct ControllerOption
+ {
+   std::string label;
+   std::string device;
+ };
+ 
++// Skies of Arcadia Legends' options, which the runtime applies live (Core/SkiesSettings.cpp):
++// [Skies] in the user directory's Config/Dolphin.ini. -1 = not set yet; the runtime then derives
++// the value on its first boot (16:9 from the widescreen DOL, the frame rate from the old switches).
++constexpr const char* SKIES_DISC_ID = "GEAE8P";
++
++// A Dolphin setting in the user directory's Config/<file>, [<section>] <key>.
++struct DolphinOption
++{
++  const char* file;
++  const char* section;
++  const char* key;
++};
++
++// -1 when not set. Booleans (Dolphin writes True / False) read as 1 / 0.
++int ReadDolphinOption(const fs::path& user_directory, const DolphinOption& option)
++{
++  Common::IniFile ini;
++  ini.Load((user_directory / "Config" / option.file).string());
++  std::string text;
++  if (!ini.GetOrCreateSection(option.section)->Get(option.key, &text) || text.empty())
++    return -1;
++  std::ranges::transform(text, text.begin(), [](unsigned char c) { return std::tolower(c); });
++  if (text == "true")
++    return 1;
++  if (text == "false")
++    return 0;
++  try
++  {
++    // Out of int's range (1e99) or nan would make the cast undefined: unset instead
++    const double value = std::stod(text);
++    if (!(value >= -1e9 && value <= 1e9))
++      return -1;
++    return static_cast<int>(value);
++  }
++  catch (const std::exception&)
++  {
++    return -1;
++  }
++}
++
++bool WriteDolphinOption(const fs::path& user_directory, const DolphinOption& option, int value,
++                        std::string* error)
++{
++  const fs::path path = user_directory / "Config" / option.file;
++  std::error_code ec;
++  fs::create_directories(path.parent_path(), ec);
++  Common::IniFile ini;
++  // A file that is there but can't be read (another program holding it) would otherwise be
++  // rewritten with this one key, losing every other setting in it.
++  if (!ini.Load(path.string()) && fs::exists(path, ec))
++  {
++    *error = "can't read " + path.string() + "; try again";
++    return false;
++  }
++  ini.GetOrCreateSection(option.section)->Set(option.key, value);
++  if (!ini.Save(path.string()))
++  {
++    *error = "can't write " + path.string();
++    return false;
++  }
++  return true;
++}
++
++// Controller 1's settings in the pad profile (GCPadNew.ini [GCPad1], what Dolphin's controller
++// settings and the in-game menu write): the sticks' dead zone and the rumble motor's range, percent.
++constexpr const char* PAD_PROFILE = "GCPadNew.ini";
++constexpr const char* PAD_SECTION = "GCPad1";
++
++int ReadPadOption(const fs::path& user_directory, const char* key, int fallback)
++{
++  const int value = ReadDolphinOption(user_directory, {PAD_PROFILE, PAD_SECTION, key});
++  return value < 0 ? fallback : value;
++}
++
++bool WritePadOptions(const fs::path& user_directory, std::initializer_list<const char*> keys,
++                     int value, std::string* error)
++{
++  const fs::path path = user_directory / "Config" / PAD_PROFILE;
++  Common::IniFile ini;
++  if (!ini.Load(path.string()))
++  {
++    *error = "set up a controller first (Controls)";
++    return false;
++  }
++  for (const char* key : keys)
++    ini.GetOrCreateSection(PAD_SECTION)->Set(key, value);
++  if (!ini.Save(path.string()))
++  {
++    *error = "can't write " + path.string();
++    return false;
++  }
++  return true;
++}
++
++// The branded launcher's settings, the same choices as the in-game menu (VideoCommon/SkiesMenu.cpp).
++struct LauncherChoice
++{
++  int value;
++  const char* text;
++};
++constexpr std::array<LauncherChoice, 2> ON_OFF{{{1, "On"}, {0, "Off"}}};
++constexpr std::array<LauncherChoice, 2> CAMERA_CHOICES{{{1, "Hold Z to move"}, {0, "Original"}}};
++constexpr std::array<LauncherChoice, 6> ENCOUNTER_CHOICES{
++    {{0, "Off"}, {25, "1/4"}, {50, "1/2"}, {100, "Normal"}, {200, "2x"}, {400, "4x"}}};
++constexpr std::array<LauncherChoice, 6> REWARD_CHOICES{
++    {{0, "Off"}, {50, "1/2"}, {100, "Normal"}, {200, "2x"}, {300, "3x"}, {400, "4x"}}};
++constexpr std::array<LauncherChoice, 4> SPEED_CHOICES{{{1, "Normal (Z in battle)"},
++                                                       {2, "2x (Z in battle)"},
++                                                       {3, "3x (Z in battle)"},
++                                                       {4, "4x (Z in battle)"}}};
++constexpr std::array<LauncherChoice, 2> INVINCIBLE_CHOICES{
++    {{1, "On (L3 / R3)"}, {0, "Off (L3 / R3)"}}};
++constexpr std::array<LauncherChoice, 5> AUTO_SAVE_CHOICES{
++    {{0, "Off"}, {5, "Every 5 min"}, {10, "Every 10 min"}, {15, "Every 15 min"}, {30, "Every 30 min"}}};
++constexpr std::array<LauncherChoice, 7> DEAD_ZONE_CHOICES{
++    {{0, "Off"}, {5, "5%"}, {10, "10%"}, {15, "15%"}, {20, "20%"}, {25, "25%"}, {30, "30%"}}};
++constexpr std::array<LauncherChoice, 11> VOLUME_CHOICES{
++    {{0, "0% (muted)"}, {10, "10%"}, {20, "20%"}, {30, "30%"}, {40, "40%"}, {50, "50%"},
++     {60, "60%"}, {70, "70%"}, {80, "80%"}, {90, "90%"}, {100, "100%"}}};
++
+ std::string RequiredGameError(const moderngekko::GameMetadata& metadata)
+ {
+ #ifdef MODERNGEKKO_REQUIRED_DISC_ID
+@@ -101,6 +255,18 @@ std::string RequiredGameError(const moderngekko::GameMetadata& metadata)
+   return {};
+ }
+ 
++// The launcher's look at a game root. Hashing every game file (assets_sha256, 1.4 GB for Skies)
++// is only needed when the build pins it (RequiredGameError); otherwise it just held the window
++// frozen for seconds at startup and after an import. Netplay compares hashes in the runner.
++moderngekko::GameInspectResult InspectForLauncher(const fs::path& root)
++{
++#ifdef MODERNGEKKO_REQUIRED_ASSETS_SHA256
++  return moderngekko::InspectGame(root);
++#else
++  return moderngekko::InspectGame(root, false);
++#endif
++}
++
+ std::vector<ControllerOption> EnumerateControllers()
+ {
+   std::vector<ControllerOption> result;
+@@ -146,9 +312,10 @@ fs::path DefaultUserDirectory()
+   if (const char* local_app_data = std::getenv("LOCALAPPDATA"))
+     return fs::path(local_app_data) / MODERNGEKKO_USER_DIRECTORY_NAME;
+ #endif
+-  if (const char* xdg = std::getenv("XDG_DATA_HOME"))
++  // XDG: an empty or relative XDG_DATA_HOME counts as unset
++  if (const char* xdg = std::getenv("XDG_DATA_HOME"); xdg && xdg[0] == '/')
+     return fs::path(xdg) / MODERNGEKKO_USER_DIRECTORY_NAME;
+-  if (const char* home = std::getenv("HOME"))
++  if (const char* home = std::getenv("HOME"); home && home[0] != '\0')
+     return fs::path(home) / ".local/share" / MODERNGEKKO_USER_DIRECTORY_NAME;
+   return std::string(MODERNGEKKO_USER_DIRECTORY_NAME) + "-user";
+ }
+@@ -166,6 +333,13 @@ fs::path DocumentsDirectory()
+ 
+ fs::path ExecutableDirectory(const char* argv0)
+ {
++  // SDL asks the OS for the running executable (argv[0] is only what the caller typed, e.g. a bare
++  // name found through PATH)
++  if (const char* base = SDL_GetBasePath(); base && *base)
++  {
++    const std::string text(base);
++    return fs::path(std::u8string(text.begin(), text.end())).parent_path();
++  }
+   std::error_code ec;
+ #if defined(__linux__)
+   const fs::path proc_executable = fs::read_symlink("/proc/self/exe", ec);
+@@ -182,8 +356,9 @@ fs::path SiblingExecutable(const fs::path& release_directory, std::string name)
+ #if defined(_WIN32)
+   name += ".exe";
+ #endif
+-  const fs::path sibling = release_directory / name;
+-  return fs::is_regular_file(sibling) ? sibling : fs::path(name);
++  // Always the one beside the launcher: a bare name would be looked up in the working directory
++  // and PATH. A missing one fails to start, with its full path in the error.
++  return release_directory / name;
+ }
+ 
+ bool ApplyBundledDolPatch(const fs::path& game_root, const fs::path& release_directory,
+@@ -232,7 +407,10 @@ bool WriteDefaultGame(const fs::path& user_directory, const fs::path& release_di
+   const fs::path destination = DefaultGameFile(user_directory, release_directory);
+   std::error_code ec;
+   fs::create_directories(destination.parent_path(), ec);
+-  std::ofstream file(destination, std::ios::trunc);
++  // Written beside it and renamed over it, so a kill mid-write leaves the old one whole
++  fs::path staged = destination;
++  staged += ".tmp";
++  std::ofstream file(staged, std::ios::trunc);
+   if (!file)
+   {
+     if (error)
+@@ -246,9 +424,141 @@ bool WriteDefaultGame(const fs::path& user_directory, const fs::path& release_di
+     stored = relative;
+ #endif
+   file << stored.string() << '\n';
++  file.close();
++  if (file)
++    fs::rename(staged, destination, ec);
++  if (!file || ec)
++  {
++    std::error_code cleanup;
++    fs::remove(staged, cleanup);
++    if (error)
++      *error = "can't save default-game.txt" + (ec ? ": " + ec.message() : std::string());
++    return false;
++  }
+   return true;
+ }
+ 
++// The branded launcher's accent: the gold of the menu highlight, the tab overline and check marks.
++constexpr ImVec4 LAUNCHER_ACCENT{1.0f, 0.79f, 0.29f, 1.0f};
++constexpr ImVec4 LAUNCHER_STATUS{0.86f, 0.89f, 0.95f, 0.92f};
++
++// The branded launcher's background picture, launcher-background.png beside the executable
++// (release/ in the recomp repo; Skies: art by I_LIKE_SONIC, credited in README.md / CREDITS.md). nullptr without one: the launcher keeps its plain look.
++SDL_Texture* LoadLauncherBackground(SDL_Renderer* renderer, const fs::path& path)
++{
++  std::ifstream file(path, std::ios::binary);
++  if (!file)
++    return nullptr;
++  const std::vector<u8> png{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
++  Common::UniqueBuffer<u8> pixels;
++  u32 width = 0;
++  u32 height = 0;
++  if (!Common::LoadPNG(png, &pixels, &width, &height))
++    return nullptr;
++  SDL_Texture* texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA32,
++                                           SDL_TEXTUREACCESS_STATIC, static_cast<int>(width),
++                                           static_cast<int>(height));
++  if (!texture)
++    return nullptr;
++  SDL_UpdateTexture(texture, nullptr, pixels.data(), static_cast<int>(width * 4));
++  SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_LINEAR);
++  return texture;
++}
++
++// The newest memory card save of a game (GCI folders GC/<region>/Card A|B, Dolphin's default card
++// type for GameCube), by file write time: Dolphin rewrites a .gci only when that save changed, so
++// this is when the game last saved. Nothing for a game with no save.
++struct CardSave
++{
++  fs::path path;
++  fs::file_time_type written;
++};
++std::optional<CardSave> NewestCardSave(const fs::path& user_directory, std::string_view game_code)
++{
++  std::optional<CardSave> newest;
++  for (const char* region : {"USA", "EUR", "JAP"})
++  {
++    for (const char* card : {"Card A", "Card B"})
++    {
++      std::error_code ec;
++      for (const fs::directory_entry& entry :
++           fs::directory_iterator(user_directory / "GC" / region / card, ec))
++      {
++        const std::string name = entry.path().filename().string();
++        if (entry.path().extension() != ".gci" ||
++            (!game_code.empty() && name.find(game_code) == std::string::npos))
++        {
++          continue;
++        }
++        std::error_code time_ec;
++        const fs::file_time_type written = entry.last_write_time(time_ec);
++        if (!time_ec && (!newest || written > newest->written))
++          newest = CardSave{entry.path(), written};
++      }
++    }
++  }
++  return newest;
++}
++
++// The game's file number (1..3) of a card save on card A, from its name ("...SA_LEGENDS.000.gci"
++// is file 1); 0 when it isn't one the in-game auto-load can pick (card B, another name).
++int CardSaveFile(const fs::path& path)
++{
++  if (path.parent_path().filename() != "Card A")
++    return 0;
++  const std::string stem = path.stem().string();  // "8P-GEAE-SA_LEGENDS.000"
++  const std::size_t dot = stem.rfind('.');
++  if (dot == std::string::npos || stem.size() - dot != 4)
++    return 0;
++  int number = 0;
++  for (char c : stem.substr(dot + 1))
++  {
++    if (c < '0' || c > '9')
++      return 0;
++    number = number * 10 + (c - '0');
++  }
++  return number <= 2 ? number + 1 : 0;
++}
++
++// "Oct 11 21:07", local time
++std::string LocalTimeText(fs::file_time_type written)
++{
++  const auto system = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
++      written - fs::file_time_type::clock::now() + std::chrono::system_clock::now());
++  const std::time_t when = std::chrono::system_clock::to_time_t(system);
++  char text[32] = {};
++  if (const std::tm* local = std::localtime(&when))
++    std::strftime(text, sizeof(text), "%b %d %H:%M", local);
++  return text;
++}
++
++// What Import a save accepts for `game_id` (the string must outlive the result). Skies' card saves
++// are always 3 blocks named SA_LEGENDS.000-.002, so anything else is refused, not left unloadable.
++moderngekko::frontend::SaveImportGame SaveGame(std::string_view game_id)
++{
++  moderngekko::frontend::SaveImportGame game{game_id, MODERNGEKKO_FRONTEND_NAME,
++                                             "state-skies-import-"};
++  if (game_id == "GEAE8P")
++  {
++    game.save_blocks = 3;
++    game.save_name_prefix = "SA_LEGENDS.";
++  }
++  return game;
++}
++
++// A save state's name for the menu: the in-game menu's slots and auto-saves by their role
++std::string StateText(const fs::path& path)
++{
++  const std::string stem = path.stem().string();
++  if (stem.starts_with("state-skies-slot"))
++    return "Slot " + stem.substr(std::string_view("state-skies-slot").size());
++  if (stem.starts_with("recovery-skies-"))
++    return "Auto-save";
++  if (stem.starts_with("state-skies-import-"))
++    return "Imported";
++  return stem;
++}
++
+ std::vector<fs::path> FindDiscImages()
+ {
+   std::vector<fs::path> images;
+@@ -259,7 +569,9 @@ std::vector<fs::path> FindDiscImages()
+   fs::recursive_directory_iterator iterator(documents,
+                                             fs::directory_options::skip_permission_denied, ec);
+   const fs::recursive_directory_iterator end;
+-  while (iterator != end)
++  // It runs before the first frame: at most 2 s (a cloud-synced Documents can be slow to list)
++  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
++  while (iterator != end && std::chrono::steady_clock::now() < deadline)
+   {
+     if (iterator.depth() > 4)
+       iterator.disable_recursion_pending();
+@@ -268,7 +580,7 @@ std::vector<fs::path> FindDiscImages()
+       std::string extension = iterator->path().extension().string();
+       std::ranges::transform(extension, extension.begin(),
+                              [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+-      if (extension == ".wbfs" || extension == ".iso" || extension == ".rvz")
++      if (std::ranges::find(DISC_EXTENSIONS, extension) != DISC_EXTENSIONS.end())
+         images.push_back(iterator->path());
+     }
+     iterator.increment(ec);
+@@ -372,7 +684,9 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+     return fail("Dolphin could not read the game partition filesystem");
+ 
+   std::string disc_id = volume->GetGameID(partition);
+-  if (disc_id.size() != 6)
++  // It names the game folder (and a staging folder that is deleted), so only letters and digits
++  if (disc_id.size() != 6 ||
++      !std::ranges::all_of(disc_id, [](unsigned char c) { return std::isalnum(c) != 0; }))
+     return fail("the selected image has an invalid disc ID");
+ #ifdef MODERNGEKKO_REQUIRED_DISC_ID
+   if (disc_id != MODERNGEKKO_REQUIRED_DISC_ID)
+@@ -387,14 +701,47 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+   const fs::path output = games_directory / disc_id;
+ #endif
+   std::error_code ec;
++  // A swap killed between its two renames left the old game parked beside it
++  moderngekko::frontend::RecoverReplacedDirectory(output);
++  moderngekko::frontend::RecoverReplacedDirectory(output / "sys");
+   if (fs::is_directory(output, ec))
+   {
+     bool changed = false;
+     std::string patch_error;
+     if (!ApplyBundledDolPatch(output, release_directory, &changed, &patch_error))
+-      return fail("existing extraction patching failed: " + patch_error);
++    {
++      // An import by an earlier release: its main.dol is that release's patched build, which this
++      // release's patch doesn't take. Take sys/ (main.dol included) again from the disc just picked,
++      // then patch; files/ is the same disc data in every release, so it stays. Done in a folder
++      // of its own and swapped in only once patched, so a failure leaves the old sys/ alone.
++      {
++        std::lock_guard lock(state->mutex);
++        state->status = "Updating the earlier import from " + image.filename().string();
++      }
++      const fs::path refresh = games_directory / (disc_id + ".refresh");
++      fs::remove_all(refresh, ec);
++      ec.clear();
++      fs::create_directories(refresh, ec);
++      if (ec || !DiscIO::ExportSystemData(*volume, partition, refresh.string()))
++      {
++        fs::remove_all(refresh, ec);
++        return fail("can't refresh the earlier import's system files in " + output.string());
++      }
++      patch_error.clear();
++      if (!ApplyBundledDolPatch(refresh, release_directory, &changed, &patch_error))
++      {
++        fs::remove_all(refresh, ec);
++        return fail("patching the game failed: " + patch_error);
++      }
++      std::string swap_error;
++      const bool swapped =
++          moderngekko::frontend::ReplaceDirectory(refresh / "sys", output / "sys", &swap_error);
++      fs::remove_all(refresh, ec);
++      if (!swapped)
++        return fail("can't update the earlier import: " + swap_error);
++    }
+   }
+-  const auto existing = moderngekko::InspectGame(output);
++  const auto existing = InspectForLauncher(output);
+   if (existing && RequiredGameError(*existing.metadata).empty())
+   {
+     std::string error;
+@@ -407,8 +754,27 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+     return true;
+   }
+ 
++  // Every name on the disc is checked before anything is written (a crafted image could otherwise
++  // write outside the game folder), and the files have to fit beside the old import
++  std::uint64_t game_bytes = 0;
++  std::size_t game_files = 0;
++  if (std::string problem =
++          moderngekko::frontend::CheckDiscFileNames(filesystem->GetRoot(), &game_bytes, &game_files);
++      !problem.empty())
++  {
++    return fail("this disc image can't be used: " + problem);
++  }
++  constexpr std::uint64_t SYSTEM_DATA_MARGIN = 64ull << 20;
++  if (std::string space_error;
++      !moderngekko::frontend::HasFreeSpace(games_directory, game_bytes + SYSTEM_DATA_MARGIN,
++                                           &space_error))
++  {
++    return fail(space_error);
++  }
++
+   const fs::path staging = games_directory / (disc_id + ".extracting");
+   fs::remove_all(staging, ec);
++  ec.clear();
+   fs::create_directories(staging / "files", ec);
+   if (ec)
+     return fail("can't create extraction directory: " + ec.message());
+@@ -423,20 +789,25 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+     return fail("Dolphin failed while extracting the disc system data");
+   }
+ 
+-  state->total = std::max(1u, filesystem->GetRoot().GetTotalChildren());
++  state->total = static_cast<unsigned>(std::max<std::size_t>(1, game_files));
+   {
+     std::lock_guard lock(state->mutex);
+     state->status = "Extracting game files";
+   }
+-  DiscIO::ExportDirectory(*volume, partition, filesystem->GetRoot(), true, "",
+-                          (staging / "files").string(),
+-                          [state](const std::string& path)
+-                          {
+-                            ++state->completed;
+-                            std::lock_guard lock(state->mutex);
+-                            state->status = "Extracting " + path;
+-                            return false;
+-                          });
++  std::string export_error;
++  if (!moderngekko::frontend::ExportDiscFiles(*volume, partition, filesystem->GetRoot(),
++                                              (staging / "files").string(),
++                                              [state](const std::string& path)
++                                              {
++                                                ++state->completed;
++                                                std::lock_guard lock(state->mutex);
++                                                state->status = "Extracting " + path;
++                                              },
++                                              &export_error))
++  {
++    fs::remove_all(staging, ec);
++    return fail("extracting the game files failed: " + export_error);
++  }
+ 
+   bool dol_changed = false;
+   std::string dol_patch_error;
+@@ -446,7 +817,7 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+     return fail("extracted DOL patching failed: " + dol_patch_error);
+   }
+ 
+-  const auto inspected = moderngekko::InspectGame(staging);
++  const auto inspected = InspectForLauncher(staging);
+   if (!inspected)
+   {
+     fs::remove_all(staging, ec);
+@@ -459,11 +830,13 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+     return fail("extracted game validation failed: " + identity_error);
+   }
+ 
+-  fs::remove_all(output, ec);
+-  ec.clear();
+-  fs::rename(staging, output, ec);
+-  if (ec)
+-    return fail("can't publish extracted game: " + ec.message());
++  // The old import stays until the new one is in place
++  if (std::string swap_error;
++      !moderngekko::frontend::ReplaceDirectory(staging, output, &swap_error))
++  {
++    fs::remove_all(staging, ec);
++    return fail("can't publish extracted game: " + swap_error);
++  }
+   std::string error;
+   if (!WriteDefaultGame(user_directory, release_directory, output, &error))
+     return fail(error);
+@@ -487,16 +860,26 @@ void SDLCALL FileDialogCallback(void* userdata, const char* const* filelist, int
+     state->selected = filelist[0];
+ }
+ 
++void SDLCALL SaveDialogCallback(void* userdata, const char* const* filelist, int)
++{
++  auto* state = static_cast<SaveDialogState*>(userdata);
++  std::lock_guard lock(state->mutex);
++  if (!filelist)
++    state->error = SDL_GetError();
++  else if (filelist[0])
++    state->selected = filelist[0];
++  else
++    state->cancelled = true;
++}
++
+ fs::path SiblingRunner(const char* argv0)
+ {
+-  std::error_code ec;
+-  const fs::path self = fs::weakly_canonical(argv0, ec);
+   fs::path runner = MODERNGEKKO_RUNNER_FILENAME;
+ #if defined(_WIN32)
+   runner += ".exe";
+ #endif
+-  const fs::path sibling = self.parent_path() / runner;
+-  return fs::is_regular_file(sibling) ? sibling : runner;
++  // Always the one beside the launcher (see SiblingExecutable)
++  return ExecutableDirectory(argv0) / runner;
+ }
+ } // namespace
+ 
+@@ -504,6 +887,7 @@ int main(int argc, char** argv)
+ {
+   bool use_wayland = false;
+   std::optional<fs::path> extract_only;
++  std::optional<std::string> import_save_only;
+   for (int i = 1; i < argc; ++i)
+   {
+     if (std::string_view(argv[i]) == "-X11" || std::string_view(argv[i]) == "--x11")
+@@ -512,6 +896,8 @@ int main(int argc, char** argv)
+       use_wayland = true;
+     else if (std::string_view(argv[i]) == "--extract" && i + 1 < argc)
+       extract_only = argv[++i];
++    else if (std::string_view(argv[i]) == "--import-save" && i + 1 < argc)
++      import_save_only = argv[++i];
+   }
+ 
+   const fs::path user_directory = DefaultUserDirectory();
+@@ -529,6 +915,19 @@ int main(int argc, char** argv)
+       std::cout << extraction.status << ": " << *extraction.finished_game << '\n';
+     return success ? 0 : 1;
+   }
++#ifdef MODERNGEKKO_REQUIRED_DISC_ID
++  // Settings, Saves' Import without the window and the picker (for tests)
++  if (import_save_only)
++  {
++    const moderngekko::frontend::SaveImportGame game = SaveGame(MODERNGEKKO_REQUIRED_DISC_ID);
++    const moderngekko::frontend::SaveImportResult result =
++        moderngekko::frontend::ImportSave(StringToPath(*import_save_only), user_directory, game);
++    (result.ok ? std::cout : std::cerr) << result.message << '\n'
++                                        << moderngekko::frontend::DescribeSaves(user_directory, game)
++                                        << '\n';
++    return result.ok ? 0 : 1;
++  }
++#endif
+ 
+   auto config = moderngekko::frontend::LoadConfig(user_directory, true);
+   if (!config)
+@@ -546,9 +945,18 @@ int main(int argc, char** argv)
+   if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD))
+     return 1;
+ 
++#ifdef MODERNGEKKO_HAS_WINDOWS_ICON
++  // The icon embedded as resource 1 (MODERNGEKKO_WINDOWS_ICON) for the window and taskbar
++  SDL_SetHint(SDL_HINT_WINDOWS_INTRESOURCE_ICON, "1");
++  SDL_SetHint(SDL_HINT_WINDOWS_INTRESOURCE_ICON_SMALL, "1");
++#endif
+   const float scale = SDL_GetDisplayContentScale(SDL_GetPrimaryDisplay());
+-  SDL_Window* window = SDL_CreateWindow(MODERNGEKKO_FRONTEND_NAME, static_cast<int>(820 * scale),
+-                                        static_cast<int>(700 * scale),
++  // With a background picture the window is wide: the art on the right, the controls on the left.
++  const fs::path background_path = release_directory / "launcher-background.png";
++  const bool has_background = fs::is_regular_file(background_path);
++  SDL_Window* window = SDL_CreateWindow(MODERNGEKKO_FRONTEND_NAME,
++                                        static_cast<int>((has_background ? 1280 : 820) * scale),
++                                        static_cast<int>((has_background ? 760 : 700) * scale),
+                                         SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+   if (!window)
+   {
+@@ -578,19 +986,88 @@ int main(int argc, char** argv)
+   ImGui::GetStyle().FontScaleDpi = scale;
+   ImGui_ImplSDL3_InitForSDLRenderer(window, renderer);
+   ImGui_ImplSDLRenderer3_Init(renderer);
++  SDL_Texture* background = has_background ? LoadLauncherBackground(renderer, background_path) : nullptr;
++  // The branded look (with a background picture): the system's UI typeface where there is one,
++  // rounded controls in the art's blues, and pad navigation for the menu and the Settings window.
++  ImFont* ui_font = nullptr;
++  ImFont* title_font = nullptr;
++  if (background)
++  {
++    const auto add_font = [&](std::initializer_list<const char*> candidates) -> ImFont*
++    {
++      for (const char* candidate : candidates)
++      {
++        std::string path = candidate;
++        if (path.starts_with("%WINDIR%"))
++        {
++          // SDL keeps its own, case-sensitive copy of the environment; Windows spells it "windir"
++          const char* windows = SDL_getenv("windir");
++          if (!windows)
++            windows = SDL_getenv("WINDIR");
++          if (!windows)
++            continue;
++          path = windows + path.substr(8);
++        }
++        if (fs::is_regular_file(path))
++          return io.Fonts->AddFontFromFileTTF(path.c_str());
++      }
++      return nullptr;
++    };
++    ui_font = add_font({"%WINDIR%\\Fonts\\segoeui.ttf",
++                        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"});
++    title_font = add_font({"%WINDIR%\\Fonts\\segoeuib.ttf",
++                           "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"});
++    if (ui_font)
++    {
++      io.FontDefault = ui_font;
++      ImGui::GetStyle().FontSizeBase = 18.0f;
++    }
++    if (!title_font)
++      title_font = ui_font;
++    io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
++    ImGuiStyle& style = ImGui::GetStyle();
++    style.FrameRounding = 6.0f * scale;
++    style.GrabRounding = 6.0f * scale;
++    style.TabRounding = 6.0f * scale;
++    style.PopupRounding = 8.0f * scale;
++    style.ChildRounding = 8.0f * scale;
++    style.FramePadding = ImVec2(10.0f * scale, 6.0f * scale);
++    style.ItemSpacing = ImVec2(10.0f * scale, 8.0f * scale);
++    ImVec4* colors = style.Colors;
++    colors[ImGuiCol_FrameBg] = ImVec4(0.10f, 0.16f, 0.30f, 0.90f);
++    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.16f, 0.26f, 0.46f, 0.95f);
++    colors[ImGuiCol_FrameBgActive] = ImVec4(0.20f, 0.32f, 0.56f, 1.00f);
++    colors[ImGuiCol_Button] = ImVec4(0.14f, 0.30f, 0.62f, 0.90f);
++    colors[ImGuiCol_ButtonHovered] = ImVec4(0.22f, 0.42f, 0.80f, 1.00f);
++    colors[ImGuiCol_ButtonActive] = ImVec4(0.12f, 0.24f, 0.52f, 1.00f);
++    colors[ImGuiCol_Header] = ImVec4(0.18f, 0.36f, 0.70f, 0.60f);
++    colors[ImGuiCol_HeaderHovered] = ImVec4(0.22f, 0.42f, 0.80f, 0.80f);
++    colors[ImGuiCol_HeaderActive] = ImVec4(0.22f, 0.42f, 0.80f, 1.00f);
++    colors[ImGuiCol_Tab] = ImVec4(0.10f, 0.16f, 0.30f, 0.90f);
++    colors[ImGuiCol_TabHovered] = ImVec4(0.22f, 0.42f, 0.80f, 1.00f);
++    colors[ImGuiCol_TabSelected] = ImVec4(0.16f, 0.34f, 0.68f, 1.00f);
++    colors[ImGuiCol_TabSelectedOverline] = LAUNCHER_ACCENT;
++    colors[ImGuiCol_CheckMark] = LAUNCHER_ACCENT;
++    colors[ImGuiCol_SliderGrab] = LAUNCHER_ACCENT;
++    colors[ImGuiCol_SliderGrabActive] = LAUNCHER_ACCENT;
++    colors[ImGuiCol_NavCursor] = LAUNCHER_ACCENT;
++    colors[ImGuiCol_ModalWindowDimBg] = ImVec4(0.0f, 0.02f, 0.06f, 0.55f);
++    colors[ImGuiCol_PlotHistogram] = LAUNCHER_ACCENT;
++  }
+ 
+-  std::vector<fs::path> images = FindDiscImages();
+-  std::optional<fs::path> selected_image = images.empty() ? std::nullopt : std::optional(images[0]);
+   fs::path current_game = ReadDefaultGame(user_directory, release_directory);
+   bool current_dol_changed = false;
+   std::string current_dol_error;
+   auto current_metadata =
+       ApplyBundledDolPatch(current_game, release_directory, &current_dol_changed,
+                            &current_dol_error) ?
+-          moderngekko::InspectGame(current_game) :
++          InspectForLauncher(current_game) :
+           moderngekko::GameInspectResult{{}, current_dol_error};
+   if (current_metadata && !RequiredGameError(*current_metadata.metadata).empty())
+     current_metadata = {{}, RequiredGameError(*current_metadata.metadata)};
++  // A disc image to offer, only while there is no playable game yet
++  std::vector<fs::path> images = current_metadata ? std::vector<fs::path>{} : FindDiscImages();
++  std::optional<fs::path> selected_image = images.empty() ? std::nullopt : std::optional(images[0]);
+   const auto& resolutions = moderngekko::frontend::SupportedResolutions();
+   const auto& graphics_backends =
+       moderngekko::frontend::SupportedGraphicsBackends();
+@@ -605,6 +1082,41 @@ int main(int argc, char** argv)
+   int netplay_port = config.netplay_port;
+   bool automatic_buffer = config.netplay_buffer == "auto";
+   int manual_buffer = automatic_buffer ? 5 : std::stoi(config.netplay_buffer);
++  constexpr DolphinOption SKIES_WIDESCREEN{"Dolphin.ini", "Skies", "Widescreen"};
++  constexpr DolphinOption SKIES_FRAME_MODE{"Dolphin.ini", "Skies", "FrameMode"};
++  constexpr DolphinOption GFX_MSAA{"GFX.ini", "Settings", "MSAA"};
++  int skies_widescreen = ReadDolphinOption(user_directory, SKIES_WIDESCREEN);
++  int skies_frame_mode = ReadDolphinOption(user_directory, SKIES_FRAME_MODE);
++  int msaa = ReadDolphinOption(user_directory, GFX_MSAA);
++  // The rest of the in-game menu's settings, for the branded launcher's Settings window. Each is
++  // {file, section, key, current value (-1 = not set), the game's default}.
++  struct SettingValue
++  {
++    DolphinOption key;
++    int value;
++    int fallback;
++  };
++  const auto setting = [&](DolphinOption key, int fallback)
++  { return SettingValue{key, ReadDolphinOption(user_directory, key), fallback}; };
++  SettingValue vsync = setting({"GFX.ini", "Hardware", "VSync"}, 0);
++  SettingValue show_fps = setting({"GFX.ini", "Settings", "ShowFPS"}, 0);
++  SettingValue volume = setting({"Dolphin.ini", "DSP", "Volume"}, 100);
++  SettingValue camera = setting({"Dolphin.ini", "Skies", "CameraControl"}, 1);
++  SettingValue encounters = setting({"Dolphin.ini", "Skies", "Encounters"}, 100);
++  SettingValue exp = setting({"Dolphin.ini", "Skies", "Exp"}, 100);
++  SettingValue gold = setting({"Dolphin.ini", "Skies", "Gold"}, 100);
++  SettingValue magic_exp = setting({"Dolphin.ini", "Skies", "MagicExp"}, 100);
++  SettingValue battle_speed = setting({"Dolphin.ini", "Skies", "BattleSpeed"}, 1);
++  SettingValue invincible = setting({"Dolphin.ini", "Skies", "Invincible"}, 0);
++  SettingValue auto_save = setting({"Dolphin.ini", "Skies", "AutoSave"}, 10);
++  // The branded launcher's text size (A- / A+ in Settings), percent; layout widths follow it.
++  constexpr DolphinOption LAUNCHER_TEXT_SIZE{"Dolphin.ini", "Skies", "LauncherTextSize"};
++  constexpr DolphinOption AUTO_LOAD_CARD{"Dolphin.ini", "Skies", "AutoLoadCard"};
++  int text_size = ReadDolphinOption(user_directory, LAUNCHER_TEXT_SIZE);
++  if (text_size < 80 || text_size > 160)
++    text_size = 120;
++  int dead_zone = ReadPadOption(user_directory, "Main Stick/Dead Zone", 0);
++  int rumble = ReadPadOption(user_directory, "Rumble/Motor/Range", 100) > 0 ? 1 : 0;
+   int resolution_index = 0;
+   for (std::size_t i = 0; i < resolutions.size(); ++i)
+   {
+@@ -621,17 +1133,98 @@ int main(int argc, char** argv)
+   // StateSaves is Dolphin's own state directory, so states written in-game land
+   // here without any extra configuration and show up on the next launch.
+   //
+-  // Listed once at startup rather than every frame, so the dropdown does not
+-  // hit the filesystem on each redraw. A state written while the launcher is
+-  // open therefore appears on the next launch, which is the case that matters:
+-  // states are written by the running game, not by the launcher.
+-  const std::vector<fs::path> launcher_savestates =
+-      moderngekko::frontend::ListLauncherSavestates(user_directory / "StateSaves");
++  // Listed at startup (and after a save import, refresh_saves below) rather than
++  // every frame, so the dropdown does not hit the filesystem on each redraw. A
++  // state written by the running game appears on the next launch.
++  std::vector<fs::path> launcher_savestates;
+   // Loading is always explicit. StateSaves is shared by games, so selecting the
+   // newest file automatically could try to resume a different title.
+   int selected_savestate = -1;
++  // Continue: the newer of the newest save state and the game's newest memory card save. A card save
++  // can't be loaded from outside the game, so for that one Continue boots normally and the player
++  // loads it on the title screen. Its second line says which one and when.
++  bool continue_from_state = false;
++  int continue_card_file = 0;  // the card save's file for the in-game auto-load (0 = none)
++  int continue_state = -1;     // Continue's entry in launcher_savestates
++  std::string continue_text;
++  // Settings, Saves: importing a save the player already has (save_import.cpp, shared with the
++  // Android app). The launcher is closed while the game runs, so it can't swap a card under it.
++#ifdef MODERNGEKKO_REQUIRED_DISC_ID
++  const std::string save_game_id = MODERNGEKKO_REQUIRED_DISC_ID;
++#else
++  const std::string save_game_id = current_metadata ? current_metadata.metadata->disc_id : "";
++#endif
++  const moderngekko::frontend::SaveImportGame save_game = SaveGame(save_game_id);
++  // Never freed: an OS file dialog still open when the launcher quits can call back after main
++  // returns (both dialog states)
++  SaveDialogState& save_dialog = *new SaveDialogState;
++  bool save_prompt_open = false;
++  std::string saves_text;  // what is there now
++  moderngekko::frontend::SaveImportResult save_import;
++  const auto refresh_saves = [&]
++  {
++    const std::optional<fs::path> selected =
++        selected_savestate >= 0 ?
++            std::optional(launcher_savestates[static_cast<std::size_t>(selected_savestate)]) :
++            std::nullopt;
++    launcher_savestates =
++        moderngekko::frontend::ListLauncherSavestates(user_directory / "StateSaves");
++    selected_savestate = -1;
++    for (std::size_t i = 0; selected && i < launcher_savestates.size(); ++i)
++    {
++      if (launcher_savestates[i] == *selected)
++        selected_savestate = static_cast<int>(i);
++    }
++    if (!save_game_id.empty())
++      saves_text = moderngekko::frontend::DescribeSaves(user_directory, save_game);
++    continue_from_state = false;
++    continue_card_file = 0;
++    continue_state = -1;
++    continue_text.clear();
++    const std::string game_code =
++        current_metadata ? current_metadata.metadata->disc_id.substr(0, 4) : std::string();
++    const std::optional<CardSave> card_save = NewestCardSave(user_directory, game_code);
++    const std::optional<fs::file_time_type> card =
++        card_save ? std::optional(card_save->written) : std::nullopt;
++    // The newest state (the list is newest first); for Skies only the port's own (the in-game
++    // menu's slots and auto-saves, imports), not any .sav dropped in the folder
++    const bool skies_states =
++        background || (current_metadata && current_metadata.metadata->disc_id == SKIES_DISC_ID);
++    for (std::size_t i = 0; i < launcher_savestates.size() && continue_state < 0; ++i)
++    {
++      const std::string name = moderngekko::frontend::PathText(launcher_savestates[i].filename());
++      if (!skies_states || name.starts_with("state-skies-") || name.starts_with("recovery-skies-"))
++        continue_state = static_cast<int>(i);
++    }
++    std::optional<fs::file_time_type> state;
++    if (continue_state >= 0)
++    {
++      std::error_code ec;
++      const fs::file_time_type written = fs::last_write_time(
++          launcher_savestates[static_cast<std::size_t>(continue_state)], ec);
++      if (!ec)
++        state = written;
++    }
++    if (state && (!card || *state >= *card))
++    {
++      continue_from_state = true;
++      continue_text =
++          "Save state: " + StateText(launcher_savestates[static_cast<std::size_t>(continue_state)]) +
++          "   " + LocalTimeText(*state);
++    }
++    else if (card)
++    {
++      // The runtime loads it (SkiesMenu.cpp autoload): title screen, Continue, the file, Yes
++      continue_card_file = CardSaveFile(card_save->path);
++      continue_text = continue_card_file ?
++                          "Memory card save: file " + std::to_string(continue_card_file) + "   " +
++                              LocalTimeText(*card) :
++                          "Memory card save   " + LocalTimeText(*card) + "   (load it on the title screen)";
++    }
++  };
++  refresh_saves();
+ 
+-  DialogState dialog;
++  DialogState& dialog = *new DialogState;  // never freed (see save_dialog)
+   std::vector<ControllerOption> controllers = EnumerateControllers();
+   bool controller_profile_exists = moderngekko::frontend::ControllerConfigExists(user_directory);
+   std::vector<std::string> configured_controllers =
+@@ -726,7 +1319,11 @@ int main(int argc, char** argv)
+     Join,
+   };
+   bool done = false;
++  bool extract_after_pick = false;
+   LaunchMode launch_mode = LaunchMode::None;
++  // [Skies] AutoLoadCard for this launch, written at the launch whatever starts it (Continue from a
++  // card save sets it; Start, a state and netplay clear a value an earlier Continue left)
++  int launch_card_file = 0;
+   while (!done)
+   {
+     bool controllers_changed = false;
+@@ -744,6 +1341,7 @@ int main(int argc, char** argv)
+     }
+     if (controllers_changed)
+       refresh_controllers();
++    bool picked_disc = false;
+ 
+     {
+       std::lock_guard lock(dialog.mutex);
+@@ -751,14 +1349,34 @@ int main(int argc, char** argv)
+       {
+         selected_image = std::move(dialog.selected);
+         dialog.selected.reset();
++        picked_disc = true;
+       }
+     }
++    // A save file picked in Settings, Saves (or the picker closed without one)
++    std::optional<std::string> picked_save;
++    {
++      std::lock_guard lock(save_dialog.mutex);
++      picked_save = std::move(save_dialog.selected);
++      save_dialog.selected.reset();
++      if (save_dialog.cancelled)
++        save_import = {};
++      if (!save_dialog.error.empty())
++        save_import = {false, "The file picker couldn't open: " + save_dialog.error};
++      save_dialog.cancelled = false;
++      save_dialog.error.clear();
++    }
++    if (picked_save)
++    {
++      save_import =
++          moderngekko::frontend::ImportSave(StringToPath(*picked_save), user_directory, save_game);
++      refresh_saves();
++    }
+     {
+       std::lock_guard lock(extraction.mutex);
+       if (extraction.finished_game)
+       {
+         current_game = *extraction.finished_game;
+-        current_metadata = moderngekko::InspectGame(current_game);
++        current_metadata = InspectForLauncher(current_game);
+         if (current_metadata && !RequiredGameError(*current_metadata.metadata).empty())
+           current_metadata = {{}, RequiredGameError(*current_metadata.metadata)};
+         extraction.finished_game.reset();
+@@ -774,18 +1392,79 @@ int main(int argc, char** argv)
+     ImGui_ImplSDL3_NewFrame();
+     ImGui::NewFrame();
+     const ImGuiViewport* viewport = ImGui::GetMainViewport();
+-    ImGui::SetNextWindowPos(viewport->WorkPos);
+-    ImGui::SetNextWindowSize(viewport->WorkSize);
+-    ImGui::Begin(MODERNGEKKO_FRONTEND_NAME " Launcher", nullptr,
+-                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+-                     ImGuiWindowFlags_NoSavedSettings);
+-    ImGui::TextUnformatted(MODERNGEKKO_FRONTEND_NAME);
+-    ImGui::Separator();
+-
+-    if (current_metadata)
++    // Layout lengths of the branded screens, which grow with the text size
++    const float ui_scale = background ? scale * static_cast<float>(text_size) / 100.0f : scale;
++    if (background)
++      ImGui::GetStyle().FontScaleMain = static_cast<float>(text_size) / 100.0f;
++    // The launcher's sections, shared by the plain panel and, with a background picture, the
++    // branded home screen's Settings window.
++    const auto launch_solo = [&](int savestate)
++    {
++      if (ensure_controller())
++      {
++        selected_savestate = savestate;
++        launch_mode = LaunchMode::Solo;
++        done = true;
++      }
++    };
++    const auto browse_disc = [&]
++    {
++      const std::string documents = DocumentsDirectory().string();
++      SDL_ShowOpenFileDialog(FileDialogCallback, &dialog, window, DISC_FILTERS,
++                             static_cast<int>(std::size(DISC_FILTERS)), documents.c_str(), false);
++    };
++    const auto start_extraction = [&]
++    {
++      extraction.completed = 0;
++      extraction.total = 1;
++      extraction.running = true;
++      {
++        std::lock_guard lock(extraction.mutex);
++        extraction.error.clear();
++        extraction.finished_game.reset();
++      }
++      const fs::path image = *selected_image;
++      extraction_thread = std::jthread([image, user_directory, release_directory, &extraction]
++                                       {
++                                         ExtractDisc(image, user_directory,
++                                                     release_directory, &extraction);
++                                       });
++    };
++    // A setting's label: above its control in the plain panel, beside it on one row in the
++    // branded Settings window.
++    const auto row_label = [&](const char* label)
++    {
++      if (!background)
++      {
++        ImGui::Spacing();
++        ImGui::TextUnformatted(label);
++        return;
++      }
++      ImGui::AlignTextToFramePadding();
++      ImGui::TextUnformatted(label);
++      ImGui::SameLine(220.0f * ui_scale);
++    };
++    // A control without a label of its own (check box, button) in the branded window's column.
++    const auto control_column = [&]
++    {
++      if (background)
++        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 220.0f * ui_scale);
++    };
++    // A setting's one-line explanation under it, in the branded Settings window only.
++    const auto describe = [&](const char* text)
++    {
++      if (!background)
++        return;
++      control_column();
++      ImGui::PushFont(ui_font, 15.5f);
++      ImGui::PushTextWrapPos(ImGui::GetContentRegionMax().x);
++      ImGui::TextColored(ImVec4(0.66f, 0.72f, 0.84f, 1.0f), "%s", text);
++      ImGui::PopTextWrapPos();
++      ImGui::PopFont();
++      ImGui::Dummy(ImVec2(0, 2.0f * ui_scale));
++    };
++    const auto savestate_section = [&]
+     {
+-      ImGui::Text("Ready: %s [%s]", current_metadata.metadata->game_name.c_str(),
+-                  current_metadata.metadata->disc_id.c_str());
+       if (!launcher_savestates.empty())
+       {
+         ImGui::TextUnformatted("Start from savestate");
+@@ -820,6 +1499,24 @@ int main(int argc, char** argv)
+         ImGui::TextDisabled("Solo play only.");
+         ImGui::Spacing();
+       }
++    };
++    const auto play_buttons = [&]
++    {
++      // Continue: the newest state in StateSaves, whatever wrote it (the in-game menu's slots, an
++      // auto-save, F1), i.e. where the player left off.
++      if (!launcher_savestates.empty())
++      {
++        if (ImGui::Button("Continue", ImVec2(180 * scale, 42 * scale)))
++        {
++          if (ensure_controller())
++          {
++            selected_savestate = 0;
++            launch_mode = LaunchMode::Solo;
++            done = true;
++          }
++        }
++        ImGui::SameLine();
++      }
+       if (ImGui::Button("Play", ImVec2(180 * scale, 42 * scale)))
+       {
+         if (ensure_controller())
+@@ -828,7 +1525,9 @@ int main(int argc, char** argv)
+           done = true;
+         }
+       }
+-      ImGui::SameLine();
++    };
++    const auto netplay_buttons = [&]
++    {
+       if (ImGui::Button("Host Netplay", ImVec2(180 * scale, 42 * scale)))
+       {
+         if (ensure_controller())
+@@ -884,213 +1583,902 @@ int main(int argc, char** argv)
+           }
+         }
+       }
+-    }
+-    else
++    };
++    const auto backend_row = [&]
+     {
+-      ImGui::TextUnformatted("No extracted game is configured yet.");
+-    }
+-
+-    ImGui::Spacing();
+-    ImGui::TextUnformatted("Graphics backend");
+-    if (ImGui::BeginCombo("##graphics_backend",
+-                          graphics_backends[graphics_backend_index].text))
++      row_label("Graphics backend");
++      if (ImGui::BeginCombo("##graphics_backend",
++                            graphics_backends[graphics_backend_index].text))
++      {
++        for (std::size_t i = 0; i < graphics_backends.size(); ++i)
++        {
++          const bool selected = graphics_backend_index == static_cast<int>(i);
++          if (ImGui::Selectable(graphics_backends[i].text, selected))
++          {
++            const std::string previous = config.graphics_backend;
++            config.graphics_backend = graphics_backends[i].value;
++            config.resolution = resolutions[resolution_index].text;
++            config.show_fps_in_title = show_fps_in_title;
++            config.controller = selected_controller;
++            std::string error;
++            if (moderngekko::frontend::SaveConfig(user_directory, config, &error))
++            {
++              graphics_backend_index = static_cast<int>(i);
++            }
++            else
++            {
++              config.graphics_backend = previous;
++              std::lock_guard lock(dialog.mutex);
++              dialog.error = std::move(error);
++            }
++          }
++          if (selected)
++            ImGui::SetItemDefaultFocus();
++        }
++        ImGui::EndCombo();
++      }
++      describe("How the game draws. Keep Vulkan unless the game won't start.");
++    };
++    // An on / off setting: a check box in the plain panel, a labelled two-choice dropdown like the
++    // other rows in the branded Settings window. True when the value changed.
++    const auto toggle_row = [&](const char* label, const char* id, bool* value,
++                                const char* off_text, const char* on_text,
++                                const char* checkbox_text)
+     {
+-      for (std::size_t i = 0; i < graphics_backends.size(); ++i)
++      if (!background)
++        return ImGui::Checkbox(checkbox_text, value);
++      row_label(label);
++      bool changed = false;
++      if (ImGui::BeginCombo(id, *value ? on_text : off_text))
+       {
+-        const bool selected = graphics_backend_index == static_cast<int>(i);
+-        if (ImGui::Selectable(graphics_backends[i].text, selected))
++        for (const bool choice : {false, true})
+         {
+-          const std::string previous = config.graphics_backend;
+-          config.graphics_backend = graphics_backends[i].value;
+-          config.resolution = resolutions[resolution_index].text;
+-          config.show_fps_in_title = show_fps_in_title;
+-          config.controller = selected_controller;
+-          std::string error;
+-          if (moderngekko::frontend::SaveConfig(user_directory, config, &error))
++          const bool selected = *value == choice;
++          if (ImGui::Selectable(choice ? on_text : off_text, selected) && !selected)
+           {
+-            graphics_backend_index = static_cast<int>(i);
++            *value = choice;
++            changed = true;
+           }
+-          else
++          if (selected)
++            ImGui::SetItemDefaultFocus();
++        }
++        ImGui::EndCombo();
++      }
++      return changed;
++    };
++    const auto fullscreen_row = [&]
++    {
++      if (!background)
++        ImGui::Spacing();
++      const bool previous_fullscreen = fullscreen;
++      if (toggle_row("Screen", "##screen", &fullscreen, "Windowed", "Fullscreen",
++                     "Start in fullscreen"))
++      {
++        config.fullscreen = fullscreen;
++        config.resolution = resolutions[resolution_index].text;
++        config.show_fps_in_title = show_fps_in_title;
++        config.controller = selected_controller;
++        std::string error;
++        if (!moderngekko::frontend::SaveConfig(user_directory, config, &error))
++        {
++          fullscreen = previous_fullscreen;
++          config.fullscreen = previous_fullscreen;
++          std::lock_guard lock(dialog.mutex);
++          dialog.error = std::move(error);
++        }
++      }
++      describe("Fullscreen fills your whole monitor; Windowed plays in a window you can move.");
++    };
++    const auto resolution_row = [&]
++    {
++      row_label(background ? "Resolution" : "Internal resolution (Dolphin EFB upscale)");
++      if (ImGui::BeginCombo("##resolution", resolutions[resolution_index].text))
++      {
++        for (std::size_t i = 0; i < resolutions.size(); ++i)
++        {
++          const bool selected = resolution_index == static_cast<int>(i);
++          if (ImGui::Selectable(resolutions[i].text, selected))
+           {
+-            config.graphics_backend = previous;
+-            std::lock_guard lock(dialog.mutex);
+-            dialog.error = std::move(error);
++            std::string error;
++            if (moderngekko::frontend::SaveConfig(user_directory, resolutions[i].text,
++                                                  show_fps_in_title, selected_controller, &error))
++            {
++              resolution_index = static_cast<int>(i);
++              config.resolution = resolutions[i].text;
++            }
++            else
++            {
++              std::lock_guard lock(dialog.mutex);
++              dialog.error = std::move(error);
++            }
+           }
+         }
+-        if (selected)
+-          ImGui::SetItemDefaultFocus();
++        ImGui::EndCombo();
+       }
+-      ImGui::EndCombo();
+-    }
+-    ImGui::Spacing();
+-    const bool previous_fullscreen = fullscreen;
+-    if (ImGui::Checkbox("Start in fullscreen", &fullscreen))
++      describe("Higher is sharper but needs a faster graphics card.");
++    };
++    const auto title_fps_row = [&]
+     {
+-      config.fullscreen = fullscreen;
+-      config.resolution = resolutions[resolution_index].text;
+-      config.show_fps_in_title = show_fps_in_title;
+-      config.controller = selected_controller;
+-      std::string error;
+-      if (!moderngekko::frontend::SaveConfig(user_directory, config, &error))
++      const bool previous_show_fps_in_title = show_fps_in_title;
++      if (toggle_row("FPS in title bar", "##title_fps", &show_fps_in_title, "Off", "On",
++                     "Show FPS in window title"))
+       {
+-        fullscreen = previous_fullscreen;
+-        config.fullscreen = previous_fullscreen;
+-        std::lock_guard lock(dialog.mutex);
+-        dialog.error = std::move(error);
++        std::string error;
++        if (!moderngekko::frontend::SaveConfig(user_directory, resolutions[resolution_index].text,
++                                               show_fps_in_title, selected_controller, &error))
++        {
++          show_fps_in_title = previous_show_fps_in_title;
++          std::lock_guard lock(dialog.mutex);
++          dialog.error = std::move(error);
++        }
++        else
++        {
++          config.show_fps_in_title = show_fps_in_title;
++        }
+       }
+-    }
+-    ImGui::Spacing();
+-    ImGui::TextUnformatted("Internal resolution (Dolphin EFB upscale)");
+-    if (ImGui::BeginCombo("##resolution", resolutions[resolution_index].text))
++      describe("Show the frame rate in the game window's title bar (windowed only).");
++    };
++    // The Skies rows (Picture, Frame rate, Anti-aliasing), or a subset by row index
++    const auto skies_video_rows = [&](int first, int last)
+     {
+-      for (std::size_t i = 0; i < resolutions.size(); ++i)
++      if (background || (current_metadata && current_metadata.metadata->disc_id == SKIES_DISC_ID))
+       {
+-        const bool selected = resolution_index == static_cast<int>(i);
+-        if (ImGui::Selectable(resolutions[i].text, selected))
++        struct Choice
+         {
+-          std::string error;
+-          if (moderngekko::frontend::SaveConfig(user_directory, resolutions[i].text,
+-                                                show_fps_in_title, selected_controller, &error))
++          int value;
++          const char* text;
++        };
++        static constexpr std::array<Choice, 2> pictures{
++            {{1, "Widescreen 16:9"}, {0, "Original 4:3"}}};
++        static constexpr std::array<Choice, 2> frame_rates{
++            {{0, "30 fps (original)"}, {1, "60 fps (interpolated)"}}};
++        static constexpr std::array<Choice, 4> msaa_modes{
++            {{1, "Off"}, {2, "2x MSAA"}, {4, "4x MSAA"}, {8, "8x MSAA"}}};
++        const auto option = [&](const char* label, const char* id, const DolphinOption& key,
++                                int* value, int unset, const auto& choices,
++                                const char* description)
++        {
++          const int shown = *value < 0 ? unset : *value;
++          const char* preview = choices[0].text;
++          for (const Choice& choice : choices)
+           {
+-            resolution_index = static_cast<int>(i);
+-            config.resolution = resolutions[i].text;
++            if (choice.value == shown)
++              preview = choice.text;
+           }
+-          else
++          row_label(label);
++          if (ImGui::BeginCombo(id, preview))
+           {
+-            std::lock_guard lock(dialog.mutex);
+-            dialog.error = std::move(error);
++            for (const Choice& choice : choices)
++            {
++              const bool selected = choice.value == shown;
++              if (ImGui::Selectable(choice.text, selected))
++              {
++                std::string error;
++                if (WriteDolphinOption(user_directory, key, choice.value, &error))
++                  *value = choice.value;
++                else
++                {
++                  std::lock_guard lock(dialog.mutex);
++                  dialog.error = std::move(error);
++                }
++              }
++              if (selected)
++                ImGui::SetItemDefaultFocus();
++            }
++            ImGui::EndCombo();
+           }
++          describe(description);
++        };
++        if (first <= 0 && last >= 0)
++          option("Picture", "##skies_picture", SKIES_WIDESCREEN, &skies_widescreen, 1, pictures,
++                 "Widescreen fills a 16:9 screen; Original keeps the GameCube's 4:3 picture.");
++        if (first <= 1 && last >= 1)
++          option("Frame rate", "##skies_frame_rate", SKIES_FRAME_MODE, &skies_frame_mode,
++                 config.frame_interpolation ? 1 : 0, frame_rates,
++                 "60 fps adds in-between frames for smoother motion. 30 fps is the original.");
++        if (first <= 2 && last >= 2)
++          option("Anti-aliasing", "##msaa", GFX_MSAA, &msaa, 1, msaa_modes,
++                 "Smooths jagged edges. Higher settings need a faster graphics card.");
++      }
++    };
++    const auto video_section = [&]
++    {
++      backend_row();
++      fullscreen_row();
++      resolution_row();
++      title_fps_row();
++      skies_video_rows(0, 2);
++    };
++    const auto controller_section = [&]
++    {
++      row_label("Controller profile");
++      const char* controller_preview = controller_index >= 0
++                                           ? controllers[controller_index].label.c_str()
++                                       : selected_controller.empty() ? "No SDL gamepad detected"
++                                                                     : selected_controller.c_str();
++      if (ImGui::BeginCombo("##controller", controller_preview))
++      {
++        for (std::size_t i = 0; i < controllers.size(); ++i)
++        {
++          const bool selected = controller_index == static_cast<int>(i);
++          if (ImGui::Selectable(controllers[i].label.c_str(), selected))
++          {
++            controller_index = static_cast<int>(i);
++            selected_controller = controllers[i].device;
++            controller_status =
++                controller_profile_exists
++                    ? "Existing " + std::string(CONTROLLER_PROFILE_NAME) + " unchanged"
++                    : "Ready to generate controller profile";
++          }
++          if (selected)
++            ImGui::SetItemDefaultFocus();
+         }
++        ImGui::EndCombo();
+       }
+-      ImGui::EndCombo();
+-    }
+-    const bool previous_show_fps_in_title = show_fps_in_title;
+-    if (ImGui::Checkbox("Show FPS in window title", &show_fps_in_title))
++      ImGui::BeginDisabled(controller_index < 0);
++      const std::string replace_profile =
++          "Replace with generated " + std::string(GENERATED_PROFILE_LABEL);
++      control_column();
++      if (ImGui::Button(replace_profile.c_str()))
++        select_controller(controller_index);
++      ImGui::EndDisabled();
++      describe("The controller for player 1. Replace resets its buttons to the standard layout.");
++    };
++    const auto netplay_section = [&]
+     {
+-      std::string error;
+-      if (!moderngekko::frontend::SaveConfig(user_directory, resolutions[resolution_index].text,
+-                                             show_fps_in_title, selected_controller, &error))
++      ImGui::Spacing();
++      ImGui::TextUnformatted("Netplay");
++      ImGui::SetNextItemWidth(220 * scale);
++      ImGui::InputText("Nickname", netplay_nickname.data(), netplay_nickname.size());
++      ImGui::SetNextItemWidth(220 * scale);
++      ImGui::InputText("Host / IP", netplay_address.data(), netplay_address.size());
++      ImGui::SetNextItemWidth(120 * scale);
++      ImGui::InputInt("UDP port", &netplay_port);
++      netplay_port = std::clamp(netplay_port, 1, 65535);
++      ImGui::Checkbox("Automatic input buffer", &automatic_buffer);
++      if (!automatic_buffer)
+       {
+-        show_fps_in_title = previous_show_fps_in_title;
+-        std::lock_guard lock(dialog.mutex);
+-        dialog.error = std::move(error);
++        ImGui::SetNextItemWidth(180 * scale);
++        ImGui::SliderInt("Buffer frames", &manual_buffer, 1, 20);
+       }
++    };
++    const auto disc_section = [&]
++    {
++      if (background)
++      {
++        // The branded window: the game already imported, and Change Disc to import another copy
++        // (picking it imports and starts it, like Select Disc on the home screen).
++        row_label("Game");
++        if (current_metadata)
++          ImGui::Text("%s [%s]", current_metadata.metadata->game_name.c_str(),
++                      current_metadata.metadata->disc_id.c_str());
++        else
++          ImGui::TextUnformatted("No disc imported yet");
++        if (current_metadata)
++        {
++          control_column();
++          ImGui::TextDisabled("%s", current_game.string().c_str());
++        }
++        ImGui::Spacing();
++        control_column();
++        ImGui::BeginDisabled(extraction.running);
++        if (ImGui::Button(current_metadata ? "Change Disc" : "Select Disc"))
++        {
++          extract_after_pick = true;
++          browse_disc();
++        }
++        ImGui::EndDisabled();
++        const std::string formats = std::string("Your own copy of the game: ") + DISC_FORMATS_TEXT +
++                                    ". It is copied in once and patched; the file itself isn't changed.";
++        describe(formats.c_str());
++        if (extraction.running)
++        {
++          control_column();
++          const float progress = std::min(
++              1.0f, static_cast<float>(extraction.completed.load()) / extraction.total.load());
++          ImGui::ProgressBar(progress, ImVec2(440.0f * ui_scale, 0));
++        }
++        return;
++      }
++      ImGui::Spacing();
++      ImGui::TextUnformatted("Game disc image");
++      if (selected_image)
++        ImGui::TextWrapped("%s", selected_image->string().c_str());
+       else
++        ImGui::TextDisabled("No %s selected", DISC_FORMATS_TEXT);
++
++      if (!extraction.running)
+       {
+-        config.show_fps_in_title = show_fps_in_title;
++        if (ImGui::Button("Browse for a disc image"))
++        {
++          browse_disc();
++        }
++        if (selected_image)
++        {
++          ImGui::SameLine();
++          if (ImGui::Button("Extract and Play"))
++          {
++            start_extraction();
++          }
++        }
+       }
+-    }
+-    ImGui::Spacing();
+-    ImGui::TextUnformatted("Controller profile");
+-    const char* controller_preview = controller_index >= 0
+-                                         ? controllers[controller_index].label.c_str()
+-                                     : selected_controller.empty() ? "No SDL gamepad detected"
+-                                                                   : selected_controller.c_str();
+-    if (ImGui::BeginCombo("##controller", controller_preview))
++      else
++      {
++        const float progress =
++            std::min(1.0f, static_cast<float>(extraction.completed.load()) / extraction.total.load());
++        ImGui::ProgressBar(progress, ImVec2(-1, 0));
++      }
++
++    };
++    // Settings, Saves: Import, like the N64 recomps' (Goemon 64, Hybrid Heaven): the prompt says what
++    // will be replaced before the picker opens, and Cancel has the focus.
++    const auto saves_import_section = [&]
+     {
+-      for (std::size_t i = 0; i < controllers.size(); ++i)
++      if (save_game_id.empty())
++        return;
++      ImGui::Spacing();
++      row_label("Import a save");
++      if (ImGui::Button("Choose a save file..."))
++      {
++        ImGui::OpenPopup("Import a save?");
++        save_prompt_open = true;
++      }
++      describe("Brings in a save you already have: from Dolphin, a GameCube memory card, this port "
++               "on another device, or a backup.");
++      row_label("Your saves");
++      std::string_view lines = saves_text;
++      for (bool first = true; !lines.empty(); first = false)
++      {
++        const std::size_t end = std::min(lines.find('\n'), lines.size());
++        if (!first)
++          control_column();
++        ImGui::TextUnformatted(lines.data(), lines.data() + end);
++        lines.remove_prefix(std::min(end + 1, lines.size()));
++      }
++      control_column();
++      const std::string card_folder =
++          PathToString(moderngekko::frontend::CardSaveFolder(user_directory, save_game_id));
++      ImGui::PushTextWrapPos(ImGui::GetContentRegionMax().x);
++      ImGui::TextDisabled("%s", card_folder.c_str());
++      if (!save_import.message.empty())
++      {
++        ImGui::Spacing();
++        control_column();
++        ImGui::TextColored(save_import.ok ? LAUNCHER_ACCENT : ImVec4(1.0f, 0.45f, 0.4f, 1.0f), "%s",
++                           save_import.message.c_str());
++      }
++      ImGui::PopTextWrapPos();
++
++      ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
++      ImGui::SetNextWindowSize(ImVec2(std::min(viewport->WorkSize.x - 160.0f * ui_scale,
++                                               700.0f * ui_scale), 0));
++      if (ImGui::BeginPopupModal("Import a save?", nullptr,
++                                 ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
++                                     ImGuiWindowFlags_NoSavedSettings))
+       {
+-        const bool selected = controller_index == static_cast<int>(i);
+-        if (ImGui::Selectable(controllers[i].label.c_str(), selected))
++        // What happens to the saves there now; re-read, since the game may have saved since
++        if (ImGui::IsWindowAppearing())
++          saves_text = moderngekko::frontend::DescribeSaves(user_directory, save_game);
++        const bool has_card = saves_text.find("Memory card: no saves") == std::string::npos;
++        ImGui::PushTextWrapPos(ImGui::GetContentRegionMax().x);
++        ImGui::TextUnformatted(
++            "Choose a memory card save (.gci, .gcs, .sav), a whole memory card (.raw, .gcp) or a "
++            "save state from this port.");
++        ImGui::Spacing();
++        ImGui::TextUnformatted(
++            has_card ?
++                "A memory card save replaces the file with the same number here. The one it "
++                "replaces is kept beside it as a .pre-import.bak file, and can be put back by hand." :
++                "There are no memory card saves here yet, so nothing will be replaced.");
++        ImGui::Spacing();
++        ImGui::TextUnformatted("A save state is added next to the ones you have; nothing is replaced.");
++        ImGui::PopTextWrapPos();
++        ImGui::Spacing();
++        ImGui::Spacing();
++        bool close = false;
++        if (ImGui::Button("Choose a file"))
++        {
++          close = true;
++          save_import = {true, "Choose a save file."};
++          static constexpr SDL_DialogFileFilter SAVE_FILTERS[] = {
++              {"Saves and memory cards", "gci;gcs;sav;raw;gcp"}, {"All files", "*"}};
++          const std::string documents = PathToString(DocumentsDirectory());
++          SDL_ShowOpenFileDialog(SaveDialogCallback, &save_dialog, window, SAVE_FILTERS,
++                                 static_cast<int>(std::size(SAVE_FILTERS)), documents.c_str(), false);
++        }
++        ImGui::SameLine();
++        if (ImGui::IsWindowAppearing())
++          ImGui::SetKeyboardFocusHere();
++        if (ImGui::Button("Cancel") || (!ImGui::IsAnyItemActive() &&
++                                        (ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
++                                         ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false))))
++        {
++          close = true;
++        }
++        if (close)
+         {
+-          controller_index = static_cast<int>(i);
+-          selected_controller = controllers[i].device;
+-          controller_status =
+-              controller_profile_exists
+-                  ? "Existing " + std::string(CONTROLLER_PROFILE_NAME) + " unchanged"
+-                  : "Ready to generate controller profile";
++          save_prompt_open = false;
++          ImGui::CloseCurrentPopup();
+         }
+-        if (selected)
+-          ImGui::SetItemDefaultFocus();
++        ImGui::EndPopup();
+       }
+-      ImGui::EndCombo();
+-    }
+-    ImGui::BeginDisabled(controller_index < 0);
+-    const std::string replace_profile =
+-        "Replace with generated " + std::string(GENERATED_PROFILE_LABEL);
+-    if (ImGui::Button(replace_profile.c_str()))
+-      select_controller(controller_index);
+-    ImGui::EndDisabled();
+-    ImGui::Spacing();
+-    ImGui::TextUnformatted("Netplay");
+-    ImGui::SetNextItemWidth(220 * scale);
+-    ImGui::InputText("Nickname", netplay_nickname.data(), netplay_nickname.size());
+-    ImGui::SetNextItemWidth(220 * scale);
+-    ImGui::InputText("Host / IP", netplay_address.data(), netplay_address.size());
+-    ImGui::SetNextItemWidth(120 * scale);
+-    ImGui::InputInt("UDP port", &netplay_port);
+-    netplay_port = std::clamp(netplay_port, 1, 65535);
+-    ImGui::Checkbox("Automatic input buffer", &automatic_buffer);
+-    if (!automatic_buffer)
++      else
++      {
++        save_prompt_open = false;
++      }
++    };
++    const auto status_section = [&]
+     {
+-      ImGui::SetNextItemWidth(180 * scale);
+-      ImGui::SliderInt("Buffer frames", &manual_buffer, 1, 20);
+-    }
+-    ImGui::Spacing();
+-    ImGui::TextUnformatted("Game disc image");
+-    if (selected_image)
+-      ImGui::TextWrapped("%s", selected_image->string().c_str());
+-    else
+-      ImGui::TextDisabled("No ISO, WBFS, or RVZ selected");
++      {
++        std::lock_guard lock(extraction.mutex);
++        if (!extraction.status.empty())
++          ImGui::TextWrapped("%s", extraction.status.c_str());
++        if (!extraction.error.empty())
++          ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.3f, 1.0f), "%s", extraction.error.c_str());
++      }
++      {
++        std::lock_guard lock(dialog.mutex);
++        if (!dialog.error.empty())
++          ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.3f, 1.0f), "%s", dialog.error.c_str());
++      }
++    };
+ 
+-    if (!extraction.running)
++    // A row of the branded Settings window: label, then a dropdown of the in-game menu's choices.
++    // Returns the picked value (nullopt if unchanged).
++    const auto choice_row = [&](const char* label, const char* id, int shown,
++                                const auto& choices, const char* description) -> std::optional<int>
+     {
+-      if (ImGui::Button("Browse for ISO / WBFS / RVZ"))
++      std::optional<int> picked;
++      const char* preview = choices[0].text;
++      for (const LauncherChoice& choice : choices)
+       {
+-        static constexpr SDL_DialogFileFilter filters[] = {
+-            {"Disc images", "iso;wbfs;rvz"},
+-            {"ISO", "iso"},
+-            {"WBFS", "wbfs"},
+-            {"RVZ", "rvz"}};
+-        const std::string documents = DocumentsDirectory().string();
+-        SDL_ShowOpenFileDialog(FileDialogCallback, &dialog, window, filters,
+-                               static_cast<int>(std::size(filters)), documents.c_str(), false);
++        if (choice.value == shown)
++          preview = choice.text;
+       }
+-      if (selected_image)
++      row_label(label);
++      if (ImGui::BeginCombo(id, preview))
+       {
+-        ImGui::SameLine();
+-        if (ImGui::Button("Extract and Play"))
++        for (const LauncherChoice& choice : choices)
+         {
+-          extraction.completed = 0;
+-          extraction.total = 1;
+-          extraction.running = true;
+-          {
+-            std::lock_guard lock(extraction.mutex);
+-            extraction.error.clear();
+-            extraction.finished_game.reset();
+-          }
+-          const fs::path image = *selected_image;
+-          extraction_thread = std::jthread([image, user_directory, release_directory, &extraction]
+-                                           {
+-                                             ExtractDisc(image, user_directory,
+-                                                         release_directory, &extraction);
+-                                           });
++          const bool selected = choice.value == shown;
++          if (ImGui::Selectable(choice.text, selected) && !selected)
++            picked = choice.value;
++          if (selected)
++            ImGui::SetItemDefaultFocus();
+         }
++        ImGui::EndCombo();
+       }
+-    }
+-    else
++      describe(description);
++      return picked;
++    };
++    const auto setting_row = [&](const char* label, const char* id, SettingValue& value,
++                                 const auto& choices, const char* description)
++    {
++      const int shown = value.value < 0 ? value.fallback : value.value;
++      if (const auto picked = choice_row(label, id, shown, choices, description))
++      {
++        std::string error;
++        if (WriteDolphinOption(user_directory, value.key, *picked, &error))
++          value.value = *picked;
++        else
++        {
++          std::lock_guard lock(dialog.mutex);
++          dialog.error = std::move(error);
++        }
++      }
++    };
++    const auto pad_row = [&](const char* label, const char* id, int* value, const auto& choices,
++                             std::initializer_list<const char*> keys, int scale_to_ini,
++                             const char* description)
+     {
+-      const float progress =
+-          std::min(1.0f, static_cast<float>(extraction.completed.load()) / extraction.total.load());
+-      ImGui::ProgressBar(progress, ImVec2(-1, 0));
++      if (const auto picked = choice_row(label, id, *value, choices, description))
++      {
++        std::string error;
++        if (WritePadOptions(user_directory, keys, *picked * scale_to_ini, &error))
++          *value = *picked;
++        else
++        {
++          std::lock_guard lock(dialog.mutex);
++          dialog.error = std::move(error);
++        }
++      }
++    };
++
++    // A disc picked from the home screen's Select Disc is extracted (and played) right away.
++    if (picked_disc && extract_after_pick && !extraction.running)
++    {
++      extract_after_pick = false;
++      start_extraction();
+     }
+ 
++    if (!background)
+     {
+-      std::lock_guard lock(extraction.mutex);
+-      if (!extraction.status.empty())
+-        ImGui::TextWrapped("%s", extraction.status.c_str());
+-      if (!extraction.error.empty())
+-        ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.3f, 1.0f), "%s", extraction.error.c_str());
++      ImGui::SetNextWindowPos(viewport->WorkPos);
++      ImGui::SetNextWindowSize(viewport->WorkSize);
++      ImGui::Begin(MODERNGEKKO_FRONTEND_NAME " Launcher", nullptr,
++                   ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
++                       ImGuiWindowFlags_NoSavedSettings);
++      ImGui::TextUnformatted(MODERNGEKKO_FRONTEND_NAME);
++      ImGui::Separator();
++      if (current_metadata)
++      {
++        ImGui::Text("Ready: %s [%s]", current_metadata.metadata->game_name.c_str(),
++                    current_metadata.metadata->disc_id.c_str());
++        savestate_section();
++        play_buttons();
++        ImGui::SameLine();
++        netplay_buttons();
++      }
++      else
++      {
++        ImGui::TextUnformatted("No extracted game is configured yet.");
++      }
++      video_section();
++      controller_section();
++      netplay_section();
++      disc_section();
++      status_section();
++      ImGui::Spacing();
++      ImGui::Separator();
++      ImGui::TextWrapped("Controller: %s", controller_status.c_str());
++      ImGui::End();
+     }
++    else
+     {
+-      std::lock_guard lock(dialog.mutex);
+-      if (!dialog.error.empty())
+-        ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.3f, 1.0f), "%s", dialog.error.c_str());
++      // The branded home screen, laid out like the N64 recomps' launchers: the art across the
++      // window (cropped from the left so the characters on its right stay in view), the title and
++      // a short menu over the sky on the left, and everything else in a Settings window on top.
++      float texture_width = 0.0f;
++      float texture_height = 0.0f;
++      SDL_GetTextureSize(background, &texture_width, &texture_height);
++      const float fit = std::max(viewport->Size.x / texture_width, viewport->Size.y / texture_height);
++      const ImVec2 art_size{texture_width * fit, texture_height * fit};
++      const ImVec2 art_min{viewport->Pos.x + viewport->Size.x - art_size.x,
++                           viewport->Pos.y + (viewport->Size.y - art_size.y) * 0.5f};
++      ImDrawList* backdrop = ImGui::GetBackgroundDrawList();
++      backdrop->AddImage(ImTextureID(reinterpret_cast<intptr_t>(background)), art_min,
++                         ImVec2(art_min.x + art_size.x, art_min.y + art_size.y));
++      // A scrim that fades out to the right, so the title and the menu read over the bright sky
++      const ImU32 scrim = IM_COL32(6, 12, 28, 225);
++      const ImU32 clear = IM_COL32(6, 12, 28, 0);
++      backdrop->AddRectFilledMultiColor(
++          viewport->Pos,
++          ImVec2(viewport->Pos.x + viewport->Size.x * 0.66f, viewport->Pos.y + viewport->Size.y),
++          scrim, clear, clear, scrim);
++
++      ImGui::SetNextWindowPos(viewport->WorkPos);
++      ImGui::SetNextWindowSize(viewport->WorkSize);
++      ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(64 * scale, 56 * scale));
++      ImGui::Begin(MODERNGEKKO_FRONTEND_NAME " Launcher", nullptr,
++                   ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
++                       ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBackground |
++                       ImGuiWindowFlags_NoBringToFrontOnFocus);
++      ImGui::PopStyleVar();
++      ImGui::PushFont(title_font, 22.0f);
++      ImGui::TextColored(LAUNCHER_ACCENT, "%s", MODERNGEKKO_FRONTEND_NAME ": Recompiled");
++      ImGui::PopFont();
++      ImGui::PushFont(title_font, 46.0f);
++      ImGui::TextUnformatted(MODERNGEKKO_FRONTEND_NAME);
++      ImGui::PopFont();
++
++      // The menu, at the bottom left: a bullet and a fading highlight on the item under the mouse
++      // or the keyboard / pad focus.
++      struct MenuItem
++      {
++        const char* label;
++        int action;
++      };
++      enum
++      {
++        MENU_CONTINUE,
++        MENU_START,
++        MENU_SELECT_DISC,
++        MENU_SETTINGS,
++        MENU_EXIT,
++      };
++      std::vector<MenuItem> menu;
++      if (!extraction.running)
++      {
++        if (current_metadata)
++        {
++          if (!continue_text.empty())
++            menu.push_back({"Continue", MENU_CONTINUE});
++          menu.push_back({"Start Game", MENU_START});
++        }
++        else
++        {
++          menu.push_back({"Select Disc", MENU_SELECT_DISC});
++        }
++        menu.push_back({"Settings", MENU_SETTINGS});
++        menu.push_back({"Exit", MENU_EXIT});
++      }
++      // Tight items; Select Disc carries its hint as the bottom line of the same item, so the gap
++      // below the hint matches the gap between the other items.
++      const std::string disc_hint =
++          std::string("Choose your own disc image (") + DISC_FORMATS_TEXT + ") to play.";
++      const char* DISC_HINT = disc_hint.c_str();
++      // Select Disc and Start Game carry a second line: the disc hint, or which game is ready
++      const std::string ready_text =
++          current_metadata ? "Ready: " + current_metadata.metadata->game_name + " [" +
++                                 current_metadata.metadata->disc_id + "]" :
++                             std::string();
++      const auto item_hint = [&](int action) -> const char*
++      {
++        if (action == MENU_SELECT_DISC)
++          return DISC_HINT;
++        if (action == MENU_START && !ready_text.empty())
++          return ready_text.c_str();
++        if (action == MENU_CONTINUE && !continue_text.empty())
++          return continue_text.c_str();
++        return nullptr;
++      };
++      const float item_padding = 5.0f * ui_scale;
++      const float item_gap = 4.0f * ui_scale;
++      ImGui::PushFont(ui_font, 28.0f);
++      const float label_height = ImGui::GetTextLineHeight();
++      ImGui::PopFont();
++      ImGui::PushFont(ui_font, 15.0f);
++      const float hint_height = ImGui::GetTextLineHeight();
++      ImGui::PopFont();
++      // Room for the status lines actually shown under the menu (ready / import progress, errors)
++      int status_lines = 0;
++      {
++        std::lock_guard lock(extraction.mutex);
++        status_lines += (extraction.running && !extraction.status.empty()) +
++                        !extraction.error.empty();
++      }
++      {
++        std::lock_guard lock(dialog.mutex);
++        status_lines += !dialog.error.empty();
++      }
++      ImGui::PushFont(ui_font, 16.0f);
++      const float status_height = ImGui::GetTextLineHeightWithSpacing() * status_lines;
++      ImGui::PopFont();
++      const float item_height = label_height + item_padding * 2.0f;
++      float menu_height = (extraction.running ? 40.0f * ui_scale : 0.0f) + status_height;
++      for (const MenuItem& item : menu)
++        menu_height += item_height + item_gap + (item_hint(item.action) ? hint_height : 0.0f);
++      ImGui::SetCursorPosY(std::max(ImGui::GetCursorPosY() + 24.0f * ui_scale,
++                                    ImGui::GetWindowHeight() - 56.0f * ui_scale - menu_height));
++      const float item_width = 460.0f * ui_scale;
++      ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(ImGui::GetStyle().ItemSpacing.x, item_gap));
++      for (std::size_t i = 0; i < menu.size(); ++i)
++      {
++        const char* hint = item_hint(menu[i].action);
++        const bool has_hint = hint != nullptr;
++        const ImVec2 position = ImGui::GetCursorScreenPos();
++        const ImVec2 size{item_width, item_height + (has_hint ? hint_height : 0.0f)};
++        if (i == 0 && ImGui::IsWindowAppearing())
++          ImGui::SetKeyboardFocusHere();
++        const bool pressed = ImGui::InvisibleButton(menu[i].label, size);
++        const bool lit = ImGui::IsItemHovered() || ImGui::IsItemFocused();
++        ImDrawList* draw = ImGui::GetWindowDrawList();
++        if (lit)
++        {
++          draw->AddRectFilledMultiColor(position, ImVec2(position.x + size.x, position.y + size.y),
++                                        IM_COL32(255, 201, 74, 90), IM_COL32(255, 201, 74, 0),
++                                        IM_COL32(255, 201, 74, 0), IM_COL32(255, 201, 74, 90));
++          draw->AddCircleFilled(
++              ImVec2(position.x + 16.0f * ui_scale, position.y + item_padding + label_height * 0.5f),
++              5.0f * ui_scale, ImGui::GetColorU32(LAUNCHER_ACCENT));
++        }
++        ImGui::PushFont(ui_font, 28.0f);
++        draw->AddText(ImVec2(position.x + 34.0f * ui_scale, position.y + item_padding),
++                      lit ? ImGui::GetColorU32(LAUNCHER_ACCENT) : IM_COL32(242, 242, 242, 255),
++                      menu[i].label);
++        ImGui::PopFont();
++        if (has_hint)
++        {
++          ImGui::PushFont(ui_font, 15.0f);
++          draw->AddText(ImVec2(position.x + 35.0f * ui_scale,
++                               position.y + item_padding + label_height - 2.0f * ui_scale),
++                        ImGui::GetColorU32(LAUNCHER_STATUS), hint);
++          ImGui::PopFont();
++        }
++        if (!pressed)
++          continue;
++        switch (menu[i].action)
++        {
++        case MENU_CONTINUE:
++        {
++          // A card save: the game loads it by itself this boot ([Skies] AutoLoadCard, one shot)
++          launch_card_file = continue_from_state ? 0 : continue_card_file;
++          launch_solo(continue_from_state ? continue_state : -1);
++          break;
++        }
++        case MENU_START:
++        {
++          launch_card_file = 0;
++          launch_solo(selected_savestate);
++          break;
++        }
++        case MENU_SELECT_DISC:
++          extract_after_pick = true;
++          browse_disc();
++          break;
++        case MENU_SETTINGS:
++          ImGui::OpenPopup("Settings");
++          break;
++        case MENU_EXIT:
++          done = true;
++          break;
++        }
++      }
++      ImGui::PopStyleVar();
++      ImGui::PushFont(ui_font, 16.0f);
++      if (extraction.running)
++      {
++        const float progress = std::min(
++            1.0f, static_cast<float>(extraction.completed.load()) / extraction.total.load());
++        ImGui::ProgressBar(progress, ImVec2(item_width, 0));
++      }
++      ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 520.0f * ui_scale);
++      {
++        std::lock_guard lock(extraction.mutex);
++        if (extraction.running && !extraction.status.empty())
++          ImGui::TextColored(LAUNCHER_STATUS, "%s", extraction.status.c_str());
++        if (!extraction.error.empty())
++          ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f), "%s", extraction.error.c_str());
++      }
++      {
++        std::lock_guard lock(dialog.mutex);
++        if (!dialog.error.empty())
++          ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f), "%s", dialog.error.c_str());
++      }
++      ImGui::PopTextWrapPos();
++      ImGui::PopFont();
++
++      // Settings: a window inside the launcher, centred over the dimmed home screen, with tabs.
++      const ImVec2 modal_size{std::min(viewport->WorkSize.x - 96.0f * ui_scale, 920.0f * ui_scale),
++                              viewport->WorkSize.y - 96.0f * ui_scale};
++      ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
++      ImGui::SetNextWindowSize(modal_size);
++      ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 14.0f * ui_scale);
++      ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.5f * ui_scale);
++      ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(28.0f * ui_scale, 24.0f * ui_scale));
++      ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.035f, 0.055f, 0.11f, 0.95f));
++      ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1.0f, 1.0f, 1.0f, 0.22f));
++      if (ImGui::BeginPopupModal("Settings", nullptr,
++                                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
++                                     ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings))
++      {
++        ImGui::PushFont(title_font, 30.0f);
++        ImGui::TextUnformatted("Settings");
++        ImGui::PopFont();
++        const float close_width = 120.0f * ui_scale;
++        const float size_button = ImGui::GetFrameHeight() * 1.6f;
++        const float percent_width = ImGui::CalcTextSize("160%").x;
++        const ImGuiStyle& style = ImGui::GetStyle();
++        ImGui::SameLine(ImGui::GetContentRegionMax().x - close_width - size_button * 2.0f -
++                        percent_width - style.ItemSpacing.x * 4.0f - 12.0f * ui_scale);
++        const auto set_text_size = [&](int size)
++        {
++          size = std::clamp(size, 80, 160);
++          if (size == text_size)
++            return;
++          text_size = size;
++          std::string error;
++          if (!WriteDolphinOption(user_directory, LAUNCHER_TEXT_SIZE, text_size, &error))
++          {
++            std::lock_guard lock(dialog.mutex);
++            dialog.error = std::move(error);
++          }
++        };
++        ImGui::BeginDisabled(text_size <= 80);
++        if (ImGui::Button("A-##text_smaller", ImVec2(size_button, 0)))
++          set_text_size(text_size - 10);
++        ImGui::EndDisabled();
++        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
++          ImGui::SetTooltip("Smaller text");
++        ImGui::SameLine();
++        ImGui::AlignTextToFramePadding();
++        ImGui::Text("%d%%", text_size);
++        ImGui::SameLine();
++        ImGui::BeginDisabled(text_size >= 160);
++        if (ImGui::Button("A+##text_larger", ImVec2(size_button, 0)))
++          set_text_size(text_size + 10);
++        ImGui::EndDisabled();
++        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
++          ImGui::SetTooltip("Larger text");
++        ImGui::SameLine(ImGui::GetContentRegionMax().x - close_width);
++        // Escape / B close the import prompt when it is open, not the window under it
++        if (ImGui::Button("Close", ImVec2(close_width, 0)) ||
++            (!ImGui::IsAnyItemActive() && !save_prompt_open &&
++             (ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
++              ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false))))
++        {
++          ImGui::CloseCurrentPopup();
++        }
++        ImGui::Spacing();
++        const auto tab = [&](const char* label, const auto& draw)
++        {
++          if (ImGui::BeginTabItem(label))
++          {
++            ImGui::BeginChild("##tab", ImVec2(0, -ImGui::GetTextLineHeightWithSpacing()));
++            draw();
++            ImGui::EndChild();
++            ImGui::EndTabItem();
++          }
++        };
++        // The same settings as the in-game menu (hold Z, press Start), written to the same keys,
++        // so a change on either side shows on the other.
++        if (ImGui::BeginTabBar("##settings_tabs"))
++        {
++          ImGui::PushItemWidth(440.0f * ui_scale);
++          tab("Graphics", [&]
++              {
++                skies_video_rows(0, 2);
++                setting_row("V-Sync", "##vsync", vsync, ON_OFF,
++                            "Stops screen tearing. Can add a little input delay.");
++              });
++          tab("Display", [&]
++              {
++                fullscreen_row();
++                resolution_row();
++                setting_row("Show FPS", "##show_fps", show_fps, ON_OFF,
++                            "Show the frame rate in a corner of the game screen.");
++                title_fps_row();
++                backend_row();
++              });
++          tab("Gameplay", [&]
++              {
++                setting_row("Camera", "##camera", camera, CAMERA_CHOICES,
++                            "Hold Z, then tilt with the C-stick and zoom with L / R. Original keeps "
++                            "the game's fixed camera.");
++                setting_row("Battle speed", "##battle_speed", battle_speed, SPEED_CHOICES,
++                            "Plays battles faster. Tap Z during a battle to switch speeds.");
++                setting_row("Encounters", "##encounters", encounters, ENCOUNTER_CHOICES,
++                            "How often random battles happen. Off means none.");
++                setting_row("EXP", "##exp", exp, REWARD_CHOICES,
++                            "Experience from battles, for levelling up.");
++                setting_row("Gold", "##gold", gold, REWARD_CHOICES,
++                            "Gold won from battles.");
++                setting_row("Magic EXP", "##magic_exp", magic_exp, REWARD_CHOICES,
++                            "Magic experience from battles, for learning new spells.");
++                setting_row("Invincible", "##invincible", invincible, INVINCIBLE_CHOICES,
++                            "Keeps the party's HP and MP full. Press L3 or R3 in game to switch it.");
++              });
++          tab("Sound", [&] { setting_row("Volume", "##volume", volume, VOLUME_CHOICES,
++                                              "Music and sound effects."); });
++          tab("Controls", [&]
++              {
++                controller_section();
++                pad_row("Stick dead zone", "##dead_zone", &dead_zone, DEAD_ZONE_CHOICES,
++                        {"Main Stick/Dead Zone", "C-Stick/Dead Zone"}, 1,
++                        "Ignores small stick movements. Raise it if a stick drifts.");
++                pad_row("Rumble", "##rumble", &rumble, ON_OFF, {"Rumble/Motor/Range"}, 100,
++                        "Controller vibration.");
++                ImGui::Spacing();
++                ImGui::TextWrapped("Controller: %s", controller_status.c_str());
++              });
++          tab("Saves", [&]
++              {
++                setting_row("Auto-save", "##auto_save", auto_save, AUTO_SAVE_CHOICES,
++                            "Saves your place at quiet moments. Continue picks up from the newest.");
++                if (current_metadata && !launcher_savestates.empty())
++                {
++                  ImGui::Spacing();
++                  savestate_section();
++                  ImGui::TextDisabled("Start Game boots the state chosen here; Continue always "
++                                      "boots the newest.");
++                }
++                saves_import_section();
++              });
++          tab("Disc", disc_section);
++          ImGui::PopItemWidth();
++          ImGui::EndTabBar();
++        }
++        {
++          std::lock_guard lock(dialog.mutex);
++          if (!dialog.error.empty())
++            ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f), "%s", dialog.error.c_str());
++        }
++        ImGui::EndPopup();
++      }
++      ImGui::PopStyleColor(2);
++      ImGui::PopStyleVar(3);
++      ImGui::End();
+     }
+-    ImGui::Spacing();
+-    ImGui::Separator();
+-    ImGui::TextWrapped("Controller: %s", controller_status.c_str());
+-    ImGui::End();
+ 
+     ImGui::Render();
+     SDL_SetRenderScale(renderer, io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y);
+@@ -1107,8 +2495,17 @@ int main(int argc, char** argv)
+   if (launch_mode != LaunchMode::None)
+   {
+     std::string launch_error;
+-    if (!WriteDefaultGame(user_directory, release_directory, current_game,
+-                          &launch_error))
++    const bool skies = background || (current_metadata &&
++                                      current_metadata.metadata->disc_id == SKIES_DISC_ID);
++    if (skies && !WriteDolphinOption(user_directory, AUTO_LOAD_CARD, launch_card_file,
++                                     &launch_error))
++    {
++      launch_error = "Could not set up the memory card save to load: " + launch_error;
++      SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Launch failed", launch_error.c_str(), window);
++      result = 1;
++    }
++    else if (!WriteDefaultGame(user_directory, release_directory, current_game,
++                               &launch_error))
+     {
+       SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Launch failed", launch_error.c_str(), window);
+       result = 1;
+@@ -1163,6 +2560,15 @@ int main(int argc, char** argv)
+           user_directory / "Logs" / MODERNGEKKO_LOG_FILENAME;
+       std::error_code log_error;
+       std::filesystem::create_directories(log_path.parent_path(), log_error);
++      // The last run's log (the one to send after a crash) is kept as .old
++      if (!log_error && fs::exists(log_path, log_error))
++      {
++        fs::path old_log = log_path;
++        old_log += ".old";
++        std::error_code rotate_error;
++        fs::rename(log_path, old_log, rotate_error);
++      }
++      log_error.clear();
+       SDL_IOStream* log_stream =
+           log_error ? nullptr : SDL_IOFromFile(log_path.string().c_str(), "w");
+       SDL_Process* process = nullptr;
+@@ -1263,6 +2669,8 @@ int main(int argc, char** argv)
+     }
+   }
+ 
++  if (background)
++    SDL_DestroyTexture(background);
+   ImGui_ImplSDLRenderer3_Shutdown();
+   ImGui_ImplSDL3_Shutdown();
+   ImGui::DestroyContext();
+diff --git a/tools/moderngekko_port.cpp b/tools/moderngekko_port.cpp
+index af1c2a5..1a61395 100644
+--- a/tools/moderngekko_port.cpp
++++ b/tools/moderngekko_port.cpp
+@@ -675,6 +675,7 @@ std::optional<fs::path> Build(const char* argv0, const fs::path& root,
+       std::to_string(MODERNGEKKO_MODULE_ABI_VERSION) + "|cpu-abi=" +
+       std::to_string(MODERNGEKKO_CPU_ABI_VERSION) + "|" + compiler_identity + "|" +
+       std::string(architecture) + "|" + flags + "|backend=" + options.backend +
++      (options.state_in_memory ? std::string("|state_in_memory=1") : std::string()) +
+       "|patches=" + patches.fingerprint + "|dolrecomp_binary=" +
+       *dolrecomp_hash + "|" + moderngekko::pgo::PgoCacheIdentity(options.pgo) +
+       DolRecompCodegenIdentity();
+@@ -710,6 +711,7 @@ std::optional<fs::path> Build(const char* argv0, const fs::path& root,
+              << "architecture=" << architecture << '\n'
+              << "flags=" << flags << '\n'
+              << "backend=" << options.backend << '\n'
++             << "state_in_memory=" << (options.state_in_memory ? 1 : 0) << '\n'
+              << "patches=" << patches.fingerprint << '\n';
+     if (options.pgo.mode != moderngekko::pgo::PgoMode::Off)
+       manifest << moderngekko::pgo::FormatPgoManifest(options.pgo, options.pgo_facts);
+@@ -757,6 +759,14 @@ std::optional<fs::path> Build(const char* argv0, const fs::path& root,
+   std::string generate = Quote(dolrecomp) + " -j" +
+                          std::to_string(std::max(1u, std::thread::hardware_concurrency())) +
+                          " --backend=" + options.backend + " ";
++  if (options.state_in_memory)
++    generate += "--state-in-memory ";
++  // The pinned DolRecomp takes PGO only on its command line; it ignores the variables above, and
++  // without these flags an LLVM module's chunks are neither instrumented nor optimized with the profile.
++  if (options.backend == "llvm" && options.pgo.mode == moderngekko::pgo::PgoMode::Generate)
++    generate += "--profile-generate " + QuoteText(game.disc_id + "-%m.profraw") + " ";
++  else if (options.backend == "llvm" && options.pgo.mode == moderngekko::pgo::PgoMode::Use)
++    generate += "--profile-use " + Quote(options.pgo.merged_profile) + " ";
+   if (game.platform == moderngekko::GamePlatform::GameCube)
+     generate += "--cpu gekko --gamecube " + Quote(recomp_dol) + " " + Quote(generated_parent);
+   else
+@@ -1120,7 +1130,7 @@ int PgoRun(const char* argv0, const fs::path& root, BuildOptions options,
+ void Usage()
+ {
+   std::cerr << "usage: moderngekko-port inspect <game-root>\n"
+-               "       moderngekko-port build <game-root> [--backend c|llvm] [--toolchain auto|clang|gcc|msvc] [--opt-level 0-3] [--output path]\n"
++               "       moderngekko-port build <game-root> [--backend c|llvm] [--state-in-memory] [--toolchain auto|clang|gcc|msvc] [--opt-level 0-3] [--output path]\n"
+                "       moderngekko-port run <game-root> [build options] [-- runner options]\n"
+                "       moderngekko-port pgo-run <game-root> [--backend c|llvm] [--toolchain auto|clang] [--opt-level 0-3]\n"
+                "               [--output path] [--profile-dir path] [--llvm-profdata path] [--keep-work]\n"
+diff --git a/tools/moderngekko_run.cpp b/tools/moderngekko_run.cpp
+index d6b3569..c8f1e24 100644
+--- a/tools/moderngekko_run.cpp
++++ b/tools/moderngekko_run.cpp
+@@ -93,9 +93,10 @@ std::filesystem::path DefaultUserDirectory() {
+     return std::filesystem::path(local_app_data) /
+            MODERNGEKKO_USER_DIRECTORY_NAME;
+ #endif
+-  if (const char *xdg = std::getenv("XDG_DATA_HOME"))
++  // XDG: an empty or relative XDG_DATA_HOME counts as unset
++  if (const char *xdg = std::getenv("XDG_DATA_HOME"); xdg && xdg[0] == '/')
+     return std::filesystem::path(xdg) / MODERNGEKKO_USER_DIRECTORY_NAME;
+-  if (const char *home = std::getenv("HOME"))
++  if (const char *home = std::getenv("HOME"); home && home[0] != '\0')
+     return std::filesystem::path(home) / ".local" / "share" /
+            MODERNGEKKO_USER_DIRECTORY_NAME;
+   return std::string(MODERNGEKKO_USER_DIRECTORY_NAME) + "-user";
+@@ -246,10 +247,38 @@ int RunMain(int argc, char **argv) {
+     return 2;
+   }
+   config.graphics.internal_resolution_scale = frontend_config.dolphin_scale;
++  // An in-game settings menu can change the internal resolution; keep config.ini in step, since
++  // it's what sets the resolution at the next boot.
++  config.graphics.on_internal_resolution_changed = [user_directory = config.user_directory](
++                                                       int scale) {
++    // Only the scales config.ini can hold (LoadConfig refuses anything else at the next boot).
++    if (scale < 1 || scale > 12)
++      return;
++    auto saved = moderngekko::frontend::LoadConfig(user_directory, false);
++    if (!saved)
++      return;
++    saved.resolution = std::to_string(640 * scale) + "x" + std::to_string(528 * scale);
++    for (const auto &option : moderngekko::frontend::SupportedResolutions()) {
++      if (option.dolphin_scale == scale)
++        saved.resolution = option.text;
++    }
++    std::string error;
++    if (!moderngekko::frontend::SaveConfig(user_directory, saved, &error))
++      std::cerr << "can't save the new resolution to config.ini: " << error << '\n';
++  };
+   if (config.graphics.backend.empty())
+     config.graphics.backend = frontend_config.graphics_backend;
+   config.fullscreen = frontend_config.fullscreen;
+   config.show_fps_in_title = frontend_config.show_fps_in_title;
++  // RecompCore's frame interpolation reads its switch from the environment; an explicit
++  // RECOMP_FRAME_INTERPOLATION wins over config.ini.
++  if (frontend_config.frame_interpolation && !std::getenv("RECOMP_FRAME_INTERPOLATION")) {
++#if defined(_WIN32)
++    _putenv_s("RECOMP_FRAME_INTERPOLATION", "1");
++#else
++    setenv("RECOMP_FRAME_INTERPOLATION", "1", 0);
++#endif
++  }
+   if (use_default_mods) {
+     config.mod_directories.push_back(executable_directory / "Mods");
+     config.mod_directories.push_back(config.user_directory / "Mods");
+@@ -279,7 +308,14 @@ int RunMain(int argc, char **argv) {
+   if (dol_changed)
+     std::cout << "Applied native DOL patches\n";
+ #endif
+-  const auto inspected = moderngekko::InspectGame(config.game_root);
++#ifdef MODERNGEKKO_REQUIRED_ASSETS_SHA256
++  constexpr bool hash_assets = true;
++#else
++  // Nothing else here reads assets_sha256, and hashing every game file
++  // costs tens of seconds per launch.
++  constexpr bool hash_assets = false;
++#endif
++  const auto inspected = moderngekko::InspectGame(config.game_root, hash_assets);
+   if (!inspected) {
+     std::cerr << "invalid game: " << inspected.error << '\n';
+     return 2;
+diff --git a/tools/port_command_line.hpp b/tools/port_command_line.hpp
+index f2152dc..b59e7e9 100644
+--- a/tools/port_command_line.hpp
++++ b/tools/port_command_line.hpp
+@@ -16,6 +16,7 @@ struct BuildOptions
+   std::string toolchain = "auto";
+   std::string opt_level;
+   std::string backend;
++  bool state_in_memory = false;
+   fs::path output;
+   std::vector<std::string> runner_arguments;
+   pgo::PgoBuildOptions pgo;
+@@ -80,6 +81,10 @@ inline CommandLine ParseCommandLine(int argc, const char* const* argv,
+       parsed.build.toolchain = argv[++i];
+     else if (argument == "--backend" && i + 1 < argc)
+       parsed.build.backend = argv[++i];
++    else if (argument == "--state-in-memory")
++      parsed.build.state_in_memory = true;
++    else if (argument == "--no-state-in-memory")
++      parsed.build.state_in_memory = false;
+     else if (argument == "--opt-level" && i + 1 < argc)
+       parsed.build.opt_level = argv[++i];
+     else if (argument == "--output" && i + 1 < argc)
+diff --git a/tools/save_import.cpp b/tools/save_import.cpp
+new file mode 100644
+index 0000000..67380d9
+--- /dev/null
++++ b/tools/save_import.cpp
+@@ -0,0 +1,578 @@
++#include "save_import.hpp"
++
++#include <algorithm>
++#include <array>
++#include <chrono>
++#include <cstdint>
++#include <cstring>
++#include <ctime>
++#include <fstream>
++#include <optional>
++#include <system_error>
++#include <variant>
++#include <vector>
++
++#include "Common/StringUtil.h"
++#include "Core/HW/GCMemcard/GCMemcard.h"
++#include "Core/HW/GCMemcard/GCMemcardUtils.h"
++#include "Core/SavestateLayout.h"
++#include "Core/StateFile.h"
++
++namespace moderngekko::frontend
++{
++namespace fs = std::filesystem;
++
++namespace
++{
++constexpr std::string_view BACKUP_SUFFIX = ".pre-import.bak";
++constexpr std::string_view STAGING_SUFFIX = ".importtemp";
++
++// The most blocks a save can have: a 2043-block card's whole free space. Dolphin's GCI folder loader
++// skips a larger file without a word (GCMemcardDirectory.cpp), so it would import and never load.
++constexpr std::uint16_t MAX_SAVE_BLOCKS = 2043;
++// The largest single-save file that can hold that many: the biggest header (GCS) plus the blocks.
++// Checked before Dolphin reads it: its GCS reader takes the block count from the file size.
++constexpr std::uintmax_t MAX_SAVE_FILE_SIZE = 0x150 + std::uintmax_t{MAX_SAVE_BLOCKS} * 0x2000;
++// A Skies state is about 100 MB unpacked; this allows any resolution's with room to spare. Dolphin
++// allocates the size the header claims before reading anything, so a bigger claim is refused here.
++constexpr std::uint64_t MAX_STATE_BYTES = 1ull << 30;
++// LZ4 can't unpack a chunk to more than 255 times its packed size.
++constexpr std::uint64_t LZ4_MAX_RATIO = 255;
++
++std::uint32_t ReadLE32(const std::uint8_t* bytes)
++{
++  return bytes[0] | (bytes[1] << 8) | (bytes[2] << 16) | (static_cast<std::uint32_t>(bytes[3]) << 24);
++}
++
++std::string EntryGameId(const Memcard::DEntry& entry)
++{
++  return std::string(reinterpret_cast<const char*>(entry.m_gamecode.data()), entry.m_gamecode.size()) +
++         std::string(reinterpret_cast<const char*>(entry.m_makercode.data()),
++                     entry.m_makercode.size());
++}
++
++// The game's file number of a card save: "SA_LEGENDS.000" is file 1 (the game's load screen counts
++// from 1). 0 for a name without a numbered ending.
++int FileNumber(const Memcard::DEntry& entry)
++{
++  const std::size_t length =
++      std::find(entry.m_filename.begin(), entry.m_filename.end(), 0) - entry.m_filename.begin();
++  const std::string_view name(reinterpret_cast<const char*>(entry.m_filename.data()), length);
++  const std::size_t dot = name.rfind('.');
++  if (dot == std::string_view::npos || dot + 1 == name.size())
++    return 0;
++  int number = 0;
++  for (char c : name.substr(dot + 1))
++  {
++    if (c < '0' || c > '9' || number > 99999)  // a numbered ending, not a long digit string
++      return 0;
++    number = number * 10 + (c - '0');
++  }
++  return number + 1;
++}
++
++std::string_view EntryFileName(const Memcard::DEntry& entry)
++{
++  const std::size_t length =
++      std::find(entry.m_filename.begin(), entry.m_filename.end(), 0) - entry.m_filename.begin();
++  return {reinterpret_cast<const char*>(entry.m_filename.data()), length};
++}
++
++// "" when the game could load `save` from the card, else why not (for the player).
++std::string CardSaveProblem(const Memcard::Savefile& save, const SaveImportGame& game)
++{
++  const std::uint16_t blocks = save.dir_entry.m_block_count;
++  if (blocks == 0 || blocks > MAX_SAVE_BLOCKS || save.blocks.size() != blocks)
++    return "That save is damaged: its size doesn't match what it says it is.";
++  if (game.save_blocks != 0 && blocks != game.save_blocks)
++  {
++    return "That isn't a " + std::string(game.name) + " save: the game's saves are " +
++           std::to_string(game.save_blocks) + " blocks, this one is " + std::to_string(blocks) + ".";
++  }
++  if (!game.save_name_prefix.empty() && !EntryFileName(save.dir_entry).starts_with(game.save_name_prefix))
++    return "That isn't a " + std::string(game.name) + " save file.";
++  return "";
++}
++
++std::string FileText(const Memcard::DEntry& entry)
++{
++  const int number = FileNumber(entry);
++  if (number > 0)
++    return "file " + std::to_string(number);
++  return Memcard::GenerateFilename(entry);
++}
++
++// "files 1, 2 and 3"
++std::string JoinFiles(std::vector<std::string> files)
++{
++  if (files.empty())
++    return {};
++  std::string text = files.size() == 1 ? files[0] : "";
++  for (std::size_t i = 0; files.size() > 1 && i < files.size(); ++i)
++  {
++    std::string item = files[i];
++    if (item.starts_with("file "))
++      item = item.substr(5);
++    text += i == 0 ? item : (i + 1 == files.size() ? " and " : ", ") + item;
++  }
++  return files.size() == 1 ? text : "files " + text;
++}
++
++// The region folder Dolphin keeps a game's card in, from the disc ID's region letter.
++std::string_view RegionFolder(std::string_view game_id)
++{
++  switch (game_id.size() > 3 ? game_id[3] : 'E')
++  {
++  case 'J':
++    return "JAP";
++  case 'P':
++  case 'D':
++  case 'F':
++  case 'S':
++  case 'I':
++  case 'U':
++    return "EUR";
++  default:
++    return "USA";
++  }
++}
++
++std::string_view RegionName(char letter)
++{
++  switch (letter)
++  {
++  case 'E':
++    return "USA";
++  case 'J':
++    return "Japanese";
++  case 'P':
++  case 'D':
++  case 'F':
++  case 'S':
++  case 'I':
++  case 'U':
++    return "European";
++  default:
++    return "another";
++  }
++}
++
++std::optional<Memcard::DEntry> ReadGciHeader(const fs::path& path)
++{
++  std::ifstream in(path, std::ios::binary);
++  Memcard::DEntry entry;
++  if (!in.read(reinterpret_cast<char*>(&entry), Memcard::DENTRY_SIZE))
++    return std::nullopt;
++  return entry;
++}
++
++// Copies `from` to `to` through a staged file beside it, so `to` is never half written.
++// "" on success, else the reason.
++std::string StagedCopy(const fs::path& from, const fs::path& to)
++{
++  fs::path staged = to;
++  staged += STAGING_SUFFIX;
++  std::error_code ec;
++  fs::copy_file(from, staged, fs::copy_options::overwrite_existing, ec);
++  if (!ec)
++    fs::rename(staged, to, ec);
++  if (ec)
++  {
++    std::error_code cleanup;
++    fs::remove(staged, cleanup);
++    return ec.message();
++  }
++  return {};
++}
++
++// A folder something will be written into. "" when it is there (or was made), else the reason.
++std::string EnsureFolder(const fs::path& folder)
++{
++  std::error_code ec;
++  // A plain file where the folder should be (what copying a save in by hand can leave): nothing can
++  // be made inside it, so every save after it would fail.
++  if (fs::exists(folder, ec) && !fs::is_directory(folder, ec))
++  {
++    return "A file is in the way of the save folder \"" + PathToString(folder) +
++           "\". Delete that file and try again.";
++  }
++  fs::create_directories(folder, ec);
++  return ec ? "Could not create the save folder: " + ec.message() : "";
++}
++
++// Dolphin loads a GCI folder by the saves' identities (game code, maker, file name), not by file
++// names, and refuses a second file with the same identity -- so the one being replaced is found by
++// identity, wherever it is in the folder.
++std::vector<fs::path> SameIdentityFiles(const fs::path& folder, const Memcard::DEntry& entry)
++{
++  std::vector<fs::path> found;
++  std::error_code ec;
++  for (const fs::directory_entry& file : fs::directory_iterator(folder, ec))
++  {
++    if (file.path().extension() != ".gci")
++      continue;
++    const std::optional<Memcard::DEntry> header = ReadGciHeader(file.path());
++    if (header && Memcard::HasSameIdentity(*header, entry))
++      found.push_back(file.path());
++  }
++  return found;
++}
++
++struct WrittenSave
++{
++  std::string file;  // "file 2"
++  int number = 0;     // 2 (0 when not numbered), for listing in order
++  std::vector<std::string> backups;
++};
++
++// `<name>.pre-import.bak`, or `<name>.pre-import.2.bak` and up when an earlier import's copy is
++// there: a second import over the same save keeps the original's copy too.
++fs::path FreeBackupPath(const fs::path& old)
++{
++  std::error_code ec;
++  for (int n = 1;; ++n)
++  {
++    fs::path backup = old;
++    backup += n == 1 ? std::string(BACKUP_SUFFIX) :
++                       ".pre-import." + std::to_string(n) + ".bak";
++    if (!fs::exists(fs::symlink_status(backup, ec)) || n == 999)
++      return backup;
++  }
++}
++
++// Writes one card save into the GCI folder as Dolphin names it, dated `when`. "" on success.
++std::string WriteCardSave(const Memcard::Savefile& save, const fs::path& folder,
++                          fs::file_time_type when, WrittenSave* written)
++{
++  const fs::path destination =
++      folder / StringToPath(Memcard::GenerateFilename(save.dir_entry) + ".gci");
++  const std::vector<fs::path> replaced = SameIdentityFiles(folder, save.dir_entry);
++
++  // Everything being replaced is kept first; if that fails nothing has changed yet.
++  for (const fs::path& old : replaced)
++  {
++    const fs::path backup = FreeBackupPath(old);
++    if (const std::string failure = StagedCopy(old, backup); !failure.empty())
++      return "Could not keep a copy of the save that is already there, so nothing was changed: " +
++             failure;
++    written->backups.push_back(PathToString(backup.filename()));
++  }
++
++  fs::path staged = destination;
++  staged += STAGING_SUFFIX;
++  std::error_code ec;
++  if (!Memcard::WriteSavefile(PathToString(staged), save, Memcard::SavefileFormat::GCI))
++  {
++    fs::remove(staged, ec);
++    return "Could not write the save into the save folder.";
++  }
++  fs::rename(staged, destination, ec);
++  if (ec)
++  {
++    std::error_code cleanup;
++    fs::remove(staged, cleanup);
++    return "Could not put the save into place: " + ec.message();
++  }
++  fs::last_write_time(destination, when, ec);
++  // The same save under another file name would stop Dolphin loading the new one (kept above).
++  for (const fs::path& old : replaced)
++  {
++    if (!fs::equivalent(old, destination, ec))
++      fs::remove(old, ec);
++  }
++  written->file = FileText(save.dir_entry);
++  written->number = FileNumber(save.dir_entry);
++  return {};
++}
++
++std::string BackupText(const std::vector<WrittenSave>& written)
++{
++  std::vector<std::string> backups;
++  for (const WrittenSave& save : written)
++    backups.insert(backups.end(), save.backups.begin(), save.backups.end());
++  if (backups.empty())
++    return {};
++  std::string text = backups.size() == 1 ? " The save that was there is kept as " :
++                                           " The saves that were there are kept as ";
++  for (std::size_t i = 0; i < backups.size(); ++i)
++    text += (i == 0 ? "" : (i + 1 == backups.size() ? " and " : ", ")) + backups[i];
++  return text + ".";
++}
++
++std::string WrongGameText(const std::string& id, const SaveImportGame& game, bool state)
++{
++  const std::string kind = state ? "save state" : "save";
++  // Same game, other region: the saves aren't interchangeable (the game checks the game code)
++  if (id.size() >= 4 && game.game_id.size() >= 4 && id.compare(0, 3, game.game_id.substr(0, 3)) == 0)
++  {
++    return "That " + kind + " is from the " + std::string(RegionName(id[3])) +
++           " version of the game. This port plays the " +
++           std::string(RegionName(game.game_id[3])) + " version, which can't read it.";
++  }
++  std::string shown;
++  for (char c : id)
++    shown += (c >= 0x20 && c < 0x7F) ? c : '?';
++  return "That " + kind + " is for another game (" + shown + "), not " + std::string(game.name) +
++         ".";
++}
++
++SaveImportResult ImportCardSaves(std::vector<Memcard::Savefile> saves,
++                                 const fs::path& user_directory, const SaveImportGame& game)
++{
++  const fs::path folder = CardSaveFolder(user_directory, game.game_id);
++  if (std::string failure = EnsureFolder(folder); !failure.empty())
++    return {false, failure};
++
++  // The card's own last-written times order them, so the one saved last is the newest file and
++  // Continue loads it. All are dated now (a second apart), so they're newer than any state.
++  std::ranges::stable_sort(saves, {}, [](const Memcard::Savefile& save) {
++    return static_cast<std::uint32_t>(save.dir_entry.m_modification_time);
++  });
++  const fs::file_time_type now = fs::file_time_type::clock::now();
++  std::vector<WrittenSave> written;
++  for (std::size_t i = 0; i < saves.size(); ++i)
++  {
++    const fs::file_time_type when = now - std::chrono::seconds(saves.size() - 1 - i);
++    WrittenSave result;
++    if (std::string failure = WriteCardSave(saves[i], folder, when, &result); !failure.empty())
++    {
++      if (written.empty())
++        return {false, failure};
++      // Earlier ones went in; say so rather than claim nothing happened
++      std::vector<std::string> files;
++      for (const WrittenSave& save : written)
++        files.push_back(save.file);
++      return {false, "Imported " + JoinFiles(files) + ", then stopped: " + failure +
++                         BackupText(written)};
++    }
++    written.push_back(std::move(result));
++  }
++
++  // Listed by number ("file 2" before "file 10"); written oldest first, so the last one written
++  // is the one saved last
++  std::vector<const WrittenSave*> ordered;
++  for (const WrittenSave& save : written)
++    ordered.push_back(&save);
++  std::ranges::stable_sort(ordered, {}, [](const WrittenSave* save) { return save->number; });
++  std::vector<std::string> files;
++  for (const WrittenSave* save : ordered)
++    files.push_back(save->file);
++  const std::string last = written.back().file;
++  std::string text = "Imported " + JoinFiles(files) + ".";
++  if (written.size() > 1)
++    text += " Continue loads " + last + ", the one saved last.";
++  else
++    text += " Continue loads it.";
++  return {true, text + BackupText(written)};
++}
++
++SaveImportResult ImportCardSave(const fs::path& source, const fs::path& user_directory,
++                                const SaveImportGame& game)
++{
++  const auto read = Memcard::ReadSavefile(PathToString(source));
++  if (std::holds_alternative<Memcard::ReadSavefileErrorCode>(read))
++  {
++    return {false, "That file looks like a memory card save but can't be read: it may be damaged "
++                   "or cut short."};
++  }
++  const Memcard::Savefile& save = std::get<Memcard::Savefile>(read);
++  const std::string id = EntryGameId(save.dir_entry);
++  if (id != game.game_id)
++    return {false, WrongGameText(id, game, false)};
++  if (std::string problem = CardSaveProblem(save, game); !problem.empty())
++    return {false, problem};
++  return ImportCardSaves({save}, user_directory, game);
++}
++
++SaveImportResult ImportCardImage(const fs::path& source, const fs::path& user_directory,
++                                 const SaveImportGame& game)
++{
++  auto [error, card] = Memcard::GCMemcard::Open(PathToString(source));
++  if (error.HasCriticalErrors() || !card || !card->IsValid())
++  {
++    return {false, "That file looks like a whole memory card, but this app can't read it: "
++                   "it may be damaged or another format."};
++  }
++  std::vector<Memcard::Savefile> saves;
++  std::vector<std::string> other_regions;
++  for (std::uint8_t i = 0; i < Memcard::DIRLEN; ++i)
++  {
++    std::optional<Memcard::Savefile> save = card->ExportFile(i);
++    if (!save)
++      continue;
++    const std::string id = EntryGameId(save->dir_entry);
++    if (id == game.game_id)
++    {
++      // Anything of the game's the game itself couldn't load stops the whole import: a card from
++      // a real console never has one, so the card is damaged or not what it seems
++      if (std::string problem = CardSaveProblem(*save, game); !problem.empty())
++        return {false, "On that memory card: " + problem};
++      saves.push_back(std::move(*save));
++    }
++    else if (id.compare(0, 3, game.game_id.substr(0, 3)) == 0)
++      other_regions.push_back(id);
++  }
++  if (saves.empty())
++  {
++    if (!other_regions.empty())
++    {
++      return {false, "That memory card only has saves from the " +
++                         std::string(RegionName(other_regions[0][3])) +
++                         " version of the game. This port plays the " +
++                         std::string(RegionName(game.game_id[3])) + " version, which can't read them."};
++    }
++    return {false, "That memory card has no " + std::string(game.name) + " saves on it."};
++  }
++  return ImportCardSaves(std::move(saves), user_directory, game);
++}
++
++SaveImportResult ImportState(const fs::path& source, std::uintmax_t size,
++                             const std::array<std::uint8_t, 32>& head,
++                             const fs::path& user_directory, const SaveImportGame& game)
++{
++  // Checked as Dolphin's loader checks a state (StateFile.cpp ValidateHeaders and LoadFileStateData,
++  // State.cpp's game ID check): this game, this exact state version, a known extended header.
++  const std::string id(reinterpret_cast<const char*>(head.data()), 6);
++  if (id != game.game_id)
++    return {false, WrongGameText(id, game, true)};
++  if (ReadLE32(&head[24]) - State::COOKIE_BASE != State::STATE_VERSION)
++  {
++    return {false, "That save state was made by a different version of this port and can't be "
++                   "loaded by this one. Memory card saves work across versions."};
++  }
++  const std::uint32_t version_length = ReadLE32(&head[28]);
++  std::array<std::uint8_t, sizeof(State::StateExtendedBaseHeader)> extended{};
++  std::ifstream in(source, std::ios::binary);
++  const std::uint64_t data_start = 32 + std::uint64_t{version_length} + extended.size();
++  in.seekg(32 + static_cast<std::streamoff>(version_length));
++  if (data_start > size || !in.read(reinterpret_cast<char*>(extended.data()), extended.size()))
++    return {false, "That save state is cut short and can't be loaded."};
++  State::StateExtendedBaseHeader base;
++  std::memcpy(&base, extended.data(), sizeof(base));
++  const std::string damaged = "That save state is damaged and can't be loaded.";
++  if (base.header_version != State::EXTENDED_HEADER_VERSION ||
++      base.compression_type > State::CompressionType::LZ4)
++  {
++    return {false, damaged};
++  }
++  // What Dolphin's loader trusts without looking (StateFile.cpp LoadFileStateData): the unpacked size
++  // it allocates up front, and the chain of LZ4 chunks it reads until that size is reached. A bad
++  // value there threw out of the load, so every Continue crashed until the file was deleted.
++  if (base.uncompressed_size == 0 || base.uncompressed_size > MAX_STATE_BYTES)
++    return {false, damaged};
++  if (base.compression_type == State::CompressionType::LZ4)
++  {
++    // Each chunk: a positive 32-bit packed length, then that many bytes; the last ends the file
++    std::uint64_t position = data_start;
++    std::uint64_t packed = 0;
++    while (position < size)
++    {
++      std::array<std::uint8_t, 4> length_bytes{};
++      in.seekg(static_cast<std::streamoff>(position));
++      if (position + 4 > size || !in.read(reinterpret_cast<char*>(length_bytes.data()), 4))
++        return {false, damaged};
++      const auto length = static_cast<std::int32_t>(ReadLE32(length_bytes.data()));
++      if (length <= 0 || position + 4 + static_cast<std::uint64_t>(length) > size)
++        return {false, damaged};
++      packed += static_cast<std::uint64_t>(length);
++      position += 4 + static_cast<std::uint64_t>(length);
++    }
++    if (packed == 0 || base.uncompressed_size > packed * LZ4_MAX_RATIO)
++      return {false, damaged};
++  }
++  else if (data_start + base.payload_offset >= size)
++  {
++    return {false, damaged};
++  }
++  in.close();
++
++  const fs::path folder = user_directory / "StateSaves";
++  if (std::string failure = EnsureFolder(folder); !failure.empty())
++    return {false, failure};
++  // A new name every time, so nothing is replaced
++  const std::time_t now = std::time(nullptr);
++  fs::path destination;
++  std::error_code ec;
++  for (std::size_t sequence = 0;; ++sequence)
++  {
++    destination = folder / State::Layout::TimestampedName(now, sequence, game.state_prefix);
++    if (!fs::exists(destination, ec))
++      break;
++  }
++  if (const std::string failure = StagedCopy(source, destination); !failure.empty())
++    return {false, "Could not copy the save state into place: " + failure};
++  // Dated now (a copy can keep the original's date), so Continue starts from it
++  fs::last_write_time(destination, fs::file_time_type::clock::now(), ec);
++  return {true, "Imported the save state as " + PathToString(destination.filename()) +
++                    ". Continue starts from it."};
++}
++}  // namespace
++
++fs::path CardSaveFolder(const fs::path& user_directory, std::string_view game_id)
++{
++  return user_directory / "GC" / RegionFolder(game_id) / "Card A";
++}
++
++SaveImportResult ImportSave(const fs::path& source, const fs::path& user_directory,
++                            const SaveImportGame& game)
++{
++  std::error_code ec;
++  if (!fs::is_regular_file(source, ec))
++    return {false, "That is not a file this app can read."};
++  const std::uintmax_t size = fs::file_size(source, ec);
++  if (ec)
++    return {false, "Could not read that file: " + ec.message()};
++
++  std::array<std::uint8_t, 32> head{};
++  {
++    std::ifstream in(source, std::ios::binary);
++    if (!in.good())
++      return {false, "Could not open that file."};
++    in.read(reinterpret_cast<char*>(head.data()), head.size());
++  }
++
++  // A Dolphin save state: the version cookie at 24. Checked first, since a state can happen to
++  // have any size; the cookie can't occur there in a card save (that is inside the file name).
++  const std::uint32_t cookie_version = ReadLE32(&head[24]) - State::COOKIE_BASE;
++  if (size >= head.size() && ReadLE32(&head[8]) == 0 && cookie_version < 0x10000)
++    return ImportState(source, size, head, user_directory, game);
++
++  // One card save: GCI, GCS and SAV have different header sizes and whole 8 KiB blocks after
++  // them (Dolphin's ReadSavefile tells them apart the same way).
++  const std::uintmax_t header = size % Memcard::BLOCK_SIZE;
++  if (size > Memcard::BLOCK_SIZE && (header == 0x40 || header == 0x150 || header == 0xC0))
++  {
++    if (size > MAX_SAVE_FILE_SIZE)
++      return {false, "That save is bigger than a memory card can hold, so it can't be one."};
++    return ImportCardSave(source, user_directory, game);
++  }
++  // A whole card: Dolphin's .raw, a .gcp, a real card's dump
++  if (size >= 0x80000 && header == 0)
++    return ImportCardImage(source, user_directory, game);
++
++  return {false, "That isn't a save this app can import. It takes a memory card save (.gci, .gcs, "
++                 ".sav), a whole memory card (.raw, .gcp) or a save state from this port."};
++}
++
++std::string DescribeSaves(const fs::path& user_directory, const SaveImportGame& game)
++{
++  std::vector<std::pair<int, std::string>> files;
++  std::error_code ec;
++  for (const fs::directory_entry& file :
++       fs::directory_iterator(CardSaveFolder(user_directory, game.game_id), ec))
++  {
++    if (file.path().extension() != ".gci")
++      continue;
++    const std::optional<Memcard::DEntry> header = ReadGciHeader(file.path());
++    if (header && EntryGameId(*header) == game.game_id)
++      files.emplace_back(FileNumber(*header), FileText(*header));
++  }
++  std::ranges::sort(files);
++  std::vector<std::string> names;
++  for (const auto& file : files)
++    names.push_back(file.second);
++  const std::size_t states = State::Layout::List(user_directory / "StateSaves").size();
++  return "Memory card: " + (names.empty() ? std::string("no saves yet") : JoinFiles(names)) +
++         "\nSave states: " + (states == 0 ? std::string("none yet") : std::to_string(states));
++}
++}  // namespace moderngekko::frontend
+diff --git a/tools/save_import.hpp b/tools/save_import.hpp
+new file mode 100644
+index 0000000..29c292c
+--- /dev/null
++++ b/tools/save_import.hpp
+@@ -0,0 +1,56 @@
++#pragma once
++
++// Importing a save the player already has -- from Dolphin, a real GameCube (via a card tool), this
++// port on another device, or a backup -- into the places the game reads saves from. Shared by the
++// desktop launcher and the Android app (jni/SkiesImport.cpp), so both accept and refuse the same
++// files with the same words.
++//
++// Same rules as the N64 recomps' Import (Goemon 64, Hybrid Heaven, src/ui/ui_saves.cpp):
++//   - only while the game isn't running (the callers check: a running game holds the card in
++//     memory and writes it back, so a file swapped underneath it would be lost);
++//   - the file is checked as strictly as the code that will load it, no more and no less;
++//   - whatever is replaced is copied aside first (<name>.pre-import.bak), and the new file is
++//     staged and renamed into place, so a save is never left half written.
++//
++// The kind of file is told from its contents, not its name: ".sav" is both a MaxDrive card save
++// and a Dolphin save state, and an Android content URI has no name at all.
++
++#include <cstdint>
++#include <filesystem>
++#include <string>
++#include <string_view>
++
++namespace moderngekko::frontend
++{
++struct SaveImportGame
++{
++  std::string_view game_id;       // "GEAE8P": card saves and states must be this game's
++  std::string_view name;          // "Skies of Arcadia Legends", for messages
++  std::string_view state_prefix;  // imported states are named <prefix><date-time>.sav
++  // The game's own card saves, when known: their size in blocks and the start of their file name
++  // ("SA_LEGENDS."); 0 / "" accept any save of the game that a card can hold.
++  std::uint16_t save_blocks = 0;
++  std::string_view save_name_prefix = {};
++};
++
++struct SaveImportResult
++{
++  bool ok = false;
++  std::string message;  // for the player, success or not
++};
++
++// Imports `source`: one memory card save (.gci, .gcs, .sav), a whole memory card image (.raw,
++// .gcp; the game's saves are taken from it), or a Dolphin save state. Card saves go into card A's
++// GCI folder, states into StateSaves, both dated now so Continue picks them up.
++SaveImportResult ImportSave(const std::filesystem::path& source,
++                            const std::filesystem::path& user_directory,
++                            const SaveImportGame& game);
++
++// Card A's GCI folder for the game's region (Dolphin's default: GC/<region>/Card A).
++std::filesystem::path CardSaveFolder(const std::filesystem::path& user_directory,
++                                     std::string_view game_id);
++
++// What is there now, one line each: "Memory card: files 1 and 2" and "Save states: 4".
++std::string DescribeSaves(const std::filesystem::path& user_directory,
++                          const SaveImportGame& game);
++}  // namespace moderngekko::frontend
+diff --git a/tools/utf8.manifest b/tools/utf8.manifest
+new file mode 100644
+index 0000000..bddb2d9
+--- /dev/null
++++ b/tools/utf8.manifest
+@@ -0,0 +1,8 @@
++<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
++<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
++  <application xmlns="urn:schemas-microsoft-com:asm.v3">
++    <windowsSettings>
++      <activeCodePage xmlns="http://schemas.microsoft.com/SMI/2019/WindowsSettings">UTF-8</activeCodePage>
++    </windowsSettings>
++  </application>
++</assembly>

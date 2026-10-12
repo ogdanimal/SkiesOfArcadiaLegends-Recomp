@@ -1,0 +1,135 @@
+diff --git a/Source/Core/DolphinNoGUI/Platform.h b/Source/Core/DolphinNoGUI/Platform.h
+index 5b0729a9eb..084e1a7368 100644
+--- a/Source/Core/DolphinNoGUI/Platform.h
++++ b/Source/Core/DolphinNoGUI/Platform.h
+@@ -3,6 +3,7 @@
+ 
+ #pragma once
+ 
++#include <atomic>
+ #include <memory>
+ #include <string>
+ 
+@@ -65,6 +66,9 @@ protected:
+   Common::Flag m_save_state_requested{false};
+   Common::Flag m_load_state_requested{false};
+ 
+-  bool m_window_focus = true;  // Should be made atomic if actually implemented
++  // Read by the emulation thread's input gate (Core::UpdateInputGate: with [Input] BackgroundInput
++  // off, pads and keyboard are ignored while another window has focus). Platforms that don't
++  // track focus leave it true.
++  std::atomic<bool> m_window_focus{true};
+   bool m_window_fullscreen = false;
+ };
+diff --git a/Source/Core/DolphinNoGUI/PlatformWin32.cpp b/Source/Core/DolphinNoGUI/PlatformWin32.cpp
+index 3402fdae95..b45eea2421 100644
+--- a/Source/Core/DolphinNoGUI/PlatformWin32.cpp
++++ b/Source/Core/DolphinNoGUI/PlatformWin32.cpp
+@@ -18,6 +18,7 @@
+ #include <chrono>
+ #include <ctime>
+ #include <filesystem>
++#include <optional>
+ #include <string>
+ #include <vector>
+ #include <windows.h>
+@@ -65,6 +66,7 @@ private:
+   void RefreshMenu(HMENU menu);
+   void SaveStateToStatesDirectory();
+   void ToggleFullscreen();
++  void EndFastForward();
+   void UpdateWindowPosition();
+   void ProcessEvents();
+ 
+@@ -78,6 +80,8 @@ private:
+   std::time_t m_last_save_time{};
+   std::size_t m_save_sequence{};
+   bool m_fullscreen = false;
++  // Emulation speed to restore when Space (fast-forward) is released; empty when not fast-forwarding.
++  std::optional<float> m_speed_before_fast_forward;
+   LONG m_windowed_style = 0;
+   RECT m_windowed_rect{};
+ 
+@@ -90,7 +94,22 @@ private:
+ PlatformWin32::~PlatformWin32()
+ {
+   if (m_hwnd)
++  {
++    // Detach first: destroying a focused window sends WM_KILLFOCUS, and by now the runtime has shut
++    // Config down, so the handler must not touch it (an access violation on exit otherwise).
++    SetWindowLongPtr(m_hwnd, GWLP_USERDATA, 0);
+     DestroyWindow(m_hwnd);
++  }
++}
++
++void PlatformWin32::EndFastForward()
++{
++  if (!m_speed_before_fast_forward)
++    return;
++  // Only when the speed is still fast-forward's: one picked in a menu meanwhile stays
++  if (Config::Get(Config::MAIN_EMULATION_SPEED) == FAST_FORWARD_SPEED)
++    Config::SetCurrent(Config::MAIN_EMULATION_SPEED, *m_speed_before_fast_forward);
++  m_speed_before_fast_forward.reset();
+ }
+ 
+ bool PlatformWin32::RegisterRenderWindowClass()
+@@ -132,6 +151,9 @@ bool PlatformWin32::CreateRenderWindow()
+ 
+   ShowWindow(m_hwnd, SW_SHOW);
+   UpdateWindow(m_hwnd);
++  // WM_SETFOCUS / WM_KILLFOCUS keep this up to date from here; a window started from another
++  // program (WSL, a script) may never have had focus.
++  m_window_focus = GetFocus() == m_hwnd;
+   return true;
+ }
+ 
+@@ -335,6 +357,10 @@ LRESULT PlatformWin32::WndProc(const HWND hwnd, const UINT msg, const WPARAM wPa
+                                const LPARAM lParam)
+ {
+   PlatformWin32* platform = reinterpret_cast<PlatformWin32*>(GetWindowLongPtr(hwnd, GWLP_USERDATA));
++  // Messages before WM_NCCREATE and after the destructor detaches the window (DestroyWindow sends
++  // WM_KILLFOCUS and friends after the runtime has shut Config down) get the default handling.
++  if (!platform && msg != WM_NCCREATE)
++    return DefWindowProc(hwnd, msg, wParam, lParam);
+   switch (msg)
+   {
+   case WM_NCCREATE:
+@@ -373,6 +399,8 @@ LRESULT PlatformWin32::WndProc(const HWND hwnd, const UINT msg, const WPARAM wPa
+     }
+     else if (wParam == VK_SPACE)
+     {
++      if (!platform->m_speed_before_fast_forward)
++        platform->m_speed_before_fast_forward = Config::Get(Config::MAIN_EMULATION_SPEED);
+       Config::SetCurrent(Config::MAIN_EMULATION_SPEED, FAST_FORWARD_SPEED);
+       return 0;
+     }
+@@ -395,15 +423,26 @@ LRESULT PlatformWin32::WndProc(const HWND hwnd, const UINT msg, const WPARAM wPa
+   case WM_KEYUP:
+     if (wParam == VK_SPACE)
+     {
+-      Config::SetCurrent(Config::MAIN_EMULATION_SPEED, 1.0f);
++      platform->EndFastForward();
+       return 0;
+     }
+     break;
+ 
++  case WM_SETFOCUS:
++    if (platform)
++      platform->m_window_focus = true;
++    break;
++
+   case WM_KILLFOCUS:
++    // Input from pads and the keyboard is ignored while unfocused, unless [Input] BackgroundInput
++    // is on (automation input goes through the input overrider and still applies).
++    if (platform)
++      platform->m_window_focus = false;
+     // Never leave emulation running fast because Space was released while
+-    // another window had focus and the key-up went elsewhere.
+-    Config::SetCurrent(Config::MAIN_EMULATION_SPEED, 1.0f);
++    // another window had focus and the key-up went elsewhere. Only undo our own
++    // fast-forward: resetting to 1.0 unconditionally re-enabled the frame limiter
++    // whenever the window lost focus, overriding the configured speed.
++    platform->EndFastForward();
+     break;
+ 
+   case WM_SYSKEYDOWN:

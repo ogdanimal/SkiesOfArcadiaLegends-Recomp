@@ -1,0 +1,54 @@
+diff --git a/GXRuntime/include/core/cpu.h b/GXRuntime/include/core/cpu.h
+index e242b00259..690ad5fbd3 100644
+--- a/GXRuntime/include/core/cpu.h
++++ b/GXRuntime/include/core/cpu.h
+@@ -100,6 +100,12 @@ typedef void (*PPCExternalWrite32)(CPUState* cpu, u32 ea, u32 value, u8 rid);
+ typedef void* (*PPCExternalPointer)(CPUState* cpu, u32 ea, u32 size);
+ typedef void (*PPCInstructionFallback)(CPUState* cpu, u32 raw, u32 cia);
+ typedef bool (*PPCHostCall)(CPUState* cpu, u32 address);
++
++/* Asked through host_call by LLVM-backend native regions before entry
++ * (mirrors DolRecomp's cpu.h): range in external_addr/external_value. */
++#define PPC_HOST_CALL_NATIVE_REGION_QUERY 0xFFFFFFFCu
++#define PPC_NATIVE_REGION_QUERY_PENDING 0xFEu
++#define PPC_NATIVE_REGION_QUERY_HANDLED 0xFFu
+ typedef u32 (*PPCSPRRead)(CPUState* cpu, u16 spr, u32 cia);
+ typedef void (*PPCSPRWrite)(CPUState* cpu, u16 spr, u32 value, u32 cia);
+ typedef void (*PPCCacheControl)(CPUState* cpu, u8 operation, u32 ea, u32 cia);
+@@ -404,6 +410,7 @@ static inline bool ppc_fp_available_inline(CPUState* cpu, u32 cia) {
+ }
+ void ppc_fallback_instruction(CPUState* cpu, u32 raw, u32 cia);
+ bool ppc_host_call(CPUState* cpu, u32 address);
++bool ppc_native_region_available(CPUState* cpu, u32 start, u32 end);
+ void ppc_system_call_exception(CPUState* cpu, u32 cia);
+ void ppc_dsi_exception(CPUState* cpu, u32 ea, u32 cia, u32 dsisr);
+ void ppc_alignment_exception(CPUState* cpu, u32 ea, u32 cia);
+diff --git a/GXRuntime/src/core/cpu.c b/GXRuntime/src/core/cpu.c
+index 345b9602dd..d6ef2b5a1a 100644
+--- a/GXRuntime/src/core/cpu.c
++++ b/GXRuntime/src/core/cpu.c
+@@ -141,6 +141,24 @@ bool ppc_host_call(CPUState* cpu, u32 address) {
+     return cpu->host_call ? cpu->host_call(cpu, address) : false;
+ }
+ 
++bool ppc_native_region_available(CPUState* cpu, u32 start, u32 end) {
++    if (!cpu || !cpu->host_call)
++        return true;
++
++    u32 saved_addr = cpu->external_addr;
++    u32 saved_value = cpu->external_value;
++    u8 saved_rid = cpu->external_rid;
++    cpu->external_addr = start;
++    cpu->external_value = end;
++    cpu->external_rid = PPC_NATIVE_REGION_QUERY_PENDING;
++    bool blocked = cpu->host_call(cpu, PPC_HOST_CALL_NATIVE_REGION_QUERY);
++    bool handled = cpu->external_rid == PPC_NATIVE_REGION_QUERY_HANDLED;
++    cpu->external_addr = saved_addr;
++    cpu->external_value = saved_value;
++    cpu->external_rid = saved_rid;
++    return handled && !blocked;
++}
++
+ void ppc_system_call_exception(CPUState* cpu, u32 cia) {
+     ppc_take_exception(cpu, PPC_EXC_SYSTEM_CALL, PPC_VECTOR_SYSTEM_CALL, cia + 4u, 0);
+ }
