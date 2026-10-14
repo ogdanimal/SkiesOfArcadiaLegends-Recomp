@@ -5,6 +5,25 @@ source in a **private repo for now**, Android app ID **`com.skiesofarcadia.recom
 other ports). Hard rule: **no game files in anything we build or publish** (no disc, no DOL, no
 extracted files); the player's own disc supplies them at import.
 
+## Status (2026-10-13): working towards the release
+
+User: "let's work towards a prod release". Game patch ws20 committed (`feca39c`; battle freeze fix +
+direct card Continue, Retroid-checked by the user); Windows zip and Linux tarball rebuilt locally
+and smoke-tested (packaged runners: Continue -> card file 5 in 2.5 s).
+
+The first CI run (validate, 2026-10-12, run 38308428665) failed in two jobs; codegen (1h49m) and
+linux (30m) passed:
+- **windows:** checkout died on SPIRV-Cross test files past Windows' 260-character path limit ->
+  `git config --system core.longpaths true` before the checkout.
+- **android:** `gradle/actions/wrapper-validation` rejected SDL's sample `android-project` wrapper jar
+  (sha256 `2c23278a...`, not a released Gradle build; nothing references that project) -> the jar is
+  deleted before validation instead of being allow-listed.
+- Cost: codegen's encrypted output is now cached (key: DOL patch, DolRecomp pin + patches,
+  `gen_module_tables.py`, LLVM apt version, secrets repo HEAD, a hash of the artifact key), and pushes
+  to `main` no longer run validate (the tag's release run builds that commit anyway). Caches made on
+  `dev` aren't visible to tag runs (GitHub scopes caches to the branch and the default branch), so a
+  release still runs codegen once.
+
 ## Set up like the N64 recomps (2026-10-12, afternoon)
 
 User: "prepare for release, set up like the N64 recomps" (Hybrid Heaven / Goemon). Decisions:

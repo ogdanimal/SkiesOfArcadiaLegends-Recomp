@@ -156,10 +156,13 @@ helpers in `tools/`:
 
 GitHub Actions builds every platform the same way:
 
-- **`validate.yml`** runs on pushes to `dev` and `main` (and by hand). Its `codegen` job is the only
-  one that sees the game: it clones the private secrets repo (the original `main.dol` and the PGO
-  profiles) with a read-only token, runs `tools/ci-codegen.sh`, deletes the inputs, and passes the
-  generated code to the build jobs **encrypted** and for one day only. The `windows`, `linux` and
+- **`validate.yml`** runs on pushes to `dev` (and by hand; `main` only ever moves to a `dev` commit it
+  passed). Its `codegen` job is the only one that sees the game: it clones the private secrets repo
+  (the original `main.dol` and the PGO profiles) with a read-only token, runs `tools/ci-codegen.sh`,
+  deletes the inputs, and passes the generated code to the build jobs **encrypted** and for one day
+  only. Codegen takes about two hours, so its encrypted output is also kept in the Actions cache,
+  keyed on what it depends on (the DOL patch, DolRecomp and its patches, the table generator, LLVM,
+  the secrets repo's commit, the artifact key); a push that changes none of those reuses it. The `windows`, `linux` and
   `android` jobs build and upload a package each.
 - **`release.yml`** runs on a `v*` tag on a commit on `main`: it calls `validate.yml` in release mode
   (version from the tag, a signed Android APK), refuses any package that holds a disc image, a DOL or
