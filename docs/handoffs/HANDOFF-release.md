@@ -36,8 +36,13 @@ restore; ask before touching the device).
 
 Release checklist from here:
 1. validate green on the release commit (run by hand).
-2. Sandbox: `tools/sandbox/skies-sandbox.wsb` + `test.ps1` (unzip, `--extract` the RVZ, launcher
-   screenshot, runner on Vulkan then OpenGL, screenshots and logs to `build\sandbox-test\out`).
+2. **Sandbox: done 2026-10-13** (`tools/sandbox/skies-sandbox.wsb` + `test.ps1`; the user enabled the
+   feature). On a clean Windows (only the .NET copies of the VC runtime DLLs) the zip unpacks, the
+   launcher runs, `--extract` imports the RVZ to DOL `f1ee9e8d`. Found and fixed (`5649cd9`): a console
+   window beside the launcher (both exes were console programs; the release is a GUI program now), and
+   no way past a missing Vulkan (automatic OpenGL fallback; development-notes *Known issues*). Sandbox
+   has neither Vulkan nor OpenGL 3.3, so the game itself can't be shown there; the fallback was
+   checked on the real GPU instead.
 3. Going public (the user flips it): re-run the PII sweep (tree + history), then
    `tools/setup-github-protection.sh ogdanimal/SkiesOfArcadiaLegends-Recomp` (environments `ci` /
    `release`, rulesets for `v*` tags and `main`), the user runs
