@@ -13,8 +13,9 @@ Skies of Arcadia Legends: Recompiled is distributed under the GNU General Public
 Dolphin's own third-party components (SDL, Dear ImGui, zlib-ng, Zstandard, cubeb, mbed TLS and others)
 are listed with their licences in `THIRD-PARTY-DOLPHIN.md`, a copy of Dolphin's `Externals/licenses.md`.
 
-The source code for this release, including every change made to the projects above, is available
-from the project's repository.
+The source code for this release, including every change made to the projects above (`patches/`), is
+available from the project's repository, https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp, at
+this release's tag.
 
 Fonts are not bundled: the launcher and the in-game menu use the system's own fonts (Segoe UI on
 Windows, Roboto on Android).

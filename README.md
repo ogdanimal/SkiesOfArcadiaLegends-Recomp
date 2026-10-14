@@ -84,7 +84,7 @@ Every setting is also in the launcher's **Settings** window, with a short descri
 - **Save states:** five slots, plus an auto-save every 10 minutes on the field (the newest three are
   kept). Your memory card saves are never touched by a state.
 - **Continue** in the launcher starts from your newest save state or memory card save, whichever is
-  newer. A memory card save is loaded through the game's own title screen, automatically.
+  newer. A memory card save loads straight into the game, without the intro or title screen.
 
 ### Importing a save
 

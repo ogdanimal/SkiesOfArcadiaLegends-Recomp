@@ -23,6 +23,30 @@ linux (30m) passed:
   to `main` no longer run validate (the tag's release run builds that commit anyway). Caches made on
   `dev` aren't visible to tag runs (GitHub scopes caches to the branch and the default branch), so a
   release still runs codegen once.
+- **Pushes don't start workflows on this repo** (the 10-12 and 10-13 pushes are recorded as
+  PushEvents, no runs; Hybrid Heaven, public, runs on every push). validate is started by hand
+  (`gh workflow run validate.yml --ref dev`); `release.yml` now also takes `workflow_dispatch` on the
+  tag (the guard refuses any ref that isn't a tag), and `tools/release.sh` starts it that way when the
+  tag push starts nothing within two minutes.
+
+User decisions (2026-10-13): **v0.9.0-beta** (prerelease); **the repo goes public at release**;
+clean-machine test in **Windows Sandbox** (the user enables it: admin + reboot); the **Retroid moves to
+the release-signed APK** once CI makes it (backup, uninstall the debug-signed test app, install,
+restore; ask before touching the device).
+
+Release checklist from here:
+1. validate green on the release commit (run by hand).
+2. Sandbox: `tools/sandbox/skies-sandbox.wsb` + `test.ps1` (unzip, `--extract` the RVZ, launcher
+   screenshot, runner on Vulkan then OpenGL, screenshots and logs to `build\sandbox-test\out`).
+3. Going public (the user flips it): re-run the PII sweep (tree + history), then
+   `tools/setup-github-protection.sh ogdanimal/SkiesOfArcadiaLegends-Recomp` (environments `ci` /
+   `release`, rulesets for `v*` tags and `main`), the user runs
+   `tools/set-release-secrets.sh --environments ogdanimal/SkiesOfArcadiaLegends-Recomp ogdanimal/SkiesOfArcadiaLegends-RecompSecrets`
+   (hidden prompts; deletes the repo-level copies), then `environment: ${{ inputs.release && 'release' || 'ci' }}`
+   on validate.yml's four jobs (B7 closed), validate green again.
+4. `tools/release.sh 0.9.0-beta SHA notes.md`; the `release` environment waits for the user's
+   approval (Actions page) before the signed builds.
+5. Retroid onto the release APK.
 
 ## Set up like the N64 recomps (2026-10-12, afternoon)
 

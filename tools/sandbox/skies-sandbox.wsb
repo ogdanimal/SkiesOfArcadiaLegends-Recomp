@@ -1,0 +1,14 @@
+<!-- Clean-machine test of the Windows release zip (tools/sandbox/test.ps1 at logon). Put the zip and
+     test.ps1 in C:\dev\SkiesRecomp\build\sandbox-test\in, the disc image in build\disc; results land in
+     build\sandbox-test\out. Needs Windows Sandbox (Windows Pro, feature Containers-DisposableClientVM). -->
+<Configuration>
+  <VGpu>Enable</VGpu>
+  <Networking>Disable</Networking>
+  <MemoryInMB>8192</MemoryInMB>
+  <MappedFolders>
+    <MappedFolder><HostFolder>C:\dev\SkiesRecomp\build\sandbox-test\in</HostFolder><SandboxFolder>C:\in</SandboxFolder><ReadOnly>true</ReadOnly></MappedFolder>
+    <MappedFolder><HostFolder>C:\dev\SkiesRecomp\build\disc</HostFolder><SandboxFolder>C:\disc</SandboxFolder><ReadOnly>true</ReadOnly></MappedFolder>
+    <MappedFolder><HostFolder>C:\dev\SkiesRecomp\build\sandbox-test\out</HostFolder><SandboxFolder>C:\out</SandboxFolder><ReadOnly>false</ReadOnly></MappedFolder>
+  </MappedFolders>
+  <LogonCommand><Command>powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\in\test.ps1</Command></LogonCommand>
+</Configuration>

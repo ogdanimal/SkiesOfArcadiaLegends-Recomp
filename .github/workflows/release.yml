@@ -13,6 +13,10 @@ on:
   push:
     tags:
       - 'v*'
+  # By hand ON THE TAG (gh workflow run release.yml --ref vX.Y.Z), for when the tag push didn't start
+  # a run (seen on this private repo, 2026-10-13: pushes recorded, no runs). Any other ref fails the
+  # guard below: the ref name must be a version tag and its commit must be on main.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -39,6 +43,10 @@ jobs:
       # Any v* tag on any commit would otherwise publish a signed release.
       - name: Guard -- tag commit must be on main
         run: |
+          if [ "$GITHUB_REF_TYPE" != tag ]; then
+            echo "::error::${GITHUB_REF} is not a tag; run this on the release tag."
+            exit 1
+          fi
           git fetch --no-tags origin main
           if ! git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD; then
             echo "::error::Tag ${GITHUB_REF_NAME} (${GITHUB_SHA}) is not on main; refusing to publish."

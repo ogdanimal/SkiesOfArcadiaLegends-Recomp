@@ -5,8 +5,13 @@
 #   RELEASE_*                   the release key, when tools/make-release-key.sh has made one
 # Nothing typed is printed or written to disk; each value is proven before it is stored, and a
 # failure changes nothing.
-#   tools/set-release-secrets.sh OWNER/PORT_REPO OWNER/SECRETS_REPO
+#   tools/set-release-secrets.sh [--environments] OWNER/PORT_REPO OWNER/SECRETS_REPO
+# --environments (code review B7, once tools/setup-github-protection.sh has made them): the SOAL_*
+# secrets go into the environments ci and release, the RELEASE_* ones into release only, and the
+# repo-level copies are deleted afterwards.
 set -u
+ENVS=
+[ "${1:-}" = --environments ] && { ENVS=1; shift; }
 PORT_REPO=${1:?usage: tools/set-release-secrets.sh OWNER/PORT_REPO OWNER/SECRETS_REPO}
 SECRETS_REPO=${2:?usage: tools/set-release-secrets.sh OWNER/PORT_REPO OWNER/SECRETS_REPO}
 DOL_SHA256=87c240acb746c5a09e95dd84021f78643eaa6721d8edc96ed87d3b6b3bcbae54
@@ -50,20 +55,46 @@ if [ -f "$KS" ]; then
     keytool -list -keystore "$KS" -storepass:env STOREPASS -alias "$ALIAS" >/dev/null 2>&1 ||
         { echo "That password doesn't open $KS -- nothing changed."; exit 1; }
     echo "OK: the keystore opens."
+elif [ -n "$ENVS" ]; then
+    echo "No release key at $KS: the release environment needs it (tools/make-release-key.sh) -- nothing changed."
+    exit 1
 else
     echo "No release key at $KS: skipping the RELEASE_* secrets (tools/make-release-key.sh)."
 fi
 
 # --- 3. Store -----------------------------------------------------------------
 set -e
-printf '%s' "$URL" | gh secret set SOAL_SECRETS_REPO_WITH_PAT --repo "$PORT_REPO"
+if [ -n "$ENVS" ]; then
+    for e in ci release; do
+        gh api "repos/$PORT_REPO/environments/$e" >/dev/null 2>&1 ||
+            { echo "No environment $e on $PORT_REPO: run tools/setup-github-protection.sh first -- nothing changed."; exit 1; }
+    done
+    SOAL_ENVS=(--env ci --env release) RELEASE_ENVS=(--env release)
+else
+    SOAL_ENVS=("") RELEASE_ENVS=("")
+fi
+put() {  # put NAME VALUE-ON-STDIN, once per target (the repo, or each environment)
+    local name=$1; shift; local value; value=$(cat)
+    if [ "$1" = "" ]; then printf '%s' "$value" | gh secret set "$name" --repo "$PORT_REPO"; return; fi
+    while [ $# -gt 0 ]; do printf '%s' "$value" | gh secret set "$name" --repo "$PORT_REPO" "$1" "$2"; shift 2; done
+}
+printf '%s' "$URL" | put SOAL_SECRETS_REPO_WITH_PAT "${SOAL_ENVS[@]}"
 unset URL AUTH
-openssl rand -base64 48 | tr -d '\n' | gh secret set SOAL_ARTIFACT_KEY --repo "$PORT_REPO"
+openssl rand -base64 48 | tr -d '\n' | put SOAL_ARTIFACT_KEY "${SOAL_ENVS[@]}"
 if [ -n "$STOREPASS" ]; then
-    base64 -w0 "$KS"          | gh secret set RELEASE_KEYSTORE_BASE64 --repo "$PORT_REPO"
-    printf '%s' "$STOREPASS"  | gh secret set RELEASE_STORE_PASSWORD  --repo "$PORT_REPO"
-    printf '%s' "$STOREPASS"  | gh secret set RELEASE_KEY_PASSWORD    --repo "$PORT_REPO"
-    printf '%s' "$ALIAS"      | gh secret set RELEASE_KEY_ALIAS       --repo "$PORT_REPO"
+    base64 -w0 "$KS"          | put RELEASE_KEYSTORE_BASE64 "${RELEASE_ENVS[@]}"
+    printf '%s' "$STOREPASS"  | put RELEASE_STORE_PASSWORD  "${RELEASE_ENVS[@]}"
+    printf '%s' "$STOREPASS"  | put RELEASE_KEY_PASSWORD    "${RELEASE_ENVS[@]}"
+    printf '%s' "$ALIAS"      | put RELEASE_KEY_ALIAS       "${RELEASE_ENVS[@]}"
 fi
 unset STOREPASS
+if [ -n "$ENVS" ]; then
+    # Everything is in the environments now; the repo-level copies would reach any ref
+    for n in SOAL_SECRETS_REPO_WITH_PAT SOAL_ARTIFACT_KEY RELEASE_KEYSTORE_BASE64 RELEASE_STORE_PASSWORD \
+             RELEASE_KEY_PASSWORD RELEASE_KEY_ALIAS; do
+        gh secret delete "$n" --repo "$PORT_REPO" 2>/dev/null || true
+    done
+    for e in ci release; do echo "environment $e:"; gh secret list --repo "$PORT_REPO" --env "$e"; done
+    echo "repo level (should be empty):"
+fi
 gh secret list --repo "$PORT_REPO"

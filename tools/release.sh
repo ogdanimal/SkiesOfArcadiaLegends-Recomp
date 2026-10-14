@@ -26,6 +26,17 @@ echo "2/3 tagging $TAG (starts release.yml)"
 git tag "$TAG" "$SHA"
 git push origin "$TAG"
 
+# On the private repo, pushes have been recorded without starting workflows (2026-10-13): if no
+# release run shows up for the tag, start it by hand on the tag
+for _ in 1 2 3 4 5 6; do
+  [ -n "$(gh run list --repo "$REPO" --workflow release.yml --branch "$TAG" --json databaseId --jq '.[0].databaseId')" ] && break
+  sleep 20
+done
+if [ -z "$(gh run list --repo "$REPO" --workflow release.yml --branch "$TAG" --json databaseId --jq '.[0].databaseId')" ]; then
+  echo "   no run started by the tag push; starting release.yml on $TAG by hand"
+  gh workflow run release.yml --repo "$REPO" --ref "$TAG"
+fi
+
 echo "3/3 waiting for the release workflow to publish (checks every minute)"
 until gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; do sleep 60; printf .; done; echo
 gh release edit "$TAG" --repo "$REPO" --notes-file "$NOTES"
