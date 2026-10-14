@@ -49,6 +49,7 @@ and on Windows. Slower Android devices may not keep 60 fps (see [Slower devices]
 
 | Problem | Try this |
 |---|---|
+| **Windows / Linux:** "Failed to create Vulkan device" or a similar message at start | Your graphics driver can't run Vulkan. The game switches to OpenGL by itself and keeps it (**Settings → Display → Graphics backend**). If neither starts, install the latest driver for your graphics card. |
 | **Android:** the game crashes or draws things wrong | **Settings → Graphics → Renderer** switches between Vulkan and OpenGL ES. On Adreno devices, **Settings → Graphics → GPU driver** can load another driver (see [GPU driver](#gpu-driver-android)). |
 | The import refuses your disc | It must be the USA disc (`GEAE8P`). European and Japanese discs aren't supported yet. |
 | Battle freezes after changing the battle speed | A known issue: change the speed while you choose commands, not while a round plays out. |

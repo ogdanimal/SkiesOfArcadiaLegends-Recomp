@@ -1,5 +1,5 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index c0548a0..4a160ee 100644
+index c0548a0..e4f8fa2 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -58,6 +58,8 @@ set(MODERNGEKKO_ACCEPTED_SOURCE_DISC_ID "" CACHE STRING
@@ -33,7 +33,7 @@ index c0548a0..4a160ee 100644
          vendor/dolphin/Externals/imgui/imgui/backends/imgui_impl_sdl3.cpp
          vendor/dolphin/Externals/imgui/imgui/backends/imgui_impl_sdlrenderer3.cpp)
      target_include_directories(moderngekko-launcher PRIVATE
-@@ -599,6 +606,23 @@ if(MODERNGEKKO_ENABLE_DOLPHIN_RUNTIME)
+@@ -599,6 +606,33 @@ if(MODERNGEKKO_ENABLE_DOLPHIN_RUNTIME)
              INSTALL_RPATH "$ORIGIN/lib")
      endif()
      add_dependencies(moderngekko-launcher moderngekko-run)
@@ -43,6 +43,16 @@ index c0548a0..4a160ee 100644
 +        # between the launcher, the runner and Dolphin.
 +        target_sources(moderngekko-launcher PRIVATE tools/utf8.manifest)
 +        target_sources(moderngekko-run PRIVATE tools/utf8.manifest)
++    endif()
++    if(WIN32 AND MODERNGEKKO_REQUIRED_DISC_ID)
++        # A game's release opens no console window beside its own: Windows GUI programs, still
++        # entered through main(). Output redirected by a caller (tests, CI) still arrives; the logs
++        # are in the user folder. Dev builds stay console programs for their scripts.
++        set_target_properties(moderngekko-launcher moderngekko-run PROPERTIES WIN32_EXECUTABLE ON)
++        if(MSVC)
++            target_link_options(moderngekko-launcher PRIVATE /ENTRY:mainCRTStartup)
++            target_link_options(moderngekko-run PRIVATE /ENTRY:mainCRTStartup)
++        endif()
 +    endif()
 +    if(WIN32 AND MODERNGEKKO_WINDOWS_ICON)
 +        # Resource 1 = the icon: Explorer shows the first icon of an .exe, and the launcher points
@@ -104,7 +114,7 @@ index aeafd0e..881517f 100644
  std::optional<std::string> HashDirectorySha256(const std::filesystem::path& root);
  }  // namespace moderngekko
 diff --git a/include/moderngekko/runtime.hpp b/include/moderngekko/runtime.hpp
-index 0adc855..99fead1 100644
+index 0adc855..73424d0 100644
 --- a/include/moderngekko/runtime.hpp
 +++ b/include/moderngekko/runtime.hpp
 @@ -4,6 +4,7 @@
@@ -125,8 +135,16 @@ index 0adc855..99fead1 100644
  };
  
  struct AudioSettings
+@@ -87,6 +91,7 @@ enum class RuntimeErrorCode
+   InitializationFailed,
+   BootFailed,
+   InvalidState,
++  VideoBackendFailed,  // the graphics backend couldn't start (Run(); e.g. no usable Vulkan device)
+ };
+ 
+ struct RuntimeError
 diff --git a/src/runtime/dolphin_runtime.cpp b/src/runtime/dolphin_runtime.cpp
-index f9b5405..391124e 100644
+index f9b5405..a3d4f83 100644
 --- a/src/runtime/dolphin_runtime.cpp
 +++ b/src/runtime/dolphin_runtime.cpp
 @@ -346,6 +346,21 @@ std::optional<RuntimeError> ApplyAutomationCommand(Runtime& runtime,
@@ -239,6 +257,18 @@ index f9b5405..391124e 100644
    if (m_impl->controllers_initialized)
      UICommon::ShutdownControllers();
    if (m_impl->ui_initialized)
+@@ -823,6 +865,11 @@ RuntimeRunResult Runtime::Run() {
+   Core::Shutdown(Core::System::GetInstance());
+   m_impl->booted = false;
+   m_impl->running = false;
++  if (Core::VideoBackendFailed())
++    return {RuntimeExitReason::BootFailed,
++            RuntimeError{RuntimeErrorCode::VideoBackendFailed,
++                         "the " + Config::Get(Config::MAIN_GFX_BACKEND) +
++                             " graphics backend couldn't start"}};
+   return {};
+ }
+ 
 diff --git a/src/runtime/game.cpp b/src/runtime/game.cpp
 index 85860a5..a6b824e 100644
 --- a/src/runtime/game.cpp
@@ -3174,10 +3204,29 @@ index af1c2a5..1a61395 100644
                 "       moderngekko-port pgo-run <game-root> [--backend c|llvm] [--toolchain auto|clang] [--opt-level 0-3]\n"
                 "               [--output path] [--profile-dir path] [--llvm-profdata path] [--keep-work]\n"
 diff --git a/tools/moderngekko_run.cpp b/tools/moderngekko_run.cpp
-index d6b3569..c8f1e24 100644
+index d6b3569..b1a2ff3 100644
 --- a/tools/moderngekko_run.cpp
 +++ b/tools/moderngekko_run.cpp
-@@ -93,9 +93,10 @@ std::filesystem::path DefaultUserDirectory() {
+@@ -6,6 +6,7 @@
+ #include "netplay_session.hpp"
+ 
+ #include "Common/StringUtil.h"
++#include <SDL3/SDL.h>
+ 
+ #include <charconv>
+ #include <chrono>
+@@ -26,6 +27,10 @@
+ #define WIN32_LEAN_AND_MEAN
+ #define NOMINMAX
+ #include <windows.h>
++#else
++#include <cerrno>
++#include <cstring>
++#include <unistd.h>
+ #endif
+ 
+ namespace {
+@@ -93,9 +98,10 @@ std::filesystem::path DefaultUserDirectory() {
      return std::filesystem::path(local_app_data) /
             MODERNGEKKO_USER_DIRECTORY_NAME;
  #endif
@@ -3190,7 +3239,71 @@ index d6b3569..c8f1e24 100644
      return std::filesystem::path(home) / ".local" / "share" /
             MODERNGEKKO_USER_DIRECTORY_NAME;
    return std::string(MODERNGEKKO_USER_DIRECTORY_NAME) + "-user";
-@@ -246,10 +247,38 @@ int RunMain(int argc, char **argv) {
+@@ -126,6 +132,63 @@ std::filesystem::path ExecutableDirectory(const char *argv0) {
+ }
+ } // namespace
+ 
++// Starts this program again with argv plus `extra` and returns its exit code (Windows: a child
++// the caller waits for, so whoever started this one still waits for the game; elsewhere: exec).
++int Restart(int argc, char **argv, std::vector<std::string> extra) {
++  std::vector<std::string> args(argv + 1, argv + argc);
++  args.insert(args.end(), extra.begin(), extra.end());
++#if defined(_WIN32)
++  char exe[MAX_PATH * 4];
++  const DWORD length = GetModuleFileNameA(nullptr, exe, sizeof(exe));
++  if (length == 0 || length >= sizeof(exe))
++    return 1;
++  // CommandLineToArgvW's quoting: backslashes double before a quote, quotes escaped
++  const auto quote = [](const std::string &arg) {
++    std::string out = "\"";
++    std::size_t backslashes = 0;
++    for (const char c : arg) {
++      if (c == '\\') {
++        ++backslashes;
++        continue;
++      }
++      out.append(c == '"' ? backslashes * 2 + 1 : backslashes, '\\');
++      backslashes = 0;
++      out += c;
++    }
++    out.append(backslashes * 2, '\\');
++    return out + "\"";
++  };
++  std::string command_line = quote(exe);
++  for (const std::string &arg : args)
++    command_line += " " + quote(arg);
++  STARTUPINFOA startup{};
++  startup.cb = sizeof(startup);
++  PROCESS_INFORMATION process{};
++  if (!CreateProcessA(exe, command_line.data(), nullptr, nullptr, TRUE, 0, nullptr, nullptr,
++                      &startup, &process)) {
++    std::cerr << "can't restart: error " << GetLastError() << '\n';
++    return 1;
++  }
++  CloseHandle(process.hThread);
++  WaitForSingleObject(process.hProcess, INFINITE);
++  DWORD code = 1;
++  GetExitCodeProcess(process.hProcess, &code);
++  CloseHandle(process.hProcess);
++  return static_cast<int>(code);
++#else
++  std::vector<char *> exec_args{argv[0]};
++  for (std::string &arg : args)
++    exec_args.push_back(arg.data());
++  exec_args.push_back(nullptr);
++#if defined(__linux__)
++  execv("/proc/self/exe", exec_args.data());
++#endif
++  execvp(argv[0], exec_args.data());
++  std::cerr << "can't restart: " << std::strerror(errno) << '\n';
++  return 1;
++#endif
++}
++
+ int RunMain(int argc, char **argv) {
+ #if defined(_WIN32)
+   if (!std::getenv("SDL_GAMECONTROLLER_ALLOW_STEAM_VIRTUAL_GAMEPAD"))
+@@ -246,10 +309,40 @@ int RunMain(int argc, char **argv) {
      return 2;
    }
    config.graphics.internal_resolution_scale = frontend_config.dolphin_scale;
@@ -3213,6 +3326,8 @@ index d6b3569..c8f1e24 100644
 +    if (!moderngekko::frontend::SaveConfig(user_directory, saved, &error))
 +      std::cerr << "can't save the new resolution to config.ini: " << error << '\n';
 +  };
++  // A backend from config.ini (not --graphics) may be switched to OpenGL when it can't start
++  const bool backend_from_config = config.graphics.backend.empty();
    if (config.graphics.backend.empty())
      config.graphics.backend = frontend_config.graphics_backend;
    config.fullscreen = frontend_config.fullscreen;
@@ -3229,7 +3344,7 @@ index d6b3569..c8f1e24 100644
    if (use_default_mods) {
      config.mod_directories.push_back(executable_directory / "Mods");
      config.mod_directories.push_back(config.user_directory / "Mods");
-@@ -279,7 +308,14 @@ int RunMain(int argc, char **argv) {
+@@ -279,7 +372,14 @@ int RunMain(int argc, char **argv) {
    if (dol_changed)
      std::cout << "Applied native DOL patches\n";
  #endif
@@ -3245,6 +3360,45 @@ index d6b3569..c8f1e24 100644
    if (!inspected) {
      std::cerr << "invalid game: " << inspected.error << '\n';
      return 2;
+@@ -385,6 +485,8 @@ int RunMain(int argc, char **argv) {
+         std::move(config), std::move(frontend_config), std::move(options));
+   }
+ 
++  const std::filesystem::path user_directory = config.user_directory;
++  const std::string graphics_backend = config.graphics.backend;
+   auto created = moderngekko::Runtime::Create(std::move(config));
+   if (!created) {
+     std::cerr << "initialization failed: " << created.error->message << '\n';
+@@ -409,6 +511,29 @@ int RunMain(int argc, char **argv) {
+   signal_watcher.request_stop();
+   if (result.error) {
+     std::cerr << "runtime failed: " << result.error->message << '\n';
++    // Vulkan that can't start (no driver with a usable device, e.g. in Windows Sandbox or on an
++    // old GPU): save OpenGL as the backend and start again with it. The restart names its backend,
++    // so this happens once.
++    if (result.error->code == moderngekko::RuntimeErrorCode::VideoBackendFailed &&
++        backend_from_config && graphics_backend == "Vulkan") {
++      if (auto saved = moderngekko::frontend::LoadConfig(user_directory, false)) {
++        saved.graphics_backend = "OGL";
++        std::string error;
++        if (!moderngekko::frontend::SaveConfig(user_directory, saved, &error))
++          std::cerr << "can't save OpenGL to config.ini: " << error << '\n';
++      }
++      created.runtime.reset();
++      std::cerr << "Vulkan couldn't start; restarting with OpenGL\n";
++      return Restart(argc, argv, {"--graphics", "OGL"});
++    }
++    // Nothing left to try: say so in words a player can act on (Dolphin's own alerts name only
++    // the failing call)
++    if (result.error->code == moderngekko::RuntimeErrorCode::VideoBackendFailed)
++      SDL_ShowSimpleMessageBox(
++          SDL_MESSAGEBOX_ERROR, "Graphics couldn't start",
++          "The game needs a graphics driver with Vulkan or OpenGL 3.3, and neither could be "
++          "started. Install the latest driver for your graphics card, then try again.",
++          nullptr);
+     return 1;
+   }
+   return 0;
 diff --git a/tools/port_command_line.hpp b/tools/port_command_line.hpp
 index f2152dc..b59e7e9 100644
 --- a/tools/port_command_line.hpp

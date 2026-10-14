@@ -1520,6 +1520,19 @@ The exact commands are in [handoffs/HANDOFF-android.md](handoffs/HANDOFF-android
 
 ## Known issues
 
+- **No usable Vulkan on a PC (found 2026-10-13 in Windows Sandbox, fixed):** Dolphin put up "Failed to
+  create Vulkan device", then a white window that never started. Now `Core::VideoBackendFailed()`
+  (`recompcore-skies-settings.patch`, set where the EmuThread's video init fails, so closing the
+  window during the boot's shader compile doesn't count) makes `Runtime::Run` return
+  `RuntimeErrorCode::VideoBackendFailed`; the runner, when the backend came from `config.ini` and was
+  Vulkan, saves `backend=OGL` and starts itself again with `--graphics OGL` (Windows: a child it waits
+  for, so the launcher still waits for the game; Linux: `exec`). If that fails too, a message box
+  says to update the graphics driver. Checked: Windows with `VK_ICD_FILENAMES` pointing at nothing ->
+  restart, OpenGL draws the title intro at 30 fps (real GPU); Linux (WSL) the same path; Sandbox has
+  neither API, so there it ends at the message box. The branded Windows release is also a GUI program
+  now (`WIN32_EXECUTABLE` when `MODERNGEKKO_REQUIRED_DISC_ID` is set): no console window beside the
+  launcher or the game; dev builds stay console programs for their scripts.
+
 - **A battle can freeze when the battle speed changes during a round (open, 2026-10-11):** the user
   hit it on the Retroid (Antonio fight, several Z taps, the 2x step-down kicking in): the round stops
   with a damage number on screen while the game keeps running at 60 fps. Reproduced on Windows from the

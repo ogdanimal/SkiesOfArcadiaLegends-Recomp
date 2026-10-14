@@ -118,7 +118,7 @@ index 0000000000..b94b6cfa40
 +extern const Info<int> SKIES_AUTO_SAVE;
 +}  // namespace Config
 diff --git a/Source/Core/Core/Core.cpp b/Source/Core/Core/Core.cpp
-index e58579ecda..16b0d7d61d 100644
+index e58579ecda..b59e519883 100644
 --- a/Source/Core/Core/Core.cpp
 +++ b/Source/Core/Core/Core.cpp
 @@ -70,6 +70,7 @@
@@ -129,7 +129,15 @@ index e58579ecda..16b0d7d61d 100644
  #include "Core/State.h"
  #include "Core/System.h"
  #include "Core/Wii/WiiRoot.h"
-@@ -216,6 +217,8 @@ bool Init(Core::System& system, std::unique_ptr<BootParameters> boot, const Wind
+@@ -103,6 +104,7 @@ static Common::HookableEvent<Core::State> s_state_changed_event;
+ static bool s_is_throttler_temp_disabled = false;
+ static bool s_frame_step = false;
+ static std::atomic<bool> s_stop_frame_step;
++static std::atomic<bool> s_video_backend_failed;
+ 
+ // Threads other than the CPU thread must hold this when taking on the role of the CPU thread.
+ // The CPU thread is not required to hold this when doing normal work, but must hold it if writing
+@@ -216,6 +218,8 @@ bool Init(Core::System& system, std::unique_ptr<BootParameters> boot, const Wind
    // Drain any left over jobs
    HostDispatchJobs(system);
  
@@ -138,6 +146,44 @@ index e58579ecda..16b0d7d61d 100644
    INFO_LOG_FMT(BOOT, "Starting core = {} mode", system.IsWii() ? "Wii" : "GameCube");
    INFO_LOG_FMT(BOOT, "CPU Thread separate = {}", system.IsDualCoreMode() ? "Yes" : "No");
  
+@@ -473,9 +477,15 @@ static void FifoPlayerThread(Core::System& system, const std::optional<std::stri
+ // Initialize and create emulation thread
+ // Call browser: Init():s_emu_thread().
+ // See the BootManager.cpp file description for a complete call schedule.
++bool VideoBackendFailed()
++{
++  return s_video_backend_failed;
++}
++
+ static void EmuThread(Core::System& system, std::unique_ptr<BootParameters> boot,
+                       WindowSystemInfo wsi)
+ {
++  s_video_backend_failed = false;
+   NotifyStateChanged(State::Starting);
+   Common::ScopeGuard flag_guard{[] {
+     {
+@@ -568,6 +578,7 @@ static void EmuThread(Core::System& system, std::unique_ptr<BootParameters> boot
+   const auto video_guard = GetInitializedVideoGuard(system, wsi);
+   if (!video_guard)
+   {
++    s_video_backend_failed = true;
+     PanicAlertFmt("Failed to initialize video backend!");
+     return;
+   }
+diff --git a/Source/Core/Core/Core.h b/Source/Core/Core/Core.h
+index 7dff8e13d5..4d020fdf0d 100644
+--- a/Source/Core/Core/Core.h
++++ b/Source/Core/Core/Core.h
+@@ -131,6 +131,9 @@ void UndeclareAsGPUThread();
+ 
+ std::string StopMessage(bool main_thread, std::string_view message);
+ 
++// Returns true when the last boot stopped because its video backend couldn't start (e.g. no
++// usable Vulkan device), so a frontend can try another backend.
++bool VideoBackendFailed();
+ // Returns true when GetState returns Running or Paused.
+ bool IsRunning(Core::System& system);
+ // Returns true when GetState returns Starting, Running or Paused.
 diff --git a/Source/Core/Core/HW/EXI/EXI_DeviceMemoryCard.cpp b/Source/Core/Core/HW/EXI/EXI_DeviceMemoryCard.cpp
 index 35cad68a60..f2a7f783a1 100644
 --- a/Source/Core/Core/HW/EXI/EXI_DeviceMemoryCard.cpp

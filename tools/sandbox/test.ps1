@@ -31,16 +31,21 @@ Start-Sleep 12; Shot 'launcher'; Stop-Process $l -Force -ErrorAction SilentlyCon
 $game = (Get-Content (Join-Path $ud 'default-game.txt') -ErrorAction SilentlyContinue | Select-Object -First 1)
 if (-not $game) { $game = (Get-ChildItem $ud -Recurse -Filter main.dol | Select-Object -First 1).Directory.Parent.FullName }
 Log "game: $game"
-foreach ($gfx in 'Vulkan', 'OGL') {
-  Log "runner with $gfx"
-  $r = Start-Process -FilePath '.\skies-run.exe' -ArgumentList '--game', "`"$game`"", '--user-dir', "`"$ud`"", '--graphics', $gfx `
-    -RedirectStandardOutput "$out\run-$gfx.out" -RedirectStandardError "$out\run-$gfx.err" -PassThru
-  Start-Sleep 45
-  if ($r.HasExited) { Log "  exited early: $($r.ExitCode)"; continue }
-  Shot "game-$gfx"; Start-Sleep 30; Shot "game-$gfx-later"
-  Log "  title: $((Get-Process -Id $r.Id).MainWindowTitle)"
-  Stop-Process $r -Force
-  break
+# The runner as the launcher starts it (backend from config.ini, Vulkan by default). Sandbox has no
+# usable Vulkan device, so this checks the OpenGL fallback; Dolphin's alert dialogs off so nothing
+# waits for a click.
+$ini = Join-Path $ud 'Config\Dolphin.ini'
+New-Item -ItemType Directory -Force (Split-Path $ini) | Out-Null
+"`n[Interface]`nUsePanicHandlers = False`n" | Add-Content $ini
+Log "config.ini before: $((Select-String -Path (Join-Path $ud 'config.ini') -Pattern '^backend=').Line)"
+$r = Start-Process -FilePath '.\skies-run.exe' -ArgumentList '--game', "`"$game`"", '--user-dir', "`"$ud`"" `
+  -RedirectStandardOutput "$out\run.out" -RedirectStandardError "$out\run.err" -PassThru
+Start-Sleep 60
+if ($r.HasExited) { Log "runner exited: $($r.ExitCode)" } else {
+  Shot 'game'; Start-Sleep 30; Shot 'game-later'
+  Get-Process skies-run -ErrorAction SilentlyContinue | ForEach-Object { Log "window: $($_.MainWindowTitle)" }
+  Get-Process skies-run -ErrorAction SilentlyContinue | Stop-Process -Force
 }
+Log "config.ini after: $((Select-String -Path (Join-Path $ud 'config.ini') -Pattern '^backend=').Line)"
 Copy-Item (Join-Path $ud 'Logs\*') $out -ErrorAction SilentlyContinue
 Log 'done'

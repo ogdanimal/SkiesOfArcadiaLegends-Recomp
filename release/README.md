@@ -98,6 +98,10 @@ own driver by itself, and after the first normal session it asks whether to keep
 On any Android device, **Settings → Graphics → Renderer** can switch from Vulkan to OpenGL ES if the
 game crashes or draws things wrong with Vulkan.
 
+**Windows / Linux graphics:** when the graphics driver can't start Vulkan ("Failed to create Vulkan
+device" or a similar message), the game switches to OpenGL by itself and keeps it (**Settings →
+Display → Graphics backend**). If neither starts, install the latest driver for your graphics card.
+
 **60 fps on slower devices:** if 60 fps can't keep full speed for a while, the settings menu opens
 once by itself on Frame rate, so you can switch to 30 fps. Nothing changes unless you choose it.
 
