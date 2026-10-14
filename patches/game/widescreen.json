@@ -5,9 +5,12 @@
     "fullwidth.S",
     "camera.c",
     "qol.c",
-    "qol.S"
+    "qol.S",
+    "autoload.c"
   ],
   "symbols": {
+    "FontIsReady": "0x801E34AC",
+    "FontUpdate": "0x801E35FC",
     "njClipZ": "0x80299188",
     "njProjectScreen": "0x80291E54",
     "GXSetProjection": "0x80251F8C",
@@ -25,6 +28,12 @@
     "VIWaitForRetrace": "0x8023E460"
   },
   "redirect_sites": [
+    {
+      "site": "0x801DC350",
+      "target": "fn_80228A20",
+      "to": "dl_title",
+      "why": "the title, once a frame: a memory card save loaded at boot without the title or load screen (autoload.c)"
+    },
     {
       "sites": ["0x8021F84C", "0x8021F880", "0x8021F308"],
       "target": "fn_80005D98",

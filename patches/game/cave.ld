@@ -29,6 +29,9 @@ SECTIONS
     KEEP(*(.qol_input))
     . = 0x80002EC0;
     KEEP(*(.cam_input))
+    /* autoload.c's load_request, which the frontend writes at boot. */
+    . = 0x80002EF0;
+    KEEP(*(.load_request))
   }
   ASSERT(. <= 0x80002F00, "patch data doesn't fit below 0x80002F00")
   /* A second code area, in place of MetroTRK's message handlers (fn_802548E8-fn_80256FC4, 10 KB):

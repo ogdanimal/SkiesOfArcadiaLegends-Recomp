@@ -580,10 +580,10 @@ index 0000000000..e24d4e47aa
 +}
 diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
 new file mode 100644
-index 0000000000..d29322ce44
+index 0000000000..75fa22736d
 --- /dev/null
 +++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
-@@ -0,0 +1,713 @@
+@@ -0,0 +1,717 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +
 +package org.dolphinemu.dolphinemu.skies
@@ -1061,13 +1061,13 @@ index 0000000000..d29322ce44
 +        }.maxByOrNull { it.lastModified() }
 +
 +    /**
-+     * The game's file number (1..3) of a card save on card A ("...SA_LEGENDS.000.gci" is file 1), or
++     * The game's file number (1..99) of a card save on card A ("...SA_LEGENDS.000.gci" is file 1), or
 +     * 0 when the in-game auto-load can't pick it (card B, another name).
 +     */
 +    private fun cardSaveFile(card: File): Int {
 +        if (card.parentFile?.name != "Card A") return 0
 +        val number = card.nameWithoutExtension.substringAfterLast('.', "").toIntOrNull() ?: return 0
-+        return if (number in 0..2) number + 1 else 0
++        return if (number in 0..98) number + 1 else 0
 +    }
 +
 +    /** [Skies] AutoLoadCard: the card save file the game loads by itself on the next boot (0 = none). */
@@ -1114,7 +1114,11 @@ index 0000000000..d29322ce44
 +            // desktop); a card save is loaded on the title screen, so for one it boots normally
 +            val state = newestState()
 +            val card = newestCardSave()
-+            if (state != null && (card == null || state.lastModified() >= card.lastModified())) {
++            // A card save the in-game auto-load can't pick would only boot to the title, so then the
++            // newest state wins even if it's older
++            val cardFile = card?.let { cardSaveFile(it) } ?: 0
++            if (state != null &&
++                (card == null || state.lastModified() >= card.lastModified() || cardFile == 0)) {
 +                addButton(getString(R.string.skies_continue),
 +                    "Save state: ${stateText(state)}   ${timeText(state.lastModified())}") {
 +                    setAutoLoadCard(0)
@@ -1122,7 +1126,7 @@ index 0000000000..d29322ce44
 +                }
 +            } else if (card != null) {
 +                // The game loads it by itself this boot (SkiesMenu.cpp autoload; one shot)
-+                val file = cardSaveFile(card)
++                val file = cardFile
 +                val detail = if (file > 0) "Memory card save: file $file   ${timeText(card.lastModified())}"
 +                else "Memory card save   ${timeText(card.lastModified())}   (load it on the title screen)"
 +                addButton(getString(R.string.skies_continue), detail) {

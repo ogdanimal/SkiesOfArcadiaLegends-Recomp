@@ -599,10 +599,10 @@ index 451109bbeb..86fa3eafab 100644
    // Check for font changes
 diff --git a/Source/Core/VideoCommon/SkiesMenu.cpp b/Source/Core/VideoCommon/SkiesMenu.cpp
 new file mode 100644
-index 0000000000..fd7d2c40c5
+index 0000000000..d85813eeff
 --- /dev/null
 +++ b/Source/Core/VideoCommon/SkiesMenu.cpp
-@@ -0,0 +1,1776 @@
+@@ -0,0 +1,1684 @@
 +// Copyright 2026 Dolphin Emulator Project
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +
@@ -1239,15 +1239,17 @@ index 0000000000..fd7d2c40c5
 +
 +// A ship battle runs inside field mode 6, on a map from 500 to 599 (the game's own test, in
 +// fn_8012A26C). The ship battle's data pointer (0x8034727C) isn't enough: the game frees the data
-+// after the battle but leaves the pointer set.
++// after the battle but leaves the pointer set, so a map's load would count as battle. The game
++// patch's qol_ship_live (patches/game/qol.c, .late_bss) is set from the data's allocation (or the
++// battle's first phase) until its results.
 +bool InShipBattle(Memory::MemoryManager& memory)
 +{
 +  constexpr u32 GAME_MODE = 0x803475CC;
 +  constexpr u32 MAP_ID = 0x80311AC4;
-+  constexpr u32 SHIP_BATTLE_DATA = 0x8034727C;
++  constexpr u32 QOL_SHIP_LIVE = 0x80002BA8;
 +  const u32 map = memory.Read_U32(MAP_ID);
 +  return memory.Read_U32(GAME_MODE) == 6 && map >= 500 && map <= 599 &&
-+         memory.Read_U32(SHIP_BATTLE_DATA) != 0;
++         memory.Read_U32(QOL_SHIP_LIVE) != 0;
 +}
 +
 +// Camera control: hold Z, then the C-stick tilts the camera (and on the world map turns it around
@@ -1593,82 +1595,35 @@ index 0000000000..fd7d2c40c5
 +}  // namespace autosave
 +
 +// Continue from a memory card save (the launchers' Continue, when the card save is the newest):
-+// the game loads one only itself, through the title screen's Continue and its load screen, so this
-+// presses the buttons for the player, each only on the screen it belongs to. The title menu task
-+// and the load screen task are found in memory by their functions; their steps and cursors are
-+// from the decomp (ui.md *Save and load*, traced 2026-10-11). The player pressing anything, a
-+// cancelled load or two minutes stop it.
++// the game patch loads it at boot without the title or load screen (patches/game/autoload.c,
++// decomp ui.md *Loading a save without the load screen*). This hands it the request, at a fixed
++// address, on the first frame drawn, then reports what the game says. A DOL without the patch,
++// or a request that comes after the title has moved on, leaves the title as it is.
 +namespace autoload
 +{
 +const Config::Info<int> AUTO_LOAD_CARD{{Config::System::Main, "Skies", "AutoLoadCard"}, 0};
-+constexpr u32 TITLE_MENU = 0x801D8DBC;      // New Game / Continue: step 5 waits, work +1: 1 = Continue
-+constexpr u32 TITLE_CONTINUE = 0x801D8B94;  // after Continue: opens the load screen, waits for it
-+constexpr u32 SAVE_LOAD = 0x8019E248;       // SaveLoadTask: step 4 slot, 9 file (work +5), 15 Yes / No
-+                                            // (work +8, 0 = Yes), 19 loading, 32 idle
-+constexpr u32 LOAD_RESULT = 0x803473C4;     // 0 running, 1 loaded, 2 cancelled
-+constexpr u32 SCAN_START = 0x80800000;
-+constexpr u32 SCAN_END = 0x81400000;
-+constexpr u8 IDLE_STEP = 32;
-+
-+int s_file = 0;  // 1..3: the file to load (0 = off)
-+Clock::time_point s_deadline, s_press_until, s_next_action;
-+u16 s_press = 0;
-+bool s_seen_load = false;
-+
-+struct Task
++constexpr u32 REQUEST = 0x80002EF0;      // autoload.c's load_request: magic, file, status, error
++constexpr u32 REQUEST_MAGIC = 0x4C4F4144;  // 'LOAD'
++constexpr u32 HOOK_SITE = 0x801DC350;    // the title's call, redirected to dl_title by the patch
++constexpr u32 HOOK_ORIGINAL = 0x4804C6D1;  // bl fn_80228A20
++constexpr u32 GAME_MODE = 0x803475CC;
++constexpr u32 TITLE_STATE = 0x80311AE0;  // lbl_80311AD4[3]
++enum : u32
 +{
-+  u32 address = 0;
-+  u8 step = 0;
-+  u32 work = 0;
++  PENDING = 0,
++  RUNNING = 1,
++  DONE = 2,
++  FAILED = 3,
 +};
 +
-+u32 Word(const u8* ram, u32 size, u32 address)
-+{
-+  const u32 offset = address & 0x01FFFFFF;
-+  if (offset + 4 > size)
-+    return 0;
-+  u32 value;
-+  std::memcpy(&value, ram + offset, 4);
-+  return Common::swap32(value);
-+}
-+
-+u8 Byte(const u8* ram, u32 size, u32 address)
-+{
-+  const u32 offset = address & 0x01FFFFFF;
-+  return offset < size ? ram[offset] : 0;
-+}
-+
-+// A live task running func: a heap block (header 0x20 bytes before, pointing at the task) whose
-+// first word is the function. The load screen leaves an idle task behind (step 32): skipped.
-+Task Find(const u8* ram, u32 size, u32 func)
-+{
-+  u32 be_func = Common::swap32(func);
-+  const u32 end = std::min<u32>(SCAN_END & 0x01FFFFFF, size - 4);
-+  for (u32 offset = SCAN_START & 0x01FFFFFF; offset < end; offset += 4)
-+  {
-+    if (std::memcmp(ram + offset, &be_func, 4) != 0)
-+      continue;
-+    const u32 address = 0x80000000 | offset;
-+    // header: [-0x20] the task's address, [-0x1C] size, [-0x18] 0, [-0x14] 0xFFFFFFFF
-+    if (Word(ram, size, address - 0x20) != address || Word(ram, size, address - 0x18) != 0 ||
-+        Word(ram, size, address - 0x14) != 0xFFFFFFFF)
-+    {
-+      continue;
-+    }
-+    const u8 step = Byte(ram, size, address + 0x19);
-+    if (func == SAVE_LOAD && step == IDLE_STEP)
-+      continue;
-+    return {address, step, Word(ram, size, address + 0x24)};
-+  }
-+  return {};
-+}
++int s_file = 0;  // 1..99: the file asked for (0 = nothing running)
++Clock::time_point s_deadline;
 +
 +void Stop(const char* message)
 +{
 +  s_file = 0;
-+  s_press = 0;
 +  if (message)
-+    OSD::AddMessage(message, 4000);
++    OSD::AddMessage(message, 6000);
 +  NOTICE_LOG_FMT(CORE, "[skies] auto-load: {}", message ? message : "done");
 +}
 +
@@ -1681,116 +1636,65 @@ index 0000000000..fd7d2c40c5
 +  const int file = Config::Get(AUTO_LOAD_CARD);
 +  if (file == 0)
 +    return false;
++  // Not before the DOL is in memory (its data section would overwrite the request)
++  auto& memory = Core::System::GetInstance().GetMemory();
++  if (!memory.GetRAM())
++    return false;
++  const u32 site = memory.Read_U32(HOOK_SITE);
++  if (site >> 26 != 18)  // not a bl yet
++    return false;
 +  Config::SetBase(AUTO_LOAD_CARD, 0);
 +  Config::Save();
-+  if (file < 1 || file > 3)
++  if (file < 1 || file > 99)
 +    return false;
++  if (site == HOOK_ORIGINAL)
++  {
++    Stop("This game patch can't load a save directly: load it on the title screen");
++    return false;
++  }
++  memory.Write_U32(0, REQUEST + 8);
++  memory.Write_U32(0, REQUEST + 12);
++  memory.Write_U32(static_cast<u32>(file), REQUEST + 4);
++  memory.Write_U32(REQUEST_MAGIC, REQUEST);
 +  s_file = file;
-+  s_seen_load = false;
-+  s_press = 0;
-+  s_deadline = Clock::now() + std::chrono::minutes(2);
-+  s_next_action = Clock::now();
-+  OSD::AddMessage(fmt::format("Loading your memory card save (file {})...", file), 4000);
++  s_deadline = Clock::now() + std::chrono::seconds(30);
++  OSD::AddMessage(fmt::format("Loading your memory card save (file {})...", file), 3000);
 +  NOTICE_LOG_FMT(CORE, "[skies] auto-load: file {}", file);
 +  return true;
 +}
 +
-+void Press(u16 button, Clock::time_point now, milliseconds wait)
-+{
-+  s_press = button;
-+  s_press_until = now + milliseconds(100);
-+  s_next_action = now + wait;
-+}
-+
 +GCPadStatus Drive(const GCPadStatus& raw)
 +{
-+  const Clock::time_point now = Clock::now();
-+  const u16 player = raw.button & (PAD_BUTTON_A | PAD_BUTTON_B | PAD_BUTTON_X | PAD_BUTTON_Y |
-+                                   PAD_BUTTON_START | PAD_TRIGGER_Z | PAD_BUTTON_UP |
-+                                   PAD_BUTTON_DOWN | PAD_BUTTON_LEFT | PAD_BUTTON_RIGHT);
-+  GCPadStatus out = Released(raw);
-+  if (player != 0 || MenuButtons(raw) != raw.button)
-+  {
-+    Stop("Auto-load stopped: the controller took over");
-+    return raw;
-+  }
-+  if (now > s_deadline)
-+  {
-+    Stop("Auto-load stopped: the load screen didn't come up in time");
-+    return out;
-+  }
-+  if (now < s_press_until)
-+  {
-+    out.button |= s_press;
-+    return out;
-+  }
-+  if (now < s_next_action)
-+    return out;
-+
 +  auto& memory = Core::System::GetInstance().GetMemory();
-+  const u8* ram = memory.GetRAM();
-+  const u32 size = memory.GetRamSizeReal();
-+  if (!ram)
-+    return out;
-+
-+  if (const Task load = Find(ram, size, SAVE_LOAD); load.address)
++  const u32 status = memory.Read_U32(REQUEST + 8);
++  if (status == DONE)
 +  {
-+    s_seen_load = true;
-+    switch (load.step)
-+    {
-+    case 4:  // Slot A (the only card Dolphin gives the game)
-+      Press(PAD_BUTTON_A, now, milliseconds(600));
-+      break;
-+    case 9:  // the file list
-+    {
-+      const int cursor = Byte(ram, size, load.work + 5);
-+      const int target = s_file - 1;
-+      Press(cursor < target ? PAD_BUTTON_DOWN : cursor > target ? PAD_BUTTON_UP : PAD_BUTTON_A, now,
-+            milliseconds(450));
-+      break;
-+    }
-+    case 15:  // "Load this file. Is this ok?"
-+      Press(Byte(ram, size, load.work + 8) == 0 ? PAD_BUTTON_A : PAD_BUTTON_UP, now,
-+            milliseconds(450));
-+      break;
-+    default:  // between screens, or loading
-+      s_next_action = now + milliseconds(250);
-+      break;
-+    }
-+    return out;
++    memory.Write_U32(0, REQUEST);
++    Stop(nullptr);
 +  }
-+  if (s_seen_load)
++  else if (status == FAILED)
 +  {
-+    const u32 result = Word(ram, size, LOAD_RESULT);
-+    if (result == 1)
-+      Stop(nullptr);
-+    else if (result == 2)
-+      Stop("Auto-load stopped: the load was cancelled");
-+    else
-+      s_next_action = now + milliseconds(250);
-+    return out;
++    const u32 error = memory.Read_U32(REQUEST + 12);
++    memory.Write_U32(0, REQUEST);
++    Stop(error == 1 ? "Your memory card save wasn't found on card A" :
++         error == 2 ? "The memory card couldn't be read" :
++                      "That memory card save is damaged");
 +  }
-+  if (const Task menu = Find(ram, size, TITLE_MENU); menu.address)
++  else if (status == PENDING && ((memory.Read_U32(GAME_MODE) == 3 &&
++                                  memory.Read_U32(TITLE_STATE) > 1) ||
++                                 memory.Read_U32(GAME_MODE) == 6))
 +  {
-+    if (menu.step == 5)
-+    {
-+      Press(Byte(ram, size, menu.work + 1) == 1 ? PAD_BUTTON_A : PAD_BUTTON_UP, now,
-+            milliseconds(600));
-+    }
-+    else
-+    {
-+      s_next_action = now + milliseconds(250);
-+    }
-+    return out;
++    // The title went on (to the title proper, or the intro's field scenes) before the request
++    // arrived
++    memory.Write_U32(0, REQUEST);
++    Stop("Couldn't load your save directly: load it on the title screen");
 +  }
-+  if (Find(ram, size, TITLE_CONTINUE).address)
++  else if (Clock::now() > s_deadline)
 +  {
-+    s_next_action = now + milliseconds(250);
-+    return out;
++    memory.Write_U32(0, REQUEST);
++    Stop("Loading your save took too long");
 +  }
-+  // Logos, intro, "Press Start": Start skips ahead
-+  Press(PAD_BUTTON_START, now, milliseconds(1200));
-+  return out;
++  return raw;
 +}
 +}  // namespace autoload
 +
@@ -2162,6 +2066,10 @@ index 0000000000..fd7d2c40c5
 +  std::string save_time, load_time;
 +  {
 +    std::lock_guard lock(s_mutex);
++    // The direct load's request goes in as early as the first frame (controller polls start later,
++    // after the title has passed the point where it loads)
++    if (IsSkies() && autoload::Active())
++      autoload::Drive(GCPadStatus{});
 +    if (s_mode != Mode::Open)
 +      return;
 +    v = s_staged;

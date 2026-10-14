@@ -35,11 +35,11 @@ default. A module linked before the gather-pipe patches (late 2026-10-06), inclu
 rebuilt.
 
 The game with the recomp's features (widescreen, camera, options; *The player build*) runs from the
-patched DOL with a module built from that same DOL: on Windows `build\game\GEAE8P-ws18` with
-`build\modules-llvm-pgo-ws18\gGEAE8P_recomp.dll` (dev runner `lib\ModernGekko\build\moderngekko-run.exe`)
+patched DOL with a module built from that same DOL: on Windows `build\game\GEAE8P-ws20` with
+`build\modules-llvm-pgo-ws20\gGEAE8P_recomp.dll` (dev runner `lib\ModernGekko\build\moderngekko-run.exe`)
 or the branded release (`Skies of Arcadia Legends.exe`, *Launcher and release*); on Android the branded
-app that imports the player's disc (ws18: `build/android/apk/skies-recomp-ws18-2026-10-12.apk`, built,
-not installed yet; the Retroid has ws17's `skies-recomp-ws17-2026-10-12.apk` since 2026-10-12, data backed up to `C:\dev\SkiesRecomp\build\backup\retroid-before-ws17-2026-10-12`; handoffs/HANDOFF-android.md), or a dev APK with its DOL pushed. On WSL (still ws16)
+app that imports the player's disc (ws20: `build/android/apk/skies-recomp-ws20-2026-10-12.apk`, on the
+Retroid since 2026-10-12 20:20, data backed up before ws19 to `C:\dev\SkiesRecomp\build\backup\retroid-before-ws19-2026-10-12`; handoffs/HANDOFF-android.md), or a dev APK with its DOL pushed. On WSL (still ws16)
 `build/modules-llvm-ws16` with `build/game/GEAE8P-ws16` and the EGL-enabled runtime `lib/ModernGekko/build-egl/moderngekko-run`
 (through `tools/play.sh`: it caps memory; see *Known issues* on the 10-11 whole-VM OOM).
 
@@ -126,7 +126,7 @@ To dump every frame instead: put `[Movie] DumpFrames = True` in `build/user/Conf
 ## The player build (settings, menu, save states, save import, camera, options, release; 2026-10-10 / 12)
 
 What a player gets on top of the game, and where each piece lives (save states: *Save states and auto-save* below; bringing saves in: *Importing saves*). The game side is the DOL
-patch **ws18** (`build/game/GEAE8P-ws18`, SHA-1 `6a401968`; history in `patches/game/README.md`);
+patch **ws20** (`build/game/GEAE8P-ws20`, SHA-1 `e78a04d9`; history in `patches/game/README.md`);
 the frontend side is `recompcore-skies-settings.patch` (`VideoCommon/SkiesMenu.cpp`,
 `Core/SkiesSettings.cpp`) and `moderngekko-local.patch` (launcher, runner). Plans and session logs:
 [handoffs/HANDOFF-settings.md](handoffs/HANDOFF-settings.md). Research: the decomp's `docs/widescreen.md`,
@@ -309,8 +309,9 @@ its second line, like Select Disc's hint. **Continue** (2026-10-11, user request
 newest save state and the game's newest memory card save (`GC/<region>/Card A|B/*GEAE*.gci`, by file
 time: Dolphin rewrites a `.gci` only when that save changed): a state is loaded at boot; a card save
 is loaded by the game itself, so Continue writes `[Skies] AutoLoadCard = <file>` (one shot; the file
-number from the `.gci` name, `...SA_LEGENDS.000.gci` = file 1, card A only) and the runtime drives the
-title screen for the player (*Memory card auto-load* below). Its second line says which, e.g. "Save
+number from the `.gci` name, `...SA_LEGENDS.000.gci` = file 1, card A only, files 1-99) and the game
+patch loads it at boot (*Memory card auto-load* below; when the newest card save can't be auto-loaded,
+e.g. card B, Continue offers the newest state instead). Its second line says which, e.g. "Save
 state: Slot 2  Oct 11 18:00" or "Memory card save: file 1  Oct 11 17:30". Start Game clears the key. Same rule in the Android app. Checked on Windows with dummy files both ways; import progress and errors sit under the menu. Segoe UI from `%windir%\Fonts` (DejaVu Sans on Linux, ImGui's font otherwise; note
 SDL's own environment is case-sensitive, Windows spells it `windir`). **Settings** opens a rounded modal
 window over the dimmed home screen, tabs **Graphics** (Picture, Frame rate, Anti-aliasing, V-Sync),
@@ -384,29 +385,35 @@ names (`SkiesNative.ensurePadProfile`).
   (Dolphin doesn't offer the vertex-shader expansion on GLES). Each failure was a toast with a file
   path: now a log line (`recompcore-skies-branding.patch`, ProgramShaderCache.cpp).
 
-### Memory card auto-load (2026-10-11)
+### Memory card auto-load (2026-10-11; direct since ws20, 2026-10-12)
 
-A card save can only be loaded by the game (title screen -> Continue -> card -> file -> Yes), so the
-runtime presses those buttons when the launcher asks (`SkiesMenu.cpp` namespace `autoload`, in the
-pad filter while the menu is closed). The screens are told apart by the game's own task objects, found
-by scanning `0x80800000-0x81400000` for their functions and checking the heap block header before each
-(`[-0x20]` = the task, `[-0x18]` = 0, `[-0x14]` = `0xFFFFFFFF`); a task's step is `+0x19`, its work
-`+0x24` (addresses differ between boots, so they are never hard-coded):
+A card save is loaded by the game, not by a state, so the launchers hand the runtime the file number
+(`AutoLoadCard`) and the game patch loads it at boot without the logos, intro, title or load screen
+(`patches/game/autoload.c`, user request "isn't number 2 the point of a decomp?"). The runtime
+(`SkiesMenu.cpp` namespace `autoload`) waits until the DOL is in memory (the title's call at
+`0x801DC350` is a `bl`; the unpatched `bl fn_80228A20`, `0x4804C6D1`, means a DOL without the patch: an
+OSD message and nothing else), then on the first frame drawn writes `load_request` at `0x80002EF0`
+(`'LOAD'`, file, status 0, error 0). Controller polls start too late for this: by the first one the
+title has left state 1. The patch's `dl_title` holds title state 1 (black screen) while it pumps
+`FontUpdate` until `FontIsReady` (the logos otherwise wait out the font), then runs the load screen's
+own card functions on a stand-in task (`fn_801A4070` read, `fn_801A3A10` poll, XOR and
+`"EA_LEGEND v1.01"` check, `fn_801A4354` apply) and starts the field as the title's Continue does
+(title state `0x12`, `fn_801DBE6C(6)`). Status 2 = done, 3 = failed (error 1 no file / no card, 2 read
+error, 3 bad data): the runtime shows a message and the title goes on to the intro as usual. The runtime
+also withdraws a request the title has already passed (title state > 1, or game mode 6) and gives up
+after 30 s. Research: decomp `docs/ui.md` *Loading a save without the load screen*.
 
-| Screen | Task function | Step that waits | What it presses |
-|---|---|---|---|
-| logos, intro, "Press Start" | none of these | | Start, every 1.2 s |
-| New Game / Continue | `0x801D8DBC` | 5 | A when work `+1` = 1 (Continue), else Up |
-| opening the load screen | `0x801D8B94` | | nothing |
-| Load: Slot A / B | `SaveLoadTask` `0x8019E248` | 4 | A (card B is empty in Dolphin) |
-| file list | same | 9 | Down / Up until work `+5` = file - 1, then A |
-| "Load this file. Is this ok?" | same | 15 | A when work `+8` = 0 (Yes), else Up |
-| loading | same | 19 | nothing; `0x803473C4` = 1 when loaded (2 = cancelled) |
+Checks (2026-10-12): Windows, file 5 -> Shrine Island landing (map `0x67`) ~6 s from launch, file 1 ->
+map `0x65`; RAM after the direct load identical to a load through the title and load screen except the
+uptime counter `lbl_803474A4`; a missing file 7 -> status 3 error 1, intro and title. Retroid (ws20
+APK): Continue from file 5 into the field, user-confirmed.
 
-The load screen leaves an idle task behind (step 32), skipped. It stops when the load is done, when
-the player presses any button or moves the stick, after a cancelled load, or after two minutes.
-Windows check (cold boot, the Retroid's card save, no input): in the game at the save point ~33 s after
-boot. Traced with `tools/drive.py peek` dumps of the heap (decomp `docs/ui.md` *Save and load*).
+Before ws20 (2026-10-11 to 10-12) the runtime pressed the buttons: Start through the logos, Continue,
+slot A, the file, Yes, telling the screens apart by the game's task objects in the heap (task function
+`0x801D8DBC` New Game / Continue, `SaveLoadTask` `0x8019E248` steps 4 / 9 / 15 / 19). That took 30-40 s
+and, until ws19b, steered by the file list's on-screen row (work `+5`) instead of its absolute cursor
+(work `+7`; `+6` = the window's top row), so it stopped on files past the first screen. The task layout
+is in the decomp's `docs/ui.md` *Save and load*.
 
 ### Importing saves (2026-10-12)
 
@@ -800,6 +807,14 @@ Not yet checked in menus, battle or field.
   code sections are restored, `recompcore-restore-boot-dol.patch`). Constants now live in `.text`
   (`cave.ld`), and `ws_check` resets the mutable data when `ws_config.version` isn't this build's
   (`WS_VERSION`, bump it with any layout or default change).
+- **Patch-code pointers in game data (ws19, 2026-10-12).** The same goes for game data the patch
+  rewrites: `redirect_pointers` puts `qol_damage` into the battle action handler table
+  (`lbl_802DBB10[0]`, `0x802DBB10`), and a state brings back the address from the build that made it.
+  ws17 / ws18 moved `qol_damage`, so with the user's ws15 / ws16 states (and every auto-save made from
+  them) each attack jumped into `qol_ship_results` ("Invalid write to 0x0000001e, PC = 0x80255594" on
+  Windows, a freeze on the Retroid). `qol_frame` writes the entry every frame now. Audited: that entry is
+  the only patch-code address in game data, the patch's own data holds none, and nothing registers a
+  callback. Any new `redirect_pointers` entry needs the same treatment.
 - **Layout:** the data section moved to `0x80002A00` (code may run to there; `ws_config` is at the start
   of data, `patches.txt` has the address). Patches are compiled `-Os`. `gamepatch.py` leaves weak
   undefined symbols at 0, so `trace2d.c` hooks in through `trace_projection` only when it's linked.

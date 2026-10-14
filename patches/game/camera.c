@@ -52,6 +52,7 @@ __attribute__((section(".cam_input"), used)) struct cam_input cam_input;
 #define MANAGER_ANGLES 7
 /* The field camera object: eye at +0x7C (the manager's source), look-at at +0x24. */
 #define FIELD_CAMERA_EYE 0x80302F94u
+#define GAME_MODE (*(volatile u32 *)0x803475CC) /* 6 = field / world map */
 #define FIELD_CAMERA_LOOK_AT ((const float *)0x80302F3C)
 
 TRK_CAVE static float cam_sqrt(float x) {
@@ -121,7 +122,9 @@ TRK_CAVE static void cam_orbit(float *eye, u32 *manager, int *angles) {
 /* fn_8022D384 -> fn_8022D1F8 (0x8022D910): eye = the view's eye (lbl_803119E0), angles = pitch,
  * yaw, roll on the caller's stack, from which the view direction is built next. */
 TRK_CAVE void cam_view(float *eye, u32 *manager, int *angles) {
-  if (cam_input.magic == CAM_MAGIC && (cam_input.flags & CAM_ENABLED) &&
+  /* Field only: the frontend stops updating cam_input outside the field, so in a battle's
+   * intro the last offsets would otherwise still apply. */
+  if (cam_input.magic == CAM_MAGIC && (cam_input.flags & CAM_ENABLED) && GAME_MODE == 6 &&
       manager[MANAGER_MODE] == 2 && manager[MANAGER_EYE_SOURCE] == FIELD_CAMERA_EYE &&
       (cam_input.pitch_off != 0 || cam_input.yaw_off != 0 || cam_input.zoom != 1.0f))
     cam_orbit(eye, manager, angles);

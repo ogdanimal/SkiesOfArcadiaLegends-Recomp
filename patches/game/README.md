@@ -2,8 +2,8 @@
 
 Changes to the game itself, written in C (and a little assembly) and built into a copy of
 `main.dol` by `tools/gamepatch.py`. The shipping spec is `widescreen.json` (widescreen, camera
-control and the QOL options together); the current build is **ws18** (`build/game/GEAE8P-ws18`, DOL
-SHA-1 `6a401968`, SHA-256 `39dd1e6c`), and `release/skies-widescreen.dolpatch` turns a player's own
+control and the QOL options together); the current build is **ws20** (`build/game/GEAE8P-ws20`, DOL
+SHA-1 `e78a04d9`, SHA-256 `f1ee9e8d`), and `release/skies-widescreen.dolpatch` turns a player's own
 `main.dol` into it (`tools/mkdolpatch.py`). Because they're part of the DOL, the recompiled module runs them
 as ordinary game code: desktop and Android alike, with no mod loader and no runtime cost beyond the
 code itself. The research behind each one is in the decomp's `docs/` (`../SkiesOfArcadiaLegends-Decomp`).
@@ -12,19 +12,20 @@ code itself. The research behind each one is in the decomp's `docs/` (`../SkiesO
 |---|---|
 | `widescreen.json` | 16:9 (or any aspect, set at runtime in `ws_config`): wider 3D view, HUD at its original shape, full-screen effects kept full width, the battle-entry transitions' 3D tiles drawn at the game's own field of view (`UNWIDE` in `fullwidth.S`), and the HUD's side pieces at the wide edges (`WS_HUD_ANCHORS`). With `display_aspect` 0 (4:3) the hooks step aside (`ORIGINAL_IN_43` in `fullwidth.S`) and the picture is identical to the unpatched game's (`tools/dump-ab-win.sh`, NOTES *Widescreen 4:3 setting*). Decomp `docs/widescreen.md`. |
 | `widescreen.json` (camera.c) | Player camera control: wraps the camera manager's call to the shake function (`0x8022D910`) and turns the eye around the field camera's look-at point by the tilt, zoom and turn the frontend writes to `cam_input` (`0x80002EC0`, hold Z in game; `VideoCommon/SkiesMenu.cpp`). Towns, dungeons and the world map; the game's camera object isn't touched. Decomp `docs/camera.md`. |
-| `widescreen.json` (qol.c, qol.S) | Quality-of-life options from `qol_input` (`0x80002EA0`, the in-game menu): random encounter rate (remaps the encounter roll; Off also clears the frames-since-battle counter), EXP / gold / magic EXP scaled in the battle data once per battle before the results read it (ground and ship battles), battle speed (skips the end-of-frame retrace waits in game mode 7; `qol_wait_retrace` tail-calls `VIWaitForRetrace` for savestates), Invincible (party HP / MP / Spirit refilled every battle frame, damage to the party zeroed by `qol_damage` around `fn_8002DC14`, including the action handler table entry via `redirect_pointers`; in ship battles, field mode 6 on maps 500-599, the ship's HP, Spirit and crew MP, and `qol_ship_phase` around `fn_8014419C`). Decomp `docs/qol_cheats.md`. |
+| `widescreen.json` (qol.c, qol.S) | Quality-of-life options from `qol_input` (`0x80002EA0`, the in-game menu): random encounter rate (remaps the encounter roll; Off also clears the frames-since-battle counter), EXP / gold / magic EXP scaled in the battle data once per battle before the results read it (ground and ship battles), battle speed (skips the end-of-frame retrace waits in game mode 7; `qol_wait_retrace` tail-calls `VIWaitForRetrace` for savestates), Invincible (party HP / MP / Spirit refilled every battle frame, damage to the party zeroed by `qol_damage` around `fn_8002DC14`, including the action handler table entry via `redirect_pointers`, written again every frame since ws19 because states keep the old one; in ship battles, field mode 6 on maps 500-599, the ship's HP, Spirit and crew MP, and `qol_ship_phase` around `fn_8014419C`). Decomp `docs/qol_cheats.md`. |
+| `widescreen.json` (autoload.c) | Continue from a memory card save without the logos, intro, title or load screen: the frontend writes `load_request` (`0x80002EF0`: `'LOAD'`, file 1-99, status, error; `VideoCommon/SkiesMenu.cpp` namespace `autoload`) on the first frame; the title's per-frame call at `0x801DC350` goes through `dl_title`, which holds title state 1 while it pumps the font's loading, reads card A's file with the load screen's own card functions on a stand-in task, checks the XOR and version, applies the save and starts the field the way the title's Continue does. A failed load (no file, read error, bad data) frees everything and lets the title go on. Decomp `docs/ui.md` *Loading a save without the load screen*. |
 | `shipdebug.json` | Debug only, combined with `widescreen.json`: gives the party a ship on request (`'SHP' << 8 \| ship` written to `0x8031AA24`, the last word of MetroTRK's buffers, so it combines with `trace2d.json`; the field main's call at `0x801DC358` goes through `dbg_field`, which tail-calls it so states made with this build load in play builds). Used by `tools/shipbattle-state-win.sh` to make the Baltor ship battle states. |
 | `trace2d.json` | Debug only, combined with `widescreen.json`: records the ten-deep call chain of every projection load (`trace2d.c`, table in MetroTRK's buffers at `0x80319078`); read it with `AUTO=... tools/readtrace.py 0x80319078 [reset] [2d]`. |
 
 ## Building
 
 ```sh
-tools/gamepatch.py patches/game/widescreen.json --out-root build/game/GEAE8P-ws18
-DOL=build/game/GEAE8P-ws18/sys/main.dol tools/module-llvm-win.sh llvm-pgo-ws18 \
+tools/gamepatch.py patches/game/widescreen.json --out-root build/game/GEAE8P-ws20
+DOL=build/game/GEAE8P-ws20/sys/main.dol tools/module-llvm-win.sh llvm-pgo-ws20 \
   --profile-use build/modules-llvm-pgo-gp/GEAE8P/pgo/merged.profdata      # Windows module
-NAME=ws18 tools/android-ws-build.sh                                       # Android module + APK
+NAME=ws20 tools/android-ws-build.sh                                       # Android module + APK
 python3 tools/mkdolpatch.py extracted/SkiesOfArcadiaLegends/sys/main.dol \
-  build/game/GEAE8P-ws18/sys/main.dol release/skies-widescreen.dolpatch   # release patch
+  build/game/GEAE8P-ws20/sys/main.dol release/skies-widescreen.dolpatch   # release patch
 ```
 
 The release builds take the DOL's SHA-256 from the patch's `output-sha256` line
@@ -35,11 +36,11 @@ with the dev runner (`lib\ModernGekko\build\moderngekko-run.exe`).
 `gamepatch.py` checks that the input is the USA Rev 0 `main.dol`, compiles the sources with clang for
 the Gekko (`-mcpu=750`, `-Os`, no small-data), links them into the low-memory gap at `0x80001900`
 (`cave.ld`: code and constants up to `0x80002A00`, data from there to `0x80002F00`, with
-`qol_input` fixed at `0x80002EA0` and `cam_input` at `0x80002EC0` for the frontend), rewrites the listed call sites and adds the code and data as new DOL sections. That gap is nearly full (ws13: code 0xFD0 of 0x1100 bytes, data 0x4E4 of 0x500), so there's a second code area: functions marked `section(".trkcave")` go to `0x802548E8`-`0x80257074` (10 KB), over MetroTRK's message handlers, which only run with a debugger attached (`__start` starts MetroTRK only when `0x800030E8` is 2 or 3; the handlers are reached only through its dispatch table). `gamepatch.py` writes that code into the DOL's text in place; it's code only (data still goes in the gap). It
+`qol_input` fixed at `0x80002EA0`, `cam_input` at `0x80002EC0` and `load_request` at `0x80002EF0` for the frontend), rewrites the listed call sites and adds the code and data as new DOL sections. That gap is nearly full (ws13: code 0xFD0 of 0x1100 bytes, data 0x4E4 of 0x500), so there's a second code area: functions marked `section(".trkcave")` go to `0x802548E8`-`0x80257074` (10 KB), over MetroTRK's message handlers, which only run with a debugger attached (`__start` starts MetroTRK only when `0x800030E8` is 2 or 3; the handlers are reached only through its dispatch table). `gamepatch.py` writes that code into the DOL's text in place; it's code only (data still goes in the gap). It
 writes a game root: `sys/` with the patched DOL, `files/` linked to the original (on Windows, make
-it a junction: `mklink /J build\game\GEAE8P-ws16\files extracted\SkiesOfArcadiaLegends\files`), plus
+it a junction: `mklink /J build\game\GEAE8P-ws20\files extracted\SkiesOfArcadiaLegends\files`), plus
 `patches.txt` (symbols and patched sites) and `patch.elf` (for disassembly). Run it with
-`GAME=build/game/GEAE8P-ws16` (`tools/play.sh`) or `GAME=build\game\GEAE8P-ws16` (`tools\run-win.bat`)
+`GAME=build/game/GEAE8P-ws20` (`tools/play.sh`) or `GAME=build\game\GEAE8P-ws20` (`tools\run-win.bat`)
 and a module built from the same DOL.
 
 | Build | DOL SHA-1 | What it added |
@@ -55,6 +56,8 @@ and a module built from the same DOL.
 | ws16 | `66da66de` | ship battle spacing asked for by the user: ring lists dy +50, crew / ship panels dy -24 (midway between the Spirit gauge and the ring), `WS_VERSION` 10 |
 | ws17 | `910d9504` | ship battle QOL only while the battle's data is live (code review A3, 2026-10-12): the game frees `lbl_8034727C`'s data in `fn_80144E60` but never clears the pointer, so from the second ship battle on Invincible wrote through a stale pointer between the map's load and the new allocation. `qol_ship_live` is set by `qol_ship_alloc` (new hook at `0x8015C6DC`, `fn_8015C6C8`'s call of `fn_801453D0`) and by `qol_ship_phase`, cleared after `qol_ship_results`; it sits in `.late_bss` (`cave.ld`) after every older variable, so states from earlier builds keep their data where this build looks (they read 0 there: off until the battle's next phase) |
 | ws18 | `6a401968` | code review section C (2026-10-12): the camera keeps the game's own tilt when its eye sits below the look-at point by more than `rise` (the height limit went negative and put the eye on the far side); `ws_check` restarts the unwide depth for an older build's state and `ws_unwide_end` never takes it below 0 (either would leave every later unwide pair off); `in_ram` accepts only word-aligned addresses inside the 24 MB. No data moved (all 19 data symbols at their ws17 addresses), so ws17 states load as they are. The debug `shipdebug.c` request word moved to `0x8031AA24` so it combines with `trace2d.json` (debug builds only) |
+| ws19 | `2185d3d4` | every attack froze from older states (2026-10-12): a state restores code but not data, so the battle action handler table entry `0x802DBB10` (rewritten by `redirect_pointers`) kept the address `qol_damage` had in the build that made the state, and after ws17 / ws18 moved the code that address was inside `qol_ship_results` ("Invalid write to 0x0000001e"); auto-saves carried it forward. `qol_frame` now writes the entry every frame. Also: `qol_ram` checks the pointers it follows, battle QOL only in battle states 4-7 (`0x8034737C`), ship results only while `qol_ship_live`, the camera only in game mode 6. Only that one patch-code pointer lives in game data (audit: no other code pointers in the patch's data, no callbacks) |
+| ws20 | `e78a04d9` | Continue from a card save loads it directly (`autoload.c`, `load_request` at `0x80002EF0`, `dl_title` at the title's call `0x801DC350`): ~6 s from launch to the field on Windows, RAM identical to a load through the menus but for the uptime counter; a missing file falls back to the intro and title. Replaces the frontend's button-driving (30-40 s) |
 
 A module only matches the DOL it was built from: an unpatched module with a patched DOL (or the
 reverse) fails verification for the patched code and runs it in the interpreter. Savestates made

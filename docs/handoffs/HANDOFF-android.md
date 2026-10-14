@@ -11,6 +11,15 @@ Windows-only Wind Waker project write their own hardware layer. So: **don't repl
 unless a concrete problem needs it. **Before release:** the app's own shell: its own package / class
 names, Dolphin's unused screens and resources removed, no "Dolphin" left where a player can see it.
 
+## Status (2026-10-12, evening): ws20 on the Retroid
+
+- `build/android/apk/skies-recomp-ws20-2026-10-12.apk` (versionCode 410419) installed 20:20 with the
+  user's OK, saves md5-identical before / after (backup before ws19:
+  `C:\dev\SkiesRecomp\build\backup\retroid-before-ws19-2026-10-12`). Game patch ws20: the battle
+  freeze from older states fixed (ws19) and Continue loading a card save directly (ws20). User: "all
+  good on retroid". Left on the device from an earlier session: `files/Automation` in the app's
+  external data folder (the user can delete it).
+
 ## Status (2026-10-12, morning): Import a save installed and checked on the Retroid
 
 - **Installed (user: "You can test directly on Android"):** `build/android/apk/skies-recomp-ws16-saveimport-2026-10-12.apk`

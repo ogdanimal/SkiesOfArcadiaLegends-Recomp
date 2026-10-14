@@ -5,6 +5,16 @@
 Everything below the history line is the session log; this is the summary. What a player gets and how it
 works is in NOTES *The player build* (controls, settings keys, menu, camera, options, launcher).
 
+- **Battle freeze from older states, and Continue straight into a card save (2026-10-12 evening, game
+  patch ws19 / ws20; patches/game/README.md, NOTES *Memory card auto-load*):** the user's every-attack
+  freeze came from the battle handler table entry their states carried from ws15 / ws16 (`qol_damage`'s
+  old address, now inside other patch code); `qol_frame` rewrites it every frame (verified on Windows
+  from the user's state: two battles to the end, then on the Retroid by the user). Continue from a card
+  save now loads it in the game patch itself (`autoload.c`), no logos / intro / title / load screen:
+  ~6 s from launch on Windows, RAM identical to a menu load; Retroid ws20 APK checked by the user ("all
+  good on retroid"). Files 1-99 (the old button-driving refused files past 3), and the launchers fall back to the
+  newest state when the newest card save can't be auto-loaded.
+
 - **Import a save (2026-10-12, user request: "same behavior as goemon and hybrid heaven", card saves
   and states, the launchers' Saves tab on all three platforms; NOTES *Importing saves*):** shared
   `lib/ModernGekko/tools/save_import.cpp` (desktop launcher; Android through JNI). Prompt before the

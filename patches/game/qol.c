@@ -65,9 +65,17 @@ struct qol_input {
 __attribute__((section(".qol_input"), used)) struct qol_input qol_input;
 
 /* The battle data last scaled (cleared once the game leaves battle), so a battle is scaled once. */
-static u32 qol_scaled_ground;
-static u32 qol_scaled_ship;
-static int qol_speed_phase;
+/* In one struct so they keep the order (and addresses) earlier builds had: the compiler orders
+ * separate statics by first use, and a save state made with an earlier build must read each one
+ * where that build kept it. */
+static struct {
+  int speed_phase;
+  u32 scaled_ground;
+  u32 scaled_ship;
+} qol_marks;
+#define qol_speed_phase qol_marks.speed_phase
+#define qol_scaled_ground qol_marks.scaled_ground
+#define qol_scaled_ship qol_marks.scaled_ship
 /* Nonzero from the ship battle data's allocation (fn_801453D0) until the results free it
  * (fn_80144E60). The game never clears lbl_8034727C after freeing, so from the second ship battle
  * on the pointer is set, but stale, from the map's load until the new allocation: Invincible
@@ -77,6 +85,16 @@ static int qol_speed_phase;
 __attribute__((section(".late_bss"))) static int qol_ship_live;
 
 #define GAME_MODE (*(volatile u32 *)0x803475CC) /* 6 = field / world map, 7 = battle */
+/* fn_8000A118's state: 0-3 load the battle (its units and data are allocated in 3, by
+ * fn_80077428), 4-7 run it, 8-9 tear it down, 11-12 go back to 3. The game never clears the unit
+ * pointers or the data pointer, so outside 4-7 they can still be the last battle's freed blocks. */
+#define BATTLE_STATE (*(volatile u32 *)0x8034737C)
+/* lbl_802DBB10, the battle action handlers' table: entry 0 is the damage function, which
+ * widescreen.json's redirect_pointers points at qol_damage. It's data, so a save state brings back
+ * the entry of the build it was made with (code sections are restored on load, data isn't), and
+ * from ws17 on qol_damage moved: the old address then lands inside another function, and every hit
+ * jumped there (ws18: "Invalid write to 0x0000001e" on the first attack). qol_frame puts it back. */
+#define ACTION_HANDLERS ((void (*volatile *)(unsigned char *, int))0x802DBB10)
 #define FRAMES_SINCE_BATTLE (*(volatile int *)0x80346D28)
 #define FRAME_START_RETRACE (*(volatile u32 *)0x8034768C) /* main's mark for fn_801DC420's loop */
 #define GROUND_BATTLE_DATA (*(unsigned char *volatile *)0x80347390)
@@ -88,6 +106,12 @@ __attribute__((section(".late_bss"))) static int qol_ship_live;
 #define PARTY_SLOTS ((signed char *)0x8030BB1C) /* lbl_8030B7F4 + 0x328: record index or -1 */
 
 TRK_CAVE static int qol_on(void) { return qol_input.magic == QOL_MAGIC; }
+
+/* A word-aligned address inside the 24 MB of main RAM: what a live battle data pointer is. */
+TRK_CAVE static int qol_ram(const void *p) {
+  const u32 a = (u32)p;
+  return a >= 0x80000000 && a < 0x81800000 && (a & 3) == 0;
+}
 
 TRK_CAVE static int qol_scale(int value, int percent) {
   if (percent == 100 || value <= 0)
@@ -121,7 +145,7 @@ TRK_CAVE int qol_encounter_rand(void) {
 /* 0x8006F5B8: the first call of the member count loop, right before the rewards are read. */
 TRK_CAVE int qol_ground_member(int slot) {
   unsigned char *data = GROUND_BATTLE_DATA;
-  if (slot == 0 && qol_on() && data && qol_scaled_ground != (u32)data) {
+  if (slot == 0 && qol_on() && qol_ram(data) && qol_scaled_ground != (u32)data) {
     qol_scaled_ground = (u32)data;
     int *exp = (int *)(data + 0x30), *gold = (int *)(data + 0x34);
     *exp = qol_scale(*exp, qol_input.exp);
@@ -136,12 +160,17 @@ TRK_CAVE int qol_ground_member(int slot) {
 TRK_CAVE void qol_ship_alloc(void) {
   fn_801453D0();
   qol_ship_live = 1;
+  qol_scaled_ship = 0;
 }
 
-/* 0x8015C6B4: ship battle results, which free the battle data at their end. */
+/* 0x8015C6B4: ship battle results, which free the battle data at their end. fn_8012A26C makes this
+ * call whenever the player leaves a field map numbered 500 or above, not only after a ship battle,
+ * and the game never clears lbl_8034727C: only a battle whose data was allocated (qol_ship_live) is
+ * scaled. (ws18 and before scaled through whatever the pointer held: a device wrote to 0x1A / 0x1E
+ * leaving a dungeon with EXP / gold above 100%.) */
 TRK_CAVE u32 qol_ship_results(u32 a, u32 b, u32 c, u32 d, u32 e, u32 f, u32 g, u32 h) {
   unsigned char *data = SHIP_BATTLE_DATA;
-  if (qol_on() && data && qol_scaled_ship != (u32)data) {
+  if (qol_on() && qol_ship_live && qol_ram(data) && qol_scaled_ship != (u32)data) {
     qol_scaled_ship = (u32)data;
     int *exp = (int *)(data + 0x18), *gold = (int *)(data + 0x1C);
     *exp = qol_scale(*exp, qol_input.exp);
@@ -167,8 +196,10 @@ TRK_CAVE static int qol_invincible(void) {
 
 /* Every frame in a ship battle: the ship's HP, the Spirit gauge and the crew's MP full. */
 TRK_CAVE static void qol_refill_ship(void) {
+  if (!qol_ram(SHIP_BATTLE_DATA))
+    return;
   unsigned char *ship = *(unsigned char **)(SHIP_BATTLE_DATA + 0x20);
-  if (ship && *(int *)(ship + 0x18) > 0)
+  if (qol_ram(ship) && *(int *)(ship + 0x18) > 0)
     *(int *)(ship + 0x18) = *(int *)(ship + 0x14);
   *(short *)(SHIP_PARTY + 0x8) = *(short *)(SHIP_PARTY + 0x6);
   for (int i = 0; i < 4; i++) {
@@ -189,15 +220,19 @@ TRK_CAVE static void qol_refill(void) {
     qol_refill_ship();
     return;
   }
+  /* (ws18 and before refilled from the battle's first frame: from the second battle on, that wrote
+   * HP and the Spirit gauge into the previous battle's freed blocks while the new one loaded.) */
+  if (BATTLE_STATE < 4 || BATTLE_STATE > 7)
+    return;
   for (int i = 0; i < 4; i++) {
     unsigned char *unit = BATTLE_UNITS[i];
-    if (!unit || *(int *)(unit + 0x14) <= 0)
+    if (!qol_ram(unit) || *(int *)(unit + 0x14) <= 0)
       continue;
     *(int *)(unit + 0x14) = *(int *)(unit + 0x18);
     unit[0xFE] = unit[0xFF];
   }
   unsigned char *data = GROUND_BATTLE_DATA;
-  if (data) {
+  if (qol_ram(data)) {
     const short spirit_max = *(short *)(data + 0x6);
     *(short *)(data + 0x8) = spirit_max;
     *(short *)(data + 0xA) = spirit_max;
@@ -222,7 +257,7 @@ TRK_CAVE void qol_ship_phase(int phase, int side) {
   /* Only a running battle plays out phases, so its data is live: this also picks up a battle a
    * save state from an earlier build (no flag yet) was made in, from its first phase on. */
   qol_ship_live = 1;
-  if (side != 0 && qol_invincible() && SHIP_BATTLE_DATA) {
+  if (side != 0 && qol_invincible() && qol_ram(SHIP_BATTLE_DATA) && phase >= 0 && phase < 8) {
     int *damage = (int *)(SHIP_BATTLE_DATA + phase * 0x90 + 0x130);
     const int saved = *damage;
     *damage = 0;
@@ -240,11 +275,16 @@ TRK_CAVE static int qol_fast(void) {
 /* Once a frame, from ws_frame_end just before fn_801DC420 (end of frame): out of battle the
  * per-battle marks are cleared; in battle Invincible refills; at speed the wait loop's mark is moved
  * back so the loop ends at once. */
+TRK_CAVE void qol_damage(unsigned char *action, int target);
+
 TRK_CAVE void qol_frame(void) {
-  if (GAME_MODE != 7) {
+  if (ACTION_HANDLERS[0] != qol_damage)
+    ACTION_HANDLERS[0] = qol_damage;
+  if (GAME_MODE != 7)
     qol_scaled_ground = 0;
-    qol_scaled_ship = 0;
-  }
+  /* A ship battle that ends without its results (game over, reset) leaves the flag set. */
+  if (GAME_MODE == 6 && (MAP_ID < 500 || MAP_ID > 599))
+    qol_ship_live = 0;
   if (qol_invincible())
     qol_refill();
   if (qol_fast())

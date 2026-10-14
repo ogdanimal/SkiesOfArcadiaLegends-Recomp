@@ -927,7 +927,7 @@ index 3b18d05..7998f2c 100644
    std::string netplay_nickname = "Player";
    std::string netplay_address = "127.0.0.1";
 diff --git a/tools/moderngekko_launcher.cpp b/tools/moderngekko_launcher.cpp
-index 7699c3d..322bec1 100644
+index 7699c3d..bfd5d60 100644
 --- a/tools/moderngekko_launcher.cpp
 +++ b/tools/moderngekko_launcher.cpp
 @@ -1,9 +1,14 @@
@@ -1273,7 +1273,7 @@ index 7699c3d..322bec1 100644
 +  return newest;
 +}
 +
-+// The game's file number (1..3) of a card save on card A, from its name ("...SA_LEGENDS.000.gci"
++// The game's file number (1..99) of a card save on card A, from its name ("...SA_LEGENDS.000.gci"
 +// is file 1); 0 when it isn't one the in-game auto-load can pick (card B, another name).
 +int CardSaveFile(const fs::path& path)
 +{
@@ -1290,7 +1290,7 @@ index 7699c3d..322bec1 100644
 +      return 0;
 +    number = number * 10 + (c - '0');
 +  }
-+  return number <= 2 ? number + 1 : 0;
++  return number <= 98 ? number + 1 : 0;
 +}
 +
 +// "Oct 11 21:07", local time
@@ -1731,7 +1731,7 @@ index 7699c3d..322bec1 100644
    int resolution_index = 0;
    for (std::size_t i = 0; i < resolutions.size(); ++i)
    {
-@@ -621,17 +1133,98 @@ int main(int argc, char** argv)
+@@ -621,17 +1133,101 @@ int main(int argc, char** argv)
    // StateSaves is Dolphin's own state directory, so states written in-game land
    // here without any extra configuration and show up on the next launch.
    //
@@ -1813,7 +1813,10 @@ index 7699c3d..322bec1 100644
 +      if (!ec)
 +        state = written;
 +    }
-+    if (state && (!card || *state >= *card))
++    // A card save the in-game auto-load can't pick would only boot to the title, so then the newest
++    // state wins even if it's older
++    const int card_file = card_save ? CardSaveFile(card_save->path) : 0;
++    if (state && (!card || *state >= *card || card_file == 0))
 +    {
 +      continue_from_state = true;
 +      continue_text =
@@ -1823,7 +1826,7 @@ index 7699c3d..322bec1 100644
 +    else if (card)
 +    {
 +      // The runtime loads it (SkiesMenu.cpp autoload): title screen, Continue, the file, Yes
-+      continue_card_file = CardSaveFile(card_save->path);
++      continue_card_file = card_file;
 +      continue_text = continue_card_file ?
 +                          "Memory card save: file " + std::to_string(continue_card_file) + "   " +
 +                              LocalTimeText(*card) :
@@ -1837,7 +1840,7 @@ index 7699c3d..322bec1 100644
    std::vector<ControllerOption> controllers = EnumerateControllers();
    bool controller_profile_exists = moderngekko::frontend::ControllerConfigExists(user_directory);
    std::vector<std::string> configured_controllers =
-@@ -726,7 +1319,11 @@ int main(int argc, char** argv)
+@@ -726,7 +1322,11 @@ int main(int argc, char** argv)
      Join,
    };
    bool done = false;
@@ -1849,7 +1852,7 @@ index 7699c3d..322bec1 100644
    while (!done)
    {
      bool controllers_changed = false;
-@@ -744,6 +1341,7 @@ int main(int argc, char** argv)
+@@ -744,6 +1344,7 @@ int main(int argc, char** argv)
      }
      if (controllers_changed)
        refresh_controllers();
@@ -1857,7 +1860,7 @@ index 7699c3d..322bec1 100644
  
      {
        std::lock_guard lock(dialog.mutex);
-@@ -751,14 +1349,34 @@ int main(int argc, char** argv)
+@@ -751,14 +1352,34 @@ int main(int argc, char** argv)
        {
          selected_image = std::move(dialog.selected);
          dialog.selected.reset();
@@ -1893,7 +1896,7 @@ index 7699c3d..322bec1 100644
          if (current_metadata && !RequiredGameError(*current_metadata.metadata).empty())
            current_metadata = {{}, RequiredGameError(*current_metadata.metadata)};
          extraction.finished_game.reset();
-@@ -774,18 +1392,79 @@ int main(int argc, char** argv)
+@@ -774,18 +1395,79 @@ int main(int argc, char** argv)
      ImGui_ImplSDL3_NewFrame();
      ImGui::NewFrame();
      const ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -1984,7 +1987,7 @@ index 7699c3d..322bec1 100644
        if (!launcher_savestates.empty())
        {
          ImGui::TextUnformatted("Start from savestate");
-@@ -820,6 +1499,24 @@ int main(int argc, char** argv)
+@@ -820,6 +1502,24 @@ int main(int argc, char** argv)
          ImGui::TextDisabled("Solo play only.");
          ImGui::Spacing();
        }
@@ -2009,7 +2012,7 @@ index 7699c3d..322bec1 100644
        if (ImGui::Button("Play", ImVec2(180 * scale, 42 * scale)))
        {
          if (ensure_controller())
-@@ -828,7 +1525,9 @@ int main(int argc, char** argv)
+@@ -828,7 +1528,9 @@ int main(int argc, char** argv)
            done = true;
          }
        }
@@ -2020,7 +2023,7 @@ index 7699c3d..322bec1 100644
        if (ImGui::Button("Host Netplay", ImVec2(180 * scale, 42 * scale)))
        {
          if (ensure_controller())
-@@ -884,213 +1583,902 @@ int main(int argc, char** argv)
+@@ -884,213 +1586,902 @@ int main(int argc, char** argv)
            }
          }
        }
@@ -3081,7 +3084,7 @@ index 7699c3d..322bec1 100644
  
      ImGui::Render();
      SDL_SetRenderScale(renderer, io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y);
-@@ -1107,8 +2495,17 @@ int main(int argc, char** argv)
+@@ -1107,8 +2498,17 @@ int main(int argc, char** argv)
    if (launch_mode != LaunchMode::None)
    {
      std::string launch_error;
@@ -3101,7 +3104,7 @@ index 7699c3d..322bec1 100644
      {
        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Launch failed", launch_error.c_str(), window);
        result = 1;
-@@ -1163,6 +2560,15 @@ int main(int argc, char** argv)
+@@ -1163,6 +2563,15 @@ int main(int argc, char** argv)
            user_directory / "Logs" / MODERNGEKKO_LOG_FILENAME;
        std::error_code log_error;
        std::filesystem::create_directories(log_path.parent_path(), log_error);
@@ -3117,7 +3120,7 @@ index 7699c3d..322bec1 100644
        SDL_IOStream* log_stream =
            log_error ? nullptr : SDL_IOFromFile(log_path.string().c_str(), "w");
        SDL_Process* process = nullptr;
-@@ -1263,6 +2669,8 @@ int main(int argc, char** argv)
+@@ -1263,6 +2672,8 @@ int main(int argc, char** argv)
      }
    }
  
