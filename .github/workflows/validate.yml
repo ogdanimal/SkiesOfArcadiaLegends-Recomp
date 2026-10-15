@@ -182,9 +182,13 @@ jobs:
     needs: codegen
     runs-on: windows-2025
     steps:
-      # Dolphin's SPIRV-Cross submodule has test files whose paths pass Windows' 260-character limit
-      - name: Allow long paths
-        run: git config --system core.longpaths true
+      # Dolphin's SPIRV-Cross submodule has test files whose paths pass Windows' 260-character limit.
+      # The runner's git also turns LF into CRLF on checkout, which breaks patches/ against the
+      # submodules' files (the .bat files keep CRLF through .gitattributes).
+      - name: Long paths, no line-ending conversion
+        run: |
+          git config --system core.longpaths true
+          git config --system core.autocrlf false
 
       - name: Checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -359,6 +363,8 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
+        with:
+          packages: platform-tools  # the default also asks for 'tools', which the SDK dropped
 
       - name: Install the pinned NDK
         run: |
