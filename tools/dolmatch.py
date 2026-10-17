@@ -3,6 +3,8 @@
 the game patches and the frontend patches use.  Stdlib only; run with `python3 -I tools/dolmatch.py`.
 
 usage: dolmatch.py [--usa DOL] [--eu DOL] [--symbols symbols.txt] [--out-dir build/eu]
+The defaults read the DOLs and symbols from the research and decomp checkouts beside this repo
+(RESEARCH / DECOMP in the environment point elsewhere).
 
 Writes (out-dir, default build/eu):
   dolmap.json         {"functions": {usa: {eu, size_usa, size_eu, method, name}}, "data": {...}, ...}
@@ -29,8 +31,10 @@ import struct
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-RESEARCH = "/home/cato1/projects/GameCube-Research/targets/SkiesOfArcadiaLegends"
-DECOMP = "/home/cato1/projects/SkiesOfArcadiaLegends-Decomp"
+# The research and decomp checkouts: beside this repo by default, or RESEARCH / DECOMP in the environment
+RESEARCH = os.environ.get("RESEARCH", os.path.join(os.path.dirname(ROOT), "GameCube-Research", "targets",
+                                                   "SkiesOfArcadiaLegends"))
+DECOMP = os.environ.get("DECOMP", os.path.join(os.path.dirname(ROOT), "SkiesOfArcadiaLegends-Decomp"))
 USA_SHA1 = "8c0e278126fa3b0173400fdb632038172743cc13"
 
 
