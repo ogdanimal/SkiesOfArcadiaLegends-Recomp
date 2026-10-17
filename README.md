@@ -54,12 +54,27 @@ and on Windows. Slower Android devices may not keep 60 fps (see [Slower devices]
 | The import refuses your disc | It must be the USA disc (`GEAE8P`). European and Japanese discs aren't supported yet. |
 | Battle freezes after changing the battle speed | A known issue: change the speed while you choose commands, not while a round plays out. |
 | You want saves from Dolphin, a GameCube or another device | **Settings → Saves → Import a save**; see [Importing a save](#importing-a-save). |
-| **Android:** installing an update fails or asks you to uninstall first | It was signed with a different key (a self-built APK). Uninstalling **deletes your saves**; export them first. |
+| **Android:** installing an update fails or asks you to uninstall first | It was signed with a different key (a self-built APK). Uninstalling **deletes your saves**; back them up first with **Settings → Saves → Back up saves**. |
 | Still stuck | [Open an issue](../../issues/new/choose) with your platform, device and what happened. |
 
 ## Controls
 
-The game's own controls are unchanged. On top of them:
+A controller is needed on Windows and Linux: the launcher sets up the first one it finds (there's no
+keyboard layout yet). On Android a controller works the same way; without one, the game shows touch
+controls (the in-game **Back** menu turns them on and off).
+
+| Controller (Xbox / PlayStation) | GameCube |
+|---|---|
+| A / B / X / Y (Cross / Circle / Square / Triangle) | A / B / X / Y |
+| RB (R1) | Z |
+| LT / RT (L2 / R2) | L / R |
+| Start (Options) | Start |
+| Left stick | Control stick |
+| Right stick | C-stick |
+| D-pad | D-pad |
+
+The face buttons go by name, not position: Xbox A is GameCube A. The game's own controls are
+unchanged; on top of them:
 
 | Input | What it does |
 |---|---|
@@ -67,7 +82,7 @@ The game's own controls are unchanged. On top of them:
 | Hold Z + C-stick up / down | Tilt the camera |
 | Hold Z + R / L | Zoom out / in |
 | Tap Z in battle | Battle speed: Normal, 2x, 3x, 4x |
-| L3 or R3 | Invincible on / off |
+| L3 or R3 (a stick click) | Invincible on / off |
 
 Every setting is also in the launcher's **Settings** window, with a short description of each.
 **Settings → Controls** has the controller profile, the stick dead zone and rumble.
@@ -100,6 +115,8 @@ it:
   Arcadia Legends saves are taken, nothing else.
 - **A save state** from this port, e.g. from your other device. Save states only work in the same
   version of the port; memory card saves work in every version.
+- **A backup** made with **Settings → Saves → Back up saves** on Android (`.zip`): every save in it.
+  Make one before uninstalling the app, which deletes its saves.
 
 A memory card save replaces the file with the same number; the old one is kept beside it as
 `.pre-import.bak`. Saves from the European or Japanese version can't be used.
@@ -137,7 +154,7 @@ Your imported game, saves and settings are kept in:
 |---|---|
 | **Windows** | `%LOCALAPPDATA%\Skies of Arcadia Legends` |
 | **Linux** | `~/.local/share/Skies of Arcadia Legends` |
-| **Android** | The app's own storage. Uninstalling deletes it, so copy your saves out first. |
+| **Android** | The app's own storage. Uninstalling deletes it: back up first (**Settings → Saves → Back up saves**). |
 
 Nothing from the game is in this repository or in any build: the launcher reads your disc, and the
 port's changes to the game are applied to your copy as a patch.

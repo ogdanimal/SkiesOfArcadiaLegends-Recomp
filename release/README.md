@@ -28,7 +28,8 @@ Windows.
 **Android:** install the APK, open **Skies of Arcadia Legends** and pick your disc image when asked.
 
 Your saves and settings are kept in `%LOCALAPPDATA%\Skies of Arcadia Legends` (Windows),
-`~/.local/share/Skies of Arcadia Legends` (Linux) or in the app's own storage (Android). Uninstalling the Android app deletes them, so copy them out first if you want to keep them.
+`~/.local/share/Skies of Arcadia Legends` (Linux) or in the app's own storage (Android). Uninstalling the Android app deletes them, so make a backup first
+(**Settings → Saves → Back up saves**).
 
 ### Bringing your saves
 
@@ -41,6 +42,7 @@ it. It asks first, then opens a file picker. It takes:
   Arcadia Legends saves are taken, nothing else.
 - **A save state** from this port (`.sav` from the `StateSaves` folder), e.g. from your other device.
   Save states only work in the same version of the port; memory card saves work in every version.
+- **A backup** made with **Settings → Saves → Back up saves** on Android (`.zip`): every save in it.
 
 A memory card save replaces the file with the same number here; the one it replaces is kept beside
 it as a `.pre-import.bak` file (`.pre-import.2.bak` and so on if you import over it again). A save state is added to the ones you have. **Continue** then starts
@@ -67,7 +69,22 @@ port plays the USA version.
 
 ## Controls
 
-The game's own controls are unchanged. On top of them:
+A controller is needed on Windows and Linux: the launcher sets up the first one it finds (there's no
+keyboard layout yet). On Android a controller works the same way; without one, the game shows touch
+controls (the in-game **Back** menu turns them on and off).
+
+| Controller (Xbox / PlayStation) | GameCube |
+|---|---|
+| A / B / X / Y (Cross / Circle / Square / Triangle) | A / B / X / Y |
+| RB (R1) | Z |
+| LT / RT (L2 / R2) | L / R |
+| Start (Options) | Start |
+| Left stick | Control stick |
+| Right stick | C-stick |
+| D-pad | D-pad |
+
+The face buttons go by name, not position: Xbox A is GameCube A. The game's own controls are
+unchanged; on top of them:
 
 | Input | What it does |
 |---|---|
@@ -75,7 +92,7 @@ The game's own controls are unchanged. On top of them:
 | Hold Z + C-stick up / down | tilt the camera |
 | Hold Z + R / L | zoom out / in |
 | Tap Z in battle | battle speed: Normal, 2x, 3x, 4x |
-| L3 or R3 | Invincible on / off |
+| L3 or R3 (a stick click) | Invincible on / off |
 
 Every setting is also in the launcher's **Settings** window, with a short description of each.
 

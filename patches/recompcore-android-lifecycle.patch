@@ -53,20 +53,36 @@ index 4adef990cc..1335046ca6 100644
                      NativeLibrary.RunSystemMenu()
                  } else {
 diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
-index 75fa22736d..ca78a46c65 100644
+index 75fa22736d..3ce7c06e26 100644
 --- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
 +++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
-@@ -61,6 +61,9 @@ class SkiesLauncherActivity : FragmentActivity() {
+@@ -61,6 +61,12 @@ class SkiesLauncherActivity : FragmentActivity() {
          /** The largest file Import a save copies: a save state of at most 1 GiB plus its header. */
          const val MAX_IMPORT_BYTES = (1L shl 30) + (1L shl 20)
  
++        /** The most files a backup (Back up saves) may hold: a card's 127 saves and plenty of states. */
++        const val MAX_BACKUP_ENTRIES = 400
++
 +        /** How long the launcher waits for a game it stopped (afterGameClosed) to end. */
 +        const val CLOSE_TIMEOUT_MS = 10_000L
 +
          /**
           * The disc import's result for whichever launcher is showing when it ends: the import runs on
           * its own thread and outlives the Activity that started it (rotation, dark mode, a new task).
-@@ -168,6 +171,7 @@ class SkiesLauncherActivity : FragmentActivity() {
+@@ -101,6 +107,12 @@ class SkiesLauncherActivity : FragmentActivity() {
+             if (uri != null) importSave(uri)
+         }
+ 
++    // Back up saves (Settings, Saves): one .zip written where the player chooses
++    private val pickBackup =
++        registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri: Uri? ->
++            if (uri != null) exportSaves(uri)
++        }
++
+     override fun onCreate(savedInstanceState: Bundle?) {
+         super.onCreate(savedInstanceState)
+         // Laid out like the desktop launcher (and the N64 recomps'): the art across the screen,
+@@ -168,6 +180,7 @@ class SkiesLauncherActivity : FragmentActivity() {
  
      override fun onDestroy() {
          handler.removeCallbacks(importPoll)
@@ -74,7 +90,7 @@ index 75fa22736d..ca78a46c65 100644
          driverDialog?.dismiss()
          super.onDestroy()
      }
-@@ -255,8 +259,8 @@ class SkiesLauncherActivity : FragmentActivity() {
+@@ -255,8 +268,8 @@ class SkiesLauncherActivity : FragmentActivity() {
       */
      private fun confirmImportSave() {
          if (org.dolphinemu.dolphinemu.NativeLibrary.IsRunning()) {
@@ -85,7 +101,148 @@ index 75fa22736d..ca78a46c65 100644
              return
          }
          val hasCard = !SkiesNative.describeSaves(userDirectory.absolutePath).startsWith("Memory card: no saves")
-@@ -522,7 +526,24 @@ class SkiesLauncherActivity : FragmentActivity() {
+@@ -266,8 +279,8 @@ class SkiesLauncherActivity : FragmentActivity() {
+         padDialog(android.app.AlertDialog.Builder(this)
+             .setTitle("Import a save?")
+             .setMessage("Choose a memory card save (.gci, .gcs, .sav), a whole memory card (.raw, " +
+-                ".gcp) or a save state from this port.\n\n$replaced\n\nA save state is added next " +
+-                "to the ones you have; nothing is replaced.")
++                ".gcp), a save state from this port or a backup made with Back up saves (.zip)." +
++                "\n\n$replaced\n\nA save state is added next to the ones you have; nothing is replaced.")
+             .setPositiveButton("Choose a file") { _, _ -> pickSave.launch(arrayOf("*/*")) }
+             .setNegativeButton("Cancel", null))
+             .getButton(android.app.AlertDialog.BUTTON_NEGATIVE)?.requestFocus()
+@@ -286,20 +299,12 @@ class SkiesLauncherActivity : FragmentActivity() {
+             }
+             val result = try {
+                 contentResolver.openInputStream(uri)?.use { input ->
+-                    copy.outputStream().use { output ->
+-                        val buffer = ByteArray(1 shl 16)
+-                        var total = 0L
+-                        while (true) {
+-                            val n = input.read(buffer)
+-                            if (n < 0) break
+-                            total += n
+-                            if (total > MAX_IMPORT_BYTES) throw java.io.IOException("it is too big to be a save")
+-                            output.write(buffer, 0, n)
+-                        }
+-                    }
++                    copy.outputStream().use { output -> copyCapped(input, output) }
+                 }
+                 if (org.dolphinemu.dolphinemu.NativeLibrary.IsRunning()) {
+                     arrayOf("The game started while the file was being chosen, so nothing was imported.", "")
++                } else if (isZip(copy)) {
++                    importBackup(copy)
+                 } else {
+                     SkiesNative.importSave(copy.absolutePath, userDirectory.absolutePath)
+                 }
+@@ -315,6 +320,105 @@ class SkiesLauncherActivity : FragmentActivity() {
+         }.start()
+     }
+ 
++    /** Copies a save, refusing more than the largest file the import accepts (a save state). */
++    private fun copyCapped(input: java.io.InputStream, output: java.io.OutputStream) {
++        val buffer = ByteArray(1 shl 16)
++        var total = 0L
++        while (true) {
++            val n = input.read(buffer)
++            if (n < 0) break
++            total += n
++            if (total > MAX_IMPORT_BYTES) throw java.io.IOException("it is too big to be a save")
++            output.write(buffer, 0, n)
++        }
++    }
++
++    private fun isZip(file: File): Boolean {
++        val head = ByteArray(4)
++        val n = file.inputStream().use { it.read(head) }
++        return n == 4 && head.contentEquals(byteArrayOf(0x50, 0x4B, 0x03, 0x04))
++    }
++
++    /**
++     * Import a save, given a backup (Back up saves): each file in it imported as if picked on its own,
++     * oldest first, so the newest save state is still the one Continue picks.
++     */
++    private fun importBackup(file: File): Array<String> {
++        java.util.zip.ZipFile(file).use { zip -> return importBackupEntries(zip) }
++    }
++
++    private fun importBackupEntries(zip: java.util.zip.ZipFile): Array<String> {
++        val entries = zip.entries().toList().filter { !it.isDirectory }.sortedBy { it.time }
++        if (entries.isEmpty()) return arrayOf("That .zip has no saves in it.", "")
++        if (entries.size > MAX_BACKUP_ENTRIES) return arrayOf("That .zip holds too many files to be a backup of saves.", "")
++        var imported = 0
++        var failure = ""
++        for (entry in entries) {
++            val part = File.createTempFile("save-import", null, cacheDir)
++            try {
++                zip.getInputStream(entry).use { input -> part.outputStream().use { output -> copyCapped(input, output) } }
++                val result = SkiesNative.importSave(part.absolutePath, userDirectory.absolutePath)
++                if (result.getOrNull(1) == "ok") imported++
++                else if (failure.isEmpty()) failure = "\n${entry.name.substringAfterLast('/')}: ${result[0]}"
++            } finally {
++                part.delete()
++            }
++        }
++        return arrayOf("Imported $imported of ${entries.size} files from the backup.$failure",
++            if (imported == entries.size) "ok" else "")
++    }
++
++    /** Settings, Saves: Back up saves. With the game closed, as for Import: it holds the card in memory. */
++    private fun startExport() {
++        if (org.dolphinemu.dolphinemu.NativeLibrary.IsRunning()) {
++            afterGameClosed { startExport() }
++            return
++        }
++        val day = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
++        pickBackup.launch("skies-of-arcadia-saves-$day.zip")
++    }
++
++    /**
++     * The memory card saves (every region's Card A) and the save states (not Dolphin's lastState.sav,
++     * its undo) into one .zip at the picked place, each dated as its file is.
++     */
++    private fun exportSaves(uri: Uri) {
++        val user = userDirectory
++        Thread {
++            val cards = File(user, "GC").listFiles { f -> f.isDirectory }.orEmpty().flatMap { region ->
++                File(region, "Card A").listFiles { f -> f.isFile && f.name.endsWith(".gci") }.orEmpty()
++                    .map { "GC/${region.name}/Card A/${it.name}" to it }
++            }
++            val states = File(user, "StateSaves")
++                .listFiles { f -> f.isFile && f.name.endsWith(".sav") && f.name != "lastState.sav" }.orEmpty()
++                .map { "StateSaves/${it.name}" to it }
++            val result = try {
++                if (cards.isEmpty() && states.isEmpty()) throw java.io.IOException("there are no saves yet")
++                (contentResolver.openOutputStream(uri) ?: throw java.io.IOException("that place can't be written"))
++                    .use { out ->
++                        java.util.zip.ZipOutputStream(out.buffered()).use { zip ->
++                            zip.setLevel(1)  // states are compressed already
++                            for ((name, f) in cards + states) {
++                                zip.putNextEntry(java.util.zip.ZipEntry(name).apply { time = f.lastModified() })
++                                f.inputStream().use { it.copyTo(zip) }
++                                zip.closeEntry()
++                            }
++                        }
++                    }
++                arrayOf("Saved a backup with ${cards.size} memory card ${if (cards.size == 1) "save" else "saves"} " +
++                    "and ${states.size} save ${if (states.size == 1) "state" else "states"}.", "ok")
++            } catch (e: Exception) {
++                // Not a half-written backup someone could take for a whole one
++                try {
++                    android.provider.DocumentsContract.deleteDocument(contentResolver, uri)
++                } catch (ignored: Exception) {
++                }
++                arrayOf("Could not save the backup: ${e.message}", "")
++            }
++            handler.post { openSettings(mainDol.isFile, "Saves", result) }
++        }.start()
++    }
++
+     private fun installDriver(uri: Uri) {
+         message.text = "Installing the GPU driver…"
+         Thread {
+@@ -522,7 +626,24 @@ class SkiesLauncherActivity : FragmentActivity() {
                  getString(R.string.skies_dol_sha256)
              )
          }
@@ -111,7 +268,7 @@ index 75fa22736d..ca78a46c65 100644
              message.text = getString(R.string.skies_ready)
              // Continue: the newer of the newest save state and the newest memory card save (as on
              // desktop); a card save is loaded on the title screen, so for one it boots normally
-@@ -569,7 +590,8 @@ class SkiesLauncherActivity : FragmentActivity() {
+@@ -569,9 +690,10 @@ class SkiesLauncherActivity : FragmentActivity() {
          settings?.close()
          column.descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
          val game = if (ready) getString(R.string.skies_title) + " [GEAE8P]" else null
@@ -119,9 +276,12 @@ index 75fa22736d..ca78a46c65 100644
 +        settings = SkiesSettingsPanel(this, screen, game,
 +            { afterGameClosed { pickDisc.launch(arrayOf("*/*")) } },
              { pickDriver.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) },
-             { confirmImportSave() }, { showLicences() }) {
+-            { confirmImportSave() }, { showLicences() }) {
++            { confirmImportSave() }, { startExport() }, { showLicences() }) {
              column.descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
-@@ -630,6 +652,38 @@ class SkiesLauncherActivity : FragmentActivity() {
+             settings = null
+             buttons.getChildAt(buttons.childCount - 1)?.requestFocus()
+@@ -630,6 +752,38 @@ class SkiesLauncherActivity : FragmentActivity() {
              LinearLayout.LayoutParams.WRAP_CONTENT))
      }
  
@@ -160,6 +320,35 @@ index 75fa22736d..ca78a46c65 100644
      private fun launch(state: File?) {
          // Only for a launch that goes ahead: a stale driver marker would later read as a crash
          EmulationActivity.launch(this, mainDol.absolutePath, false) {
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+index 7e7709f128..1d8a52d957 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+@@ -35,6 +35,7 @@ class SkiesSettingsPanel(
+     private val onChangeDisc: () -> Unit,
+     private val onPickDriver: () -> Unit,
+     private val onImportSave: () -> Unit,
++    private val onExportSaves: () -> Unit,
+     private val onLicences: () -> Unit,
+     private val onClosed: () -> Unit
+ ) {
+@@ -292,11 +293,15 @@ class SkiesSettingsPanel(
+         }
+     }
+ 
+-    /** Saves: Import (like the N64 recomps': the activity asks first, then opens the picker) and what's there. */
++    /** Saves: Import (like the N64 recomps': the activity asks first, then opens the picker), a backup, and what's there. */
+     private fun savesRows(rows: LinearLayout) {
+         rowLine(rows, "Import a save").addView(button("Choose a save file…", BUTTON) { onImportSave() })
+         describe(rows, "Brings in a save you already have: from Dolphin, a GameCube memory card, this " +
+             "port on another device, or a backup.")
++        rowLine(rows, "Back up saves").addView(button("Save a backup…", BUTTON) { onExportSaves() })
++        describe(rows, "Your memory card saves and save states in one .zip, wherever you choose. Import " +
++            "a save takes it back, here or on another device. Make one before uninstalling: that " +
++            "deletes the saves.")
+         val userDirectory = org.dolphinemu.dolphinemu.utils.DirectoryInitialization.getUserDirectory()
+         SkiesNative.describeSaves(userDirectory).lines().forEachIndexed { index, line ->
+             if (index == 0) {
 diff --git a/Source/Android/jni/MainAndroid.cpp b/Source/Android/jni/MainAndroid.cpp
 index f5a94f1682..9f31631acf 100644
 --- a/Source/Android/jni/MainAndroid.cpp
