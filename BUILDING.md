@@ -182,7 +182,8 @@ helpers in `tools/`:
 GitHub Actions builds every platform the same way:
 
 - **`validate.yml`** runs on pushes to `dev` (and by hand; `main` only ever moves to a `dev` commit it
-  passed). Its `codegen` job is the only one that sees the game: it clones the private secrets repo
+  passed), except pushes that change only Markdown, `.gitignore`, `.recomp.json` or the issue
+  templates. Its `codegen` job is the only one that sees the game: it clones the private secrets repo
   (the original `main.dol` and the PGO profiles) with a read-only token, runs `tools/ci-codegen.sh`,
   deletes the inputs, and passes the generated code to the build jobs **encrypted**. Codegen takes
   about an hour, so its encrypted output is kept under a key made of what it depends on (the DOL

@@ -29,10 +29,12 @@ If it's something you can see, a screenshot helps a lot.
 
 **Settings**
 Anything you changed from the defaults: Picture (16:9 / 4:3), Frame rate (60 / 30), resolution,
-anti-aliasing, battle speed, options. On Android, also Renderer (Vulkan / OpenGL ES) and GPU driver.
+anti-aliasing, battle speed, options, Music (GameCube / Dreamcast), Language (European disc), button
+mapping. On Android, also Renderer (Vulkan / OpenGL ES) and GPU driver.
 
 **Your system**
 - Platform: [Windows / Linux / Android]
+- Disc: [USA `GEAE8P` / European `GEAP8P`]
 - Version: [e.g. v0.10.0-beta — from the file name or Settings → About]
 - **Android:** paste **Settings → About → Copy device info** here (device, chip, GPU driver)
 - **Windows / Linux:** OS version, CPU, GPU and driver version

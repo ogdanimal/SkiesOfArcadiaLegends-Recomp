@@ -49,6 +49,8 @@ on:
     paths-ignore:
       - '**.md'
       - '.gitignore'
+      - '.recomp.json'
+      - '.github/ISSUE_TEMPLATE/**'
 
 permissions:
   contents: read

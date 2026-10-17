@@ -95,7 +95,8 @@ with explicit paths only) and keyboard / remapping / input (own worktree, branch
 Decided by the user (2026-10-11): first release **v0.9.0 beta**, **Windows + Android** (Linux later),
 source in a **private repo for now**, Android app ID **`com.skiesofarcadia.recomp`** (like the user's
 other ports). Hard rule: **no game files in anything we build or publish** (no disc, no DOL, no
-extracted files); the player's own disc supplies them at import.
+extracted files); the player's own disc supplies them at import. Later: Linux joined for v0.9.0-beta, the repo
+went public with that release, and v0.10.0-beta added the European disc.
 
 ## Status (2026-10-13): working towards the release
 
@@ -119,7 +120,8 @@ linux (30m) passed:
   PushEvents, no runs; Hybrid Heaven, public, runs on every push). validate is started by hand
   (`gh workflow run validate.yml --ref dev`); `release.yml` now also takes `workflow_dispatch` on the
   tag (the guard refuses any ref that isn't a tag), and `tools/release.sh` starts it that way when the
-  tag push starts nothing within two minutes.
+  tag push starts nothing within two minutes. Since the repo went public (2026-10-17) pushes to `dev` start validate again;
+  pushes that touch only `**.md`, `.gitignore`, `.recomp.json` or the issue templates don't.
 
 **CI security audit (2026-10-17, user: "are there any other ci security gaps"):** all `uses:` pinned
 to SHAs, every checkout `persist-credentials: false`, no `${{ }}` inside `run:` scripts, token read-only

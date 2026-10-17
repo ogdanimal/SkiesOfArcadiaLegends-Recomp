@@ -7,14 +7,17 @@
   "status": "playable",
   "targets": ["Windows", "Linux", "Android"],
   "toolchain": ["DolRecomp", "ModernGekko"],
-  "original": { "region": "USA", "serial": "GEAE8P", "sha1": "46105320553c858f25fafc5fd357566b505a4940" },
+  "original": [
+    { "region": "USA", "serial": "GEAE8P", "sha1": "46105320553c858f25fafc5fd357566b505a4940" },
+    { "region": "Europe", "serial": "GEAP8P", "sha1": "30ee1d7777fe51bcd7c4deeb867651d5b6e96e41" }
+  ],
   "project": "Skies of Arcadia Legends: Recompiled",
   "approach": "DolRecomp static recompilation of the game's PowerPC code, on Dolphin's hardware layer through ModernGekko",
   "maintainers": [{ "name": "ogdanimal", "link": "https://github.com/ogdanimal" }],
   "links": [
     { "label": "Releases", "url": "https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/releases" }
   ],
-  "help": ["Testing on Mali and other non-Adreno GPUs", "Support for the European and Japanese releases"],
-  "tags": ["widescreen", "60fps", "analog-camera", "save-states", "autosave", "touch-controls"],
-  "notes": "Beta. Native Windows, Linux and Android (arm64) builds with widescreen, 60 fps, camera control, save states, auto-save, save import and quality-of-life options; an Adreno GPU driver loader on Android. Full speed at 60 fps on a Retroid Pocket 5. Bring your own USA GameCube disc; no game data ships in any build."
+  "help": ["Testing on Mali and other non-Adreno GPUs", "Support for the Japanese release"],
+  "tags": ["widescreen", "60fps", "analog-camera", "save-states", "autosave", "touch-controls", "keyboard", "remapping", "dreamcast-music"],
+  "notes": "Beta. Native Windows, Linux and Android (arm64) builds with widescreen, 60 fps, camera control, save states, auto-save, save import and backup, keyboard play and button mapping, quality-of-life options and the optional Dreamcast soundtrack (from the player's own Dreamcast disc); an Adreno GPU driver loader on Android. Full speed at 60 fps on a Retroid Pocket 5. Bring your own USA or European GameCube disc; no game data ships in any build."
 }
