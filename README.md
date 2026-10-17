@@ -68,9 +68,10 @@ and on Windows. Slower Android devices may not keep 60 fps (see [Slower devices]
 ## Controls
 
 On Windows and Linux the keyboard and a controller both work, together or on their own. The game
-uses whichever controller you press, so a controller plugged in later, a second one, or one through
-Steam Input needs no setup. On Android a controller works the same way; without one, the game shows
-touch controls (the in-game **Back** menu turns them on and off).
+uses whichever controller you press, so a controller plugged in later or a second one needs no setup
+(Steam Input should work the same way; tell us if it doesn't). On Android the built-in controller, or
+the first one you connect, is set up for you; without one, the game shows touch controls (the in-game
+**Back** menu turns them on and off).
 
 | GameCube | Controller (Xbox / PlayStation) | Keyboard |
 |---|---|---|
@@ -85,13 +86,14 @@ touch controls (the in-game **Back** menu turns them on and off).
 
 The face buttons go by name, not position: Xbox A is GameCube A. Every button and key can be
 changed: **Settings → Controls** in the launcher, or **Controls → Button mapping** in the in-game
-menu. On Linux the keyboard needs an X11 session or XWayland (what most desktops run games in).
+menu (on Android too). The controller's A and B can be changed but not cleared, so the menu always
+works. On Linux the keyboard needs an X11 session or XWayland (what most desktops run games in).
 
 The game's own controls are unchanged; on top of them:
 
 | Input | What it does |
 |---|---|
-| Esc, the controller's Back / View (Create), or hold Z and press Start | The settings menu (L / R switch tabs; B, Start or Esc close it). Its Saves tab saves and loads states |
+| Esc, the controller's Back / View (Create) / Select, or hold Z and press Start | The settings menu (L / R switch tabs; B, Start or Esc close it). Its Saves tab saves and loads states |
 | Hold Z + C-stick up / down | Tilt the camera |
 | Hold Z + R / L | Zoom out / in |
 | Tap Z in battle | Battle speed: Normal, 2x, 3x, 4x |
@@ -102,8 +104,8 @@ Every setting is also in the launcher's **Settings** window, with a short descri
 
 ## What It Adds
 
-Most of these are set in game from the settings menu (**hold Z, press Start**), or in the launcher's
-**Settings** window.
+Most of these are set in game from the settings menu (**Esc, the controller's Back, or hold Z and
+press Start**), or in the launcher's **Settings** window.
 
 - **Widescreen** 16:9 with the HUD at the screen edges, or the original 4:3 (identical to the
   original game).
@@ -113,6 +115,8 @@ Most of these are set in game from the settings menu (**hold Z, press Start**), 
   world map; on the world map Z + C-stick left / right also turns around the ship).
 - **Battle speed** up to 4x: tap Z during a battle.
 - **Options:** random encounter rate (off to 4x), EXP / gold / magic EXP (off to 4x), and Invincible.
+- **Keyboard and button mapping:** play with the keyboard on Windows and Linux, and change any
+  button or key (see [Controls](#controls)). On desktop, any controller you press is picked up without setup.
 - **Dreamcast music** (optional): the Dreamcast version's soundtrack, from your own Dreamcast disc
   (see [Dreamcast music](#dreamcast-music)).
 - **Save states:** five slots, plus an auto-save every 10 minutes on the field (the newest three are

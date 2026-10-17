@@ -1,10 +1,19 @@
-# Handoff: desktop builds of the Skies recomp (2026-10-05, updated 2026-10-12)
+# Handoff: desktop builds of the Skies recomp (2026-10-05, updated 2026-10-17)
 
 Goal: bring the Linux/WSL and Windows builds up to the Android build's level of speed work (LLVM
 backend, PGO, `patches/recompcore-staticrecomp-speed.patch`), measure real desktop headroom with the
 frame limiter off, and record it in the development-notes.md *Platforms* table. Companion to
 [HANDOFF-android.md](HANDOFF-android.md). The top *Status* and *State of the tree* were checked against
 both trees late on 2026-10-06; older sections are kept as history and say so where they're superseded.
+
+## Status (2026-10-17): keyboard and remapping (0.10.0-beta)
+
+The keyboard plays in both release builds, every button and key can be changed (launcher Settings →
+Controls, in-game Controls → Button mapping), Esc opens the menu, and controller 1 follows the SDL
+gamepad in use (HANDOFF-input.md, NOTES *Keyboard and button mapping*). In Skies the game window's developer
+keys are off (`DolphinNoGUI/PlatformWin32.cpp` / `PlatformX11.cpp`, `SkiesInput::OwnsKeyboard`): Windows
+Space fast-forward, F1 save state and Escape-quits, X11 F1-F12 states, F10 pause and Ctrl+Esc; F11 and
+Alt+Enter switch fullscreen. Windows checked with real key presses on the release code (`affabd9`).
 
 ## Status (2026-10-12, morning): Import a save in both release launchers
 
@@ -569,8 +578,9 @@ The `lib/ModernGekko` submodule has all of `patches/` applied (uncommitted by de
 
 ## Still open
 
-- Audio by ear, memory-card saving, keyboard/pad by hand, heavy scenes (big battles, world map) on
-  desktop. Android passed all but an in-depth audio check by hand on 2026-10-07 (HANDOFF-android.md
+- Audio by ear, memory-card saving, a physical pad by hand (button capture in the launcher, controller 1
+  moving to the pad pressed, Steam Input; the keyboard was checked on WSL and Windows 2026-10-17,
+  HANDOFF-input.md), heavy scenes (big battles, world map) on desktop. Android passed all but an in-depth audio check by hand on 2026-10-07 (HANDOFF-android.md
   step 4); its world map and battles held 30 fps with less headroom than desktop has, so desktop heavy
   scenes are very likely fine too.
 - Whether `moderngekko-run.fastpath` / `.orig` on WSL still matter; delete if not, to avoid confusing

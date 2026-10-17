@@ -1,6 +1,6 @@
 # Handoff: player settings, in-game menu, save states, save import, launcher, camera and options
 
-## Current state (2026-10-12)
+## Current state (2026-10-12; input 2026-10-17)
 
 > **Since then (2026-10-17, v0.10.0-beta):** the menus gained Language (European disc), Music
 > (Dreamcast music) and Button mapping; settings keys and menu tabs are in NOTES *The player build*;
@@ -8,6 +8,15 @@
 
 Everything below the history line is the session log; this is the summary. What a player gets and how it
 works is in NOTES *The player build* (controls, settings keys, menu, camera, options, launcher).
+
+- **Keyboard, button mapping, menu hotkey (2026-10-17, shipped in 0.10.0-beta; HANDOFF-input.md, NOTES
+  *Keyboard and button mapping*):** the keyboard plays on Windows and Linux (the game adds its layout to
+  controller 1's profile); every button and key can be changed in the launcher's Settings → Controls
+  (a table replacing the old "controller profile" choice) and in the menu's **Controls → Button mapping**
+  (all three platforms); **Esc or a controller's Back / Select** opens and closes the menu besides Z+Start;
+  Invincible's L3 / R3 is a hotkey that can be rebound; controller 1 moves to the SDL gamepad in use
+  (desktop) and is "Always Connected". Older entries below that say the menu opens only with Z+Start, or
+  that controls aren't in the menu, predate this.
 
 - **Battle freeze from older states, and Continue straight into a card save (2026-10-12 evening, game
   patch ws19 / ws20; patches/game/README.md, NOTES *Memory card auto-load*):** the user's every-attack

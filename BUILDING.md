@@ -166,8 +166,9 @@ make llvm-run GAME=SkiesOfArcadiaLegends # afterwards
 ```
 
 `make help` lists the targets and variables (`BACKEND=c|llvm`, `TOOLCHAIN=auto|clang|gcc|msvc`,
-`LLVM_DIR`, `RUN_ARGS`, `JOBS`). The development notes cover running with keyboard profiles
-(`config/`), savestates, scripted test runs (`tools/drive.py`), PGO training and the per-platform
+`LLVM_DIR`, `RUN_ARGS`, `JOBS`). The development notes cover the controller and keyboard
+(the game adds a keyboard layout itself; old profiles in `config/`), savestates, scripted test runs
+(`tools/drive.py`), PGO training and the per-platform
 helpers in `tools/`:
 
 | | |

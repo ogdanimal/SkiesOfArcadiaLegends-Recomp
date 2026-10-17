@@ -50,40 +50,46 @@ ask first) and the debug test app (`org.dolphinemu.dolphinemu.debug`) for dev AP
 `build/android/apk/skies-ws22-2026-10-17.apk`; with the European module
 `skies-ws22eu-2026-10-17.apk`, not run yet); handoffs/HANDOFF-android.md.
 
-### Controller
+### Controller and keyboard (2026-10-17)
 
-Copy `config/GCPadNew.keyboard.ini` to `build/user/Config/GCPadNew.ini` (`build/` is gitignored).
-That's the user directory for the direct command above and for `tools/play.sh`. `make run` passes no
-`--user-dir`, so it uses ModernGekko's default (`~/.local/share/moderngekko/`) and needs its own copy
-there. The profile maps the keyboard through X11/XInput2, which is
-what WSLg gives: Dolphin's default layout, with the arrow keys on the main stick.
+No profile needs copying any more. In Skies (GEAE8P / GEAP8P) the runtime gives controller 1 a
+keyboard layout beside the controller's on the first start (`Core/SkiesInput.cpp`), so a fresh user
+directory plays from the keyboard; the launcher does the same when it creates or upgrades the profile
+(`tools/launcher_controls.cpp`). Default keys (README *Controls*): W A S D stick, Space / Left Shift =
+A / B, F / R = X / Y, Tab = Z, Q / E = L / R, Enter = Start, I J K L = C-stick, arrows = D-pad,
+**Esc = the settings menu**. Any button or key changes in the launcher's **Settings → Controls** or
+in game under **Controls → Button mapping**.
 
-| GC | Key | GC | Key |
-|---|---|---|---|
-| A / B / X / Y | X / Z / C / S | Start | Enter |
-| Z | D | L / R | Q / W |
-| Main stick | arrow keys (Left Shift = half) | C-stick | I / J / K / L |
-| D-pad | T / F / G / H | | |
+- What the player gets, the profile format, "Always Connected", controller 1 following the pad in
+  use, the hotkeys and the A / B rule: *Keyboard and button mapping* (under *The player build*).
+- The old Dolphin keyboard profiles in `config/` (`GCPadNew.keyboard.ini` X11, `GCPadNew.keyboard.windows.ini`
+  DirectInput; X / Z / C / S face buttons, arrows on the stick) still work: on the first start their
+  bare keys are qualified with the keyboard and the controller layout is added.
+- WSL has no `/dev/input`, so a USB pad isn't visible to the Linux build; the keyboard comes through
+  X11 / XInput2 (an X11 session or XWayland on real Linux).
 
-WSL has no `/dev/input`, so a USB pad isn't visible to the Linux build. ModernGekko's launcher only
-generates profiles for SDL gamepads.
+On the Retroid the app maps its built-in controller (`Android/1/Retroid Pocket Controller`): L1 (or
+R1 on a fresh profile) is Z, L2 / R2 are L / R, the right stick is the C-stick, Select opens the menu.
+Android's input backend names a gamepad's axes by their MotionEvent id (`Axis 0` / `1` left stick,
+`11` / `14` right stick, `15` / `16` D-pad hat, `22` / `23` triggers) and its buttons `Button A`,
+`Button L2`, `Start`, `Select`; SDL-style names (`Left Y+`, `Pad N`, `Trigger L`) don't exist there. The
+branded app writes the Android names itself when the profile lacks them (*Known issues*, "Only the
+face buttons worked in Skies Recomp"); Button mapping shows them as "Left stick up", "L2" and so on.
 
-On Windows, use `config/GCPadNew.keyboard.windows.ini` instead: the same layout with DirectInput key
-names (`DInput/0/Keyboard Mouse`). These two are the dev profiles; the release has its own layout and
-mapping (*Keyboard and button mapping*). The release's launcher generates a controller profile for
-SDL gamepads (its "Controller profile" choice). On the Retroid the app maps its
-built-in controller (`Android/1/Retroid Pocket Controller`): L1 is Z, L2 / R2 are L / R, the right
-stick is the C-stick. Android's input backend names a gamepad's axes by their MotionEvent id
-(`Axis 0` / `1` left stick, `11` / `14` right stick, `15` / `16` D-pad hat, `22` / `23` triggers) and its
-buttons `Button A`, `Button L2`, `Start`; SDL-style names (`Left Y+`, `Pad N`, `Trigger L`) don't exist
-there. The branded app writes the Android names itself when the profile lacks them (*Known issues*,
-"Only the face buttons worked in Skies Recomp").
+L3 / R3 (Invincible) aren't GameCube buttons: they're the `Invincible` hotkey in `[SkiesHotkeys]`
+(`` `Thumb L` | `Thumb R` `` on SDL, `` `Button L3` | `Button R3` `` on Android), so Button mapping can
+move it or give it a key. The other added controls (*Controls the recomp adds*) use GameCube buttons
+and follow the profile.
 
-L3 / R3 (Invincible) aren't GameCube buttons, so no profile maps them: the runtime reads them from
-controller 1's real device ("Thumb L" / "Thumb R" on SDL, XInput and WGInput, "Button L3" / "Button R3"
-on Android). Since 0.10 they're the `Invincible` hotkey in `GCPadNew.ini [SkiesHotkeys]`, which can
-also name a key (*Keyboard and button mapping*). The other added
-controls (*Controls the recomp adds*) use GameCube buttons and follow the profile.
+**Testing input by hand** (details in `docs/handoffs/HANDOFF-input.md`): automation (`drive.py`) feeds
+the GameCube pad directly and bypasses the bindings, so test bindings with real events. WSLg: `xdotool
+keydown/keyup` (XTEST) reach the focused window only (`--window` events are ignored by SDL), and other
+sessions' game windows take focus, so check `xdotool getwindowfocus` before each key. Windows:
+`SendInput` with scan codes while the game window is in the foreground (`C:\dev\SkiesInput\build\input-test22.ps1`).
+Retroid: `adb shell sendevent /dev/input/event8 ...` (the built-in controller, writable by the shell's
+`input` group; BTN_SOUTH 304, EAST 305, NORTH 307, WEST 308, TR2 313, SELECT 314, START 315, THUMBL 317,
+`ABS_X` 0, `ABS_HAT0Y` 17); adb's `input keyevent` comes from the "Virtual" device, which the game
+doesn't treat as a controller or keyboard.
 
 ### Scripted runs (automation)
 
@@ -152,7 +158,7 @@ the frontend side is `recompcore-skies-settings.patch` (`VideoCommon/SkiesMenu.c
 | Hold Z + C-stick left/right | world map | turn the camera around the ship (eases back behind when let go); in towns it's the game's own turn |
 | Tap Z | battle | battle speed Normal -> 2x -> 3x -> 4x -> Normal (message on screen, saved) |
 | Tap Z | elsewhere | the game's own Z (minimap on foot, Map / To Bridge / Save on the world map), sent on release |
-| L3 or R3 | anywhere | Invincible on / off (message on screen, saved); read from the real controller, not the GameCube pad |
+| L3 or R3 | anywhere | Invincible on / off (message on screen, saved); the `[SkiesHotkeys] Invincible` hotkey, not a GameCube button, so Button mapping can move it or give it a key |
 
 Z is held back from the game until it's clear what it's for (released alone: a late tap; with Start:
 the menu; with the C-stick or triggers: the camera); where the camera can't move and outside battle
@@ -198,7 +204,11 @@ with arrows) and the launchers' one-line description; a hint line for the select
 or the analog triggers most of the way) switch tabs from anywhere; **Up** from the first setting (or Down
 from the last) puts the focus on the tab bar, like the launchers: the current tab gets the gold edge,
 Left / Right switch tabs, Down or A go back into the settings. Up / Down choose, Left / Right or A
-change, B or Start close (no Close row any more). Typeface: Segoe UI / Roboto (`/system/fonts`) / DejaVu Sans, added by
+change, B or Start close (no Close row any more); Esc or a controller's Back / Select (the `Menu`
+hotkey) open and close it too. **Button mapping** (2026-10-17) is a page of its own: a row per GameCube
+input with controller and keyboard columns, A waits for the new button or key (Dolphin's
+`InputDetector`, 6 s), X clears (not the controller's A / B), then Reset controller buttons / Reset
+keyboard keys; B goes back. While the keyboard is the one in use the hints name its keys. Typeface: Segoe UI / Roboto (`/system/fonts`) / DejaVu Sans, added by
 `SkiesMenu::LoadFonts()` from `OnScreenUI::Initialize` after the OSD font (which stays the default for
 Dolphin's messages). Text size: the launchers' `[Skies] LauncherTextSize`. Layout: every length is a
 constant in picture units (480 lines = 1), scaled to the picture and the text size and shrunk to fit,
@@ -231,6 +241,11 @@ X11 window keys) and `moderngekko-local.patch` (`tools/launcher_controls.cpp`).
   The launcher no longer needs a controller to start.
 - **Hotkeys** `[SkiesHotkeys] Menu` (controller Back / Android Select, Esc) and `Invincible` (L3 / R3);
   `Version = 1` marks a profile that has had the keyboard layout added (a 0.9.x profile gets it once).
+  A key the player unbinds stays unbound. Dolphin's own keyboard profile (the keyboard as `Device`,
+  bare keys) keeps its keys, now qualified with the keyboard, and gets the controller layout.
+- Shared code: `Core/SkiesBindings.{h,cpp}` (the inputs, defaults, each key's SDL / DirectInput / X11 /
+  Android name, expression handling) is used by the runtime, the menu and the launcher.
+- Steam Input (the report this was for) and a physical pad have not been tried yet.
 - The game window's developer keys (Space fast-forward, F-key states, Esc quit) are off in Skies;
   F11 and Alt+Enter switch fullscreen.
 
@@ -358,7 +373,9 @@ window over the dimmed home screen, tabs **Graphics** (Picture, Frame rate, Anti
 **Display** (Screen windowed / fullscreen, Resolution, Show FPS, FPS in title bar, Graphics backend),
 **Gameplay** (Camera, Battle speed, Encounters, EXP, Gold, Magic EXP, Invincible; Language with the
 European disc), **Sound** (Volume; Music, Import a Dreamcast disc..., Remove: *Dreamcast music*),
-**Controls** (controller profile, Stick dead zone, Rumble, the button mapping table since 0.10), **Saves** (Auto-save, the "Start from
+**Controls** (Controller: picking one moves controller 1 to it and keeps the bindings; a table of
+every GameCube input with its controller button and keyboard key, click then press to change,
+right-click / Delete / pad X to unbind, two resets; Stick dead zone, Rumble), **Saves** (Auto-save, the "Start from
 savestate" list), **Disc**: each a label, a dropdown with the in-game menu's choices and a one-line
 description, written to the same keys the in-game menu uses (`[Skies]` in `Dolphin.ini`, `GFX.ini`,
 `[DSP] Volume`, `GCPadNew.ini [GCPad1]`; booleans Dolphin wrote as True / False read back as 1 / 0), so
@@ -1375,7 +1392,8 @@ delta-time, which decides between the two.
   idle skipping and 1× internal resolution; 0.565× with the default C module at 3×. See *Performance*.
 - **Native Windows build: full speed at 3×** (1.01×, 1920×1580) with a clang-built C module on the RTX
   5080. An MSVC-built module runs at half speed. See *Native Windows build*.
-- Not yet checked: audio by ear, memory-card saving, the keyboard profile pressed by hand.
+- Not yet checked: audio by ear, memory-card saving. (The keyboard was pressed by hand on WSL and
+  Windows on 2026-10-17, *Controller and keyboard*.)
 
 ## Rendering on WSL
 
@@ -1512,9 +1530,11 @@ No admin rights are needed.
    from WSL too, e.g. `cmd.exe /c "C:\dev\SkiesRecomp\tools\build-win.bat module"`. (vcvars prints
    a harmless "'vswhere.exe' is not recognized".)
 5. Make `build\user` from the WSL one: `config.ini`, `GameSettings/GEAE8P.ini` (idle skip),
-   `Config/GFX.ini`, `Config/Dolphin.ini` with `[DSP] Backend = Cubeb` instead of `Pulse`, and
-   [`config/GCPadNew.keyboard.windows.ini`](../config/GCPadNew.keyboard.windows.ini) as
-   `Config/GCPadNew.ini` (DirectInput names: `DInput/0/Keyboard Mouse`, `RETURN`, `UP`, `LSHIFT`).
+   `Config/GFX.ini` and `Config/Dolphin.ini` with `[DSP] Backend = Cubeb` instead of `Pulse`. No
+   controller profile is needed: the game adds the keyboard layout (DirectInput names:
+   `DInput/0/Keyboard Mouse`, `SPACE`, `LSHIFT`, `RETURN`) on the first start (*Controller and
+   keyboard*); [`config/GCPadNew.keyboard.windows.ini`](../config/GCPadNew.keyboard.windows.ini) as
+   `Config/GCPadNew.ini` still gives Dolphin's old layout.
 6. `tools\run-win.bat build\run.log --load-state build\savestates\01-opening-cutscene.sav` runs the
    clang module (set `MODULE` for another) with the automation directory on. From WSL,
    `tools/drive.py` drives it (run it in `/mnt/c/dev/SkiesRecomp` with `AUTO=build/auto`; it

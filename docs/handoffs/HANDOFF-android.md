@@ -16,12 +16,21 @@
   Settings → Sound → Import a Dreamcast disc (CHD) and a European disc import.
 - **The Retroid** runs the **0.9.1 release app** with the user's data (0.10.0-beta not installed
   there yet; ask before updating it) and the debug test app with the ws22 APK.
-- Input (keyboard / mapping, the in-game Button mapping on Android, `[SkiesHotkeys] Menu = Select`):
-  HANDOFF-input.md.
+- **Input (0.10.0-beta; HANDOFF-input.md, NOTES *Keyboard and button mapping*):** Select opens and closes
+  the in-game menu (the `[SkiesHotkeys] Menu` hotkey, beside Z+Start); **Controls → Button mapping** in
+  that menu changes any button (Dolphin's `InputDetector`, so Android names; shown as "Left stick up",
+  "L2"); Invincible is the `Button L3 | Button R3` hotkey. The game adds `Options/Always Connected = True`
+  and `[SkiesHotkeys]` to the profile on its first start; `ensurePadProfile` (projects-ac's, every launcher
+  start) still fills the buttons, sticks and Z, and the two don't touch each other's keys. The
+  controller's A and B can be changed but not cleared (otherwise nothing could work the menu). An
+  Android keyboard (USB / Bluetooth) gets the keyboard layout when the game sees one (an Android device
+  with letter keys, not "Virtual"); not tested, the Retroid has none. Checked on the Retroid in the
+  debug test app with real controller events (`adb shell sendevent /dev/input/event8 ...`; adb's
+  `input keyevent` comes from the "Virtual" device and doesn't count): stick, Select, rebind + reset, L3.
 
 ## Status (2026-10-17): release APK fixes, controller Z, Back up saves
 
-All in `recompcore-android-lifecycle.patch` (the last patch; it now also covers `SkiesImport.cpp`'s
+All in `recompcore-android-lifecycle.patch` (the last patch then; it now also covers `SkiesImport.cpp`'s
 `ensurePadProfile` and `SkiesSettingsPanel.kt`) or in the build scripts. Release story: HANDOFF-release
 *Released*.
 - **Release APK was test-only** (players: "App not installed"): `tools/android-ws-build.sh` passes
@@ -1023,7 +1032,8 @@ Stop after step 4 if it boots, report, and ask before step 5. (All five steps we
 - **Config:** same `GEAE8P.ini` (idle skip) everywhere, and `DSPThread = True` on all three.
   Resolution per platform. Desktop benchmarks run muted (`[DSP] Volume = 0`), while Android plays
   audio (its own `AudioTrack` thread, ~3.6% of a core). Keyboard profiles
-  exist for X11 and Windows, and Android uses Dolphin's controller mapping for the built-in pad.
+  exist for X11 and Windows, and Android uses Dolphin's controller mapping for the built-in pad (since
+  2026-10-17 the game adds its own keyboard layout: NOTES *Controller and keyboard*).
 - **Measurement:** the same four states (`build/savestates/01`–`04`, made on WSL), 16 s load,
   30 s `speed` average, plus a picture check with text: `tools/play.sh` + `drive.py`,
   `tools/bench-win.sh`, `tools/bench-android.sh`. Three interleaved rounds is the target; Android
@@ -1033,6 +1043,6 @@ Stop after step 4 if it boots, report, and ask before step 5. (All five steps we
   platform, updated with every change.
 - **Hand-checked on Android (2026-10-07):** built-in pad, memory-card save across a restart, many
   battles and the world map at a smooth 29–30 fps, no hitches. Audio sounded okay; an in-depth check is
-  pending. **Still untested on desktop:** audio by ear, keyboard/pad pressed by hand, heavier scenes. The user has played on Windows
+  pending. **Still untested on desktop:** audio by ear, a pad pressed by hand (the keyboard: checked on WSL and Windows 2026-10-17, HANDOFF-input.md), heavier scenes. The user has played on Windows
   (a solid 30 fps, 2026-10-06) but didn't check those item by item. Memory-card saving on Windows was verified
   2026-10-07 (scripted save, clean exit, loaded on a fresh boot; NOTES *Known issues*).
