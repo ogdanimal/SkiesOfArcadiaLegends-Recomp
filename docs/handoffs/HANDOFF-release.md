@@ -39,7 +39,8 @@ except publish, no `pull_request` / `pull_request_target` triggers; public logs 
   (decrypt + NDK only) builds the module and `android` (Gradle) gets only that `.so`, no secrets
   (`tools/android-ws-build.sh` `MODULE_ONLY=1` / `JNILIBS=DIR`; JNILIBS path built locally, the module in
   the APK). Windows and Linux still decrypt and build in one job: their other code is pinned (vendored
-  submodules, msvc-dev-cmd by SHA, Ubuntu-signed apt packages).
+  submodules, msvc-dev-cmd by SHA, Ubuntu-signed apt packages). **Green 2026-10-17 on `fe1e2a0`**
+  (run 38996289115: codegen, windows, linux, android-module, android; android-sign skipped, tag only).
 - `tools/setup-github-protection.sh` now also allows only GitHub's own actions plus the three
   third-party ones with SHA pinning required, turns on secret scanning + push protection, Dependabot
   alerts and private vulnerability reporting, and deletes every old artifact and cache (the encrypted
