@@ -45,12 +45,43 @@ After the release, on `dev` (not released yet):
 - `b527364`: Android **Back up saves** (Settings → Saves, one `.zip` through the system picker) and
   Import a save takes that `.zip`; README and release README got the default controller table.
 
-Open:
-- **Nightly prerelease** (latest green `dev` on a fixed `nightly` tag, Android under its own app ID such
-  as `com.skiesofarcadia.recomp.nightly`, no signing approval): **held by the user** (2026-10-17).
-- Other sessions on this repo (2026-10-17): DC music + European disc (shares the main checkout; commit
-  with explicit paths only) and keyboard / remapping / input (own worktree, branch `input`, its own
-  `recompcore-input.patch`).
+## Next release: one bigger release, held until the features are done (user, 2026-10-17)
+
+User: "commit, update docs and hold for other features to finish for a bigger release". No tag until
+then. What it will carry (on `dev` or being committed):
+- Since 0.9.1 on `dev`: codegen reuse in CI, Android Back up saves, the README controls table.
+- **Dreamcast music** (optional, imported from the player's Dreamcast disc, GDI / CHD) and the
+  **European disc** (`GEAP8P`; one release takes either disc): the DC-music / EU session,
+  `docs/handoffs/HANDOFF-dcmusic-eu.md`, `patches/recompcore-skies-dcmusic-eu.patch`.
+- **A DolRecomp fix** (`patches/dolrecomp-halfword-byterev.patch`): the LLVM path byte-swapped
+  `lhbrx` / `sthbrx` as 32-bit, so halfword stores wrote 0. It broke every European text lookup; in
+  0.9.1's USA modules it zeroes two header halfwords in Ninja's PVR texture loader (`fn_80298798`,
+  three early call sites), with no symptom seen. The codegen cache key hashes `patches/dolrecomp-*.patch`,
+  so the first run after it regenerates.
+- **Keyboard + remapping** (launcher Settings → Controls, the in-game Button mapping; controller 1
+  follows the pad in use; the launcher no longer needs a controller): the input session,
+  `docs/handoffs/HANDOFF-input.md` on branch `input`.
+- The USA game patch moves from ws20 to **ws22** (the Dreamcast music hooks; inert unless the option is
+  on and a disc is imported).
+
+Blocking the release:
+- The Retroid at full speed, 60 fps, on ws22 with the current `android.profdata` (ask the user first).
+- A USA regression pass: Continue / card autoload, a battle at a QOL speed, and **0.9.1 save states
+  loading** (players have them; the import refuses other state versions).
+- Someone listening to the Dreamcast music (only checked on WSL, which has no audio).
+- Keyboard and remapping run on Windows and on Android (only WSL so far).
+- European disc in CI (user decision): `main-eu.dol` in the secrets repo, then `validate.yml` with
+  `REGIONS="us eu"` (CI should pass `REGIONS` itself rather than rely on `ci-codegen.sh` detecting
+  `main-eu.dol`), both modules to `package`, and the publish check extended to the European DOL
+  hashes (from `release/skies-widescreen-eu.dolpatch`) and the European module. No European PGO
+  profiles yet: desktop can ship without; Android at 60 fps probably needs Retroid training (ask).
+
+Held by the user: the **nightly prerelease** (latest green `dev` on a fixed `nightly` tag, Android
+under its own app ID such as `com.skiesofarcadia.recomp.nightly`, no signing approval).
+
+Other sessions on this repo (2026-10-17): DC music + European disc (shares the main checkout; commit
+with explicit paths only) and keyboard / remapping / input (own worktree, branch `input`; its
+`recompcore-input.patch` goes after `recompcore-skies-dcmusic-eu.patch`).
 
 Decided by the user (2026-10-11): first release **v0.9.0 beta**, **Windows + Android** (Linux later),
 source in a **private repo for now**, Android app ID **`com.skiesofarcadia.recomp`** (like the user's
