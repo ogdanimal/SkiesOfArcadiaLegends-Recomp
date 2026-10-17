@@ -15,6 +15,7 @@ set -eu
 cd "$(dirname "$0")/.."
 ROOT=$PWD
 A=$PWD/build/android V=$PWD/lib/ModernGekko/vendor/dolphin
+mkdir -p $A
 export ANDROID_HOME=${ANDROID_HOME:-$HOME/Android/Sdk}
 NDK=${NDK:-$ANDROID_HOME/ndk/29.0.14206865}
 export PATH=/usr/lib/llvm-20/bin:$PATH
