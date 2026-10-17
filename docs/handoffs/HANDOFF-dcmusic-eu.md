@@ -7,17 +7,17 @@ left.
 
 ## State
 
-**Uncommitted** in the main checkout (shared with other sessions: commit with explicit paths, check
-`git diff --cached` first). `tools/check-patches.sh` passes. The user (relayed by the release session)
-wants it committed locally, not pushed, and held for a bigger release (DC music, EU disc,
-keyboard / remap, Back up saves); the input session (projects-65) rebases on that commit.
+**Shipped in v0.10.0-beta** (2026-10-17, `61ac70e`; release story and the checks on every published
+file: HANDOFF-release.md *Released*). Committed as `c131c82` (the work), then `179f817` / `128ac18`
+(checks), `affabd9` (player READMEs), `2436886` (Europe in CI, the release session) and `61ac70e`
+(the desktop update message, the release session). The files it added or changed:
 
 | Where | What |
 |---|---|
 | `patches/game/` | ws22: `dcmusic.c` (paused song, channel-volume table), `fullwidth.S` (European widescreen fix: `ws_ortho_m00`), `widescreen.json`, `qol.c` (`dcm_frame`), `GEAP8P.addresses.json`, README |
 | `tools/` | `gamepatch.py` (European DOL, refuses 16-bit address halves), `dolmatch.py`, `dcmusic/`, `ci-codegen.sh`, `build-release-linux.sh`, `build-release-win.bat`, `android-ws-build.sh`, `module-win.bat`, `module-llvm-win.sh` (GAME_ID) |
 | `release/` | `skies-widescreen.dolpatch` (USA, now ws22, output `e58354e5`), `skies-widescreen-eu.dolpatch` (ws22, `30904d88`), `GEAP8P.ini`, `THIRD-PARTY.md` |
-| `patches/` | `recompcore-skies-dcmusic-eu.patch` (new, last in `recompcore.series`), `dolrecomp-halfword-byterev.patch` (new; in `tools/apply-patches.sh` / `check-patches.sh`), `moderngekko-local.patch` (regenerated), README |
+| `patches/` | `recompcore-skies-dcmusic-eu.patch` (new; in `recompcore.series` before `recompcore-input.patch`), `dolrecomp-halfword-byterev.patch` (new; in `tools/apply-patches.sh` / `check-patches.sh`), `moderngekko-local.patch` (regenerated), README |
 | `lib/HighlyTheoretical`, `lib/libchdr` | submodules (already on dev since `177be84`) |
 | docs | `development-notes.md`, the decomp's `docs/sound.md` (separate repo, untracked) |
 
@@ -55,10 +55,23 @@ synced 2026-10-17: the branded release (`lib\ModernGekko\build-release`, `REGION
   ws22 and booting at full speed, the Dreamcast engine started (block enabled) and the opening's
   songs started muted for it; volume was 0, so not heard.
 
-## Open
+## Open (after v0.10.0-beta)
+
+1. **European speed on the Retroid:** not measured (the European module has no PGO; the device
+   dropped off adb). `build/android/apk/skies-ws22eu-2026-10-17.apk` (debug test app, both modules)
+   is built for it, or the release APK once the user updates the Retroid. Ask before using the
+   device. If it misses 60 fps: a European Android profile (`pgo/android-eu.profdata` in the secrets
+   repo, trained on the device), and a desktop one with `tools/pgo-wsl.sh` on the European DOL.
+2. **Android Dreamcast import** (Settings → Sound, CHD) and an Android European disc import: in the
+   release APK, not tried on a device by this session.
+3. **Streamed music** (`m01`-`m04`) stays GameCube: different recordings of different lengths, and
+   the staff roll and ending are timed to them.
+
+## Done (history of the open list before the release)
 
 1. **Listen** on Windows (the user): Settings → Sound → Import a Dreamcast disc, Music: Dreamcast;
-   a town (channel volumes), a battle and back (pause / continue), the camp menu.
+   a town (channel volumes), a battle and back (pause / continue), the camp menu. Before the release
+   the user said "We've verified everything pretty much works right" (2026-10-17).
 2. **European save screens: fixed** (a DolRecomp bug, see below). With the fixed module
    (`build/eu-gen22/module-linux`, DolRecomp with `dolrecomp-halfword-byterev.patch`): the text-pack
    count reads `0x68`, the title's Continue shows Load / Slot A / the file list with the European place
@@ -85,14 +98,17 @@ synced 2026-10-17: the branded release (`lib\ModernGekko\build-release`, `REGION
    battle at QOL speed (done on WSL ws22: battle speed 2x, the boss battle from `13-pre-battle` won
    and back to the world map), a 0.9.1 (ws20) save state loading on ws22 (states from older DOLs load: the
    state layout is the runtime's, which this work doesn't change; `05-save-point` etc. were made
-   before ws21); (c) listening (1).
+   before ws21); (c) listening (1). All passed before the tag.
 4. **European CI:** the secrets repo needs `main-eu.dol` (the user), workflows to call the two-region
    forms (the release session), European PGO profiles (desktop: `tools/pgo-wsl.sh` on the European
-   DOL; Android: on the Retroid, the user's call).
+   DOL; Android: on the Retroid, the user's call). Done 2026-10-17 except the profiles: `main-eu.dol`
+   added, `validate.yml` `REGIONS: us eu` (`2436886`).
 5. **Streamed music** (`m01`-`m04`) stays GameCube: different recordings of different lengths, and
    the staff roll and ending are timed to them.
 6. Android: build an APK with both modules (`android-ws-build.sh` with the European DOL), import a CHD
    for the music, the Settings → Sound rows, a European disc import (ask before using the Retroid).
+   The APK is built (`skies-ws22eu-2026-10-17.apk`) and CI's release APK has both modules; the device
+   checks are open item 1-2 above.
 
 ## The DolRecomp halfword byte-reverse bug (release note)
 

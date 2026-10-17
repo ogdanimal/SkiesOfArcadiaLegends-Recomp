@@ -1,7 +1,8 @@
-# Skies of Arcadia Legends (GEAE8P): static recomp notes
+# Skies of Arcadia Legends (GEAE8P / GEAP8P): static recomp notes
 
 This repo is [ModernGekko-Template](https://github.com/ExpansionPak/ModernGekko-Template) applied to
-Skies of Arcadia Legends (USA). DolRecomp translates `main.dol` to C; ModernGekko (Dolphin-derived,
+Skies of Arcadia Legends (USA; the European disc since 2026-10-17, *The European release*). Releases:
+[handoffs/HANDOFF-release.md](handoffs/HANDOFF-release.md) (current: v0.10.0-beta). DolRecomp translates `main.dol` to C; ModernGekko (Dolphin-derived,
 GPL-3) provides video, audio, disc and input. The matching decomp lives separately in
 `../SkiesOfArcadiaLegends-Decomp` and supplies symbol names.
 
@@ -35,13 +36,19 @@ default. A module linked before the gather-pipe patches (late 2026-10-06), inclu
 rebuilt.
 
 The game with the recomp's features (widescreen, camera, options; *The player build*) runs from the
-patched DOL with a module built from that same DOL: on Windows `build\game\GEAE8P-ws20` with
-`build\modules-llvm-pgo-ws20\gGEAE8P_recomp.dll` (dev runner `lib\ModernGekko\build\moderngekko-run.exe`)
-or the branded release (`Skies of Arcadia Legends.exe`, *Launcher and release*); on Android the branded
-app that imports the player's disc (ws20: `build/android/apk/skies-recomp-ws20-2026-10-12.apk`, on the
-Retroid since 2026-10-12 20:20, data backed up before ws19 to `C:\dev\SkiesRecomp\build\backup\retroid-before-ws19-2026-10-12`; handoffs/HANDOFF-android.md), or a dev APK with its DOL pushed. On WSL (still ws16)
-`build/modules-llvm-ws16` with `build/game/GEAE8P-ws16` and the EGL-enabled runtime `lib/ModernGekko/build-egl/moderngekko-run`
-(through `tools/play.sh`: it caps memory; see *Known issues* on the 10-11 whole-VM OOM).
+patched DOL with a module built from that same DOL. Current (2026-10-17, game patch **ws22**, shipped in
+**v0.10.0-beta**): on Windows `build\game\GEAE8P-ws22` with `build\modules-llvm-pgo-ws22b\gGEAE8P_recomp.dll`
+(European: `build\modules-llvm-eu-ws22b`, no PGO; dev runner `lib\ModernGekko\build\moderngekko-run.exe`)
+or the branded release (`Skies of Arcadia Legends.exe`, *Launcher and release*); on WSL
+`build/game/GEAE8P-ws22` / `GEAP8P-ws22` with `build/us-gen22/module-linux` / `build/eu-gen22/module-linux`
+(no PGO) and the EGL-enabled runtime `lib/ModernGekko/build-egl/moderngekko-run` (through
+`tools/play.sh`: it caps memory; see *Known issues* on the 10-11 whole-VM OOM), or a release build
+configured with `REGIONS="us eu"` (`lib/ModernGekko/build-release-linux`). A release build refuses any
+DOL but its pinned ws22 output. On Android the branded app imports the player's disc: the Retroid runs
+the **0.9.1 release app** (`com.skiesofarcadia.recomp`, the user's data; 0.10.0-beta installs over it,
+ask first) and the debug test app (`org.dolphinemu.dolphinemu.debug`) for dev APKs (ws22:
+`build/android/apk/skies-ws22-2026-10-17.apk`; with the European module
+`skies-ws22eu-2026-10-17.apk`, not run yet); handoffs/HANDOFF-android.md.
 
 ### Controller
 
@@ -62,8 +69,9 @@ WSL has no `/dev/input`, so a USB pad isn't visible to the Linux build. ModernGe
 generates profiles for SDL gamepads.
 
 On Windows, use `config/GCPadNew.keyboard.windows.ini` instead: the same layout with DirectInput key
-names (`DInput/0/Keyboard Mouse`). Not yet pressed by hand. The release's launcher generates a
-controller profile for SDL gamepads (its "Controller profile" choice). On the Retroid the app maps its
+names (`DInput/0/Keyboard Mouse`). These two are the dev profiles; the release has its own layout and
+mapping (*Keyboard and button mapping*). The release's launcher generates a controller profile for
+SDL gamepads (its "Controller profile" choice). On the Retroid the app maps its
 built-in controller (`Android/1/Retroid Pocket Controller`): L1 is Z, L2 / R2 are L / R, the right
 stick is the C-stick. Android's input backend names a gamepad's axes by their MotionEvent id
 (`Axis 0` / `1` left stick, `11` / `14` right stick, `15` / `16` D-pad hat, `22` / `23` triggers) and its
@@ -73,7 +81,8 @@ there. The branded app writes the Android names itself when the profile lacks th
 
 L3 / R3 (Invincible) aren't GameCube buttons, so no profile maps them: the runtime reads them from
 controller 1's real device ("Thumb L" / "Thumb R" on SDL, XInput and WGInput, "Button L3" / "Button R3"
-on Android). A keyboard has no equivalent; use the menu's Invincible row there. The other added
+on Android). Since 0.10 they're the `Invincible` hotkey in `GCPadNew.ini [SkiesHotkeys]`, which can
+also name a key (*Keyboard and button mapping*). The other added
 controls (*Controls the recomp adds*) use GameCube buttons and follow the profile.
 
 ### Scripted runs (automation)
@@ -125,8 +134,8 @@ To dump every frame instead: put `[Movie] DumpFrames = True` in `build/user/Conf
 
 ## The player build (settings, menu, save states, save import, camera, options, release; 2026-10-10 / 12)
 
-What a player gets on top of the game, and where each piece lives (save states: *Save states and auto-save* below; bringing saves in: *Importing saves*; in progress: *The European release* and *Dreamcast music*). The game side is the DOL
-patch **ws20** (ws21, with the Dreamcast music hooks, is built but untested) (`build/game/GEAE8P-ws20`, SHA-1 `e78a04d9`; history in `patches/game/README.md`);
+What a player gets on top of the game, and where each piece lives (save states: *Save states and auto-save* below; bringing saves in: *Importing saves*; keyboard and remapping: *Keyboard and button mapping*; the European disc and the Dreamcast music: *The European release* and *Dreamcast music*). The game side is the DOL
+patch **ws22** (`build/game/GEAE8P-ws22`, SHA-1 `ac40e5cf`; European `GEAP8P-ws22`, `55ab3d55`; history in `patches/game/README.md`), shipped in v0.10.0-beta;
 the frontend side is `recompcore-skies-settings.patch` (`VideoCommon/SkiesMenu.cpp`,
 `Core/SkiesSettings.cpp`) and `moderngekko-local.patch` (launcher, runner). Plans and session logs:
 [handoffs/HANDOFF-settings.md](handoffs/HANDOFF-settings.md). Research: the decomp's `docs/widescreen.md`,
@@ -136,6 +145,7 @@ the frontend side is `recompcore-skies-settings.patch` (`VideoCommon/SkiesMenu.c
 
 | Input | Where | What it does |
 |---|---|---|
+| Esc, or the controller's Back / View (Android: Select) | anywhere | the settings menu (the `Menu` hotkey, since 0.10) |
 | Hold Z, press Start | anywhere (also in battle, however long Z is held first) | the settings menu (L / R or Up to the tab bar: tabs; D-pad / stick choose, Left/Right or A change, B / Start close); its Saves tab saves and loads states |
 | Hold Z + C-stick up/down | towns, dungeons, world map | tilt the camera |
 | Hold Z + R / L (analog) | towns, dungeons, world map | zoom out / in |
@@ -164,6 +174,11 @@ in the decomp's `docs/camera.md`. B + X + Start held for half a second is the ga
 | `BattleSpeed` | 1-4 (1) | same |
 | `Invincible` | 0 / 1 (0) | same |
 | `AutoSave` | minutes between auto-saves: 0 (off), 5, 10, 15, 30 (10) | `SkiesMenu.cpp` (namespace `autosave`) |
+| `Language` | European disc only: 0 English, 1 German, 2 French, 3 Spanish (0); at the next boot | `SConfig::GetLanguageAdjustedForRegion` (*The European release*) |
+| `DreamcastMusic` | 1 = the Dreamcast music, 0 = GameCube (0); needs the import | `Core/SkiesMusic.cpp` (*Dreamcast music*) |
+
+The bindings and the `Menu` / `Invincible` hotkeys are in `Config/GCPadNew.ini` (`[GCPad1]`,
+`[SkiesHotkeys]`; *Keyboard and button mapping*).
 
 The menu also changes Dolphin's own `GFX.ini` `InternalResolution` and `MSAA`, `VSync`, `ShowFPS`, and
 `Dolphin.ini` `Volume`. On desktop the runner sets the resolution from the frontend's `config.ini` at
@@ -176,8 +191,9 @@ every boot, so a change in game is written back there too. Any key can be set fr
 (controller 1). Since 2026-10-11 (late night, user request) it looks like the launchers' Settings
 windows: a rounded navy window over the dimmed game, **tabs** Saves (Save state, Load state, Auto-save),
 Graphics (Picture, Frame rate, Resolution 1 / 2 / 3 / 4 / 6x, Anti-aliasing = the backend's MSAA modes,
-V-Sync, Show FPS), Gameplay (Camera, Battle speed, Encounters, EXP, Gold, Magic EXP, Invincible), Sound
-(Volume), Controls (Stick dead zone, Rumble); each row a label, a value box (the selected one gold-edged
+V-Sync, Show FPS), Gameplay (Camera, Battle speed, Encounters, EXP, Gold, Magic EXP, Invincible;
+Language on the European disc), Sound (Volume; Music once a Dreamcast disc is imported), Controls
+(Stick dead zone, Rumble, Button mapping since 0.10); each row a label, a value box (the selected one gold-edged
 with arrows) and the launchers' one-line description; a hint line for the selected row. **L / R** (digital,
 or the analog triggers most of the way) switch tabs from anywhere; **Up** from the first setting (or Down
 from the last) puts the focus on the tab bar, like the launchers: the current tab gets the gold edge,
@@ -194,6 +210,29 @@ change + close + save, window captures) and on the Retroid (by automation: D-pad
 after the controller profile fix: "it mostly works", the Up-to-tabs build installed 20:44 for their
 look; "it works great now"; 10-11: "perfect"). On the Retroid the D-pad, stick and triggers first did nothing in the menu: not the menu, the
 app's controller profile (*Known issues*).
+
+### Keyboard and button mapping (2026-10-17, v0.10.0-beta)
+
+Details, checks and what's untested: [handoffs/HANDOFF-input.md](handoffs/HANDOFF-input.md);
+`patches/recompcore-input.patch` (`Core/SkiesBindings.cpp`, `Core/SkiesInput.cpp`, menu, the Win32 /
+X11 window keys) and `moderngekko-local.patch` (`tools/launcher_controls.cpp`).
+
+- **Keyboard** on Windows and Linux, with a controller or alone: W A S D stick, Space / Left Shift =
+  A / B, F / R = X / Y, Tab = Z, Q / E = L / R, Enter = Start, I J K L = C-stick, arrows = D-pad, Esc =
+  the settings menu. Each GameCube input's binding is `<controller terms> | <keyboard terms>`: the
+  controller terms are unqualified, so they follow controller 1's device; the keyboard terms name the
+  keyboard device.
+- **Button mapping:** launcher Settings → Controls (a table: GameCube input, controller button,
+  keyboard key) and the in-game Controls → Button mapping (Dolphin's `InputDetector`, so on Android
+  too). The controller's A and B can be changed but not cleared.
+- **Controller 1 follows the pad in use** (desktop): it moves to an SDL gamepad when its own device
+  isn't connected, or when another gamepad is pressed while it has been idle 750 ms. Controller 1 is
+  "Always Connected" (without it Dolphin drops the keyboard too while the profile's pad is unplugged).
+  The launcher no longer needs a controller to start.
+- **Hotkeys** `[SkiesHotkeys] Menu` (controller Back / Android Select, Esc) and `Invincible` (L3 / R3);
+  `Version = 1` marks a profile that has had the keyboard layout added (a 0.9.x profile gets it once).
+- The game window's developer keys (Space fast-forward, F-key states, Esc quit) are off in Skies;
+  F11 and Alt+Enter switch fullscreen.
 
 ### Save states and auto-save (2026-10-11)
 
@@ -293,7 +332,8 @@ README, COPYING, notices). Linux: `tools/build-release-linux.sh` does the same i
 `~/.local/share/Skies of Arcadia Legends`, a `.tar.gz`; checked on WSLg 2026-10-11). The launcher takes the player's disc image (RVZ, ISO, GCM, GCZ, WIA or CISO; see below),
 extracts it, patches its `main.dol` with `release/skies-widescreen.dolpatch` (whole-file format
 `moderngekko-dol-file-patch 1`, made by `tools/mkdolpatch.py`: it carries only the bytes that change),
-checks the disc ID (GEAE8P) and the patched DOL's SHA-256 (pinned in the bat), and boots;
+checks the disc ID (GEAE8P, or GEAP8P with the European patch `release/skies-widescreen-eu.dolpatch`;
+*The European release*) and the patched DOL's SHA-256 (pinned per region at configure), and boots;
 `Skies of Arcadia Legends.exe --extract IMAGE` does the same without the window.
 
 The launcher's look (2026-10-11 late night, the user's design calls, modelled on the N64 recomps'
@@ -316,8 +356,9 @@ state: Slot 2  Oct 11 18:00" or "Memory card save: file 1  Oct 11 17:30". Start 
 SDL's own environment is case-sensitive, Windows spells it `windir`). **Settings** opens a rounded modal
 window over the dimmed home screen, tabs **Graphics** (Picture, Frame rate, Anti-aliasing, V-Sync),
 **Display** (Screen windowed / fullscreen, Resolution, Show FPS, FPS in title bar, Graphics backend),
-**Gameplay** (Camera, Battle speed, Encounters, EXP, Gold, Magic EXP, Invincible), **Sound** (Volume),
-**Controls** (controller profile, Stick dead zone, Rumble), **Saves** (Auto-save, the "Start from
+**Gameplay** (Camera, Battle speed, Encounters, EXP, Gold, Magic EXP, Invincible; Language with the
+European disc), **Sound** (Volume; Music, Import a Dreamcast disc..., Remove: *Dreamcast music*),
+**Controls** (controller profile, Stick dead zone, Rumble, the button mapping table since 0.10), **Saves** (Auto-save, the "Start from
 savestate" list), **Disc**: each a label, a dropdown with the in-game menu's choices and a one-line
 description, written to the same keys the in-game menu uses (`[Skies]` in `Dolphin.ini`, `GFX.ini`,
 `[DSP] Volume`, `GCPadNew.ini [GCPad1]`; booleans Dolphin wrote as True / False read back as 1 / 0), so
@@ -332,7 +373,12 @@ original DOL (ws11, ws12, ws13: the release runner patched it and the game ran w
 existing game root from an earlier release (its DOL patched by that release) is updated when the
 player picks the disc again: `sys/` is taken fresh from the disc, then patched (2026-10-11: before
 that, picking the disc failed with "existing extraction patching failed"; the user hit it with their
-10-10 ws10 import). **Disc formats (checked 2026-10-11):** the release launcher's import (`--extract`, the same code as
+10-10 ws10 import). Since `61ac70e` (0.10.0-beta) the launcher also says so: with an earlier
+release's import, Select Disc's line reads "This update needs your disc once more. Your saves and
+settings are kept.", and the runner started on its own shows a message box ("The game needs updating")
+and exits with code 2 instead of failing silently (checked: the Linux launcher, the Windows runner;
+the refresh kept 0.9.1 card saves and states, which load on ws22). Android keeps `main.dol.orig` and
+repatches by itself. **Disc formats (checked 2026-10-11):** the release launcher's import (`--extract`, the same code as
 Select Disc) with the user's RVZ converted by `dolphin-tool` (built with
 `-DMODERNGEKKO_ENABLE_DISC_TOOL=ON` in `lib/ModernGekko/build`) to ISO, GCZ and WIA, a renamed ISO as
 GCM, and `tools/mkciso.py` for CISO: all six gave the same 5,552 files and the patched DOL
@@ -506,8 +552,14 @@ European data.
   (widescreen HUD at the edges), the launcher-style auto-load of a card save, the title's Continue and
   load screen (after the DolRecomp fix below), loading a save, the camp menu, the red alert room's
   screen-copy pulse in widescreen (after the `fullwidth.S` fix), the Dreamcast music. The user's USA card
-  saves work in the European game with the GCI's game code changed to GEAP (`build/user-eu`). Not
-  checked: saving from a save point, ship battles, savestates, the menu's Language row.
+  saves work in the European game with the GCI's game code changed to GEAP (`build/user-eu`). Then
+  (all WSL, after the DolRecomp fix): saving from a save point (a new file 4, loaded back by
+  auto-load), a savestate round trip, and Baltor's ship battle at 1.00x through
+  `tools/shipbattle-state-win.sh`'s method with European addresses (`SHIP_REQUEST` `0x8031DFE4`,
+  weapons `0x803103F4`, map name `0x80309370`; state `build/savestates/eu-17-ship-battle-baltor.sav`;
+  HANDOFF-dcmusic-eu.md). The menu's Language row itself wasn't seen (the menu is an ImGui overlay that
+  automation screenshots don't show); its effect, the boot language, was. Not measured: European speed
+  on the Retroid (the module has no PGO).
 - **Module:** `build/eu-gen22/module-linux/gGEAP8P_recomp.so` (DolRecomp 3 min with `-j8`, no PGO:
   the profiles are keyed by fixed address chunks such as `func_8023B000`, which don't line up with
   the shifted European code, so Europe needs its own profiles). `tools/module-linux.sh` takes
@@ -537,10 +589,14 @@ European data.
   saves by the installed game. The APK carries `libgGEAP8P_recomp.so` and the European assets when
   `tools/android-ws-build.sh` gets a European DOL or `PREGEN_EU`; `skies_dol_sha256_eu` from the brand
   dir's `dol-sha256-eu.txt`. Save states aren't per region: a state from the other disc's game won't
-  load.
+  load. A European APK (`skies-ws22eu-2026-10-17.apk`) was built but not run on the device; the release
+  APK carries both modules.
 - **CI:** `tools/ci-codegen.sh` does both regions when the secrets repo has `main-eu.dol` (else the
   USA alone; `REGIONS` sets it), into `windows-eu/` etc., without PGO until there are European
-  profiles (`pgo/*-eu.profdata`; on Android 60 fps likely needs one, trained on the device).
+  profiles (`pgo/*-eu.profdata`; on Android 60 fps likely needs one, trained on the device). The
+  secrets repo has `main-eu.dol` since 2026-10-17 and `validate.yml` sets `REGIONS: us eu`, so every
+  package carries both modules (`2436886`); the publish check knows both DOL hashes.
+- **Shipped** in v0.10.0-beta (2026-10-17, `61ac70e`).
 
 ### Dreamcast music (2026-10-17)
 
@@ -618,8 +674,9 @@ ws22).
   music continuing on its frozen player), game over (fade-stop, `M0367`), the camp menu (`SndMasterVol`
   to 37/100 and back), the option switched off and on mid-song both ways, old savestates (song taken
   over from the music list), patch-made savestates, a 5-pair list (`M0460`, poked) and the world map's
-  channel volumes. Not listened to (WSL has no audio to hear); the GameCube mix has a slowly varying DC
-  offset in silence, also without the option. Import: both of the user's CHDs and the disc 1 GDI
+  channel volumes. Not listened to on WSL (no audio there); the GameCube mix has a slowly varying DC
+  offset in silence, also without the option. The user's sign-off before it shipped in v0.10.0-beta:
+  "We've verified everything pretty much works right" (2026-10-17). Import: both of the user's CHDs and the disc 1 GDI
   (116 + 1 banks).
 - **Builds:** `AudioCommon/CMakeLists.txt` enables it when `lib/HighlyTheoretical/Core/dcsound.c`
   exists (`HAVE_DCMUSIC`, `SKIES_HT_DIR`) and CHD reading when `lib/libchdr` does
@@ -640,6 +697,10 @@ ws22).
 | `tools/capture-window-win.ps1` | screenshot of one window (DPI-aware `PrintWindow`, no other windows); used for the launcher. Posted key messages don't reach SDL's keyboard state, so to see the Settings window a temporary build opened it on start |
 | `tools/save-import-test.py` | Settings, Saves' Import through the launcher's `--import-save` (formats, refusals, backups), 16 cases |
 | `tools/states-test-win.sh` | menu save / load and auto-save (battle skip, rotation, speed, load confirmation), ~7 min |
+| `tools/shipbattle-state-win.sh` | makes the ship battle states with the debug DOL (`shipdebug.json`): gives the Little Jack, equips cannons, changes the map to Baltor's battle (European addresses: *The European release*) |
+| `tools/statecheck.py` | whether a savestate is caught in game-patch code (*Known issues*) |
+| `tools/dolmatch.py` | matches the USA DOL to the European one: functions, data, the patch and frontend addresses |
+| `tools/bench-android.sh` | the standard Android speed measurement (fresh boot per state, `speed:30`, screenshot) |
 | `tools/build-release-win.bat` | branded release (see above) |
 
 Savestates (gitignored `build/savestates/`, also in `C:\dev\SkiesRecomp\build\savestates`): `01`-`07`
@@ -1766,7 +1827,9 @@ The exact commands are in [handoffs/HANDOFF-android.md](handoffs/HANDOFF-android
 - **A new release build refuses an older patched game root** (2026-10-11): the release runner only
   patches the original `main.dol`; a game root made by an earlier release (the user's
   `%LOCALAPPDATA%\SkiesRecomp\games\GEAE8P`, ws10) fails the SHA-256 check, so the disc has to be
-  imported again. A shipped updater would need the old patches' outputs as accepted inputs.
+  picked again (Select Disc refreshes `sys/` and keeps saves, states and settings). Since 0.10 the
+  launcher and the runner tell the player so (*Launcher and release*). Doing it without the disc would
+  need the old patches' outputs as accepted inputs (or a kept original, as on Android).
 - **An auto-save costs a hitch of a few frames on the Retroid** (2026-10-11): one second at 0.94-0.99x
   when it saves (the state is captured on the CPU thread; compression and writing run on Dolphin's
   own thread). None measurable on Windows. Every 10 minutes by default.

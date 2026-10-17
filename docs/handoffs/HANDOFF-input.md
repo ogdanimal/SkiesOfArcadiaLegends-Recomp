@@ -1,8 +1,9 @@
 # Handoff: keyboard, remapping and controller handling (input)
 
-Branch `input`, worktree `~/projects/skies-input`, committed locally on top of `dev` (not pushed:
-the user decides when; the next release is one bigger release). Other sessions work in the main
-checkout at the same time (DC music / EU disc, release); see *Coordination*.
+**Shipped in v0.10.0-beta** (2026-10-17, `61ac70e`): on `dev` as `9e32e7f` and `e1fdaf5` (the
+Retroid-check fixes), the handoff `6855ccc`. Worked on in branch `input`, worktree
+`~/projects/skies-input`; other sessions shared the main checkout (DC music / EU disc, release), see
+*Coordination*. What's still open needs hardware: *Not checked yet*.
 
 ## What it does
 

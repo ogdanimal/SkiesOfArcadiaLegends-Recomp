@@ -8,6 +8,12 @@ both trees late on 2026-10-06; older sections are kept as history and say so whe
 
 ## Status (2026-10-12, morning): Import a save in both release launchers
 
+> **Since then (2026-10-17):** the current release is **v0.10.0-beta** (HANDOFF-release *Released*):
+> game patch ws22, both regions' modules in the Windows zip and the Linux tar (`REGIONS="us eu"`), the
+> Dreamcast music option (HANDOFF-dcmusic-eu), keyboard and button mapping (HANDOFF-input), and the
+> update message for an earlier release's import (NOTES *Launcher and release*). Current desktop
+> builds and paths: NOTES *Running*. The sections below are history.
+
 - Settings, Saves: **Import a save** (NOTES *Importing saves*; `tools/save_import.cpp`, also used by
   Android). Windows `lib\ModernGekko\build-release` and Linux `build-release-linux` rebuilt; the Windows
   tree got `CMakeLists.txt`, `tools/moderngekko_launcher.cpp`, `tools/save_import.cpp/.hpp`, the two

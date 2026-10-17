@@ -28,6 +28,11 @@ Windows.
 
 **Android:** install the APK, open **Skies of Arcadia Legends** and pick your disc image when asked.
 
+**Updating from an earlier version:** saves, save states and settings carry over. On Windows and
+Linux, if the launcher asks for your disc once more, choose **Select Disc** and pick the same disc image
+(it updates your earlier import in a few seconds). On Android, install the new APK over the old one;
+the app updates the imported disc by itself.
+
 Your saves and settings are kept in `%LOCALAPPDATA%\Skies of Arcadia Legends` (Windows),
 `~/.local/share/Skies of Arcadia Legends` (Linux) or in the app's own storage (Android). Uninstalling the Android app deletes them, so make a backup first
 (**Settings → Saves → Back up saves**).

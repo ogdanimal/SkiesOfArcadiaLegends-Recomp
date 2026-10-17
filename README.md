@@ -31,6 +31,11 @@ Versions ending in `-beta` (or `-rc1`, `-rc2`, ...) are published as prereleases
    and patches it for this port; you only do this once.
 3. Press **Start Game**. Later, **Continue** starts from your newest save.
 
+**Updating from an earlier version:** your saves, save states and settings carry over. On Windows and
+Linux, unpack the new version and run it; if the launcher asks for your disc once more, choose
+**Select Disc** and pick the same disc image, which updates your earlier import in a few seconds. On
+Android, install the new APK over the old one; the app updates the imported disc by itself.
+
 **The disc is the USA or the European GameCube release** (game ID `GEAE8P` or `GEAP8P`, the original
 release), as RVZ, ISO, GCM, GCZ, WIA or CISO. The European disc has the text in English, German,
 French and Spanish (**Language** in the settings menu's Gameplay tab) and runs at 60 Hz like the USA

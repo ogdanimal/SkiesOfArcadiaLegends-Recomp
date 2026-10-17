@@ -50,27 +50,31 @@ tools/gamepatch.py patches/game/widescreen.json --dol <european disc>/sys/main.d
 ```
 
 ```sh
-tools/gamepatch.py patches/game/widescreen.json --out-root build/game/GEAE8P-ws20
-DOL=build/game/GEAE8P-ws20/sys/main.dol tools/module-llvm-win.sh llvm-pgo-ws20 \
+tools/gamepatch.py patches/game/widescreen.json --out-root build/game/GEAE8P-ws22
+DOL=build/game/GEAE8P-ws22/sys/main.dol tools/module-llvm-win.sh llvm-pgo-ws22 \
   --profile-use build/modules-llvm-pgo-gp/GEAE8P/pgo/merged.profdata      # Windows module
-NAME=ws20 tools/android-ws-build.sh                                       # Android module + APK
+NAME=ws22 tools/android-ws-build.sh                                       # Android module + APK
 python3 tools/mkdolpatch.py extracted/SkiesOfArcadiaLegends/sys/main.dol \
-  build/game/GEAE8P-ws20/sys/main.dol release/skies-widescreen.dolpatch   # release patch
+  build/game/GEAE8P-ws22/sys/main.dol release/skies-widescreen.dolpatch   # release patch
+python3 tools/mkdolpatch.py <european disc>/sys/main.dol \
+  build/game/GEAP8P-ws22/sys/main.dol release/skies-widescreen-eu.dolpatch   # European release patch
 ```
+
+The Android build picks up the European game from `DOL_EU` (default `build/game/GEAP8P-NAME/sys/main.dol`).
 
 The release builds take the DOL's SHA-256 from the patch's `output-sha256` line
 (`tools/build-release-win.bat` and `build-release-linux.sh` since ws17, the Android app through
 `tools/android-ws-build.sh`), so after `mkdolpatch.py` run `configure` and `build` there again. The release runner refuses any other DOL, so test a new build
 with the dev runner (`lib\ModernGekko\build\moderngekko-run.exe`).
 
-`gamepatch.py` checks that the input is the USA Rev 0 `main.dol`, compiles the sources with clang for
+`gamepatch.py` checks that the input is the USA Rev 0 `main.dol` (or, with `--dol`, the European one), compiles the sources with clang for
 the Gekko (`-mcpu=750`, `-Os`, no small-data), links them into the low-memory gap at `0x80001900`
 (`cave.ld`: code and constants up to `0x80002A00`, data from there to `0x80002F00`, with
 `qol_input` fixed at `0x80002EA0`, `cam_input` at `0x80002EC0` and `load_request` at `0x80002EF0` for the frontend), rewrites the listed call sites and adds the code and data as new DOL sections. That gap is nearly full (ws13: code 0xFD0 of 0x1100 bytes, data 0x4E4 of 0x500), so there's a second code area: functions marked `section(".trkcave")` go to `0x802548E8`-`0x80257074` (10 KB), over MetroTRK's message handlers, which only run with a debugger attached (`__start` starts MetroTRK only when `0x800030E8` is 2 or 3; the handlers are reached only through its dispatch table). `gamepatch.py` writes that code into the DOL's text in place; it's code only (data still goes in the gap). It
 writes a game root: `sys/` with the patched DOL, `files/` linked to the original (on Windows, make
-it a junction: `mklink /J build\game\GEAE8P-ws20\files extracted\SkiesOfArcadiaLegends\files`), plus
+it a junction: `mklink /J build\game\GEAE8P-ws22\files extracted\SkiesOfArcadiaLegends\files`), plus
 `patches.txt` (symbols and patched sites) and `patch.elf` (for disassembly). Run it with
-`GAME=build/game/GEAE8P-ws20` (`tools/play.sh`) or `GAME=build\game\GEAE8P-ws20` (`tools\run-win.bat`)
+`GAME=build/game/GEAE8P-ws22` (`tools/play.sh`) or `GAME=build\game\GEAE8P-ws22` (`tools\run-win.bat`)
 and a module built from the same DOL.
 
 | Build | DOL SHA-1 | What it added |
@@ -87,9 +91,9 @@ and a module built from the same DOL.
 | ws17 | `910d9504` | ship battle QOL only while the battle's data is live (code review A3, 2026-10-12): the game frees `lbl_8034727C`'s data in `fn_80144E60` but never clears the pointer, so from the second ship battle on Invincible wrote through a stale pointer between the map's load and the new allocation. `qol_ship_live` is set by `qol_ship_alloc` (new hook at `0x8015C6DC`, `fn_8015C6C8`'s call of `fn_801453D0`) and by `qol_ship_phase`, cleared after `qol_ship_results`; it sits in `.late_bss` (`cave.ld`) after every older variable, so states from earlier builds keep their data where this build looks (they read 0 there: off until the battle's next phase) |
 | ws18 | `6a401968` | code review section C (2026-10-12): the camera keeps the game's own tilt when its eye sits below the look-at point by more than `rise` (the height limit went negative and put the eye on the far side); `ws_check` restarts the unwide depth for an older build's state and `ws_unwide_end` never takes it below 0 (either would leave every later unwide pair off); `in_ram` accepts only word-aligned addresses inside the 24 MB. No data moved (all 19 data symbols at their ws17 addresses), so ws17 states load as they are. The debug `shipdebug.c` request word moved to `0x8031AA24` so it combines with `trace2d.json` (debug builds only) |
 | ws19 | `2185d3d4` | every attack froze from older states (2026-10-12): a state restores code but not data, so the battle action handler table entry `0x802DBB10` (rewritten by `redirect_pointers`) kept the address `qol_damage` had in the build that made the state, and after ws17 / ws18 moved the code that address was inside `qol_ship_results` ("Invalid write to 0x0000001e"); auto-saves carried it forward. `qol_frame` now writes the entry every frame. Also: `qol_ram` checks the pointers it follows, battle QOL only in battle states 4-7 (`0x8034737C`), ship results only while `qol_ship_live`, the camera only in game mode 6. Only that one patch-code pointer lives in game data (audit: no other code pointers in the patch's data, no callbacks) |
-| ws21 | `49979e26` (Europe `6d2620e5`) | the Dreamcast music hooks (`dcmusic.c`, `dcm_frame` called at the end of `qol_frame`); 663 call sites (Europe 685). Built 2026-10-17, not released |
-| ws22 | `ac40e5cf` (Europe `55ab3d55`) | `dcmusic.c`: the paused song tracked (its continue and stop posted), controller 7 as a table instead of ring events (`struct dcm_box` grew to 380 bytes). `fullwidth.S`: the ortho matrix's [0][0] through the spec's symbol `ws_ortho_m00` instead of a literal `0x8034` / `0x63C0`, which gamepatch doesn't translate: the European build's full-width wrappers wrote another word, so its screen-copy effects (the red alert room's pulse, afterimages) were drawn back squeezed, a double image in widescreen (the USA DOL is unchanged). Checked in game on WSL 2026-10-17 (both games); `release/skies-widescreen.dolpatch` (output `e58354e5`) and `release/skies-widescreen-eu.dolpatch` (`30904d88`) are ws22 since 2026-10-17, not released yet |
-| ws20 | `e78a04d9` | Continue from a card save loads it directly (`autoload.c`, `load_request` at `0x80002EF0`, `dl_title` at the title's call `0x801DC350`): ~6 s from launch to the field on Windows, RAM identical to a load through the menus but for the uptime counter; a missing file falls back to the intro and title. Replaces the frontend's button-driving (30-40 s) |
+| ws20 | `e78a04d9` | Continue from a card save loads it directly (`autoload.c`, `load_request` at `0x80002EF0`, `dl_title` at the title's call `0x801DC350`): ~6 s from launch to the field on Windows, RAM identical to a load through the menus but for the uptime counter; a missing file falls back to the intro and title. Replaces the frontend's button-driving (30-40 s). Released in v0.9.0-beta and v0.9.1-beta |
+| ws21 | `49979e26` (Europe `6d2620e5`) | the Dreamcast music hooks (`dcmusic.c`, `dcm_frame` called at the end of `qol_frame`); 663 call sites (Europe 685). Built 2026-10-17, never released |
+| ws22 | `ac40e5cf` (Europe `55ab3d55`) | `dcmusic.c`: the paused song tracked (its continue and stop posted), controller 7 as a table instead of ring events (`struct dcm_box` grew to 380 bytes). `fullwidth.S`: the ortho matrix's [0][0] through the spec's symbol `ws_ortho_m00` instead of a literal `0x8034` / `0x63C0`, which gamepatch doesn't translate: the European build's full-width wrappers wrote another word, so its screen-copy effects (the red alert room's pulse, afterimages) were drawn back squeezed, a double image in widescreen (the USA DOL is unchanged). Checked in game on WSL 2026-10-17 (both games); `release/skies-widescreen.dolpatch` (output `e58354e5`) and `release/skies-widescreen-eu.dolpatch` (`30904d88`) are ws22 since 2026-10-17; released in v0.10.0-beta |
 
 A module only matches the DOL it was built from: an unpatched module with a patched DOL (or the
 reverse) fails verification for the patched code and runs it in the interpreter. Savestates made

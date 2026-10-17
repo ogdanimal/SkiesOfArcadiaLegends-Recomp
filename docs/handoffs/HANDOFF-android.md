@@ -1,5 +1,24 @@
 # Handoff: Android build of the Skies recomp (2026-10-05, updated 2026-10-17)
 
+## Status (2026-10-17, late): v0.10.0-beta
+
+- **Release APK** (HANDOFF-release *Released*): both games' modules (`libgGEAE8P_recomp.so`,
+  `libgGEAP8P_recomp.so`, built by CI with `PREGEN` / `PREGEN_EU`) and both `.dolpatch` files; the
+  import picks the region from the disc ID and keeps one game at a time (`jni/SkiesImport.cpp`, NOTES
+  *The European release*). Signed with the 0.9.1 key, so it installs over 0.9.1; the app repatches the
+  imported 0.9.1 DOL (ws20) to ws22 from its `main.dol.orig`.
+- **60 fps on ws22 with the existing `android.profdata`: passed** (debug test app,
+  `build/android/apk/skies-ws22-2026-10-17.apk`, `tools/bench-android.sh`, two rounds: red alert
+  1.004 / 1.004, world map 1.007 / 1.006, first battle 1.003 / 1.003, ship field 1.004 / 1.004,
+  59.8-59.9 fps; `build/android/bench/ws22-60fps-r{1,2}`).
+- **Not measured: the European game's speed** (no European PGO profile). A debug APK with both modules
+  is built, `build/android/apk/skies-ws22eu-2026-10-17.apk`, not run. Also untried on a device:
+  Settings → Sound → Import a Dreamcast disc (CHD) and a European disc import.
+- **The Retroid** runs the **0.9.1 release app** with the user's data (0.10.0-beta not installed
+  there yet; ask before updating it) and the debug test app with the ws22 APK.
+- Input (keyboard / mapping, the in-game Button mapping on Android, `[SkiesHotkeys] Menu = Select`):
+  HANDOFF-input.md.
+
 ## Status (2026-10-17): release APK fixes, controller Z, Back up saves
 
 All in `recompcore-android-lifecycle.patch` (the last patch; it now also covers `SkiesImport.cpp`'s

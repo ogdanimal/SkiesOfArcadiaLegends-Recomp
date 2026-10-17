@@ -3,16 +3,19 @@
 How to build Skies of Arcadia Legends: Recompiled from source. Players don't need any of this: the
 [Releases](../../releases) page has ready builds (see the [README](README.md)).
 
-You need your own **USA** disc (`GEAE8P`). Nothing from the game is in this repository; the build
-reads `main.dol` from your disc, applies the port's game patch to it
-([`release/skies-widescreen.dolpatch`](release/skies-widescreen.dolpatch)) and recompiles the
+You need your own **USA** (`GEAE8P`) or **European** (`GEAP8P`) disc; a release build carries both
+games' modules, so building one needs both DOLs. Nothing from the game is in this repository; the
+build reads `main.dol` from your disc, applies the port's game patch to it
+([`release/skies-widescreen.dolpatch`](release/skies-widescreen.dolpatch), European
+[`release/skies-widescreen-eu.dolpatch`](release/skies-widescreen-eu.dolpatch)) and recompiles the
 result.
 
 The pipeline, in short:
 
 1. **DolRecomp** ([`lib/ModernGekko/vendor/dolphin/DolRecomp`](https://github.com/ExpansionPak/DolRecomp))
    translates the patched `main.dol` into native objects (LLVM backend, with a PGO profile) or C.
-2. The **module template** links them into the game module (`gGEAE8P_recomp.dll` / `.so`).
+2. The **module template** links them into the game module (`gGEAE8P_recomp.dll` / `.so`; the
+   European one is `gGEAP8P_recomp`).
 3. **ModernGekko** ([`lib/ModernGekko`](https://github.com/ExpansionPak/ModernGekko)) is the runtime
    and launcher: Dolphin's hardware code (video, audio, DSP, input, memory cards) around the module.
 
@@ -67,17 +70,21 @@ JDK 17.
 
 ## 3. Generate the code
 
-The game patch is applied to your disc's original `main.dol` (SHA-256 `87c240ac...`), giving the
-patched DOL the launcher also makes on import:
+The game patch is applied to your disc's original `main.dol` (USA SHA-256 `87c240ac...`, European
+`d0e9fc91...`), giving the patched DOL the launcher also makes on import:
 
 ```sh
 python3 -I tools/applydolpatch.py /path/to/original/main.dol release/skies-widescreen.dolpatch main.dol
+python3 -I tools/applydolpatch.py /path/to/european/main.dol release/skies-widescreen-eu.dolpatch main-eu.dol
 ```
 
-`tools/ci-codegen.sh` is the release recipe: from a folder holding `main.dol` (the original) and the
-PGO profiles `pgo/windows.profdata` (desktop, used for both x86_64 targets) and `pgo/android.profdata`,
-it patches the DOL, runs DolRecomp for each target and precomputes each module's tables, so the
-module builds below never need the DOL:
+`tools/ci-codegen.sh` is the release recipe: from a folder holding `main.dol` (the USA original),
+`main-eu.dol` (the European original; without it, the USA game alone) and the PGO profiles
+`pgo/windows.profdata` (desktop, used for both x86_64 targets) and `pgo/android.profdata`, it patches
+each DOL, runs DolRecomp for each target and precomputes each module's tables, so the module builds
+below never need the DOL. The European game goes to `windows-eu/`, `linux-eu/` and `android-eu/`, and
+is built without PGO unless `pgo/windows-eu.profdata` / `pgo/android-eu.profdata` exist (the
+profiles are keyed by code addresses, which differ between the two games):
 
 ```sh
 cmake -S lib/ModernGekko/vendor/dolphin/DolRecomp -B build/dolrecomp -G Ninja \
@@ -86,7 +93,7 @@ cmake --build build/dolrecomp --target dolrecomp
 DOLRECOMP=build/dolrecomp/dolrecomp TARGETS="linux" tools/ci-codegen.sh SECRETS_DIR codegen
 ```
 
-`TARGETS` takes any of `windows linux android` (default: all three). The profiles are trained with
+`TARGETS` takes any of `windows linux android` (default: all three), `REGIONS` `us` and / or `eu`. The profiles are trained with
 `tools/pgo-wsl.sh` (desktop) and on the device (Android); see
 [development notes, *Performance*](docs/development-notes.md#performance).
 
@@ -97,13 +104,18 @@ DOLRECOMP=build/dolrecomp/dolrecomp TARGETS="linux" tools/ci-codegen.sh SECRETS_
 ```sh
 MODULE_TABLES_INC=codegen/linux/generated/module_tables.inc \
   tools/module-linux.sh codegen/linux/generated build/module-linux
-tools/build-release-linux.sh configure
+MODULE_TABLES_INC=codegen/linux-eu/generated/module_tables.inc GAME_ID=GEAP8P \
+  tools/module-linux.sh codegen/linux-eu/generated build/module-linux-eu
+REGIONS="us eu" tools/build-release-linux.sh configure
 tools/build-release-linux.sh build
-tools/build-release-linux.sh package build/module-linux/gGEAE8P_recomp.so v0.9.0
+tools/build-release-linux.sh package build/module-linux/gGEAE8P_recomp.so \
+  build/module-linux-eu/gGEAP8P_recomp.so v0.10.0-beta
 ```
 
-This makes `build/SkiesOfArcadiaLegends-v0.9.0-linux.tar.gz`: the launcher `SkiesOfArcadiaLegends`,
-the runner `skies-run`, the module and Dolphin's `Sys` folder.
+This makes `build/SkiesOfArcadiaLegends-v0.10.0-beta-linux.tar.gz`: the launcher
+`SkiesOfArcadiaLegends`, the runner `skies-run`, both modules and Dolphin's `Sys` folder. Without
+`REGIONS="us eu"` at configure the release takes the USA disc alone, and `package` needs only the
+USA module.
 
 ### Windows
 
@@ -112,13 +124,19 @@ From a Developer Command Prompt (or with `vcvars64.bat` found by the scripts):
 ```bat
 set MODULE_TABLES_INC=%CD%\codegen\windows\generated\module_tables.inc
 tools\module-win.bat %CD%\codegen\windows\generated %CD%\build\module
+set MODULE_TABLES_INC=%CD%\codegen\windows-eu\generated\module_tables.inc
+set GAME_ID=GEAP8P
+tools\module-win.bat %CD%\codegen\windows-eu\generated %CD%\build\module-eu
+set GAME_ID=
+set REGIONS=us eu
 tools\build-release-win.bat configure
 tools\build-release-win.bat build
-tools\build-release-win.bat package build\module\gGEAE8P_recomp.dll v0.9.0
+tools\build-release-win.bat package build\module\gGEAE8P_recomp.dll build\module-eu\gGEAP8P_recomp.dll v0.10.0-beta
 ```
 
-This makes `build\SkiesOfArcadiaLegends-v0.9.0-windows.zip` (`Skies of Arcadia Legends.exe`,
-`skies-run.exe`, the module, `Sys`, the app-local Visual C++ runtime).
+This makes `build\SkiesOfArcadiaLegends-v0.10.0-beta-windows.zip` (`Skies of Arcadia Legends.exe`,
+`skies-run.exe`, both modules, `Sys`, the app-local Visual C++ runtime). `REGIONS` works as on
+Linux.
 
 ### Android
 
@@ -126,7 +144,9 @@ This makes `build\SkiesOfArcadiaLegends-v0.9.0-windows.zip` (`Skies of Arcadia L
 BRAND=1 NAME=dev PREGEN=codegen/android NDK=$ANDROID_HOME/ndk/29.0.14206865 tools/android-ws-build.sh
 ```
 
-This makes a debug-signed branded APK in `build/android/apk/`. `RELEASE=1 VERSION=x.y.z` builds a
+This makes a debug-signed branded APK in `build/android/apk/`. `PREGEN_EU=codegen/android-eu` (or
+a European patched DOL at `DOL_EU`) adds the European module and its patch; without it the APK takes
+the USA disc alone. `RELEASE=1 VERSION=x.y.z` builds a
 minified APK, built unsigned by Gradle and then signed with the release key by `tools/sign-apk.sh`
 (`tools/make-release-key.sh`; it refuses an APK not signed with that key). `SIGN=0` stops at the
 unsigned APK, as CI does: there a separate `android-sign` job signs it, so Gradle and the build's
@@ -155,7 +175,7 @@ helpers in `tools/`:
 | [`docs/development-notes.md`](docs/development-notes.md) | how it all works, measurements, known issues; *The player build* lists every control and setting |
 | [`patches/README.md`](patches/README.md) | the patches to ModernGekko, RecompCore and DolRecomp |
 | [`patches/game/README.md`](patches/game/README.md) | the game patch built into the DOL (widescreen, camera, options) |
-| [`docs/handoffs/`](docs/handoffs/) | status and history per area: release, code review, settings, desktop, Android |
+| [`docs/handoffs/`](docs/handoffs/) | status and history per area: release, code review, settings, desktop, Android, input, the European disc and Dreamcast music |
 
 ## 5. CI and releases
 
@@ -173,7 +193,7 @@ GitHub Actions builds every platform the same way:
 - **`release.yml`** runs on a `v*` tag on a commit on `main`: it calls `validate.yml` in release mode
   (version from the tag, a signed Android APK), refuses any package that holds a disc image, a DOL or
   generated code, and publishes a GitHub Release with the three packages and `SHA256SUMS.txt`. A tag
-  with a suffix (`v0.9.0-beta`) is a prerelease.
+  with a suffix (`v0.10.0-beta`) is a prerelease.
 
 Neither runs on pull requests, so code from forks never reaches the secrets.
 

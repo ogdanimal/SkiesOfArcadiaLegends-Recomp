@@ -16,6 +16,8 @@ the working tree on 2026-10-12 morning (commit `35d1a4d`).
 Tick the box and note the commit when done. Anything that touches a submodule file goes through the
 matching `patches/*.patch` (`tools/regen-recompcore-patch.sh`, `patches/README.md`).
 
+**Status after v0.10.0-beta (2026-10-17):** B7 is closed (the repo went public; environments `ci` / `release` and the rulesets `main` / `release tags` exist, validate.yml's jobs run in `ci` and `android-sign` in `release`; HANDOFF-release *Status*). Still open: the state header's triple read.
+
 **Status (2026-10-12, evening):** A1-A9 done (`0afcabc`); B1-B6, B8-B14 done (`1d4856b`, `b0f0ca1`);
 B7 waits on your GitHub plan; section C done (`89cdb47`; the four game-patch items in ws18) except the state header's
 triple read. Device checks: all done on the Retroid 2026-10-12 (B11, B12 below), as are
@@ -300,7 +302,9 @@ through the ws18 commit (release + dev builds rebuilt, `build\game\GEAE8P-ws18`,
   Exp=2000000000 Gold=-1 MagicExp=2000000000`): guest input reads 400 / 0 / 400, Vyse gets 12 EXP and
   8+16 magic EXP (the 4x numbers in NOTES), 0 gold.
 
-- [ ] **B7 Medium (CI): the "tag must be on main" guard lives in the tagged commit's own workflow.**
+- [x] **B7 Medium (CI): the "tag must be on main" guard lives in the tagged commit's own workflow.**
+  **Done 2026-10-17** (at going public): `tools/setup-github-protection.sh` made the environments and
+  rulesets below, the secrets moved into them, and the jobs name their environment.
   `.github/workflows/release.yml:40-46`, `validate.yml:30-35`. A push-tag run uses the workflow file
   *at the tag*, so a tag on a non-main commit can carry a `release.yml` with the guard removed;
   `validate.yml` also has `workflow_dispatch` (any ref) + push to `dev`, and its jobs read the secrets
