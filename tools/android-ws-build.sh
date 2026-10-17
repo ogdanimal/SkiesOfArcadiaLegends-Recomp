@@ -7,6 +7,10 @@
 # BRAND=1 builds the branded app instead (Skies of Arcadia Legends, com.skiesofarcadia.recomp: first-run disc import
 # with release/skies-widescreen.dolpatch, which must turn the original DOL into this DOL; no game list):
 # build/android/apk/skies-recomp-NAME-<date>.apk.
+# MODULE_ONLY=1 stops after the native module (build/android/jniLibs-NAME); JNILIBS=DIR builds only the
+# APK, around a module built that way (CI: the job that decrypts the generated code builds the module,
+# and Gradle with its downloaded dependencies runs in a job of its own that never sees that code or the
+# key that decrypts it).
 set -eu
 cd "$(dirname "$0")/.."
 ROOT=$PWD
@@ -31,7 +35,7 @@ if [ "${BRAND:-0}" = 1 ]; then
   mkdir -p $B/assets/licenses && cp COPYING release/README.md release/THIRD-PARTY.md $B/assets/licenses/ &&
     cp $V/Externals/licenses.md $B/assets/licenses/THIRD-PARTY-DOLPHIN.md && cp -r $V/LICENSES/. $B/assets/licenses/
   # The DOL the import must produce: the patch's output hash (PREGEN), or this DOL's, checked against it
-  if [ -n "${PREGEN:-}" ]; then
+  if [ -n "${PREGEN:-}" ] || [ -n "${JNILIBS:-}" ]; then
     sed -n 's/^output-sha256 //p' release/skies-widescreen.dolpatch > $B/dol-sha256.txt
   else
     sha256sum $DOL | cut -d' ' -f1 > $B/dol-sha256.txt
@@ -44,6 +48,10 @@ if [ "${BRAND:-0}" = 1 ]; then
     { echo "release/skies-widescreen.dolpatch doesn't make $DOL"; exit 1; }
   BRAND_ARGS=(-PskiesBrand=$B)
 fi
+if [ -n "${JNILIBS:-}" ]; then
+  [ -f "$JNILIBS/arm64-v8a/libgGEAE8P_recomp.so" ] || { echo "no $JNILIBS/arm64-v8a/libgGEAE8P_recomp.so"; exit 1; }
+  mkdir -p $A && rm -rf $A/jniLibs-$NAME && cp -r "$JNILIBS" $A/jniLibs-$NAME
+else
 TABLES=()
 if [ -n "${PREGEN:-}" ]; then
   GEN=$PREGEN/generated
@@ -65,6 +73,11 @@ cmake -G Ninja -S $V/module-template -B $A/module-$NAME \
 ninja -C $A/module-$NAME > $A/module-$NAME.log 2>&1
 mkdir -p $A/jniLibs-$NAME/arm64-v8a
 $NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip --strip-debug -o $A/jniLibs-$NAME/arm64-v8a/libgGEAE8P_recomp.so $A/module-$NAME/gGEAE8P_recomp.so
+fi
+if [ "${MODULE_ONLY:-0}" = 1 ]; then
+  ls -la $A/jniLibs-$NAME/arm64-v8a/
+  exit 0
+fi
 # RELEASE=1 (with BRAND=1): a minified release APK, built unsigned by Gradle and then signed with the
 # release key by tools/sign-apk.sh (SKIES_KEYSTORE etc. there; the password is asked for or comes
 # from SKIES_STORE_PASS, never a command line). SIGN=0 stops at the unsigned APK (CI signs it in a

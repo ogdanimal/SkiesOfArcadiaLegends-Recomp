@@ -29,6 +29,24 @@ linux (30m) passed:
   tag (the guard refuses any ref that isn't a tag), and `tools/release.sh` starts it that way when the
   tag push starts nothing within two minutes.
 
+**CI security audit (2026-10-17, user: "are there any other ci security gaps"):** all `uses:` pinned
+to SHAs, every checkout `persist-credentials: false`, no `${{ }}` inside `run:` scripts, token read-only
+except publish, no `pull_request` / `pull_request_target` triggers; public logs hold no generated code
+(no compiler warnings quote it; codegen's DolRecomp log stays on the runner). Fixed:
+- Android's Gradle (unverified Maven dependencies; Dolphin has no `verification-metadata.xml`) ran in
+  the job that decrypted the generated code, so a poisoned dependency could read that code or, with the
+  runner's sudo, the artifact key from the runner's memory (the tj-actions attack). Now `android-module`
+  (decrypt + NDK only) builds the module and `android` (Gradle) gets only that `.so`, no secrets
+  (`tools/android-ws-build.sh` `MODULE_ONLY=1` / `JNILIBS=DIR`; JNILIBS path built locally, the module in
+  the APK). Windows and Linux still decrypt and build in one job: their other code is pinned (vendored
+  submodules, msvc-dev-cmd by SHA, Ubuntu-signed apt packages).
+- `tools/setup-github-protection.sh` now also allows only GitHub's own actions plus the three
+  third-party ones with SHA pinning required, turns on secret scanning + push protection, Dependabot
+  alerts and private vulnerability reporting, and deletes every old artifact and cache (the encrypted
+  codegen artifacts were downloadable by anyone once public; their key is replaced that day).
+Left as is: the AES-CBC codegen artifact has no MAC (only produced and read inside one run); the
+secrets repo token is a fine-grained token with an expiry, so CI's codegen fails when it lapses.
+
 User decisions (2026-10-13): **v0.9.0-beta** (prerelease); **the repo goes public at release**;
 clean-machine test in **Windows Sandbox** (the user enables it: admin + reboot); the **Retroid moves to
 the release-signed APK** once CI makes it (backup, uninstall the debug-signed test app, install,

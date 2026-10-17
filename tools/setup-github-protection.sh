@@ -11,9 +11,16 @@
 #                        job alone: the release signing key)
 #   ruleset "release tags"  only admins create, move or delete v* tags
 #   ruleset "main"          main can't be deleted or force-pushed
+#   Actions                 only GitHub's own actions and the three third-party ones the workflows
+#                           use, each pinned to a full commit SHA
+#   security features       secret scanning with push protection, Dependabot alerts, private
+#                           vulnerability reporting
+#   old CI outputs          every artifact and cache made before this (they were encrypted with, or
+#                           keyed on, the artifact key the next step replaces)
 # Then: tools/set-release-secrets.sh --environments (moves the secrets into the environments and
 # deletes the repo-level copies), then the environment: lines in validate.yml: `environment: ci` on
-# codegen, windows, linux and android, `environment: release` on android-sign.
+# codegen, windows, linux and android-module (the jobs that read secrets; android runs Gradle and gets
+# none), `environment: release` on android-sign.
 set -euo pipefail
 REPO=${1:?usage: tools/setup-github-protection.sh OWNER/REPO}
 [ "$(gh api "repos/$REPO" --jq .visibility)" = public ] ||
@@ -59,3 +66,29 @@ ruleset "main" '{"name":"main","target":"branch","enforcement":"active",
   "rules":[{"type":"deletion"},{"type":"non_fast_forward"}]}'
 
 gh api "repos/$REPO/environments" --jq '.environments[] | "  \(.name): \([.protection_rules[]?.type] | join(", "))"'
+
+# Actions: GitHub's own plus exactly the third-party actions in .github/workflows, SHA-pinned
+gh api -X PUT "repos/$REPO/actions/permissions" --input - >/dev/null <<< \
+  '{"enabled":true,"allowed_actions":"selected","sha_pinning_required":true}'
+gh api -X PUT "repos/$REPO/actions/permissions/selected-actions" --input - >/dev/null <<< \
+  '{"github_owned_allowed":true,"verified_allowed":false,
+    "patterns_allowed":["ilammy/msvc-dev-cmd@*","gradle/actions/wrapper-validation@*","gradle/actions@*","android-actions/setup-android@*"]}'
+gh api "repos/$REPO/actions/permissions" --jq '"actions: \(.allowed_actions), SHA pinning required: \(.sha_pinning_required)"'
+
+# Free for public repos
+gh api -X PATCH "repos/$REPO" --input - >/dev/null <<< \
+  '{"security_and_analysis":{"secret_scanning":{"status":"enabled"},"secret_scanning_push_protection":{"status":"enabled"}}}'
+gh api -X PUT "repos/$REPO/vulnerability-alerts" >/dev/null
+gh api -X PUT "repos/$REPO/private-vulnerability-reporting" >/dev/null
+gh api "repos/$REPO" --jq '"secret scanning: \(.security_and_analysis.secret_scanning.status), push protection: \(.security_and_analysis.secret_scanning_push_protection.status)"'
+
+# Old CI outputs: anyone can download a public repo's artifacts; the codegen ones are encrypted with
+# the artifact key that set-release-secrets.sh --environments replaces, and nothing needs the old ones
+n=0
+for id in $(gh api --paginate "repos/$REPO/actions/artifacts" --jq '.artifacts[].id'); do
+  gh api -X DELETE "repos/$REPO/actions/artifacts/$id" >/dev/null && n=$((n + 1))
+done
+for id in $(gh api --paginate "repos/$REPO/actions/caches" --jq '.actions_caches[].id'); do
+  gh api -X DELETE "repos/$REPO/actions/caches/$id" >/dev/null && n=$((n + 1))
+done
+echo "deleted $n old artifacts and caches"

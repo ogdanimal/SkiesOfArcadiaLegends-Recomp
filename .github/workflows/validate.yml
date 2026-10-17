@@ -319,8 +319,11 @@ jobs:
           retention-days: 7
 
   # ---------------------------------------------------------------------------
-  android:
-    name: android
+  # The native game module, from the generated code. Gradle doesn't run here: this job holds the
+  # decrypted code and the key, so it runs only the NDK (Google's, through sdkmanager), CMake and Ninja.
+  # The module it uploads is the one the APK ships.
+  android-module:
+    name: android-module
     needs: codegen
     runs-on: ubuntu-24.04
     steps:
@@ -345,6 +348,50 @@ jobs:
         run: |
           openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:SOAL_ARTIFACT_KEY -in codegen.tar.gz.enc | tar xzf -
           rm codegen.tar.gz.enc
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
+        with:
+          packages: platform-tools  # the default also asks for 'tools', which the SDK dropped
+
+      - name: Install the pinned NDK
+        run: |
+          sdkmanager --install "ndk;29.0.14206865"
+          sudo apt-get install -y ninja-build
+
+      - name: Build the module
+        run: NAME=ci PREGEN=codegen/android MODULE_ONLY=1 NDK=$ANDROID_HOME/ndk/29.0.14206865 tools/android-ws-build.sh
+
+      - name: Upload the module
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: android-module-${{ github.sha }}
+          path: build/android/jniLibs-ci
+          if-no-files-found: error
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # The APK around that module. Gradle, its plugins and the build's dependencies (downloaded, not
+  # hash-pinned) run here, so this job gets no secrets and never sees the generated code.
+  android:
+    name: android
+    needs: android-module
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Apply patches
+        run: tools/apply-patches.sh
+
+      - name: Download the module
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: android-module-${{ github.sha }}
+          path: android-module
 
       # SDL's sample android-project carries a wrapper jar that isn't a released Gradle build. Nothing
       # here runs it (the app builds with Source/Android's wrapper, validated next), so it goes
@@ -378,7 +425,7 @@ jobs:
           RELEASE: ${{ (inputs.release || inputs.unsigned_release) && '1' || '0' }}
           VERSION: ${{ inputs.vname }}
         run: |
-          BRAND=1 SIGN=0 NAME=ci PREGEN=codegen/android NDK=$ANDROID_HOME/ndk/29.0.14206865 tools/android-ws-build.sh
+          BRAND=1 SIGN=0 NAME=ci JNILIBS=android-module NDK=$ANDROID_HOME/ndk/29.0.14206865 tools/android-ws-build.sh
           ls -la build/android/apk/
 
       - name: Upload APK
