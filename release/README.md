@@ -150,8 +150,10 @@ once by itself on Frame rate, so you can switch to 30 fps. Nothing changes unles
 - Built on [ModernGekko](https://github.com/ExpansionPak/ModernGekko) and
   [DolRecomp](https://github.com/ExpansionPak/DolRecomp), which build on the
   [Dolphin](https://dolphin-emu.org/) emulator's hardware code.
-- The Dreamcast music plays through [Highly Theoretical](https://github.com/kode54/Highly_Theoretical)
-  (the Dreamcast sound chip) and reads CHD images with [libchdr](https://github.com/rtissera/libchdr).
+- The Dreamcast music plays through Neill Corlett's
+  [Highly Theoretical](https://github.com/kode54/Highly_Theoretical) (the Dreamcast sound chip,
+  maintained by kode54) and reads CHD images with Romain Tisserand's
+  [libchdr](https://github.com/rtissera/libchdr).
 
 Skies of Arcadia Legends is (c) SEGA. This project isn't affiliated with or endorsed by SEGA.
 

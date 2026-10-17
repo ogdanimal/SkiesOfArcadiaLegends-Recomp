@@ -204,8 +204,10 @@ See [BUILDING.md](BUILDING.md). How the port works, with measurements and histor
 - Built on [ModernGekko](https://github.com/ExpansionPak/ModernGekko) and
   [DolRecomp](https://github.com/ExpansionPak/DolRecomp), which build on the
   [Dolphin](https://dolphin-emu.org/) emulator's hardware code.
-- The Dreamcast music plays through [Highly Theoretical](https://github.com/kode54/Highly_Theoretical)
-  (the Dreamcast sound chip) and reads CHD images with [libchdr](https://github.com/rtissera/libchdr).
+- The Dreamcast music plays through Neill Corlett's
+  [Highly Theoretical](https://github.com/kode54/Highly_Theoretical) (the Dreamcast sound chip,
+  maintained by kode54) and reads CHD images with Romain Tisserand's
+  [libchdr](https://github.com/rtissera/libchdr).
 - Started from [ModernGekko-Template](https://github.com/ExpansionPak/ModernGekko-Template).
 
 Skies of Arcadia Legends is © SEGA. This project isn't affiliated with or endorsed by SEGA.
