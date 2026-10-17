@@ -74,9 +74,14 @@ Blocking the release:
   2026-10-17** (DC-music session, debug test app: red alert, world map, first battle, ship field at
   1.003-1.007 in two rounds, as the ws8 baseline; `build/android/bench/ws22-60fps-r{1,2}/`).
 - European checks on WSL passed 2026-10-17 (save point save + autoload, savestate round trip, full
-  speed); a European ship battle not yet run. HANDOFF-dcmusic-eu *Open*.
-- A USA regression pass: Continue / card autoload, a battle at a QOL speed, and **0.9.1 save states
-  loading** (players have them; the import refuses other state versions).
+  speed, and a ship battle: Baltor won at 1.00x with the widescreen HUD). HANDOFF-dcmusic-eu *Open*.
+  European speed on the Retroid (its module has no PGO) not measured yet.
+- ~~A USA regression pass with 0.9.1 save states~~ **passed 2026-10-17** (Retroid, the release app's
+  data, a branded debug build of `179f817` around the ws22 module): updating over 0.9.1 repatched the
+  imported game from ws20 to ws22 at first start (from `main.dol.orig`); an auto-save written by the
+  release 0.9.1 app loaded through Continue (world map, 59.9 fps); a random encounter's battle ran at
+  59.9 and Z changed the battle speed. The release build has no automation hook, so the 0.9.1 state
+  came from its auto-save and input from `sendevent` on `/dev/input/event8`.
 - Someone listening to the Dreamcast music (only checked on WSL, which has no audio).
 - Keyboard and remapping run on Windows and on Android (only WSL so far).
 - European disc in CI: **wired 2026-10-17** (`2436886`, the user said include it; `main-eu.dol`,

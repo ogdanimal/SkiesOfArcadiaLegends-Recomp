@@ -69,7 +69,14 @@ synced 2026-10-17: the branded release (`lib\ModernGekko\build-release`, `REGION
    `AutoLoadCard = 4` loaded it (camp menu time 2:09). A savestate saved, walked away from and loaded
    back also works on the European game. No invalid reads; the test file was removed from
    `build/user-eu` afterwards. Even the converted USA saves load (the save format is the same).
-   Still not run on the European game: a ship battle (no European save near one).
+   **Ship battle: works** (2026-10-17): `tools/shipbattle-state-win.sh`'s method with European
+   addresses (debug DOL `build/game/GEAP8P-ws22-shipdbg` = widescreen + shipdebug.json, `30306223`;
+   module `build/eu-shipdbg/module-linux`): card file 3 auto-loaded, `poke:0x8031DFE4:53485000` gave the
+   Little Jack, weapons at `0x803103F4` (= `lbl_8030EE74 + 0x1580`, same layout as USA), `me500a.sct` to
+   `0x80309370` + 0xF to `0x8031517C`. Baltor's battle at 1.00x, widescreen HUD, `qol-test-win.sh`'s
+   ship input pattern: Focus phase, won at cycle 36, back to map 205, results (Vyse Lv 7, Aika Lv 6,
+   300 gold), `qol_ship_live` 1 in battle and 0 after, ship HP 10000 throughout (Invincible), no
+   invalid reads. Its opening state: `build/savestates/eu-17-ship-battle-baltor.sav` (European game only).
 3. **Release checklist** (the release session's, for the next release with ws22): (a) the Retroid at
    full speed with the existing `android.profdata` on ws22: **passed 2026-10-17** (debug test app,
    `skies-ws22-2026-10-17.apk`, two rounds: red alert 1.004 / 1.004, world map 1.007 / 1.006, first battle
