@@ -1,10 +1,43 @@
-# Handoff: release v0.9.0 beta (Windows, Linux, Android)
+# Handoff: releases (Windows, Linux, Android)
 
-## Released (2026-10-17): v0.9.0-beta, then v0.9.1-beta
+## Released (2026-10-17): v0.10.0-beta
 
-**v0.9.1-beta is the current release** (prerelease, `4eebf7f`, run 39035626182):
-https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/releases/tag/v0.9.1-beta. Notes are in
-`build/notes-0.9.1-beta.md` (local; `release.sh` puts them on the release).
+**v0.10.0-beta is the current release** (prerelease, `61ac70e`, run 39070491053, published 22:29 UTC):
+https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/releases/tag/v0.10.0-beta. Notes are in
+`build/notes-0.10.0-beta.md` (local; `release.sh` puts them on the release).
+
+What it carries over 0.9.1:
+- **European disc** (`GEAP8P`; both games' modules in every package, one disc installed at a time) and
+  **Dreamcast music** (optional, from the player's Dreamcast disc, GDI / CHD): the DC-music / EU
+  session, `docs/handoffs/HANDOFF-dcmusic-eu.md`. The USA game patch moved from ws20 to **ws22**.
+- **Keyboard + remapping** (launcher Settings → Controls, in-game Button mapping; controller 1 follows
+  the pad in use; the launcher no longer needs a controller): `docs/handoffs/HANDOFF-input.md`.
+- **Android Back up saves** (`b527364`) and **codegen reuse in CI** (`177be84`, below).
+- **A DolRecomp fix** (`patches/dolrecomp-halfword-byterev.patch`): the LLVM path byte-swapped `lhbrx` /
+  `sthbrx` as 32-bit, so halfword stores wrote 0 (broke every European text lookup; in 0.9.1's USA
+  modules it zeroed two header halfwords in Ninja's PVR texture loader, no symptom seen).
+- **Desktop update message** (`61ac70e`): Windows / Linux patch the imported DOL in place, so a 0.9
+  import can't be repatched to ws22 by itself. The launcher now says the update needs the disc once
+  more, and the runner shows a message box instead of a silent failure. Select Disc with the same
+  image refreshes the import; saves, states and settings are kept. Android keeps `main.dol.orig` and
+  repatches by itself.
+
+Checks before the tag (2026-10-17): the Retroid at 60 fps on ws22; a USA regression pass from 0.9.1
+(the release app's auto-save loaded through Continue after the update repatched ws20 to ws22, battle
+at 59.9, Z battle speed); European checks on WSL (save point + autoload, state round trip, a ship
+battle at 1.00x); Windows keyboard re-run on the release code; the desktop upgrade path (launcher text
+on Linux, runner box on Windows); Back up saves round trip on the Retroid (11/11 files identical).
+Not measured: European speed on the Retroid (its module has no PGO; the device dropped off adb).
+
+The user approved the `release` environment themselves (from their phone). Every published file was
+checked: checksums; the APK is signed with the same key as 0.9.1 (`e2c00b0b...`), versionCode 417449
+(> 0.9.1's 417012, so it installs over it), no `testOnly`; `gGEAE8P` + `gGEAP8P` modules and both
+`.dolpatch` files in the APK, the Windows zip and the Linux tar; no disc image / DOL / GCI / save; 289
+sampled 64-byte runs of the USA and European DOLs matched nothing in the 8701 unpacked files.
+
+## Earlier releases (2026-10-17): v0.9.0-beta, then v0.9.1-beta
+
+v0.9.1-beta: `4eebf7f`, run 39035626182, notes `build/notes-0.9.1-beta.md`.
 
 How it went:
 - **v0.9.0-beta, first try** (run 39004174568, tag on `3bd58db`): every build passed, then `android-sign`
@@ -34,7 +67,7 @@ How it went:
 - Players found the `dev` builds in the Actions artifacts (the repo is public); the Android one is
   debug-signed, so it can't update to or from a release install without an uninstall.
 
-After the release, on `dev` (not released yet):
+Since 0.9.1, before 0.10 (all in 0.10.0-beta):
 - `177be84`: a release reuses its commit's codegen. Each cache key's encrypted codegen is also kept as an
   artifact named by the key for 30 days (once per key), and a cache miss downloads it (it must decrypt
   with `SOAL_ARTIFACT_KEY`) instead of generating; tags no longer pay ~55 min of codegen. Verified by
@@ -44,58 +77,20 @@ After the release, on `dev` (not released yet):
   into that commit; the user approved keeping them).
 - `b527364`: Android **Back up saves** (Settings → Saves, one `.zip` through the system picker) and
   Import a save takes that `.zip`; README and release README got the default controller table.
+- `2436886`: the European disc in CI (`main-eu.dol`, SHA-256 `d0e9fc91...`, in the secrets repo):
+  `REGIONS: us eu`, both modules in every package; the publish check knows both games' DOL hashes and
+  requires both modules. No European PGO profiles yet.
 
-## Next release: one bigger release, held until the features are done (user, 2026-10-17)
+## Next
 
-User: "commit, update docs and hold for other features to finish for a bigger release". No tag until
-then. What it will carry (on `dev` or being committed):
-- Since 0.9.1 on `dev`: codegen reuse in CI, Android Back up saves, the README controls table.
-- **Dreamcast music** (optional, imported from the player's Dreamcast disc, GDI / CHD) and the
-  **European disc** (`GEAP8P`; one release takes either disc): the DC-music / EU session,
-  `docs/handoffs/HANDOFF-dcmusic-eu.md`, `patches/recompcore-skies-dcmusic-eu.patch`.
-- **A DolRecomp fix** (`patches/dolrecomp-halfword-byterev.patch`): the LLVM path byte-swapped
-  `lhbrx` / `sthbrx` as 32-bit, so halfword stores wrote 0. It broke every European text lookup; in
-  0.9.1's USA modules it zeroes two header halfwords in Ninja's PVR texture loader (`fn_80298798`,
-  three early call sites), with no symptom seen. The codegen cache key hashes `patches/dolrecomp-*.patch`,
-  so the first run after it regenerates.
-- **Keyboard + remapping** (launcher Settings → Controls, the in-game Button mapping; controller 1
-  follows the pad in use; the launcher no longer needs a controller): the input session,
-  `docs/handoffs/HANDOFF-input.md` on branch `input`.
-- The USA game patch moves from ws20 to **ws22** (the Dreamcast music hooks; inert unless the option is
-  on and a disc is imported).
-
-Committed for it (2026-10-17, local `dev`, **not pushed**: the user keeps it local until they say so):
-`c131c82` DC music + European disc + the DolRecomp fix (ws22), `9e32e7f` keyboard + remapping (the
-`input` patch last in the series). A release build folder configured before `c131c82` still points at
-ws20: configure again (`REGIONS="us eu" tools/build-release-linux.sh configure`).
-
-Blocking the release:
-- ~~The Retroid at full speed, 60 fps, on ws22 with the current `android.profdata`~~ **passed
-  2026-10-17** (DC-music session, debug test app: red alert, world map, first battle, ship field at
-  1.003-1.007 in two rounds, as the ws8 baseline; `build/android/bench/ws22-60fps-r{1,2}/`).
-- European checks on WSL passed 2026-10-17 (save point save + autoload, savestate round trip, full
-  speed, and a ship battle: Baltor won at 1.00x with the widescreen HUD). HANDOFF-dcmusic-eu *Open*.
-  European speed on the Retroid (its module has no PGO) not measured yet.
-- ~~A USA regression pass with 0.9.1 save states~~ **passed 2026-10-17** (Retroid, the release app's
-  data, a branded debug build of `179f817` around the ws22 module): updating over 0.9.1 repatched the
-  imported game from ws20 to ws22 at first start (from `main.dol.orig`); an auto-save written by the
-  release 0.9.1 app loaded through Continue (world map, 59.9 fps); a random encounter's battle ran at
-  59.9 and Z changed the battle speed. The release build has no automation hook, so the 0.9.1 state
-  came from its auto-save and input from `sendevent` on `/dev/input/event8`.
-- Someone listening to the Dreamcast music (only checked on WSL, which has no audio).
-- Keyboard and remapping run on Windows and on Android (only WSL so far).
-- European disc in CI: **wired 2026-10-17** (`2436886`, the user said include it; `main-eu.dol`,
-  SHA-256 `d0e9fc91...`, added to the secrets repo): `REGIONS: us eu` for the workflow, both modules
-  in every package, the publish check knows both games' DOL hashes and requires both modules. First
-  two-region CI run: 39058556216. No European PGO profiles yet: desktop ships without; whether
-  Android needs one for 60 fps in Europe is still to be measured (Retroid, ask).
-
-Held by the user: the **nightly prerelease** (latest green `dev` on a fixed `nightly` tag, Android
-under its own app ID such as `com.skiesofarcadia.recomp.nightly`, no signing approval).
+- Held by the user: the **nightly prerelease** (latest green `dev` on a fixed `nightly` tag, Android
+  under its own app ID such as `com.skiesofarcadia.recomp.nightly`, no signing approval).
+- European speed on the Retroid (ask before using the device); a European PGO profile if it misses 60.
+- The Retroid still runs the 0.9.1 release app with the user's data; 0.10.0-beta installs over it
+  (same key). Ask before updating it.
 
 Other sessions on this repo (2026-10-17): DC music + European disc (shares the main checkout; commit
-with explicit paths only) and keyboard / remapping / input (own worktree, branch `input`; its
-`recompcore-input.patch` goes after `recompcore-skies-dcmusic-eu.patch`).
+with explicit paths only) and keyboard / remapping / input (own worktree, branch `input`).
 
 Decided by the user (2026-10-11): first release **v0.9.0 beta**, **Windows + Android** (Linux later),
 source in a **private repo for now**, Android app ID **`com.skiesofarcadia.recomp`** (like the user's
