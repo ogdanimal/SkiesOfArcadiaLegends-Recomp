@@ -195,3 +195,71 @@ index f5a94f1682..9f31631acf 100644
    s_surface_cv.notify_all();
  }
  
+diff --git a/Source/Android/jni/SkiesImport.cpp b/Source/Android/jni/SkiesImport.cpp
+index 64d4077185..f8ce7d81fa 100644
+--- a/Source/Android/jni/SkiesImport.cpp
++++ b/Source/Android/jni/SkiesImport.cpp
+@@ -237,8 +237,12 @@ JNIEXPORT jboolean JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_setP
+ // buttons working: no stick, D-pad or triggers, in the game or the menu (Retroid, 2026-10-11).
+ // When the main stick isn't on Android's names, this maps the stick, C-stick, triggers, D-pad and
+ // rumble to the standard Android gamepad layout of the first gamepad with a left stick (AXIS_X / Y,
+-// AXIS_Z / RZ, AXIS_HAT_X / Y, AXIS_GAS / BRAKE, L2 / R2); buttons keep their mapping (their names
+-// match). Returns what it did, "" when nothing was needed.
++// AXIS_Z / RZ, AXIS_HAT_X / Y, AXIS_GAS / BRAKE, L2 / R2). The face buttons and Start keep the
++// defaults' names, which Android shares, and get them when missing (on a fresh install there's no
++// file yet: Dolphin writes it only when its settings are saved). Z was the defaults' "Shoulder R",
++// another SDL name, so no pad had a Z (no settings menu, no world-map menu; the Retroid's was
++// mapped by hand): it goes on R1, the right bumper as on desktop, and a Z the player mapped stays.
++// Returns what it did, "" when nothing was needed.
+ JNIEXPORT jstring JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_ensurePadProfile(
+     JNIEnv* env, jclass)
+ {
+@@ -246,10 +250,19 @@ JNIEXPORT jstring JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_ensur
+   Common::IniFile ini;
+   ini.Load(path);
+   Common::IniFile::Section* section = ini.GetOrCreateSection("GCPad1");
+-  std::string stick;
++  std::string stick, z;
+   section->Get("Main Stick/Up", &stick, "");
++  section->Get("Buttons/Z", &z, "");
++  const bool fix_z = z.empty() || z.find("Shoulder") != std::string::npos;
+   if (stick.find("Axis ") != std::string::npos)
+-    return ToJString(env, "");
++  {
++    if (!fix_z)
++      return ToJString(env, "");
++    section->Set("Buttons/Z", std::string("`Button R1`"));
++    if (!ini.Save(path))
++      return ToJString(env, "can't write " + path);
++    return ToJString(env, "mapped Z to R1");
++  }
+ 
+   std::string gamepad;
+   for (const std::string& name : g_controller_interface.GetAllDeviceStrings())
+@@ -274,6 +287,17 @@ JNIEXPORT jstring JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_ensur
+     return ToJString(env, "no gamepad with a stick connected");
+ 
+   section->Set("Device", gamepad);
++  const std::pair<const char*, const char*> buttons[] = {
++      {"Buttons/A", "`Button A`"}, {"Buttons/B", "`Button B`"}, {"Buttons/X", "`Button X`"},
++      {"Buttons/Y", "`Button Y`"}, {"Buttons/Start", "`Start`"},
++  };
++  for (const auto& [key, expression] : buttons)
++  {
++    if (!section->Exists(key))
++      section->Set(key, std::string(expression));
++  }
++  if (fix_z)
++    section->Set("Buttons/Z", std::string("`Button R1`"));
+   const std::pair<const char*, const char*> mapping[] = {
+       {"Main Stick/Up", "`Axis 1-`"},    {"Main Stick/Down", "`Axis 1+`"},
+       {"Main Stick/Left", "`Axis 0-`"},  {"Main Stick/Right", "`Axis 0+`"},
+@@ -297,7 +321,7 @@ JNIEXPORT jstring JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_ensur
+     section->Delete("Rumble/Motor");
+   if (!ini.Save(path))
+     return ToJString(env, "can't write " + path);
+-  return ToJString(env, "mapped the stick, D-pad and triggers of " + gamepad);
++  return ToJString(env, "mapped the buttons, sticks, D-pad and triggers of " + gamepad);
+ }
+ 
+ // Settings, Saves: a save the player already has (tools/save_import.cpp, as on desktop). The app
