@@ -114,24 +114,32 @@ jobs:
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           path: src
-          sparse-checkout: release/skies-widescreen.dolpatch
+          sparse-checkout: |
+            release/skies-widescreen.dolpatch
+            release/skies-widescreen-eu.dolpatch
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
       # The builds aren't supposed to hold any of this; check anyway, because a release can't be
       # un-downloaded. Game data = a disc image, a DOL (by name, or by the hash of the original or
       # of the patched one the launcher makes), the disc's banner, or DolRecomp output; archives
-      # inside the packages are opened and checked too. The recompiled module (gGEAE8P_recomp.dll /
-      # gGEAE8P_recomp.so / libgGEAE8P_recomp.so) is translated game code by design, as in the N64 recomps: it is the
-      # one game-derived file allowed, by name.
+      # inside the packages are opened and checked too. The recompiled modules (g<disc ID>_recomp.dll /
+      # .so / lib...so, one each for GEAE8P and GEAP8P) are translated game code by design, as in the N64
+      # recomps: they are the game-derived files allowed, by name.
       - name: Refuse anything game-shaped
         run: |
           set -euo pipefail
           GAME='\.(iso|gcm|rvz|gcz|wia|ciso|wbfs|dol|elf|bnr|o|obj)$|(^|/)generated(/|$)|module_tables\.inc$|(^|/)chunks/'
-          PATCH=src/release/skies-widescreen.dolpatch
-          ORIGINAL=$(sed -n 's/^input-sha256 //p' "$PATCH"); PATCHED=$(sed -n 's/^output-sha256 //p' "$PATCH")
-          [ "$ORIGINAL" = 87c240acb746c5a09e95dd84021f78643eaa6721d8edc96ed87d3b6b3bcbae54 ] && [ ${#PATCHED} = 64 ] ||
-            { echo "::error::Can't read the DOL hashes from $PATCH."; exit 1; }
+          # Each game's original DOL (pinned here) and the patched one its .dolpatch makes
+          DOLS=""
+          for pair in skies-widescreen:87c240acb746c5a09e95dd84021f78643eaa6721d8edc96ed87d3b6b3bcbae54 \
+                      skies-widescreen-eu:d0e9fc91bd477d5cf1da24261de4c606893979ada0a7fef3c741c0c2470d96c3; do
+            PATCH=src/release/${pair%%:*}.dolpatch
+            ORIGINAL=$(sed -n 's/^input-sha256 //p' "$PATCH"); PATCHED=$(sed -n 's/^output-sha256 //p' "$PATCH")
+            [ "$ORIGINAL" = "${pair#*:}" ] && [ ${#PATCHED} = 64 ] ||
+              { echo "::error::Can't read the DOL hashes from $PATCH."; exit 1; }
+            DOLS="$DOLS${DOLS:+|}$ORIGINAL|$PATCHED"
+          done
           ls -la out
           # Unpack every package, then any archive inside, a few levels deep
           mkdir x && for p in out/*.zip out/*.apk; do unzip -q -o "$p" -d "x/$(basename "$p")"; done
@@ -149,12 +157,14 @@ jobs:
           fi
           # By content: no file may be the original or the patched DOL
           find x -type f -size +1M -exec sha256sum {} + > sums.txt
-          if grep -E "^($ORIGINAL|$PATCHED) " sums.txt; then
+          if grep -E "^($DOLS) " sums.txt; then
             echo "::error::A package contains the game's DOL."; exit 1
           fi
-          # The allowed module, and only where it belongs
+          # The allowed modules (one per game), and only where they belong
           for m in '-windows\.zip/[^/]+/gGEAE8P_recomp\.dll' '-linux\.tar\.gz/[^/]+/gGEAE8P_recomp\.so' \
-                   '-android\.apk/lib/arm64-v8a/libgGEAE8P_recomp\.so'; do
+                   '-android\.apk/lib/arm64-v8a/libgGEAE8P_recomp\.so' \
+                   '-windows\.zip/[^/]+/gGEAP8P_recomp\.dll' '-linux\.tar\.gz/[^/]+/gGEAP8P_recomp\.so' \
+                   '-android\.apk/lib/arm64-v8a/libgGEAP8P_recomp\.so'; do
             grep -qE -e "$m\$" list.txt || { echo "::error::A package is missing its recompiled module ($m)."; exit 1; }
           done
           rm -rf x list.txt sums.txt nested other src
@@ -175,8 +185,8 @@ jobs:
           FLAGS=()
           if [ "$PRERELEASE" = "true" ]; then FLAGS+=(--prerelease); fi
           cat > notes.md <<'EOF'
-          **You need your own Skies of Arcadia Legends disc (GameCube, USA, `GEAE8P`)** as RVZ, ISO,
-          GCM, GCZ, WIA or CISO. Nothing here contains game data: the launcher imports your disc and
+          **You need your own Skies of Arcadia Legends disc (GameCube, USA `GEAE8P` or European
+          `GEAP8P`)** as RVZ, ISO, GCM, GCZ, WIA or CISO. Nothing here contains game data: the launcher imports your disc and
           patches it.
 
           - **Windows** (64-bit Windows 10 / 11): unzip, run `Skies of Arcadia Legends.exe`, choose

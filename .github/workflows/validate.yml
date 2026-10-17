@@ -15,8 +15,9 @@
 #
 # Required secrets:
 #   SOAL_SECRETS_REPO_WITH_PAT -> https://x-access-token:<PAT>@github.com/<owner>/<secrets repo>.git
-#       holding main.dol (the ORIGINAL USA DOL, SHA-256 below) and pgo/windows.profdata,
-#       pgo/android.profdata at its root
+#       holding main.dol (the ORIGINAL USA DOL), main-eu.dol (the ORIGINAL European DOL; SHA-256s
+#       below) and pgo/windows.profdata, pgo/android.profdata (optionally pgo/windows-eu.profdata,
+#       pgo/android-eu.profdata) at its root
 #   SOAL_ARTIFACT_KEY          -> any long random string (encrypts the codegen artifact)
 #   RELEASE_KEYSTORE_BASE64, RELEASE_STORE_PASSWORD, RELEASE_KEY_PASSWORD, RELEASE_KEY_ALIAS
 #       -> release signing (tools/make-release-key.sh); release mode only, and only in the
@@ -54,6 +55,11 @@ permissions:
 
 env:
   DOL_SHA256: 87c240acb746c5a09e95dd84021f78643eaa6721d8edc96ed87d3b6b3bcbae54
+  # The European disc (GEAP8P): its original main.dol is main-eu.dol in the secrets repo
+  DOL_SHA256_EU: d0e9fc91bd477d5cf1da24261de4c606893979ada0a7fef3c741c0c2470d96c3
+  # Both games in every package: one release takes either disc (tools/ci-codegen.sh, the
+  # build-release scripts and tools/android-ws-build.sh read it)
+  REGIONS: us eu
   LLVM_VERSION: 20.1.8
   # Ubuntu 26.04's own build (the release pocket, signed by Ubuntu), the one the shipped codegen was
   # made with locally; apt refuses if it's gone rather than installing another
@@ -105,10 +111,12 @@ jobs:
             GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $AUTH" git ls-remote "https://${REST#*@}" HEAD | cut -c1-40)
           test ${#INPUTS} = 40 || { echo "::error::Can't read the secrets repo's commit"; exit 1; }
           D=lib/ModernGekko/vendor/dolphin
-          KEY=$( { echo "$INPUTS" "$LLVM_APT_VERSION"; git -C "$D" rev-parse HEAD:DolRecomp
+          # The repository files the output depends on: tools/ci-codegen.sh lists them (CACHE_INPUTS)
+          FILES=$(sed -n 's/^# CACHE_INPUTS: //p' tools/ci-codegen.sh)
+          test -n "$FILES" || { echo "::error::tools/ci-codegen.sh has no CACHE_INPUTS line"; exit 1; }
+          KEY=$( { echo "$INPUTS" "$LLVM_APT_VERSION" "$REGIONS"; git -C "$D" rev-parse HEAD:DolRecomp
                    printf '%s' "$SOAL_ARTIFACT_KEY" | sha256sum
-                   sha256sum release/skies-widescreen.dolpatch tools/ci-codegen.sh tools/applydolpatch.py \
-                     patches/dolrecomp-*.patch "$D/module-template/gen_module_tables.py"; } | sha256sum | cut -c1-32)
+                   sha256sum $FILES; } | sha256sum | cut -c1-32)
           echo "key=codegen-$KEY" >> "$GITHUB_OUTPUT"
 
       - name: Restore codegen
@@ -184,10 +192,15 @@ jobs:
             GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $AUTH" \
             git clone -q --depth 1 "https://${REST#*@}" "$RUNNER_TEMP/s"
           mkdir -p "$RUNNER_TEMP/secrets/pgo"
-          cp "$RUNNER_TEMP/s/main.dol" "$RUNNER_TEMP/secrets/"
+          cp "$RUNNER_TEMP/s/main.dol" "$RUNNER_TEMP/s/main-eu.dol" "$RUNNER_TEMP/secrets/"
           cp "$RUNNER_TEMP/s/pgo/windows.profdata" "$RUNNER_TEMP/s/pgo/android.profdata" "$RUNNER_TEMP/secrets/pgo/"
+          # European profiles are optional: without one that region is built without PGO
+          for f in windows-eu android-eu; do
+            if [ -f "$RUNNER_TEMP/s/pgo/$f.profdata" ]; then cp "$RUNNER_TEMP/s/pgo/$f.profdata" "$RUNNER_TEMP/secrets/pgo/"; fi
+          done
           rm -rf "$RUNNER_TEMP/s"
           echo "$DOL_SHA256  $RUNNER_TEMP/secrets/main.dol" | sha256sum -c --quiet -
+          echo "$DOL_SHA256_EU  $RUNNER_TEMP/secrets/main-eu.dol" | sha256sum -c --quiet -
 
       - name: Generate code
         if: steps.cached.outputs.cache-hit != 'true' && steps.reused.outputs.found != 'true'
@@ -205,6 +218,7 @@ jobs:
         run: |
           test -n "$SOAL_ARTIFACT_KEY" || { echo "::error::SOAL_ARTIFACT_KEY is not set; refusing to upload game code in the clear."; exit 1; }
           tar czf - codegen/windows/generated codegen/linux/generated codegen/android/generated \
+              codegen/windows-eu/generated codegen/linux-eu/generated codegen/android-eu/generated \
             | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass env:SOAL_ARTIFACT_KEY -out codegen.tar.gz.enc
 
       - name: Save codegen
@@ -292,7 +306,10 @@ jobs:
         run: |
           set LLVM_ROOT=C:\llvm\clang+llvm-%LLVM_VERSION%-x86_64-pc-windows-msvc
           set MODULE_TABLES_INC=%CD%\codegen\windows\generated\module_tables.inc
-          tools\module-win.bat %CD%\codegen\windows\generated %CD%\build\module
+          call tools\module-win.bat %CD%\codegen\windows\generated %CD%\build\module || exit /b 1
+          set GAME_ID=GEAP8P
+          set MODULE_TABLES_INC=%CD%\codegen\windows-eu\generated\module_tables.inc
+          call tools\module-win.bat %CD%\codegen\windows-eu\generated %CD%\build\module-eu || exit /b 1
 
       - name: Build and package the launcher and runner
         shell: cmd
@@ -302,7 +319,7 @@ jobs:
           if "%VNAME%"=="" (set VERSION=dev-%GITHUB_SHA:~0,7%) else (set VERSION=v%VNAME%)
           call tools\build-release-win.bat configure || exit /b 1
           call tools\build-release-win.bat build || exit /b 1
-          call tools\build-release-win.bat package build\module\gGEAE8P_recomp.dll %VERSION% || exit /b 1
+          call tools\build-release-win.bat package build\module\gGEAE8P_recomp.dll build\module-eu\gGEAP8P_recomp.dll %VERSION% || exit /b 1
 
       - name: Upload build
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -354,6 +371,8 @@ jobs:
         run: |
           MODULE_TABLES_INC=codegen/linux/generated/module_tables.inc \
             tools/module-linux.sh codegen/linux/generated build/module-linux
+          GAME_ID=GEAP8P MODULE_TABLES_INC=codegen/linux-eu/generated/module_tables.inc \
+            tools/module-linux.sh codegen/linux-eu/generated build/module-linux-eu
 
       - name: Build and package the launcher and runner
         env:
@@ -362,7 +381,8 @@ jobs:
           if [ -z "$VNAME" ]; then VERSION=dev-${GITHUB_SHA::7}; else VERSION=v$VNAME; fi
           tools/build-release-linux.sh configure
           tools/build-release-linux.sh build
-          tools/build-release-linux.sh package build/module-linux/gGEAE8P_recomp.so "$VERSION"
+          tools/build-release-linux.sh package build/module-linux/gGEAE8P_recomp.so \
+            build/module-linux-eu/gGEAP8P_recomp.so "$VERSION"
 
       - name: Upload build
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -415,7 +435,9 @@ jobs:
           sudo apt-get install -y ninja-build
 
       - name: Build the module
-        run: NAME=ci PREGEN=codegen/android MODULE_ONLY=1 NDK=$ANDROID_HOME/ndk/29.0.14206865 tools/android-ws-build.sh
+        run: |
+          NAME=ci PREGEN=codegen/android PREGEN_EU=codegen/android-eu MODULE_ONLY=1 \
+            NDK=$ANDROID_HOME/ndk/29.0.14206865 tools/android-ws-build.sh
 
       - name: Upload the module
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6

@@ -181,7 +181,7 @@ Secrets (in the `ci` environment, and `release` for signing; none at repository 
 
 | Secret | What |
 |---|---|
-| `SOAL_SECRETS_REPO_WITH_PAT` | `https://x-access-token:<PAT>@github.com/<owner>/<secrets repo>.git`: `main.dol` (original, SHA-256 `87c240ac...`) and `pgo/windows.profdata`, `pgo/android.profdata` at its root |
+| `SOAL_SECRETS_REPO_WITH_PAT` | `https://x-access-token:<PAT>@github.com/<owner>/<secrets repo>.git`: `main.dol` (USA original, SHA-256 `87c240ac...`), `main-eu.dol` (European original, `d0e9fc91...`) and `pgo/windows.profdata`, `pgo/android.profdata` at its root (European profiles `pgo/*-eu.profdata` optional) |
 | `SOAL_ARTIFACT_KEY` | any long random string (encrypts the codegen artifact) |
 | `RELEASE_KEYSTORE_BASE64`, `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_PASSWORD`, `RELEASE_KEY_ALIAS` | Android release signing (`tools/make-release-key.sh`, then `tools/set-release-secrets.sh`) |
 
