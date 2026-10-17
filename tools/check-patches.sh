@@ -19,7 +19,7 @@ git -C "$DR" worktree add -q --detach "$R/mg/vendor/dolphin/DolRecomp" HEAD
 P=$PWD/patches
 git -C "$R/mg" apply "$P/moderngekko-local.patch"
 for p in $(grep -v '^#' "$P/recompcore.series"); do git -C "$R/mg/vendor/dolphin" apply "$P/recompcore-$p.patch"; done
-for p in mtmsr-entry gather-pipe llvm-cpu win64-sjlj-frame coff-uwtable; do
+for p in mtmsr-entry gather-pipe llvm-cpu win64-sjlj-frame coff-uwtable halfword-byterev; do
   git -C "$R/mg/vendor/dolphin/DolRecomp" apply "$P/dolrecomp-$p.patch"
 done
 status=0

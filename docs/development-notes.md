@@ -125,8 +125,8 @@ To dump every frame instead: put `[Movie] DumpFrames = True` in `build/user/Conf
 
 ## The player build (settings, menu, save states, save import, camera, options, release; 2026-10-10 / 12)
 
-What a player gets on top of the game, and where each piece lives (save states: *Save states and auto-save* below; bringing saves in: *Importing saves*). The game side is the DOL
-patch **ws20** (`build/game/GEAE8P-ws20`, SHA-1 `e78a04d9`; history in `patches/game/README.md`);
+What a player gets on top of the game, and where each piece lives (save states: *Save states and auto-save* below; bringing saves in: *Importing saves*; in progress: *The European release* and *Dreamcast music*). The game side is the DOL
+patch **ws20** (ws21, with the Dreamcast music hooks, is built but untested) (`build/game/GEAE8P-ws20`, SHA-1 `e78a04d9`; history in `patches/game/README.md`);
 the frontend side is `recompcore-skies-settings.patch` (`VideoCommon/SkiesMenu.cpp`,
 `Core/SkiesSettings.cpp`) and `moderngekko-local.patch` (launcher, runner). Plans and session logs:
 [handoffs/HANDOFF-settings.md](handoffs/HANDOFF-settings.md). Research: the decomp's `docs/widescreen.md`,
@@ -466,6 +466,167 @@ save refused; a card image imported files 2 and 3, and Continue booted into the 
 itself (59.9 fps); an imported state started from Continue; pad A on the prompt cancels. Android's
 Downloads view lists files from the media index, which doesn't see files pushed with adb: browse from
 the device's root ("Retroid Pocket 5" -> Download) instead.
+
+### The European release (GEAP8P; 2026-10-17)
+
+Requested by a player: the European disc, for its languages (English, German, French, Spanish). It
+is its own build of the game: a `main.dol` 15 KB larger (SHA-1 `295a9fc9`), the text in
+`english.sot` / `german.sot` / `french.sot` / `spanish.sot` (tables the USA build keeps in the DOL),
+multi-language scripts (`field/*.sct` about twice the size) and language-suffixed `.mld` / `.mll`
+files (`g`, `f`, `s`; English has none). So it gets its own patched DOL and module; USA code can't run
+European data.
+
+- **Game patch:** the same sources, addresses translated (`patches/game/README.md`, *The European
+  release*; `tools/dolmatch.py`, `patches/game/GEAP8P.addresses.json`). `build/game/GEAP8P-ws20` to
+  `GEAP8P-ws22` build; the cave layout is identical to the USA one. The functions the patches use that
+  differ in Europe were read side by side (2026-10-17): the title state table has the same 19 states
+  (Europe rewrote the logo and Press Start handlers, slots 2 and 10-13, and added a flag the title's
+  cancel path sets), so autoload's state 1 / 0x12 hold; the save payload (`EA_LEGEND v1.01`, XOR over
+  0x31FC bytes at +0x1440) is the same, so a USA card save loads in the European game with its GCI's
+  game code changed to GEAP (`build/user-eu` has the user's saves that way); `fn_8014419C`'s ship-sunk
+  branch stores both reward words in Europe too (dolmatch's "one word" was its aligner pairing reordered
+  instructions; the enemy rows are 104 bytes instead of 120), so the ship battle EXP / gold scaling is
+  right; the other differences are address shifts and a European video / language init block in the
+  mode dispatcher's mode 0.
+- **Language:** the game calls `OSGetLanguage` once at boot (EU `0x801DE38C`): 0 English, 1 German,
+  2 French, 3 Spanish (Italian / Dutch become English); no menu, not in the save. New setting
+  `[Skies] Language` (`Config::SKIES_LANGUAGE`); `SConfig::GetLanguageAdjustedForRegion` returns it
+  for GEAP8P. The in-game menu's Gameplay tab has a Language row (European disc only, "Changes when
+  the game next starts").
+- **60 Hz:** the game picks its render mode from the TV format (`VIGetTvFormat`): PAL gives 50 Hz
+  (5/6 speed; no PAL compensation in the code), EuRGB60 panics ("Invalid TV Format."). So
+  `SConfig::SetPathsAndGameMetadata` sets the region to NTSC-U for GEAP8P (VI preset NTSC, `0xCC` =
+  0). Memory card saves are `8P-GEAP-SA_LEGENDS.*` in the USA card folder.
+- **Frontend addresses:** `VideoCommon/SkiesMenu.cpp` has `RegionAddress{usa, europe}` (converts to
+  the running disc's) for its game addresses; two hook-check words differ (qol `0x4819EFD5`,
+  autoload `0x4804DC89`). `IsSkies()` accepts both IDs.
+- **Checked (WSL, 2026-10-17):** booted to the French opening text, the French title ("Nouveau Jeu /
+  Continuer"), new game, into the opening cutscene; widescreen on; 27-29 fps at 0.89-0.99x (so the
+  60 Hz mode). Later the same day, in English: a new game through the opening and its first battle
+  (widescreen HUD at the edges), the launcher-style auto-load of a card save, the title's Continue and
+  load screen (after the DolRecomp fix below), loading a save, the camp menu, the red alert room's
+  screen-copy pulse in widescreen (after the `fullwidth.S` fix), the Dreamcast music. The user's USA card
+  saves work in the European game with the GCI's game code changed to GEAP (`build/user-eu`). Not
+  checked: saving from a save point, ship battles, savestates, the menu's Language row.
+- **Module:** `build/eu-gen22/module-linux/gGEAP8P_recomp.so` (DolRecomp 3 min with `-j8`, no PGO:
+  the profiles are keyed by fixed address chunks such as `func_8023B000`, which don't line up with
+  the shifted European code, so Europe needs its own profiles). `tools/module-linux.sh` takes
+  `GAME_ID=GEAP8P`.
+- **The text packs and a DolRecomp bug (2026-10-17):** the European game loads its language's text
+  pack at boot (`ENGLISH.SOT` etc., 104 entries; loader EU `0x801CE570`) and builds a directory of it
+  with `sthbrx` (EU `0x801DD504`). DolRecomp's IR / LLVM path swapped all four bytes for `lhbrx` /
+  `sthbrx` and then stored the low two, so the count `0x0068` was stored as 0, every lookup (EU
+  `0x801DD238`, about 90 callers) got the fallback "SOT ERROR", and the strings the save / load
+  screens take from the pack (11 pointers at EU `0x80349ED0`, split at boot from the entry
+  "WmemTbl") were garbage: the title's Continue and the save point menu then flooded the log with
+  invalid reads in `FontExpandRle` (no range check on the glyph code) and stalled, with any save.
+  `patches/dolrecomp-halfword-byterev.patch` (the C emitter's `bswap16` was right). The USA game has
+  two `sthbrx` in `fn_80298798`, so USA LLVM modules change too.
+- **Releases (desktop):** the release pins are per region: `MODERNGEKKO_REQUIRED_DISC_ID`,
+  `MODERNGEKKO_REQUIRED_DOL_SHA256`, `MODERNGEKKO_DOL_PATCH_MANIFEST` and
+  `MODERNGEKKO_GAME_SETTINGS_OVERRIDE` are lists in the same order, CMake writes `release_games.inc`
+  and `tools/release_games.hpp` looks a game up by disc ID (the runner reads it from `sys/boot.bin`
+  before patching). The runner loads `g<disc ID>_recomp`, so a release carries both modules.
+  `release/GEAP8P.ini` has the European idle PC (`0x8023B02C`, `SelectThread` at `0x8023AEE0` + the
+  same offset) and `release/skies-widescreen-eu.dolpatch` the European patch. `build-release-linux.sh`
+  / `.bat`: `REGIONS="us eu"` at configure, `package USA EUROPE [VERSION]`; without them, USA only as
+  before. Continue's card saves go by the game's own code (`GEAP` files), Import a save by the game.
+- **Releases (Android):** `jni/SkiesImport.cpp` picks the region from the disc ID, imports into
+  `Games/<disc ID>` with that region's patch (its `output-sha256` is the build check) and removes the
+  other region's folder (one game at a time); `installedGameId` / `patchName` for the Kotlin side,
+  saves by the installed game. The APK carries `libgGEAP8P_recomp.so` and the European assets when
+  `tools/android-ws-build.sh` gets a European DOL or `PREGEN_EU`; `skies_dol_sha256_eu` from the brand
+  dir's `dol-sha256-eu.txt`. Save states aren't per region: a state from the other disc's game won't
+  load.
+- **CI:** `tools/ci-codegen.sh` does both regions when the secrets repo has `main-eu.dol` (else the
+  USA alone; `REGIONS` sets it), into `windows-eu/` etc., without PGO until there are European
+  profiles (`pgo/*-eu.profdata`; on Android 60 fps likely needs one, trained on the device).
+
+### Dreamcast music (2026-10-17)
+
+Requested by a player: the Dreamcast version's music as an option. The Dreamcast music is
+sequenced, played by Sega's Manatee-family driver (`BONITO.DRV`, "bonito ver.2.00.00.00 alpha3",
+DigitalMedia 2000) on the AICA's ARM7 from MLT banks, so the port runs that driver: the player
+imports the files from their own Dreamcast disc, and an emulated AICA plays them while the game
+patch mutes the GameCube music (`patches/game/dcmusic.c`, see `patches/game/README.md`; game patch
+ws22).
+
+- **The data:** the GameCube banks were converted from the Dreamcast ones and keep their names:
+  `sound/m0231.samp` + `.info` is `SOUND/M0231.MLT`; `tone`, `s1000000`, `b7000000` are banks 0, 1
+  and 7 of `ARESNEW.MLT`. The game asks for music as Dreamcast (bank, data number) pairs and the bank
+  slot is the Dreamcast bank number (M02xx bank 2, M03xx 3, M04xx 4, M5xxxxxx 5); sequence counts
+  match for every M02/M03/M04 bank. GameCube-only music: `m0383`, `m0384` (and `s1000000` data
+  34-38); those keep the GameCube music, as does any bank without an imported MLT (allow bit 0).
+  Disc 1 has 116 `M*.MLT`, disc 2 adds `M0282`. The European disc 2's event banks (`M5*`) are slowed
+  6/5 for 50 Hz (tempo 600 vs 500 ms per beat), so the import keeps an NTSC disc's copy over a PAL one.
+  Research: the decomp's `docs/sound.md`.
+- **Not handled: the streamed music** (`m01`-`m04`: the staff roll, the ending and two events) stays
+  GameCube. The Dreamcast streams (`M01S.P04`, `M02S.P16` / `.P04`, `M03S.P04`, `M04S.P16`) are
+  different recordings of different lengths (`m04` 234 s on the GameCube, `M04S.P16` about 340 s), and
+  the staff roll and ending are timed to the GameCube streams.
+- **Driver protocol:** as dc-manatee's `host_protocol.md` (Manatee 1.1) with Bonito's work table at
+  image +0xC0: port status `0x12600`, flag byte `0x12400`, bank table `0x14000`, host commands
+  `0x12200`; SMSB version 2. Commands used: 0x01 play, 0x02 stop, 0x81 master volume (0xF0 = 15, the
+  maximum), 0x86 MIDI message (the towns' channel volume), 0x80 stop all. A Bonito sequence doesn't
+  end by itself: at its end the port status word at +0x18 becomes 1 and the port holds (still
+  "playing"); the Dreamcast game advanced its lists on that. Here the GameCube sequences stay the
+  timing master (their end starts the next pair), and the segment lengths match: `M0460` segments 9,
+  0-3 are 3.733 / 19.870 / 13.253 / 13.264 / 13.259 s on the Dreamcast against 3.72 / 19.92 / 13.28 /
+  13.18 / 13.28 s start to start in the game (frame resolution), so lists stay in step.
+- **Engine:** `AudioCommon/DCMusic.cpp`. Two players, each its own emulated AICA with the driver
+  (`DCMusic::PLAYERS`): a paused song (`MusicPause`: the field or world music during a battle) keeps
+  its chip, frozen (not rendered at all), while the battle music and the fanfare play on the other,
+  and resumes exactly on its continue. A player with nothing to play isn't rendered (2 s of release
+  tail after a stop), so the second chip costs CPU only while both are heard. Each loads the driver
+  image at sound RAM 0, downloads `ARESNEW.MLT` and each song's MLT as `sdMultiUnitDownload` does (bank
+  table entry, then the data), and runs Highly Theoretical's `dcsound` (GPL-3, `lib/HighlyTheoretical`,
+  pinned `2998a4b`) inside `Mixer::Mix`: real time whatever the emulation speed, silent while paused,
+  not in savestates. Its own Hermite resampler (44.1 kHz to the output rate; Dolphin's `MixerFifo`
+  would rescale the pitch with the emulation speed). Fades and the stop / freeze after them are applied
+  per player to its output in AICA samples (`DCMusic::Fade`; the driver's own downward fades jump to
+  the target). Level: the driver at full master volume is about 1.4x (3 dB) quieter than the
+  GameCube's music (battle theme `m0459` from its start, RMS 2355 against 3412; peaks 19839), so it is
+  mixed at 1.4x (`DEFAULT_GAIN` 358/256). The player's volume applies after `Mixer::Mix` (the output
+  stream's), so it covers this too. About 28x real time per chip on the desktop.
+- **Frontend:** `Core/SkiesMusic.cpp` (polled from `SkiesMenu::FilterPad`, and after a state load):
+  starts / stops the engine with `[Skies] DreamcastMusic`, writes the patch's allow bits per bank slot
+  from the imported files' SMSB counts, tracks the current and the paused song (sequence, player,
+  the bank's default volume at slot +0x38 as the Dreamcast sequence's level 1), and turns the ring's
+  events into requests to the player that holds the sequence. The magic goes into the patch's block
+  whatever the option, so the patch follows the music while the GameCube's plays and switching the
+  option on mid-song takes it over (`dcm_frame` mutes it and posts its start). A block without the
+  magic (a savestate from before ws22, or the first poll) is initialised with no song (zeros would say
+  sequence 0, a valid MusyX id). After a state load, or a song the patch didn't see start (an old
+  savestate), `Restart` reads what plays from the game (`bgm_seq` and its music list; `SndInit`'s flag
+  `0x803474E0` first, as before the sound layer starts everything is zeros) and the song starts again
+  on the Dreamcast from its beginning; a paused one starts again at its continue. The towns' adaptive
+  music sets controller 7 of channels 10-14 every frame (and 17, beside 14: no Dreamcast channel, left
+  out): a per-channel table in the block (ws22), sent on change and every 30 polls, not events (6 a
+  frame would overrun the 12-entry ring). The in-game menu's Sound tab has Music (GameCube /
+  Dreamcast; without the import it says to import the disc in the launcher).
+- **Import:** `AudioCommon/DCMusicImport.cpp` reads a GDI (track files beside it) or a CHD (libchdr,
+  BSD-3, `lib/libchdr` pinned `607694c`; MAME stores tracks padded to 4 frames, so disc 1's track 3
+  starts at CHD frame 45004), checks IP.BIN ("SEGA SEGAKATANA", title with "ARCADIA"; the disc number
+  is at +0x2B in "GD-ROMn/m"), and copies `BONITO.DRV`, `ARESNEW.MLT` and `SOUND/M*.MLT` into
+  `<user>/DreamcastMusic/` with `sources.txt` (file and region) and `discs.txt`. Desktop: the
+  launcher's Settings, Sound (Music row once imported, "Import a Dreamcast disc..." with a GDI / CHD
+  picker, Remove) and `--import-dc-music IMAGE`; Android: Settings, Sound (CHD only: a GDI's track
+  files can't be opened beside a document the picker hands over), `SkiesNative.importDreamcastMusic`.
+- **Checked in game (WSL, ws22 USA module, `SKIES_DCMUSIC_DUMP` debug dumps on game time against
+  Dolphin's DSP dump):** the music muted and played on the Dreamcast; battle start (fade to pause,
+  battle music on the other player), victory (fade-stop, fanfare from `ARESNEW` bank 1, the world
+  music continuing on its frozen player), game over (fade-stop, `M0367`), the camp menu (`SndMasterVol`
+  to 37/100 and back), the option switched off and on mid-song both ways, old savestates (song taken
+  over from the music list), patch-made savestates, a 5-pair list (`M0460`, poked) and the world map's
+  channel volumes. Not listened to (WSL has no audio to hear); the GameCube mix has a slowly varying DC
+  offset in silence, also without the option. Import: both of the user's CHDs and the disc 1 GDI
+  (116 + 1 banks).
+- **Builds:** `AudioCommon/CMakeLists.txt` enables it when `lib/HighlyTheoretical/Core/dcsound.c`
+  exists (`HAVE_DCMUSIC`, `SKIES_HT_DIR`) and CHD reading when `lib/libchdr` does
+  (`HAVE_LIBCHDR`, `SKIES_LIBCHDR_DIR`); without them the port builds as before. HT's `yam.c` defines
+  `__fastcall` as x86's `regparm(3)` on every non-Windows target, so arm64 builds pass
+  `-Dregparm(x)=` (a compile option: CMake drops function-style macros from compile definitions).
+  Licences in `release/THIRD-PARTY.md`; packages carry `licenses/libchdr-LICENSE.txt`.
 
 ### Test tools and savestates
 

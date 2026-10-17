@@ -1,0 +1,35 @@
+diff --git a/src/ir/dolir_builder.c b/src/ir/dolir_builder.c
+index 64f317b..71e74a2 100644
+--- a/src/ir/dolir_builder.c
++++ b/src/ir/dolir_builder.c
+@@ -630,6 +630,15 @@ static bool lower_integer(Builder* b) {
+     }
+ }
+ 
++/* lwbrx / stwbrx swap all four bytes; lhbrx / sthbrx only the low two (a 32-bit swap would leave
++ * them in the high half: sthbrx of 0x6800 stored 0, lhbrx of 0x1234 loaded 0x34120000). */
++static DolIRValue byte_reverse(Builder* b, DolIRValue value, u8 width) {
++    value = unary(b, DOLIR_OP_BSWAP, DOLIR_TYPE_I32, value);
++    if (width == 2)
++        value = binary(b, DOLIR_OP_LSHR, DOLIR_TYPE_I32, value, c32(b, 16));
++    return value;
++}
++
+ static bool lower_memory(Builder* b) {
+     const PPCInst* i = b->inst;
+     bool indexed = false;
+@@ -680,12 +689,12 @@ static bool lower_memory(Builder* b) {
+         if (load) {
+             DolIRValue value = guest_load(b, address, width, sign);
+             if (reverse)
+-                value = unary(b, DOLIR_OP_BSWAP, DOLIR_TYPE_I32, value);
++                value = byte_reverse(b, value, width);
+             set_gpr(b, i->rD, value);
+         } else {
+             DolIRValue value = gpr(b, i->rS);
+             if (reverse)
+-                value = unary(b, DOLIR_OP_BSWAP, DOLIR_TYPE_I32, value);
++                value = byte_reverse(b, value, width);
+             guest_store(b, address, value, width);
+         }
+         if (update)

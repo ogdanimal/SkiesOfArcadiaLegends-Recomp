@@ -2,8 +2,9 @@
 
 Changes to the game itself, written in C (and a little assembly) and built into a copy of
 `main.dol` by `tools/gamepatch.py`. The shipping spec is `widescreen.json` (widescreen, camera
-control and the QOL options together); the current build is **ws20** (`build/game/GEAE8P-ws20`, DOL
-SHA-1 `e78a04d9`, SHA-256 `f1ee9e8d`), and `release/skies-widescreen.dolpatch` turns a player's own
+control and the QOL options together); the current build is **ws22** (`build/game/GEAE8P-ws22`, DOL
+SHA-1 `ac40e5cf`, SHA-256 `e58354e5`; the European one `GEAP8P-ws22`, SHA-1 `55ab3d55`, SHA-256
+`30904d88`), and `release/skies-widescreen.dolpatch` (`skies-widescreen-eu.dolpatch`) turns a player's own
 `main.dol` into it (`tools/mkdolpatch.py`). Because they're part of the DOL, the recompiled module runs them
 as ordinary game code: desktop and Android alike, with no mod loader and no runtime cost beyond the
 code itself. The research behind each one is in the decomp's `docs/` (`../SkiesOfArcadiaLegends-Decomp`).
@@ -13,11 +14,40 @@ code itself. The research behind each one is in the decomp's `docs/` (`../SkiesO
 | `widescreen.json` | 16:9 (or any aspect, set at runtime in `ws_config`): wider 3D view, HUD at its original shape, full-screen effects kept full width, the battle-entry transitions' 3D tiles drawn at the game's own field of view (`UNWIDE` in `fullwidth.S`), and the HUD's side pieces at the wide edges (`WS_HUD_ANCHORS`). With `display_aspect` 0 (4:3) the hooks step aside (`ORIGINAL_IN_43` in `fullwidth.S`) and the picture is identical to the unpatched game's (`tools/dump-ab-win.sh`, NOTES *Widescreen 4:3 setting*). Decomp `docs/widescreen.md`. |
 | `widescreen.json` (camera.c) | Player camera control: wraps the camera manager's call to the shake function (`0x8022D910`) and turns the eye around the field camera's look-at point by the tilt, zoom and turn the frontend writes to `cam_input` (`0x80002EC0`, hold Z in game; `VideoCommon/SkiesMenu.cpp`). Towns, dungeons and the world map; the game's camera object isn't touched. Decomp `docs/camera.md`. |
 | `widescreen.json` (qol.c, qol.S) | Quality-of-life options from `qol_input` (`0x80002EA0`, the in-game menu): random encounter rate (remaps the encounter roll; Off also clears the frames-since-battle counter), EXP / gold / magic EXP scaled in the battle data once per battle before the results read it (ground and ship battles), battle speed (skips the end-of-frame retrace waits in game mode 7; `qol_wait_retrace` tail-calls `VIWaitForRetrace` for savestates), Invincible (party HP / MP / Spirit refilled every battle frame, damage to the party zeroed by `qol_damage` around `fn_8002DC14`, including the action handler table entry via `redirect_pointers`, written again every frame since ws19 because states keep the old one; in ship battles, field mode 6 on maps 500-599, the ship's HP, Spirit and crew MP, and `qol_ship_phase` around `fn_8014419C`). Decomp `docs/qol_cheats.md`. |
+| `widescreen.json` (dcmusic.c) | The Dreamcast music (ws22; checked in game on WSL 2026-10-17): the sound layer's music start (`sndSeqPlayEx` at `0x8021882C`, the only one) goes through `dcm_seq_play`, which starts the sequence with every track muted (`SND_PLAYPARA_TRACKMUTE`, mask 0) when the frontend says it has Dreamcast data for that (bank slot, data number); the sequence still runs, so the play list, its end, pause and continue are unchanged. Every `sndSeqVolume` / `Pause` / `Continue` / `Stop` / `SetMidiCtrl` call goes through a `dcm_*` wrapper (`redirect_calls`) that posts the music sequence's events to a 12-entry ring; a paused song (`MusicPause`, the field music during a battle) is kept beside the current one, so its continue (with its pair) and stop are posted too; controller 7 (the towns' adaptive channel volumes, set every frame) goes to a per-channel table instead (channels 0-15; the game's channel 17 has no Dreamcast counterpart); `dcm_frame` (from `qol_frame`) mutes or unmutes a running song when the option changes. Everything lives in `struct dcm_box` at `0x8031A890` (MetroTRK's buffers after trace2d's table, before shipdebug's word; Europe `0x8031DE50`); the frontend (`Core/SkiesMusic.cpp`) writes the magic `'DCMU'`, `enabled` and per-slot allow bits (with an FNV-1a hash of the slot's file name) and reads the ring. Decomp `docs/sound.md`. |
 | `widescreen.json` (autoload.c) | Continue from a memory card save without the logos, intro, title or load screen: the frontend writes `load_request` (`0x80002EF0`: `'LOAD'`, file 1-99, status, error; `VideoCommon/SkiesMenu.cpp` namespace `autoload`) on the first frame; the title's per-frame call at `0x801DC350` goes through `dl_title`, which holds title state 1 while it pumps the font's loading, reads card A's file with the load screen's own card functions on a stand-in task, checks the XOR and version, applies the save and starts the field the way the title's Continue does. A failed load (no file, read error, bad data) frees everything and lets the title go on. Decomp `docs/ui.md` *Loading a save without the load screen*. |
 | `shipdebug.json` | Debug only, combined with `widescreen.json`: gives the party a ship on request (`'SHP' << 8 \| ship` written to `0x8031AA24`, the last word of MetroTRK's buffers, so it combines with `trace2d.json`; the field main's call at `0x801DC358` goes through `dbg_field`, which tail-calls it so states made with this build load in play builds). Used by `tools/shipbattle-state-win.sh` to make the Baltor ship battle states. |
 | `trace2d.json` | Debug only, combined with `widescreen.json`: records the ten-deep call chain of every projection load (`trace2d.c`, table in MetroTRK's buffers at `0x80319078`); read it with `AUTO=... tools/readtrace.py 0x80319078 [reset] [2d]`. |
 
 ## Building
+
+### The European release (GEAP8P)
+
+`gamepatch.py` recognises the European `main.dol` by its SHA-1 (`295a9fc9...`, SHA-256 `d0e9fc91...`)
+and builds the same sources for it: every game address in the sources, specs and `cave.ld`
+(`0x80xxxxxx`, `fn_80xxxxxx`, `lbl_80xxxxxx`) is translated through `GEAP8P.addresses.json` before
+compiling, and an address missing from the table is an error. Cave addresses map to themselves, so
+the patch's own data (`qol_input`, `cam_input`, `load_request`, `ws_config`) is at the same place in
+both builds. The MetroTRK code area is `0x80257024`-`0x802597B0` there.
+
+The table comes from `tools/dolmatch.py` (stdlib only, ~12 s): it matches the USA functions to the
+European ones (7108 of 7117: masked instruction signatures, aligned `bl` call sites, order between
+anchors, pointer tables), maps data through the matched functions' references, checks every
+redirect site is a `bl` to the mapped target and every struct offset the patches use is unchanged,
+and writes `build/eu/dolmap.json`, `build/eu/address-map.md` (the table with method and confidence,
+plus a Checks section) and `build/eu/address-map.json`. After adding a game address to a patch, run
+it again and copy the addresses the sources use into `GEAP8P.addresses.json` (keep only those: the
+tool also scans the table file itself). Known differences it found: `fn_8014419C`'s ship-sunk branch
+stores its two reward words from 104-byte enemy rows in Europe (120 in the USA; dolmatch reports "one
+word", its aligner pairing reordered instructions: the scaling is right, checked by reading both),
+the title's state table has rewritten handlers in slots 2 and 10-13 (the same 19 states: autoload's
+1 and 0x12 hold), and the European game has 23 more
+`TextPrint` callers (caught by `redirect_calls` like the rest).
+
+```sh
+tools/gamepatch.py patches/game/widescreen.json --dol <european disc>/sys/main.dol \
+  --out-root build/game/GEAP8P-ws22
+```
 
 ```sh
 tools/gamepatch.py patches/game/widescreen.json --out-root build/game/GEAE8P-ws20
@@ -57,6 +87,8 @@ and a module built from the same DOL.
 | ws17 | `910d9504` | ship battle QOL only while the battle's data is live (code review A3, 2026-10-12): the game frees `lbl_8034727C`'s data in `fn_80144E60` but never clears the pointer, so from the second ship battle on Invincible wrote through a stale pointer between the map's load and the new allocation. `qol_ship_live` is set by `qol_ship_alloc` (new hook at `0x8015C6DC`, `fn_8015C6C8`'s call of `fn_801453D0`) and by `qol_ship_phase`, cleared after `qol_ship_results`; it sits in `.late_bss` (`cave.ld`) after every older variable, so states from earlier builds keep their data where this build looks (they read 0 there: off until the battle's next phase) |
 | ws18 | `6a401968` | code review section C (2026-10-12): the camera keeps the game's own tilt when its eye sits below the look-at point by more than `rise` (the height limit went negative and put the eye on the far side); `ws_check` restarts the unwide depth for an older build's state and `ws_unwide_end` never takes it below 0 (either would leave every later unwide pair off); `in_ram` accepts only word-aligned addresses inside the 24 MB. No data moved (all 19 data symbols at their ws17 addresses), so ws17 states load as they are. The debug `shipdebug.c` request word moved to `0x8031AA24` so it combines with `trace2d.json` (debug builds only) |
 | ws19 | `2185d3d4` | every attack froze from older states (2026-10-12): a state restores code but not data, so the battle action handler table entry `0x802DBB10` (rewritten by `redirect_pointers`) kept the address `qol_damage` had in the build that made the state, and after ws17 / ws18 moved the code that address was inside `qol_ship_results` ("Invalid write to 0x0000001e"); auto-saves carried it forward. `qol_frame` now writes the entry every frame. Also: `qol_ram` checks the pointers it follows, battle QOL only in battle states 4-7 (`0x8034737C`), ship results only while `qol_ship_live`, the camera only in game mode 6. Only that one patch-code pointer lives in game data (audit: no other code pointers in the patch's data, no callbacks) |
+| ws21 | `49979e26` (Europe `6d2620e5`) | the Dreamcast music hooks (`dcmusic.c`, `dcm_frame` called at the end of `qol_frame`); 663 call sites (Europe 685). Built 2026-10-17, not released |
+| ws22 | `ac40e5cf` (Europe `55ab3d55`) | `dcmusic.c`: the paused song tracked (its continue and stop posted), controller 7 as a table instead of ring events (`struct dcm_box` grew to 380 bytes). `fullwidth.S`: the ortho matrix's [0][0] through the spec's symbol `ws_ortho_m00` instead of a literal `0x8034` / `0x63C0`, which gamepatch doesn't translate: the European build's full-width wrappers wrote another word, so its screen-copy effects (the red alert room's pulse, afterimages) were drawn back squeezed, a double image in widescreen (the USA DOL is unchanged). Checked in game on WSL 2026-10-17 (both games); `release/skies-widescreen.dolpatch` (output `e58354e5`) and `release/skies-widescreen-eu.dolpatch` (`30904d88`) are ws22 since 2026-10-17, not released yet |
 | ws20 | `e78a04d9` | Continue from a card save loads it directly (`autoload.c`, `load_request` at `0x80002EF0`, `dl_title` at the title's call `0x801DC350`): ~6 s from launch to the field on Windows, RAM identical to a load through the menus but for the uptime counter; a missing file falls back to the intro and title. Replaces the frontend's button-driving (30-40 s) |
 
 A module only matches the DOL it was built from: an unpatched module with a patched DOL (or the

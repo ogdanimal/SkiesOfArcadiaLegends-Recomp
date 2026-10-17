@@ -1,8 +1,32 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index c0548a0..e4f8fa2 100644
+index c0548a0..ea93f38 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -58,6 +58,8 @@ set(MODERNGEKKO_ACCEPTED_SOURCE_DISC_ID "" CACHE STRING
+@@ -33,9 +33,9 @@ set(MODERNGEKKO_RUNNER_OUTPUT_NAME "moderngekko-run" CACHE STRING
+ set(MODERNGEKKO_USER_DIRECTORY_NAME "moderngekko" CACHE STRING
+     "Frontend user directory name")
+ set(MODERNGEKKO_REQUIRED_DISC_ID "" CACHE STRING
+-    "Required six-character disc ID for branded builds")
++    "Branded builds: the six-character disc IDs they run (a list, one per region)")
+ set(MODERNGEKKO_REQUIRED_DOL_SHA256 "" CACHE STRING
+-    "Required extracted main DOL SHA-256")
++    "Required extracted main DOL SHA-256s, in MODERNGEKKO_REQUIRED_DISC_ID's order")
+ set(MODERNGEKKO_REQUIRED_REL_SHA256 "" CACHE STRING
+     "Required extracted main REL SHA-256")
+ set(MODERNGEKKO_REQUIRED_ASSETS_SHA256 "" CACHE STRING
+@@ -50,14 +50,16 @@ set(MODERNGEKKO_LOG_FILENAME "ModernGekko.log" CACHE STRING
+     "Runner log filename")
+ set(MODERNGEKKO_DISC_PREPARER_OUTPUT_NAME "" CACHE STRING
+     "Optional adjacent disc preparation executable")
+-set(MODERNGEKKO_DOL_PATCH_MANIFEST "" CACHE FILEPATH
+-    "Optional expected-word DOL patch manifest bundled with the frontend")
+-set(MODERNGEKKO_GAME_SETTINGS_OVERRIDE "" CACHE FILEPATH
+-    "Optional game INI copied over the bundled Dolphin settings")
++set(MODERNGEKKO_DOL_PATCH_MANIFEST "" CACHE STRING
++    "Optional expected-word DOL patch manifests bundled with the frontend, in MODERNGEKKO_REQUIRED_DISC_ID's order")
++set(MODERNGEKKO_GAME_SETTINGS_OVERRIDE "" CACHE STRING
++    "Optional game INIs copied over the bundled Dolphin settings (a list)")
+ set(MODERNGEKKO_ACCEPTED_SOURCE_DISC_ID "" CACHE STRING
      "Source disc ID accepted by the optional disc preparer")
  option(MODERNGEKKO_USER_DIRECTORY_IN_DOCUMENTS
         "Place the branded user directory in Documents" OFF)
@@ -23,7 +47,105 @@ index c0548a0..e4f8fa2 100644
      set(USE_SYSTEM_SDL3 OFF CACHE BOOL "" FORCE)
      # SDL bundles its own copy of the macOS hidapi backend
      if(APPLE)
-@@ -516,7 +521,9 @@ if(MODERNGEKKO_ENABLE_DOLPHIN_RUNTIME)
+@@ -413,6 +418,37 @@ if(MODERNGEKKO_ENABLE_DOLPHIN_RUNTIME)
+     else()
+         message(FATAL_ERROR "No usable SDL3 target is available for the frontend")
+     endif()
++    # The release's games (tools/release_games.hpp): disc ID, pinned DOL SHA-256 and DOL patch,
++    # one entry per MODERNGEKKO_REQUIRED_DISC_ID; the other two lists are empty or as long.
++    set(_moderngekko_release_games_dir "${CMAKE_CURRENT_BINARY_DIR}/release_games")
++    set(_moderngekko_release_games "")
++    list(LENGTH MODERNGEKKO_REQUIRED_DISC_ID _moderngekko_game_count)
++    foreach(_moderngekko_list IN ITEMS MODERNGEKKO_REQUIRED_DOL_SHA256 MODERNGEKKO_DOL_PATCH_MANIFEST)
++        list(LENGTH ${_moderngekko_list} _moderngekko_list_count)
++        if(_moderngekko_list_count AND NOT _moderngekko_list_count EQUAL _moderngekko_game_count)
++            message(FATAL_ERROR "${_moderngekko_list} needs one entry per MODERNGEKKO_REQUIRED_DISC_ID")
++        endif()
++    endforeach()
++    foreach(_moderngekko_index RANGE ${_moderngekko_game_count})
++        if(_moderngekko_index EQUAL _moderngekko_game_count)
++            break()
++        endif()
++        list(GET MODERNGEKKO_REQUIRED_DISC_ID ${_moderngekko_index} _moderngekko_id)
++        set(_moderngekko_sha "")
++        if(MODERNGEKKO_REQUIRED_DOL_SHA256)
++            list(GET MODERNGEKKO_REQUIRED_DOL_SHA256 ${_moderngekko_index} _moderngekko_sha)
++        endif()
++        set(_moderngekko_patch "")
++        if(MODERNGEKKO_DOL_PATCH_MANIFEST)
++            list(GET MODERNGEKKO_DOL_PATCH_MANIFEST ${_moderngekko_index} _moderngekko_patch_path)
++            get_filename_component(_moderngekko_patch_name "${_moderngekko_patch_path}" NAME)
++            set(_moderngekko_patch "patches/${_moderngekko_patch_name}")
++        endif()
++        string(APPEND _moderngekko_release_games
++            "{\"${_moderngekko_id}\", \"${_moderngekko_sha}\", \"${_moderngekko_patch}\"},\n")
++    endforeach()
++    file(CONFIGURE OUTPUT "${_moderngekko_release_games_dir}/release_games.inc"
++         CONTENT "${_moderngekko_release_games}" @ONLY)
+     add_executable(moderngekko-run
+         tools/moderngekko_run.cpp
+         tools/netplay_compatibility.cpp
+@@ -459,12 +495,8 @@ if(MODERNGEKKO_ENABLE_DOLPHIN_RUNTIME)
+             MODERNGEKKO_DEFAULT_WINDOW_TITLE="${MODERNGEKKO_DEFAULT_WINDOW_TITLE}")
+     endif()
+     if(MODERNGEKKO_REQUIRED_DISC_ID)
+-        target_compile_definitions(moderngekko-run PRIVATE
+-            MODERNGEKKO_REQUIRED_DISC_ID="${MODERNGEKKO_REQUIRED_DISC_ID}")
+-    endif()
+-    if(MODERNGEKKO_REQUIRED_DOL_SHA256)
+-        target_compile_definitions(moderngekko-run PRIVATE
+-            MODERNGEKKO_REQUIRED_DOL_SHA256="${MODERNGEKKO_REQUIRED_DOL_SHA256}")
++        target_compile_definitions(moderngekko-run PRIVATE MODERNGEKKO_RELEASE_GAMES=1)
++        target_include_directories(moderngekko-run PRIVATE "${_moderngekko_release_games_dir}")
+     endif()
+     if(MODERNGEKKO_REQUIRED_REL_SHA256)
+         target_compile_definitions(moderngekko-run PRIVATE
+@@ -486,37 +518,35 @@ if(MODERNGEKKO_ENABLE_DOLPHIN_RUNTIME)
+         target_compile_definitions(moderngekko-run PRIVATE
+             MODERNGEKKO_USER_DIRECTORY_IN_DOCUMENTS=1)
+     endif()
+-    if(MODERNGEKKO_DOL_PATCH_MANIFEST)
+-        get_filename_component(_moderngekko_dol_patch_name
+-            "${MODERNGEKKO_DOL_PATCH_MANIFEST}" NAME)
+-        target_compile_definitions(moderngekko-run PRIVATE
+-            MODERNGEKKO_DOL_PATCH_MANIFEST="patches/${_moderngekko_dol_patch_name}")
+-    endif()
+     add_custom_command(TARGET moderngekko-run POST_BUILD
+         COMMAND ${CMAKE_COMMAND} -E copy_directory
+                 "${CMAKE_CURRENT_SOURCE_DIR}/vendor/dolphin/Data/Sys"
+                 "$<TARGET_FILE_DIR:moderngekko-run>/Sys")
+-    if(MODERNGEKKO_DOL_PATCH_MANIFEST)
+-        add_custom_command(TARGET moderngekko-run POST_BUILD
+-            COMMAND ${CMAKE_COMMAND} -E make_directory
+-                    "$<TARGET_FILE_DIR:moderngekko-run>/patches"
+-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+-                    "${MODERNGEKKO_DOL_PATCH_MANIFEST}"
+-                    "$<TARGET_FILE_DIR:moderngekko-run>/patches/${_moderngekko_dol_patch_name}")
+-    endif()
+-    if(MODERNGEKKO_GAME_SETTINGS_OVERRIDE)
+-        get_filename_component(_moderngekko_settings_name
+-            "${MODERNGEKKO_GAME_SETTINGS_OVERRIDE}" NAME)
++    foreach(_moderngekko_dol_patch IN LISTS MODERNGEKKO_DOL_PATCH_MANIFEST)
++        if(_moderngekko_dol_patch)
++            get_filename_component(_moderngekko_dol_patch_name "${_moderngekko_dol_patch}" NAME)
++            add_custom_command(TARGET moderngekko-run POST_BUILD
++                COMMAND ${CMAKE_COMMAND} -E make_directory
++                        "$<TARGET_FILE_DIR:moderngekko-run>/patches"
++                COMMAND ${CMAKE_COMMAND} -E copy_if_different
++                        "${_moderngekko_dol_patch}"
++                        "$<TARGET_FILE_DIR:moderngekko-run>/patches/${_moderngekko_dol_patch_name}")
++        endif()
++    endforeach()
++    foreach(_moderngekko_settings IN LISTS MODERNGEKKO_GAME_SETTINGS_OVERRIDE)
++        get_filename_component(_moderngekko_settings_name "${_moderngekko_settings}" NAME)
+         add_custom_command(TARGET moderngekko-run POST_BUILD
+             COMMAND ${CMAKE_COMMAND} -E copy_if_different
+-                    "${MODERNGEKKO_GAME_SETTINGS_OVERRIDE}"
++                    "${_moderngekko_settings}"
+                     "$<TARGET_FILE_DIR:moderngekko-run>/Sys/GameSettings/${_moderngekko_settings_name}")
+-    endif()
++    endforeach()
+ 
      add_executable(moderngekko-launcher
          tools/moderngekko_launcher.cpp
          tools/frontend_config.cpp
@@ -33,7 +155,33 @@ index c0548a0..e4f8fa2 100644
          vendor/dolphin/Externals/imgui/imgui/backends/imgui_impl_sdl3.cpp
          vendor/dolphin/Externals/imgui/imgui/backends/imgui_impl_sdlrenderer3.cpp)
      target_include_directories(moderngekko-launcher PRIVATE
-@@ -599,6 +606,33 @@ if(MODERNGEKKO_ENABLE_DOLPHIN_RUNTIME)
+@@ -547,12 +577,8 @@ if(MODERNGEKKO_ENABLE_DOLPHIN_RUNTIME)
+         MODERNGEKKO_USER_DIRECTORY_NAME="${MODERNGEKKO_USER_DIRECTORY_NAME}"
+         MODERNGEKKO_LOG_FILENAME="${MODERNGEKKO_LOG_FILENAME}")
+     if(MODERNGEKKO_REQUIRED_DISC_ID)
+-        target_compile_definitions(moderngekko-launcher PRIVATE
+-            MODERNGEKKO_REQUIRED_DISC_ID="${MODERNGEKKO_REQUIRED_DISC_ID}")
+-    endif()
+-    if(MODERNGEKKO_REQUIRED_DOL_SHA256)
+-        target_compile_definitions(moderngekko-launcher PRIVATE
+-            MODERNGEKKO_REQUIRED_DOL_SHA256="${MODERNGEKKO_REQUIRED_DOL_SHA256}")
++        target_compile_definitions(moderngekko-launcher PRIVATE MODERNGEKKO_RELEASE_GAMES=1)
++        target_include_directories(moderngekko-launcher PRIVATE "${_moderngekko_release_games_dir}")
+     endif()
+     if(MODERNGEKKO_REQUIRED_REL_SHA256)
+         target_compile_definitions(moderngekko-launcher PRIVATE
+@@ -574,10 +600,6 @@ if(MODERNGEKKO_ENABLE_DOLPHIN_RUNTIME)
+         target_compile_definitions(moderngekko-launcher PRIVATE
+             MODERNGEKKO_USER_DIRECTORY_IN_DOCUMENTS=1)
+     endif()
+-    if(MODERNGEKKO_DOL_PATCH_MANIFEST)
+-        target_compile_definitions(moderngekko-launcher PRIVATE
+-            MODERNGEKKO_DOL_PATCH_MANIFEST="patches/${_moderngekko_dol_patch_name}")
+-    endif()
+     if(MODERNGEKKO_DISC_PREPARER_OUTPUT_NAME)
+         target_compile_definitions(moderngekko-launcher PRIVATE
+             MODERNGEKKO_DISC_PREPARER_FILENAME="${MODERNGEKKO_DISC_PREPARER_OUTPUT_NAME}")
+@@ -599,6 +621,33 @@ if(MODERNGEKKO_ENABLE_DOLPHIN_RUNTIME)
              INSTALL_RPATH "$ORIGIN/lib")
      endif()
      add_dependencies(moderngekko-launcher moderngekko-run)
@@ -957,16 +1105,17 @@ index 3b18d05..7998f2c 100644
    std::string netplay_nickname = "Player";
    std::string netplay_address = "127.0.0.1";
 diff --git a/tools/moderngekko_launcher.cpp b/tools/moderngekko_launcher.cpp
-index 7699c3d..bfd5d60 100644
+index 7699c3d..992021f 100644
 --- a/tools/moderngekko_launcher.cpp
 +++ b/tools/moderngekko_launcher.cpp
-@@ -1,9 +1,14 @@
+@@ -1,12 +1,21 @@
  #include "frontend_config.hpp"
 +#include "disc_extract.hpp"
  #include "dol_patch.hpp"
  #include "launcher_savestates.hpp"
  #include "moderngekko/game.hpp"
  #include "netplay_session.hpp"
++#include "release_games.hpp"
 +#include "save_import.hpp"
  
 +#include "Common/Image.h"
@@ -975,7 +1124,13 @@ index 7699c3d..bfd5d60 100644
  #include "DiscIO/DiscExtractor.h"
  #include "DiscIO/Filesystem.h"
  #include "DiscIO/Volume.h"
-@@ -19,7 +24,12 @@
++#ifdef HAVE_DCMUSIC
++#include "AudioCommon/DCMusicImport.h"
++#endif
+ 
+ #include <SDL3/SDL.h>
+ #include <imgui.h>
+@@ -19,7 +28,12 @@
  #include <cstdio>
  #include <cstdlib>
  #include <filesystem>
@@ -988,7 +1143,7 @@ index 7699c3d..bfd5d60 100644
  #include <iostream>
  #include <mutex>
  #include <optional>
-@@ -51,7 +61,22 @@ namespace
+@@ -51,7 +65,22 @@ namespace
  #ifdef MODERNGEKKO_GAMECUBE_CONTROLLERS
  constexpr std::string_view CONTROLLER_PROFILE_NAME = "GCPadNew.ini";
  constexpr std::string_view GENERATED_PROFILE_LABEL = "GameCube profile";
@@ -1011,7 +1166,7 @@ index 7699c3d..bfd5d60 100644
  constexpr std::string_view CONTROLLER_PROFILE_NAME = "WiimoteNew.ini";
  constexpr std::string_view GENERATED_PROFILE_LABEL = "sideways profile";
  #endif
-@@ -74,12 +99,141 @@ struct DialogState
+@@ -74,22 +103,158 @@ struct DialogState
    std::string error;
  };
  
@@ -1033,7 +1188,11 @@ index 7699c3d..bfd5d60 100644
 +// Skies of Arcadia Legends' options, which the runtime applies live (Core/SkiesSettings.cpp):
 +// [Skies] in the user directory's Config/Dolphin.ini. -1 = not set yet; the runtime then derives
 +// the value on its first boot (16:9 from the widescreen DOL, the frame rate from the old switches).
-+constexpr const char* SKIES_DISC_ID = "GEAE8P";
++// The USA and the European game.
++bool IsSkies(std::string_view disc_id)
++{
++  return disc_id == "GEAE8P" || disc_id == "GEAP8P";
++}
 +
 +// A Dolphin setting in the user directory's Config/<file>, [<section>] <key>.
 +struct DolphinOption
@@ -1146,14 +1305,35 @@ index 7699c3d..bfd5d60 100644
 +    {{0, "Off"}, {5, "Every 5 min"}, {10, "Every 10 min"}, {15, "Every 15 min"}, {30, "Every 30 min"}}};
 +constexpr std::array<LauncherChoice, 7> DEAD_ZONE_CHOICES{
 +    {{0, "Off"}, {5, "5%"}, {10, "10%"}, {15, "15%"}, {20, "20%"}, {25, "25%"}, {30, "30%"}}};
++constexpr std::array<LauncherChoice, 2> MUSIC_CHOICES{{{0, "GameCube"}, {1, "Dreamcast"}}};
 +constexpr std::array<LauncherChoice, 11> VOLUME_CHOICES{
 +    {{0, "0% (muted)"}, {10, "10%"}, {20, "20%"}, {30, "30%"}, {40, "40%"}, {50, "50%"},
 +     {60, "60%"}, {70, "70%"}, {80, "80%"}, {90, "90%"}, {100, "100%"}}};
 +
  std::string RequiredGameError(const moderngekko::GameMetadata& metadata)
  {
- #ifdef MODERNGEKKO_REQUIRED_DISC_ID
-@@ -101,6 +255,18 @@ std::string RequiredGameError(const moderngekko::GameMetadata& metadata)
+-#ifdef MODERNGEKKO_REQUIRED_DISC_ID
+-  if (metadata.disc_id != MODERNGEKKO_REQUIRED_DISC_ID)
+-    return "expected disc ID " MODERNGEKKO_REQUIRED_DISC_ID ", found " + metadata.disc_id;
+-#endif
+-#ifdef MODERNGEKKO_REQUIRED_DOL_SHA256
+-  if (metadata.dol_sha256 != MODERNGEKKO_REQUIRED_DOL_SHA256)
+-    return "main DOL does not match the pinned release";
+-#endif
++  if (moderngekko::frontend::IsReleaseBuild())
++  {
++    const moderngekko::frontend::ReleaseGame* game =
++        moderngekko::frontend::FindReleaseGame(metadata.disc_id);
++    if (!game)
++      return "expected disc ID " + moderngekko::frontend::ReleaseDiscIds() + ", found " +
++             metadata.disc_id;
++    if (!game->dol_sha256.empty() && metadata.dol_sha256 != game->dol_sha256)
++      return "main DOL does not match the pinned release";
++  }
+ #ifdef MODERNGEKKO_REQUIRED_REL_SHA256
+   if (metadata.rel_sha256 != MODERNGEKKO_REQUIRED_REL_SHA256)
+     return "_Main.rel does not match the pinned release";
+@@ -101,6 +266,18 @@ std::string RequiredGameError(const moderngekko::GameMetadata& metadata)
    return {};
  }
  
@@ -1172,7 +1352,7 @@ index 7699c3d..bfd5d60 100644
  std::vector<ControllerOption> EnumerateControllers()
  {
    std::vector<ControllerOption> result;
-@@ -146,9 +312,10 @@ fs::path DefaultUserDirectory()
+@@ -146,9 +323,10 @@ fs::path DefaultUserDirectory()
    if (const char* local_app_data = std::getenv("LOCALAPPDATA"))
      return fs::path(local_app_data) / MODERNGEKKO_USER_DIRECTORY_NAME;
  #endif
@@ -1185,7 +1365,7 @@ index 7699c3d..bfd5d60 100644
      return fs::path(home) / ".local/share" / MODERNGEKKO_USER_DIRECTORY_NAME;
    return std::string(MODERNGEKKO_USER_DIRECTORY_NAME) + "-user";
  }
-@@ -166,6 +333,13 @@ fs::path DocumentsDirectory()
+@@ -166,6 +344,13 @@ fs::path DocumentsDirectory()
  
  fs::path ExecutableDirectory(const char* argv0)
  {
@@ -1199,7 +1379,7 @@ index 7699c3d..bfd5d60 100644
    std::error_code ec;
  #if defined(__linux__)
    const fs::path proc_executable = fs::read_symlink("/proc/self/exe", ec);
-@@ -182,8 +356,9 @@ fs::path SiblingExecutable(const fs::path& release_directory, std::string name)
+@@ -182,26 +367,23 @@ fs::path SiblingExecutable(const fs::path& release_directory, std::string name)
  #if defined(_WIN32)
    name += ".exe";
  #endif
@@ -1211,7 +1391,31 @@ index 7699c3d..bfd5d60 100644
  }
  
  bool ApplyBundledDolPatch(const fs::path& game_root, const fs::path& release_directory,
-@@ -232,7 +407,10 @@ bool WriteDefaultGame(const fs::path& user_directory, const fs::path& release_di
+                           bool* changed, std::string* error)
+ {
+-#ifdef MODERNGEKKO_DOL_PATCH_MANIFEST
++  *changed = false;
+   if (game_root.empty() || !fs::is_directory(game_root))
+-  {
+-    *changed = false;
+     return true;
+-  }
++  const moderngekko::frontend::ReleaseGame* game =
++      moderngekko::frontend::FindReleaseGame(moderngekko::frontend::ReadDiscId(game_root));
++  if (!game || game->dol_patch.empty())
++    return true;
+   return moderngekko::frontend::ApplyDolPatchManifest(
+-      game_root / "sys" / "main.dol", release_directory / MODERNGEKKO_DOL_PATCH_MANIFEST,
+-      changed, error);
+-#else
+-  *changed = false;
+-  return true;
+-#endif
++      game_root / "sys" / "main.dol", release_directory / game->dol_patch, changed, error);
+ }
+ 
+ fs::path DefaultGameFile(const fs::path& user_directory, const fs::path& release_directory)
+@@ -232,7 +414,10 @@ bool WriteDefaultGame(const fs::path& user_directory, const fs::path& release_di
    const fs::path destination = DefaultGameFile(user_directory, release_directory);
    std::error_code ec;
    fs::create_directories(destination.parent_path(), ec);
@@ -1223,7 +1427,7 @@ index 7699c3d..bfd5d60 100644
    if (!file)
    {
      if (error)
-@@ -246,9 +424,141 @@ bool WriteDefaultGame(const fs::path& user_directory, const fs::path& release_di
+@@ -246,9 +431,150 @@ bool WriteDefaultGame(const fs::path& user_directory, const fs::path& release_di
      stored = relative;
  #endif
    file << stored.string() << '\n';
@@ -1341,12 +1545,21 @@ index 7699c3d..bfd5d60 100644
 +{
 +  moderngekko::frontend::SaveImportGame game{game_id, MODERNGEKKO_FRONTEND_NAME,
 +                                             "state-skies-import-"};
-+  if (game_id == "GEAE8P")
++  if (IsSkies(game_id))
 +  {
 +    game.save_blocks = 3;
 +    game.save_name_prefix = "SA_LEGENDS.";
 +  }
 +  return game;
++}
++
++// The game Import a save is for in a release: the game root's, else the release's first game.
++std::string ReleaseSaveGameId(const fs::path& game_root)
++{
++  std::string id = moderngekko::frontend::ReadDiscId(game_root);
++  if (!moderngekko::frontend::FindReleaseGame(id) && moderngekko::frontend::IsReleaseBuild())
++    id = moderngekko::frontend::ReleaseGames().front().disc_id;
++  return id;
 +}
 +
 +// A save state's name for the menu: the in-game menu's slots and auto-saves by their role
@@ -1365,7 +1578,7 @@ index 7699c3d..bfd5d60 100644
  std::vector<fs::path> FindDiscImages()
  {
    std::vector<fs::path> images;
-@@ -259,7 +569,9 @@ std::vector<fs::path> FindDiscImages()
+@@ -259,7 +585,9 @@ std::vector<fs::path> FindDiscImages()
    fs::recursive_directory_iterator iterator(documents,
                                              fs::directory_options::skip_permission_denied, ec);
    const fs::recursive_directory_iterator end;
@@ -1376,7 +1589,7 @@ index 7699c3d..bfd5d60 100644
    {
      if (iterator.depth() > 4)
        iterator.disable_recursion_pending();
-@@ -268,7 +580,7 @@ std::vector<fs::path> FindDiscImages()
+@@ -268,7 +596,7 @@ std::vector<fs::path> FindDiscImages()
        std::string extension = iterator->path().extension().string();
        std::ranges::transform(extension, extension.begin(),
                               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
@@ -1385,7 +1598,28 @@ index 7699c3d..bfd5d60 100644
          images.push_back(iterator->path());
      }
      iterator.increment(ec);
-@@ -372,7 +684,9 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+@@ -290,16 +618,14 @@ std::optional<fs::path> PrepareDisc(const fs::path& image, const fs::path& user_
+     return std::nullopt;
+   }
+   const std::string source_id = source->GetGameID(source->GetGamePartition());
+-#ifdef MODERNGEKKO_REQUIRED_DISC_ID
+-  if (source_id == MODERNGEKKO_REQUIRED_DISC_ID)
++  if (moderngekko::frontend::FindReleaseGame(source_id))
+     return image;
+-#endif
+ #if defined(MODERNGEKKO_DISC_PREPARER_FILENAME) && \
+-    defined(MODERNGEKKO_ACCEPTED_SOURCE_DISC_ID) && defined(MODERNGEKKO_REQUIRED_DISC_ID)
++    defined(MODERNGEKKO_ACCEPTED_SOURCE_DISC_ID) && defined(MODERNGEKKO_RELEASE_GAMES)
+   if (source_id != MODERNGEKKO_ACCEPTED_SOURCE_DISC_ID)
+   {
+-    *error = "expected clean " MODERNGEKKO_ACCEPTED_SOURCE_DISC_ID " or patched "
+-             MODERNGEKKO_REQUIRED_DISC_ID "; selected " + source_id;
++    *error = "expected clean " MODERNGEKKO_ACCEPTED_SOURCE_DISC_ID " or patched " +
++             moderngekko::frontend::ReleaseDiscIds() + "; selected " + source_id;
+     return std::nullopt;
+   }
+   const fs::path output = user_directory / "Setup" / "SonicRidersTE-2.4.6.1.iso";
+@@ -372,13 +698,13 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
      return fail("Dolphin could not read the game partition filesystem");
  
    std::string disc_id = volume->GetGameID(partition);
@@ -1394,9 +1628,18 @@ index 7699c3d..bfd5d60 100644
 +  if (disc_id.size() != 6 ||
 +      !std::ranges::all_of(disc_id, [](unsigned char c) { return std::isalnum(c) != 0; }))
      return fail("the selected image has an invalid disc ID");
- #ifdef MODERNGEKKO_REQUIRED_DISC_ID
-   if (disc_id != MODERNGEKKO_REQUIRED_DISC_ID)
-@@ -387,14 +701,47 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+-#ifdef MODERNGEKKO_REQUIRED_DISC_ID
+-  if (disc_id != MODERNGEKKO_REQUIRED_DISC_ID)
+-    return fail("this frontend requires disc ID " MODERNGEKKO_REQUIRED_DISC_ID "; selected " +
+-                disc_id);
+-#endif
++  if (moderngekko::frontend::IsReleaseBuild() && !moderngekko::frontend::FindReleaseGame(disc_id))
++    return fail("this frontend requires disc ID " + moderngekko::frontend::ReleaseDiscIds() +
++                "; selected " + disc_id);
+ #ifdef MODERNGEKKO_PORTABLE_DEFAULT_GAME
+   const fs::path games_directory = release_directory;
+   const fs::path output = games_directory / "Game";
+@@ -387,14 +713,47 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
    const fs::path output = games_directory / disc_id;
  #endif
    std::error_code ec;
@@ -1446,7 +1689,7 @@ index 7699c3d..bfd5d60 100644
    if (existing && RequiredGameError(*existing.metadata).empty())
    {
      std::string error;
-@@ -407,8 +754,27 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+@@ -407,8 +766,27 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
      return true;
    }
  
@@ -1474,7 +1717,7 @@ index 7699c3d..bfd5d60 100644
    fs::create_directories(staging / "files", ec);
    if (ec)
      return fail("can't create extraction directory: " + ec.message());
-@@ -423,20 +789,25 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+@@ -423,20 +801,25 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
      return fail("Dolphin failed while extracting the disc system data");
    }
  
@@ -1510,7 +1753,7 @@ index 7699c3d..bfd5d60 100644
  
    bool dol_changed = false;
    std::string dol_patch_error;
-@@ -446,7 +817,7 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+@@ -446,7 +829,7 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
      return fail("extracted DOL patching failed: " + dol_patch_error);
    }
  
@@ -1519,7 +1762,7 @@ index 7699c3d..bfd5d60 100644
    if (!inspected)
    {
      fs::remove_all(staging, ec);
-@@ -459,11 +830,13 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+@@ -459,11 +842,13 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
      return fail("extracted game validation failed: " + identity_error);
    }
  
@@ -1538,7 +1781,7 @@ index 7699c3d..bfd5d60 100644
    std::string error;
    if (!WriteDefaultGame(user_directory, release_directory, output, &error))
      return fail(error);
-@@ -487,16 +860,26 @@ void SDLCALL FileDialogCallback(void* userdata, const char* const* filelist, int
+@@ -487,16 +872,26 @@ void SDLCALL FileDialogCallback(void* userdata, const char* const* filelist, int
      state->selected = filelist[0];
  }
  
@@ -1569,32 +1812,55 @@ index 7699c3d..bfd5d60 100644
  }
  } // namespace
  
-@@ -504,6 +887,7 @@ int main(int argc, char** argv)
+@@ -504,6 +899,8 @@ int main(int argc, char** argv)
  {
    bool use_wayland = false;
    std::optional<fs::path> extract_only;
 +  std::optional<std::string> import_save_only;
++  std::optional<std::string> import_dc_music_only;
    for (int i = 1; i < argc; ++i)
    {
      if (std::string_view(argv[i]) == "-X11" || std::string_view(argv[i]) == "--x11")
-@@ -512,6 +896,8 @@ int main(int argc, char** argv)
+@@ -512,10 +909,28 @@ int main(int argc, char** argv)
        use_wayland = true;
      else if (std::string_view(argv[i]) == "--extract" && i + 1 < argc)
        extract_only = argv[++i];
 +    else if (std::string_view(argv[i]) == "--import-save" && i + 1 < argc)
 +      import_save_only = argv[++i];
++    else if (std::string_view(argv[i]) == "--import-dc-music" && i + 1 < argc)
++      import_dc_music_only = argv[++i];
    }
  
    const fs::path user_directory = DefaultUserDirectory();
-@@ -529,6 +915,19 @@ int main(int argc, char** argv)
+   const fs::path release_directory = ExecutableDirectory(argv[0]);
++#ifdef HAVE_DCMUSIC
++  // Where the game looks for the Dreamcast music (AudioCommon/DCMusic.h: the user directory's)
++  const std::string dc_music_directory = PathToString(user_directory / "DreamcastMusic" / "");
++  // Settings, Sound's Import without the window and the picker (for tests)
++  if (import_dc_music_only)
++  {
++    std::string summary;
++    const std::string error = DCMusicImport::Import(
++        *import_dc_music_only, dc_music_directory, &summary,
++        [](const std::string& status) { std::cout << status << '\n'; });
++    (error.empty() ? std::cout : std::cerr) << (error.empty() ? summary : error) << '\n';
++    return error.empty() ? 0 : 1;
++  }
++#endif
+   if (extract_only)
+   {
+     ExtractionState extraction;
+@@ -529,6 +944,21 @@ int main(int argc, char** argv)
        std::cout << extraction.status << ": " << *extraction.finished_game << '\n';
      return success ? 0 : 1;
    }
-+#ifdef MODERNGEKKO_REQUIRED_DISC_ID
-+  // Settings, Saves' Import without the window and the picker (for tests)
++#ifdef MODERNGEKKO_RELEASE_GAMES
++  // Settings, Saves' Import without the window and the picker (for tests): for the default game
 +  if (import_save_only)
 +  {
-+    const moderngekko::frontend::SaveImportGame game = SaveGame(MODERNGEKKO_REQUIRED_DISC_ID);
++    const std::string game_id =
++        ReleaseSaveGameId(ReadDefaultGame(user_directory, release_directory));
++    const moderngekko::frontend::SaveImportGame game = SaveGame(game_id);
 +    const moderngekko::frontend::SaveImportResult result =
 +        moderngekko::frontend::ImportSave(StringToPath(*import_save_only), user_directory, game);
 +    (result.ok ? std::cout : std::cerr) << result.message << '\n'
@@ -1606,7 +1872,7 @@ index 7699c3d..bfd5d60 100644
  
    auto config = moderngekko::frontend::LoadConfig(user_directory, true);
    if (!config)
-@@ -546,9 +945,18 @@ int main(int argc, char** argv)
+@@ -546,9 +976,18 @@ int main(int argc, char** argv)
    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD))
      return 1;
  
@@ -1627,7 +1893,7 @@ index 7699c3d..bfd5d60 100644
                                          SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
    if (!window)
    {
-@@ -578,19 +986,88 @@ int main(int argc, char** argv)
+@@ -578,19 +1017,88 @@ int main(int argc, char** argv)
    ImGui::GetStyle().FontScaleDpi = scale;
    ImGui_ImplSDL3_InitForSDLRenderer(window, renderer);
    ImGui_ImplSDLRenderer3_Init(renderer);
@@ -1719,7 +1985,7 @@ index 7699c3d..bfd5d60 100644
    const auto& resolutions = moderngekko::frontend::SupportedResolutions();
    const auto& graphics_backends =
        moderngekko::frontend::SupportedGraphicsBackends();
-@@ -605,6 +1082,41 @@ int main(int argc, char** argv)
+@@ -605,6 +1113,42 @@ int main(int argc, char** argv)
    int netplay_port = config.netplay_port;
    bool automatic_buffer = config.netplay_buffer == "auto";
    int manual_buffer = automatic_buffer ? 5 : std::stoi(config.netplay_buffer);
@@ -1742,6 +2008,7 @@ index 7699c3d..bfd5d60 100644
 +  SettingValue vsync = setting({"GFX.ini", "Hardware", "VSync"}, 0);
 +  SettingValue show_fps = setting({"GFX.ini", "Settings", "ShowFPS"}, 0);
 +  SettingValue volume = setting({"Dolphin.ini", "DSP", "Volume"}, 100);
++  SettingValue dc_music = setting({"Dolphin.ini", "Skies", "DreamcastMusic"}, 0);
 +  SettingValue camera = setting({"Dolphin.ini", "Skies", "CameraControl"}, 1);
 +  SettingValue encounters = setting({"Dolphin.ini", "Skies", "Encounters"}, 100);
 +  SettingValue exp = setting({"Dolphin.ini", "Skies", "Exp"}, 100);
@@ -1761,7 +2028,7 @@ index 7699c3d..bfd5d60 100644
    int resolution_index = 0;
    for (std::size_t i = 0; i < resolutions.size(); ++i)
    {
-@@ -621,17 +1133,101 @@ int main(int argc, char** argv)
+@@ -621,17 +1165,117 @@ int main(int argc, char** argv)
    // StateSaves is Dolphin's own state directory, so states written in-game land
    // here without any extra configuration and show up on the next launch.
    //
@@ -1787,8 +2054,8 @@ index 7699c3d..bfd5d60 100644
 +  std::string continue_text;
 +  // Settings, Saves: importing a save the player already has (save_import.cpp, shared with the
 +  // Android app). The launcher is closed while the game runs, so it can't swap a card under it.
-+#ifdef MODERNGEKKO_REQUIRED_DISC_ID
-+  const std::string save_game_id = MODERNGEKKO_REQUIRED_DISC_ID;
++#ifdef MODERNGEKKO_RELEASE_GAMES
++  const std::string save_game_id = ReleaseSaveGameId(current_game);
 +#else
 +  const std::string save_game_id = current_metadata ? current_metadata.metadata->disc_id : "";
 +#endif
@@ -1796,6 +2063,22 @@ index 7699c3d..bfd5d60 100644
 +  // Never freed: an OS file dialog still open when the launcher quits can call back after main
 +  // returns (both dialog states)
 +  SaveDialogState& save_dialog = *new SaveDialogState;
++#ifdef HAVE_DCMUSIC
++  // Settings, Sound: the Dreamcast disc picked for the music, and its import (on a thread; never
++  // freed either, as the thread can outlive the launcher's last frame)
++  SaveDialogState& dc_dialog = *new SaveDialogState;
++  struct DcImportState
++  {
++    std::mutex mutex;
++    bool running = false;
++    std::string status;     // while it runs
++    std::string message;    // how the last one went
++    bool ok = true;
++    std::string described;  // what's imported (DCMusicImport::Describe), "" = nothing
++  };
++  DcImportState& dc_import = *new DcImportState;
++  dc_import.described = DCMusicImport::Describe(dc_music_directory);
++#endif
 +  bool save_prompt_open = false;
 +  std::string saves_text;  // what is there now
 +  moderngekko::frontend::SaveImportResult save_import;
@@ -1827,7 +2110,7 @@ index 7699c3d..bfd5d60 100644
 +    // The newest state (the list is newest first); for Skies only the port's own (the in-game
 +    // menu's slots and auto-saves, imports), not any .sav dropped in the folder
 +    const bool skies_states =
-+        background || (current_metadata && current_metadata.metadata->disc_id == SKIES_DISC_ID);
++        background || (current_metadata && IsSkies(current_metadata.metadata->disc_id));
 +    for (std::size_t i = 0; i < launcher_savestates.size() && continue_state < 0; ++i)
 +    {
 +      const std::string name = moderngekko::frontend::PathText(launcher_savestates[i].filename());
@@ -1870,7 +2153,7 @@ index 7699c3d..bfd5d60 100644
    std::vector<ControllerOption> controllers = EnumerateControllers();
    bool controller_profile_exists = moderngekko::frontend::ControllerConfigExists(user_directory);
    std::vector<std::string> configured_controllers =
-@@ -726,7 +1322,11 @@ int main(int argc, char** argv)
+@@ -726,7 +1370,11 @@ int main(int argc, char** argv)
      Join,
    };
    bool done = false;
@@ -1882,7 +2165,7 @@ index 7699c3d..bfd5d60 100644
    while (!done)
    {
      bool controllers_changed = false;
-@@ -744,6 +1344,7 @@ int main(int argc, char** argv)
+@@ -744,6 +1392,7 @@ int main(int argc, char** argv)
      }
      if (controllers_changed)
        refresh_controllers();
@@ -1890,7 +2173,7 @@ index 7699c3d..bfd5d60 100644
  
      {
        std::lock_guard lock(dialog.mutex);
-@@ -751,14 +1352,34 @@ int main(int argc, char** argv)
+@@ -751,14 +1400,34 @@ int main(int argc, char** argv)
        {
          selected_image = std::move(dialog.selected);
          dialog.selected.reset();
@@ -1926,7 +2209,7 @@ index 7699c3d..bfd5d60 100644
          if (current_metadata && !RequiredGameError(*current_metadata.metadata).empty())
            current_metadata = {{}, RequiredGameError(*current_metadata.metadata)};
          extraction.finished_game.reset();
-@@ -774,18 +1395,79 @@ int main(int argc, char** argv)
+@@ -774,18 +1443,79 @@ int main(int argc, char** argv)
      ImGui_ImplSDL3_NewFrame();
      ImGui::NewFrame();
      const ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -2017,7 +2300,7 @@ index 7699c3d..bfd5d60 100644
        if (!launcher_savestates.empty())
        {
          ImGui::TextUnformatted("Start from savestate");
-@@ -820,6 +1502,24 @@ int main(int argc, char** argv)
+@@ -820,6 +1550,24 @@ int main(int argc, char** argv)
          ImGui::TextDisabled("Solo play only.");
          ImGui::Spacing();
        }
@@ -2042,7 +2325,7 @@ index 7699c3d..bfd5d60 100644
        if (ImGui::Button("Play", ImVec2(180 * scale, 42 * scale)))
        {
          if (ensure_controller())
-@@ -828,7 +1528,9 @@ int main(int argc, char** argv)
+@@ -828,7 +1576,9 @@ int main(int argc, char** argv)
            done = true;
          }
        }
@@ -2053,7 +2336,7 @@ index 7699c3d..bfd5d60 100644
        if (ImGui::Button("Host Netplay", ImVec2(180 * scale, 42 * scale)))
        {
          if (ensure_controller())
-@@ -884,213 +1586,902 @@ int main(int argc, char** argv)
+@@ -884,213 +1634,1021 @@ int main(int argc, char** argv)
            }
          }
        }
@@ -2210,14 +2493,15 @@ index 7699c3d..bfd5d60 100644
 -      config.controller = selected_controller;
 -      std::string error;
 -      if (!moderngekko::frontend::SaveConfig(user_directory, config, &error))
-+      const bool previous_show_fps_in_title = show_fps_in_title;
-+      if (toggle_row("FPS in title bar", "##title_fps", &show_fps_in_title, "Off", "On",
-+                     "Show FPS in window title"))
-       {
+-      {
 -        fullscreen = previous_fullscreen;
 -        config.fullscreen = previous_fullscreen;
 -        std::lock_guard lock(dialog.mutex);
 -        dialog.error = std::move(error);
++      const bool previous_show_fps_in_title = show_fps_in_title;
++      if (toggle_row("FPS in title bar", "##title_fps", &show_fps_in_title, "Off", "On",
++                     "Show FPS in window title"))
++      {
 +        std::string error;
 +        if (!moderngekko::frontend::SaveConfig(user_directory, resolutions[resolution_index].text,
 +                                               show_fps_in_title, selected_controller, &error))
@@ -2241,7 +2525,7 @@ index 7699c3d..bfd5d60 100644
 +    const auto skies_video_rows = [&](int first, int last)
      {
 -      for (std::size_t i = 0; i < resolutions.size(); ++i)
-+      if (background || (current_metadata && current_metadata.metadata->disc_id == SKIES_DISC_ID))
++      if (background || (current_metadata && IsSkies(current_metadata.metadata->disc_id)))
        {
 -        const bool selected = resolution_index == static_cast<int>(i);
 -        if (ImGui::Selectable(resolutions[i].text, selected))
@@ -2296,7 +2580,7 @@ index 7699c3d..bfd5d60 100644
 +                ImGui::SetItemDefaultFocus();
 +            }
 +            ImGui::EndCombo();
-           }
++          }
 +          describe(description);
 +        };
 +        if (first <= 0 && last >= 0)
@@ -2339,7 +2623,7 @@ index 7699c3d..bfd5d60 100644
 +                controller_profile_exists
 +                    ? "Existing " + std::string(CONTROLLER_PROFILE_NAME) + " unchanged"
 +                    : "Ready to generate controller profile";
-+          }
+           }
 +          if (selected)
 +            ImGui::SetItemDefaultFocus();
          }
@@ -2380,7 +2664,7 @@ index 7699c3d..bfd5d60 100644
 -        dialog.error = std::move(error);
 +        ImGui::SetNextItemWidth(180 * scale);
 +        ImGui::SliderInt("Buffer frames", &manual_buffer, 1, 20);
-       }
++      }
 +    };
 +    const auto disc_section = [&]
 +    {
@@ -2419,7 +2703,7 @@ index 7699c3d..bfd5d60 100644
 +          ImGui::ProgressBar(progress, ImVec2(440.0f * ui_scale, 0));
 +        }
 +        return;
-+      }
+       }
 +      ImGui::Spacing();
 +      ImGui::TextUnformatted("Game disc image");
 +      if (selected_image)
@@ -2529,7 +2813,13 @@ index 7699c3d..bfd5d60 100644
 +        ImGui::Spacing();
 +        bool close = false;
 +        if (ImGui::Button("Choose a file"))
-+        {
+         {
+-          controller_index = static_cast<int>(i);
+-          selected_controller = controllers[i].device;
+-          controller_status =
+-              controller_profile_exists
+-                  ? "Existing " + std::string(CONTROLLER_PROFILE_NAME) + " unchanged"
+-                  : "Ready to generate controller profile";
 +          close = true;
 +          save_import = {true, "Choose a save file."};
 +          static constexpr SDL_DialogFileFilter SAVE_FILTERS[] = {
@@ -2537,7 +2827,9 @@ index 7699c3d..bfd5d60 100644
 +          const std::string documents = PathToString(DocumentsDirectory());
 +          SDL_ShowOpenFileDialog(SaveDialogCallback, &save_dialog, window, SAVE_FILTERS,
 +                                 static_cast<int>(std::size(SAVE_FILTERS)), documents.c_str(), false);
-+        }
+         }
+-        if (selected)
+-          ImGui::SetItemDefaultFocus();
 +        ImGui::SameLine();
 +        if (ImGui::IsWindowAppearing())
 +          ImGui::SetKeyboardFocusHere();
@@ -2548,18 +2840,10 @@ index 7699c3d..bfd5d60 100644
 +          close = true;
 +        }
 +        if (close)
-         {
--          controller_index = static_cast<int>(i);
--          selected_controller = controllers[i].device;
--          controller_status =
--              controller_profile_exists
--                  ? "Existing " + std::string(CONTROLLER_PROFILE_NAME) + " unchanged"
--                  : "Ready to generate controller profile";
++        {
 +          save_prompt_open = false;
 +          ImGui::CloseCurrentPopup();
-         }
--        if (selected)
--          ImGui::SetItemDefaultFocus();
++        }
 +        ImGui::EndPopup();
        }
 -      ImGui::EndCombo();
@@ -2644,27 +2928,14 @@ index 7699c3d..bfd5d60 100644
 -          extraction.completed = 0;
 -          extraction.total = 1;
 -          extraction.running = true;
--          {
--            std::lock_guard lock(extraction.mutex);
--            extraction.error.clear();
--            extraction.finished_game.reset();
--          }
--          const fs::path image = *selected_image;
--          extraction_thread = std::jthread([image, user_directory, release_directory, &extraction]
--                                           {
--                                             ExtractDisc(image, user_directory,
--                                                         release_directory, &extraction);
--                                           });
 +          const bool selected = choice.value == shown;
 +          if (ImGui::Selectable(choice.text, selected) && !selected)
 +            picked = choice.value;
 +          if (selected)
 +            ImGui::SetItemDefaultFocus();
-         }
++        }
 +        ImGui::EndCombo();
-       }
--    }
--    else
++      }
 +      describe(description);
 +      return picked;
 +    };
@@ -2687,10 +2958,7 @@ index 7699c3d..bfd5d60 100644
 +    const auto pad_row = [&](const char* label, const char* id, int* value, const auto& choices,
 +                             std::initializer_list<const char*> keys, int scale_to_ini,
 +                             const char* description)
-     {
--      const float progress =
--          std::min(1.0f, static_cast<float>(extraction.completed.load()) / extraction.total.load());
--      ImGui::ProgressBar(progress, ImVec2(-1, 0));
++    {
 +      if (const auto picked = choice_row(label, id, *value, choices, description))
 +      {
 +        std::string error;
@@ -2704,9 +2972,136 @@ index 7699c3d..bfd5d60 100644
 +      }
 +    };
 +
++#ifdef HAVE_DCMUSIC
++    const auto dc_music_section = [&]
++    {
++      {
++        std::lock_guard lock(dc_dialog.mutex);
++        if (dc_dialog.selected)
++        {
++          const std::string image = *dc_dialog.selected;
++          dc_dialog.selected.reset();
++          std::lock_guard import_lock(dc_import.mutex);
++          dc_import.running = true;
++          dc_import.status = "Reading the disc...";
++          dc_import.message.clear();
++          std::thread(
++              [&dc_import, image, directory = dc_music_directory]
++              {
++                std::string summary;
++                const std::string error = DCMusicImport::Import(
++                    image, directory, &summary, [&dc_import](const std::string& status)
++                    {
++                      std::lock_guard lock(dc_import.mutex);
++                      dc_import.status = status;
++                    });
++                const std::string described = DCMusicImport::Describe(directory);
++                std::lock_guard lock(dc_import.mutex);
++                dc_import.running = false;
++                dc_import.ok = error.empty();
++                dc_import.message = error.empty() ? summary : error;
++                dc_import.described = described;
++              })
++              .detach();
++        }
++        else if (!dc_dialog.error.empty())
++        {
++          std::lock_guard import_lock(dc_import.mutex);
++          dc_import.ok = false;
++          dc_import.message = "Couldn't open the file picker: " + dc_dialog.error;
++          dc_dialog.error.clear();
++        }
++        dc_dialog.cancelled = false;
++      }
++      bool running;
++      std::string status, message, described;
++      bool ok;
++      {
++        std::lock_guard lock(dc_import.mutex);
++        running = dc_import.running;
++        status = dc_import.status;
++        message = dc_import.message;
++        described = dc_import.described;
++        ok = dc_import.ok;
++      }
++      ImGui::Spacing();
++      if (!described.empty())
++      {
++        setting_row("Music", "##music", dc_music, MUSIC_CHOICES,
++                    "The Dreamcast version's music, played by its own sound chip, or the GameCube's. "
++                    "Switches in game too.");
++      }
++      else
++      {
++        row_label("Music");
++        ImGui::TextDisabled("GameCube");
++        describe("Import your Dreamcast disc below to play the Dreamcast version's music instead.");
++      }
++      ImGui::Spacing();
++      row_label("Dreamcast disc");
++      if (running)
++      {
++        ImGui::TextUnformatted(status.c_str());
++      }
++      else
++      {
++        if (ImGui::Button("Import a Dreamcast disc..."))
++        {
++          static constexpr SDL_DialogFileFilter DC_FILTERS[] = {
++              {"Dreamcast disc images", "gdi;chd"}, {"All files", "*"}};
++          const std::string documents = PathToString(DocumentsDirectory());
++          SDL_ShowOpenFileDialog(SaveDialogCallback, &dc_dialog, window, DC_FILTERS,
++                                 static_cast<int>(std::size(DC_FILTERS)), documents.c_str(), false);
++        }
++        if (!described.empty())
++        {
++          ImGui::SameLine();
++          if (ImGui::Button("Remove"))
+           {
+-            std::lock_guard lock(extraction.mutex);
+-            extraction.error.clear();
+-            extraction.finished_game.reset();
++            const bool removed = DCMusicImport::Remove(dc_music_directory);
++            std::string error;
++            if (dc_music.value > 0 && WriteDolphinOption(user_directory, dc_music.key, 0, &error))
++              dc_music.value = 0;
++            std::lock_guard lock(dc_import.mutex);
++            dc_import.described = DCMusicImport::Describe(dc_music_directory);
++            dc_import.ok = removed;
++            dc_import.message = removed ? "The Dreamcast music was removed." :
++                                          "Couldn't remove " + dc_music_directory;
+           }
+-          const fs::path image = *selected_image;
+-          extraction_thread = std::jthread([image, user_directory, release_directory, &extraction]
+-                                           {
+-                                             ExtractDisc(image, user_directory,
+-                                                         release_directory, &extraction);
+-                                           });
+         }
+       }
+-    }
+-    else
++      describe("Your own Skies of Arcadia Dreamcast disc, as a GDI (with its track files beside it) "
++               "or a CHD. Either disc has most of the music; import both for all of it.");
++      control_column();
++      ImGui::PushTextWrapPos(ImGui::GetContentRegionMax().x);
++      ImGui::TextDisabled("%s", described.empty() ? "Nothing imported yet." : described.c_str());
++      if (!message.empty())
++      {
++        control_column();
++        ImGui::TextColored(ok ? LAUNCHER_ACCENT : ImVec4(1.0f, 0.45f, 0.4f, 1.0f), "%s",
++                           message.c_str());
++      }
++      ImGui::PopTextWrapPos();
++    };
++#endif
++
 +    // A disc picked from the home screen's Select Disc is extracted (and played) right away.
 +    if (picked_disc && extract_after_pick && !extraction.running)
-+    {
+     {
+-      const float progress =
+-          std::min(1.0f, static_cast<float>(extraction.completed.load()) / extraction.total.load());
+-      ImGui::ProgressBar(progress, ImVec2(-1, 0));
 +      extract_after_pick = false;
 +      start_extraction();
      }
@@ -3066,8 +3461,14 @@ index 7699c3d..bfd5d60 100644
 +                setting_row("Invincible", "##invincible", invincible, INVINCIBLE_CHOICES,
 +                            "Keeps the party's HP and MP full. Press L3 or R3 in game to switch it.");
 +              });
-+          tab("Sound", [&] { setting_row("Volume", "##volume", volume, VOLUME_CHOICES,
-+                                              "Music and sound effects."); });
++          tab("Sound", [&]
++              {
++                setting_row("Volume", "##volume", volume, VOLUME_CHOICES, "Music and sound effects.");
++#ifdef HAVE_DCMUSIC
++                if (background || (current_metadata && IsSkies(current_metadata.metadata->disc_id)))
++                  dc_music_section();
++#endif
++              });
 +          tab("Controls", [&]
 +              {
 +                controller_section();
@@ -3114,14 +3515,14 @@ index 7699c3d..bfd5d60 100644
  
      ImGui::Render();
      SDL_SetRenderScale(renderer, io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y);
-@@ -1107,8 +2498,17 @@ int main(int argc, char** argv)
+@@ -1107,8 +2665,17 @@ int main(int argc, char** argv)
    if (launch_mode != LaunchMode::None)
    {
      std::string launch_error;
 -    if (!WriteDefaultGame(user_directory, release_directory, current_game,
 -                          &launch_error))
 +    const bool skies = background || (current_metadata &&
-+                                      current_metadata.metadata->disc_id == SKIES_DISC_ID);
++                                      IsSkies(current_metadata.metadata->disc_id));
 +    if (skies && !WriteDolphinOption(user_directory, AUTO_LOAD_CARD, launch_card_file,
 +                                     &launch_error))
 +    {
@@ -3134,7 +3535,7 @@ index 7699c3d..bfd5d60 100644
      {
        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Launch failed", launch_error.c_str(), window);
        result = 1;
-@@ -1163,6 +2563,15 @@ int main(int argc, char** argv)
+@@ -1163,6 +2730,15 @@ int main(int argc, char** argv)
            user_directory / "Logs" / MODERNGEKKO_LOG_FILENAME;
        std::error_code log_error;
        std::filesystem::create_directories(log_path.parent_path(), log_error);
@@ -3150,7 +3551,7 @@ index 7699c3d..bfd5d60 100644
        SDL_IOStream* log_stream =
            log_error ? nullptr : SDL_IOFromFile(log_path.string().c_str(), "w");
        SDL_Process* process = nullptr;
-@@ -1263,6 +2672,8 @@ int main(int argc, char** argv)
+@@ -1263,6 +2839,8 @@ int main(int argc, char** argv)
      }
    }
  
@@ -3204,18 +3605,21 @@ index af1c2a5..1a61395 100644
                 "       moderngekko-port pgo-run <game-root> [--backend c|llvm] [--toolchain auto|clang] [--opt-level 0-3]\n"
                 "               [--output path] [--profile-dir path] [--llvm-profdata path] [--keep-work]\n"
 diff --git a/tools/moderngekko_run.cpp b/tools/moderngekko_run.cpp
-index d6b3569..b1a2ff3 100644
+index d6b3569..7f2876b 100644
 --- a/tools/moderngekko_run.cpp
 +++ b/tools/moderngekko_run.cpp
-@@ -6,6 +6,7 @@
+@@ -4,8 +4,10 @@
+ #include "moderngekko/game.hpp"
+ #include "moderngekko/runtime.hpp"
  #include "netplay_session.hpp"
++#include "release_games.hpp"
  
  #include "Common/StringUtil.h"
 +#include <SDL3/SDL.h>
  
  #include <charconv>
  #include <chrono>
-@@ -26,6 +27,10 @@
+@@ -26,6 +28,10 @@
  #define WIN32_LEAN_AND_MEAN
  #define NOMINMAX
  #include <windows.h>
@@ -3226,7 +3630,7 @@ index d6b3569..b1a2ff3 100644
  #endif
  
  namespace {
-@@ -93,9 +98,10 @@ std::filesystem::path DefaultUserDirectory() {
+@@ -93,9 +99,10 @@ std::filesystem::path DefaultUserDirectory() {
      return std::filesystem::path(local_app_data) /
             MODERNGEKKO_USER_DIRECTORY_NAME;
  #endif
@@ -3239,7 +3643,7 @@ index d6b3569..b1a2ff3 100644
      return std::filesystem::path(home) / ".local" / "share" /
             MODERNGEKKO_USER_DIRECTORY_NAME;
    return std::string(MODERNGEKKO_USER_DIRECTORY_NAME) + "-user";
-@@ -126,6 +132,63 @@ std::filesystem::path ExecutableDirectory(const char *argv0) {
+@@ -126,6 +133,63 @@ std::filesystem::path ExecutableDirectory(const char *argv0) {
  }
  } // namespace
  
@@ -3303,7 +3707,7 @@ index d6b3569..b1a2ff3 100644
  int RunMain(int argc, char **argv) {
  #if defined(_WIN32)
    if (!std::getenv("SDL_GAMECONTROLLER_ALLOW_STEAM_VIRTUAL_GAMEPAD"))
-@@ -246,10 +309,40 @@ int RunMain(int argc, char **argv) {
+@@ -246,10 +310,40 @@ int RunMain(int argc, char **argv) {
      return 2;
    }
    config.graphics.internal_resolution_scale = frontend_config.dolphin_scale;
@@ -3344,23 +3748,83 @@ index d6b3569..b1a2ff3 100644
    if (use_default_mods) {
      config.mod_directories.push_back(executable_directory / "Mods");
      config.mod_directories.push_back(config.user_directory / "Mods");
-@@ -279,7 +372,14 @@ int RunMain(int argc, char **argv) {
-   if (dol_changed)
-     std::cout << "Applied native DOL patches\n";
- #endif
--  const auto inspected = moderngekko::InspectGame(config.game_root);
+@@ -266,39 +360,50 @@ int RunMain(int argc, char **argv) {
+     std::cout << "controller configuration: " << controller_message << '\n';
+   }
+ 
+-#ifdef MODERNGEKKO_DOL_PATCH_MANIFEST
+-  bool dol_changed = false;
+-  std::string dol_patch_error;
+-  if (!moderngekko::frontend::ApplyDolPatchManifest(
+-          config.game_root / "sys" / "main.dol",
+-          executable_directory / MODERNGEKKO_DOL_PATCH_MANIFEST, &dol_changed,
+-          &dol_patch_error)) {
+-    std::cerr << "DOL patching failed: " << dol_patch_error << '\n';
+-    return 2;
++  if (const moderngekko::frontend::ReleaseGame *release_game =
++          moderngekko::frontend::FindReleaseGame(
++              moderngekko::frontend::ReadDiscId(config.game_root));
++      release_game && !release_game->dol_patch.empty()) {
++    bool dol_changed = false;
++    std::string dol_patch_error;
++    if (!moderngekko::frontend::ApplyDolPatchManifest(
++            config.game_root / "sys" / "main.dol",
++            executable_directory / release_game->dol_patch, &dol_changed,
++            &dol_patch_error)) {
++      std::cerr << "DOL patching failed: " << dol_patch_error << '\n';
++      return 2;
++    }
++    if (dol_changed)
++      std::cout << "Applied native DOL patches\n";
+   }
+-  if (dol_changed)
+-    std::cout << "Applied native DOL patches\n";
 +#ifdef MODERNGEKKO_REQUIRED_ASSETS_SHA256
 +  constexpr bool hash_assets = true;
 +#else
 +  // Nothing else here reads assets_sha256, and hashing every game file
 +  // costs tens of seconds per launch.
 +  constexpr bool hash_assets = false;
-+#endif
+ #endif
+-  const auto inspected = moderngekko::InspectGame(config.game_root);
 +  const auto inspected = moderngekko::InspectGame(config.game_root, hash_assets);
    if (!inspected) {
      std::cerr << "invalid game: " << inspected.error << '\n';
      return 2;
-@@ -385,6 +485,8 @@ int RunMain(int argc, char **argv) {
+   }
+ 
+-#ifdef MODERNGEKKO_REQUIRED_DISC_ID
+-  if (inspected.metadata->disc_id != MODERNGEKKO_REQUIRED_DISC_ID) {
+-    std::cerr << "unsupported disc ID: expected "
+-              << MODERNGEKKO_REQUIRED_DISC_ID << ", got "
+-              << inspected.metadata->disc_id << '\n';
+-    return 2;
+-  }
+-#endif
+-#ifdef MODERNGEKKO_REQUIRED_DOL_SHA256
+-  if (inspected.metadata->dol_sha256 != MODERNGEKKO_REQUIRED_DOL_SHA256) {
+-    std::cerr << "unsupported main DOL: this release requires its pinned game build\n";
+-    return 2;
++  if (moderngekko::frontend::IsReleaseBuild()) {
++    const moderngekko::frontend::ReleaseGame *release_game =
++        moderngekko::frontend::FindReleaseGame(inspected.metadata->disc_id);
++    if (!release_game) {
++      std::cerr << "unsupported disc ID: expected "
++                << moderngekko::frontend::ReleaseDiscIds() << ", got "
++                << inspected.metadata->disc_id << '\n';
++      return 2;
++    }
++    if (!release_game->dol_sha256.empty() &&
++        inspected.metadata->dol_sha256 != release_game->dol_sha256) {
++      std::cerr << "unsupported main DOL: this release requires its pinned game build\n";
++      return 2;
++    }
+   }
+-#endif
+ #ifdef MODERNGEKKO_REQUIRED_REL_SHA256
+   if (inspected.metadata->rel_sha256 != MODERNGEKKO_REQUIRED_REL_SHA256) {
+     std::cerr << "unsupported _Main.rel: this release requires its pinned game build\n";
+@@ -385,6 +490,8 @@ int RunMain(int argc, char **argv) {
          std::move(config), std::move(frontend_config), std::move(options));
    }
  
@@ -3369,7 +3833,7 @@ index d6b3569..b1a2ff3 100644
    auto created = moderngekko::Runtime::Create(std::move(config));
    if (!created) {
      std::cerr << "initialization failed: " << created.error->message << '\n';
-@@ -409,6 +511,29 @@ int RunMain(int argc, char **argv) {
+@@ -409,6 +516,29 @@ int RunMain(int argc, char **argv) {
    signal_watcher.request_stop();
    if (result.error) {
      std::cerr << "runtime failed: " << result.error->message << '\n';
@@ -3422,6 +3886,88 @@ index f2152dc..b59e7e9 100644
      else if (argument == "--opt-level" && i + 1 < argc)
        parsed.build.opt_level = argv[++i];
      else if (argument == "--output" && i + 1 < argc)
+diff --git a/tools/release_games.hpp b/tools/release_games.hpp
+new file mode 100644
+index 0000000..b779d53
+--- /dev/null
++++ b/tools/release_games.hpp
+@@ -0,0 +1,76 @@
++#pragma once
++
++#include <array>
++#include <cstddef>
++#include <filesystem>
++#include <fstream>
++#include <span>
++#include <string>
++#include <string_view>
++
++// The games a branded release runs, one per region (CMake: MODERNGEKKO_REQUIRED_DISC_ID, with
++// MODERNGEKKO_REQUIRED_DOL_SHA256 and MODERNGEKKO_DOL_PATCH_MANIFEST in the same order): per disc
++// ID, the patched DOL the release pins ("" = any) and the DOL patch that makes it ("" = none),
++// relative to the executables. A build without the list runs any game and checks nothing.
++namespace moderngekko::frontend
++{
++struct ReleaseGame
++{
++  std::string_view disc_id;
++  std::string_view dol_sha256;
++  std::string_view dol_patch;
++};
++
++#ifdef MODERNGEKKO_RELEASE_GAMES
++inline constexpr ReleaseGame RELEASE_GAMES[] = {
++#include "release_games.inc"
++};
++#endif
++
++inline std::span<const ReleaseGame> ReleaseGames()
++{
++#ifdef MODERNGEKKO_RELEASE_GAMES
++  return RELEASE_GAMES;
++#else
++  return {};
++#endif
++}
++
++inline bool IsReleaseBuild()
++{
++  return !ReleaseGames().empty();
++}
++
++inline const ReleaseGame* FindReleaseGame(std::string_view disc_id)
++{
++  for (const ReleaseGame& game : ReleaseGames())
++  {
++    if (game.disc_id == disc_id)
++      return &game;
++  }
++  return nullptr;
++}
++
++// "GEAE8P" or "GEAE8P or GEAP8P", for messages.
++inline std::string ReleaseDiscIds()
++{
++  std::string ids;
++  for (const ReleaseGame& game : ReleaseGames())
++  {
++    if (!ids.empty())
++      ids += " or ";
++    ids += game.disc_id;
++  }
++  return ids;
++}
++
++// An extracted game's disc ID (sys/boot.bin's first six bytes), "" if it can't be read.
++inline std::string ReadDiscId(const std::filesystem::path& game_root)
++{
++  std::ifstream file(game_root / "sys" / "boot.bin", std::ios::binary);
++  std::array<char, 6> id{};
++  if (!file.read(id.data(), id.size()))
++    return {};
++  return std::string(id.data(), id.size());
++}
++}  // namespace moderngekko::frontend
 diff --git a/tools/save_import.cpp b/tools/save_import.cpp
 new file mode 100644
 index 0000000..67380d9

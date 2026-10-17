@@ -14,6 +14,6 @@ apply $MG moderngekko-local.patch
 for p in $(grep -v '^#' "$P/recompcore.series"); do
   apply $RC recompcore-$p.patch
 done
-for p in mtmsr-entry gather-pipe llvm-cpu win64-sjlj-frame coff-uwtable; do
+for p in mtmsr-entry gather-pipe llvm-cpu win64-sjlj-frame coff-uwtable halfword-byterev; do
   apply $DR dolrecomp-$p.patch
 done

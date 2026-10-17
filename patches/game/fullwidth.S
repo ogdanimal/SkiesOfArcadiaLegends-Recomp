@@ -5,8 +5,9 @@
  * arguments and return values pass through; the saved value makes nesting safe. Not for functions
  * that take arguments on the stack (none of the wrapped ones do). */
 
-#define ORTHO_HA 0x8034
-#define ORTHO_LO 0x63C0
+/* ws_ortho_m00 is the ortho matrix's [0][0] (lbl_803463C0 in the USA game), defined by the spec's
+ * "symbols" so gamepatch translates it per game version (literal address halves here were not
+ * translated, and the European build wrote the full-width scale to the wrong word). */
 
 /* In the original 4:3 picture (ws_config.factor >= 1, which ws_apply sets for display_aspect 0)
  * every wrapper here is a no-op, but its own stack frame isn't: with the text wrappers' frames in
@@ -45,17 +46,17 @@
 	stwu 1, -16(1)
 	mflr 0
 	stw 0, 20(1)
-	lis 11, ORTHO_HA
-	lwz 12, ORTHO_LO(11)
+	lis 11, ws_ortho_m00@ha
+	lwz 12, ws_ortho_m00@l(11)
 	stw 12, 8(1)
 	lis 12, ws_config@ha
 	addi 12, 12, ws_config@l
 	lwz 12, 12(12) /* ws_config.full_m00 */
-	stw 12, ORTHO_LO(11)
+	stw 12, ws_ortho_m00@l(11)
 	bl \target
 	lwz 12, 8(1)
-	lis 11, ORTHO_HA
-	stw 12, ORTHO_LO(11)
+	lis 11, ws_ortho_m00@ha
+	stw 12, ws_ortho_m00@l(11)
 	lwz 0, 20(1)
 	mtlr 0
 	addi 1, 1, 16

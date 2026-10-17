@@ -9,6 +9,11 @@ Skies of Arcadia Legends: Recompiled is distributed under the GNU General Public
 - [Dolphin](https://github.com/dolphin-emu/dolphin) (video, audio, input and hardware code, through
   ModernGekko's RecompCore fork): GPL-2.0-or-later, used here under GPL-3.0
 - [{fmt}](https://github.com/fmtlib/fmt): MIT
+- [Highly Theoretical](https://github.com/kode54/Highly_Theoretical) (the Dreamcast sound chip,
+  AICA with its ARM7, for the Dreamcast music option): GPL-3.0
+- [libchdr](https://github.com/rtissera/libchdr) (reads CHD disc images for the Dreamcast music import):
+  BSD-3-Clause (`licenses/libchdr-LICENSE.txt`), with its bundled LZMA SDK (public domain), miniz (MIT)
+  and Zstandard decoder (BSD-3-Clause)
 
 Dolphin's own third-party components (SDL, Dear ImGui, zlib-ng, Zstandard, cubeb, mbed TLS and others)
 are listed with their licences in `THIRD-PARTY-DOLPHIN.md`, a copy of Dolphin's `Externals/licenses.md`.

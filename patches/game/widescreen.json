@@ -1,17 +1,19 @@
 {
-  "comment": "Widescreen (widescreen.c, fullwidth.S), player camera control (camera.c) and the QOL options (qol.c: encounter rate, battle rewards, battle speed). Every 'bl target' in the DOL's code is rewritten to 'bl to' (redirect_calls), or only at the listed site or sites (redirect_sites); gamepatch.py fails if a site doesn't hold the expected call.",
+  "comment": "Widescreen (widescreen.c, fullwidth.S), player camera control (camera.c) the QOL options (qol.c: encounter rate, battle rewards, battle speed) and the Dreamcast music (dcmusic.c). Every 'bl target' in the DOL's code is rewritten to 'bl to' (redirect_calls), or only at the listed site or sites (redirect_sites); gamepatch.py fails if a site doesn't hold the expected call.",
   "sources": [
     "widescreen.c",
     "fullwidth.S",
     "camera.c",
     "qol.c",
     "qol.S",
-    "autoload.c"
+    "autoload.c",
+    "dcmusic.c"
   ],
   "symbols": {
     "FontIsReady": "0x801E34AC",
     "FontUpdate": "0x801E35FC",
     "njClipZ": "0x80299188",
+    "ws_ortho_m00": "0x803463C0",
     "njProjectScreen": "0x80291E54",
     "GXSetProjection": "0x80251F8C",
     "GXSetScissor": "0x802523B4",
@@ -25,9 +27,22 @@
     "njSin": "0x80291930",
     "njCos": "0x802916B8",
     "VIGetRetraceCount": "0x8023F704",
-    "VIWaitForRetrace": "0x8023E460"
+    "VIWaitForRetrace": "0x8023E460",
+    "sndSeqPlayEx": "0x8027BF0C",
+    "sndSeqVolume": "0x8026DCE4",
+    "sndSeqPause": "0x8026DB9C",
+    "sndSeqContinue": "0x8026DC54",
+    "sndSeqStop": "0x8026DBD4",
+    "sndSeqMute": "0x8026DC8C",
+    "sndSeqSetMidiCtrl": "0x8026DD4C"
   },
   "redirect_sites": [
+    {
+      "site": "0x8021882C",
+      "target": "sndSeqPlayEx",
+      "to": "dcm_seq_play",
+      "why": "fn_80218678 (the sound layer's frame update): the music starting a song, muted for the Dreamcast music (dcmusic.c)"
+    },
     {
       "site": "0x801DC350",
       "target": "fn_80228A20",
@@ -150,6 +165,26 @@
     }
   ],
   "redirect_calls": [
+    {
+      "target": "sndSeqVolume",
+      "to": "dcm_seq_volume"
+    },
+    {
+      "target": "sndSeqPause",
+      "to": "dcm_seq_pause"
+    },
+    {
+      "target": "sndSeqContinue",
+      "to": "dcm_seq_continue"
+    },
+    {
+      "target": "sndSeqStop",
+      "to": "dcm_seq_stop"
+    },
+    {
+      "target": "sndSeqSetMidiCtrl",
+      "to": "dcm_seq_midi_ctrl"
+    },
     {
       "target": "fn_802AB460",
       "to": "ws_full_802AB460"

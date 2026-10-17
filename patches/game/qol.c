@@ -276,6 +276,7 @@ TRK_CAVE static int qol_fast(void) {
  * per-battle marks are cleared; in battle Invincible refills; at speed the wait loop's mark is moved
  * back so the loop ends at once. */
 TRK_CAVE void qol_damage(unsigned char *action, int target);
+void dcm_frame(void); /* dcmusic.c: the Dreamcast music option switched mid-song */
 
 TRK_CAVE void qol_frame(void) {
   if (ACTION_HANDLERS[0] != qol_damage)
@@ -289,6 +290,7 @@ TRK_CAVE void qol_frame(void) {
     qol_refill();
   if (qol_fast())
     FRAME_START_RETRACE = VIGetRetraceCount() - 2;
+  dcm_frame();
 }
 
 /* 0x801DC4D8 (qol_wait_retrace in qol.S, which tail-calls VIWaitForRetrace so the game never waits

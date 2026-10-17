@@ -5,8 +5,8 @@ which has no mod loader) run them as ordinary game code.
 usage: tools/gamepatch.py SPEC.json [SPEC.json ...] [--dol IN] [--out-root DIR]
   SPEC     patches/game/*.json: sources (C / .S, built with clang for the Gekko), symbols, and
            call redirections (see patches/game/README.md)
-  --dol    the original DOL (default extracted/SkiesOfArcadiaLegends/sys/main.dol); its SHA-1 must
-           be the USA Rev 0 one unless --any-dol
+  --dol    the original DOL (default extracted/SkiesOfArcadiaLegends/sys/main.dol): the USA Rev 0
+           one or the European one (by SHA-1), unless --any-dol
   --out-root  game root to write (default build/game/GEAE8P-patched): sys/ is copied with the
            patched main.dol, files/ is a symlink to the original; patch.elf (for disassembly) and
            patches.txt (symbols and patched sites) go beside them
@@ -17,6 +17,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import struct
 import subprocess
@@ -27,8 +28,18 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LLVM = os.environ.get("LLVM_BIN", "/usr/lib/llvm-20/bin")
 CLANG = os.environ.get("PATCH_CC", "clang-20")
 DOL_SHA1 = "8c0e278126fa3b0173400fdb632038172743cc13"  # GEAE8P (USA Rev 0) main.dol
-# MetroTRK's message handlers, dead without a debugger: the second code area (cave.ld).
+# The patches are written against the USA DOL. For the European one (GEAP8P) every game address in
+# the sources, specs and cave.ld (0x80xxxxxx, fn_80xxxxxx, lbl_80xxxxxx) is translated with
+# patches/game/GEAP8P.addresses.json (tools/dolmatch.py) before building.
+REGIONS = {
+    DOL_SHA1: ("GEAE8P", None),
+    "295a9fc982072bce60734eb6bdb60aec4182b702": ("GEAP8P", "GEAP8P.addresses.json"),
+}
+# MetroTRK's message handlers, dead without a debugger: the second code area (cave.ld), in USA
+# addresses (translated like the rest for another region).
 TRK_CAVE = (0x802548E8, 0x80257074)
+ADDRESS = re.compile(r"\b(fn_|lbl_|0x)(80[0-9A-Fa-f]{6})\b")
+HALF = re.compile(r"\b0x8[01][0-9A-Fa-f]{2}\b")
 CFLAGS = ["--target=powerpc-unknown-eabi", "-mcpu=750", "-Os", "-fno-pic", "-ffreestanding",
           "-fno-builtin", "-fno-asynchronous-unwind-tables", "-Wall", "-Werror"]
 
@@ -100,6 +111,41 @@ def run(*cmd, **kw):
     return r.stdout
 
 
+class Region:
+    """The DOL's region and, for a region other than the USA, its address translation."""
+
+    def __init__(self, sha1):
+        self.game_id, map_file = REGIONS.get(sha1, ("GEAE8P", None))
+        self.map = None
+        if map_file:
+            data = json.load(open(os.path.join(ROOT, "patches", "game", map_file)))
+            self.map = {int(k, 16): int(v, 16) for k, v in data["addresses"].items()}
+
+    def address(self, value):
+        if self.map is None:
+            return value
+        if value not in self.map:
+            sys.exit(f"0x{value:08X} has no {self.game_id} address in the translation table")
+        return self.map[value]
+
+    def text(self, text, name=""):
+        """A source, spec or linker script with its game addresses translated."""
+        if self.map is None:
+            return text
+        # A 16-bit 0x80xx / 0x81xx is an address's high half (lis), which can't be translated on its
+        # own: the European build's fullwidth.S wrote to the wrong word that way. Use a symbol.
+        half = HALF.search(text)
+        if half:
+            sys.exit(f"{name}: {half.group(0)} looks like half of a game address, which isn't "
+                     f"translated for {self.game_id}: use a symbol (the spec's \"symbols\")")
+        return ADDRESS.sub(lambda m: m.group(1) + f"{self.address(int(m.group(2), 16)):08X}"
+                           if m.group(1) != "0x" else f"0x{self.address(int(m.group(2), 16)):08X}",
+                           text)
+
+    def spec(self, path):
+        return json.loads(self.text(open(path).read()))
+
+
 def symbol_address(name, table):
     if name in table:
         return int(table[name], 16)
@@ -108,10 +154,10 @@ def symbol_address(name, table):
     sys.exit(f"unknown game symbol {name}: add it to the spec's \"symbols\"")
 
 
-def build(specs, work):
+def build(specs, work, region):
     objects, table, spec_dirs = [], {}, set()
     for path in specs:
-        spec = json.load(open(path))
+        spec = region.spec(path)
         base = os.path.dirname(os.path.abspath(path))
         spec_dirs.add(base)
         for name, value in spec.get("symbols", {}).items():
@@ -120,7 +166,13 @@ def build(specs, work):
             table[name] = value
         for src in spec["sources"]:
             obj = os.path.join(work, f"{len(objects)}-{os.path.basename(src)}.o")
-            run(CLANG, *CFLAGS, "-c", os.path.join(base, src), "-o", obj)
+            source = os.path.join(base, src)
+            if region.map is not None:
+                translated = os.path.join(work, f"{len(objects)}-{os.path.basename(src)}")
+                with open(translated, "w") as f:
+                    f.write(region.text(open(source).read(), src))
+                source = translated
+            run(CLANG, *CFLAGS, "-c", source, "-o", obj)
             objects.append(obj)
     undefined = set()
     for obj in objects:
@@ -131,7 +183,9 @@ def build(specs, work):
     for obj in objects:
         defined |= {line.split()[-1] for line in run(f"{LLVM}/llvm-nm", "--defined-only", obj).splitlines()}
     defsyms = [f"--defsym={n}=0x{symbol_address(n, table):08X}" for n in sorted(undefined - defined)]
-    script = os.path.join(ROOT, "patches", "game", "cave.ld")
+    script = os.path.join(work, "cave.ld")
+    with open(script, "w") as f:
+        f.write(region.text(open(os.path.join(ROOT, "patches", "game", "cave.ld")).read()))
     elf = os.path.join(work, "patch.elf")
     run("ld.lld", "-m", "elf32ppc", "-T", script, "-e", "0", *defsyms, "-o", elf, *objects)
     addresses = {}
@@ -155,22 +209,26 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("specs", nargs="+")
     ap.add_argument("--dol", default=os.path.join(ROOT, "extracted/SkiesOfArcadiaLegends/sys/main.dol"))
-    ap.add_argument("--out-root", default=os.path.join(ROOT, "build/game/GEAE8P-patched"))
+    ap.add_argument("--out-root")
     ap.add_argument("--any-dol", action="store_true")
     args = ap.parse_args()
 
     original = open(args.dol, "rb").read()
-    if hashlib.sha1(original).hexdigest() != DOL_SHA1 and not args.any_dol:
-        sys.exit(f"{args.dol} isn't the GEAE8P USA Rev 0 main.dol (SHA-1 {DOL_SHA1})")
+    sha1 = hashlib.sha1(original).hexdigest()
+    if sha1 not in REGIONS and not args.any_dol:
+        sys.exit(f"{args.dol} isn't the USA Rev 0 (SHA-1 {DOL_SHA1}) or European main.dol")
+    region = Region(sha1)
+    args.out_root = args.out_root or os.path.join(ROOT, f"build/game/{region.game_id}-patched")
+    trk_cave = (region.address(TRK_CAVE[0]), region.address(TRK_CAVE[1]))
     dol = Dol(original)
     os.makedirs(args.out_root, exist_ok=True)
     with tempfile.TemporaryDirectory() as work:
-        sections, symbols, table = build(args.specs, work)
+        sections, symbols, table = build(args.specs, work, region)
         shutil.copy(os.path.join(work, "patch.elf"), os.path.join(args.out_root, "patch.elf"))
 
     log = []
     for path in args.specs:
-        spec = json.load(open(path))
+        spec = region.spec(path)
         for r in spec.get("redirect_sites", []):
             target, to = symbol_address(r["target"], table), symbols[r["to"]]
             for site in [int(a, 16) for a in r.get("sites", [r.get("site")])]:
@@ -211,8 +269,8 @@ def main():
     # The second code area (cave.ld) overwrites dead game code in place.
     if ".trkcave" in sections and sections[".trkcave"][1]:
         base, code = sections[".trkcave"]
-        if base < TRK_CAVE[0] or base + len(code) > TRK_CAVE[1] or len(code) % 4:
-            sys.exit(f".trkcave at 0x{base:08X} +0x{len(code):X} is outside 0x{TRK_CAVE[0]:08X}-0x{TRK_CAVE[1]:08X}")
+        if base < trk_cave[0] or base + len(code) > trk_cave[1] or len(code) % 4:
+            sys.exit(f".trkcave at 0x{base:08X} +0x{len(code):X} is outside 0x{trk_cave[0]:08X}-0x{trk_cave[1]:08X}")
         for i in range(0, len(code), 4):
             dol.set_word(base + i, struct.unpack(">I", code[i:i + 4])[0])
         log.append(f"0x{base:08X}  .trkcave 0x{len(code):X} bytes written in place")
@@ -243,7 +301,8 @@ def main():
         f.write("".join(f"{n} = 0x{a:08X}\n" for n, a in sorted(symbols.items(), key=lambda x: x[1])))
         f.write("\n".join(log) + "\n")
     print(f"{len(log)} call sites patched; text 0x{len(sections['.text'][1]):X} bytes, data "
-          f"0x{len(sections['.data'][1]):X} bytes -> {args.out_root} (sha1 {hashlib.sha1(patched).hexdigest()})")
+          f"0x{len(sections['.data'][1]):X} bytes -> {args.out_root} ({region.game_id}, sha1 "
+          f"{hashlib.sha1(patched).hexdigest()})")
 
 
 if __name__ == "__main__":

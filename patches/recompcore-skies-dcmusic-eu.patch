@@ -1,0 +1,2840 @@
+diff --git a/Source/Android/app/build.gradle.kts b/Source/Android/app/build.gradle.kts
+index 1a9fe00848..27f39bc92e 100644
+--- a/Source/Android/app/build.gradle.kts
++++ b/Source/Android/app/build.gradle.kts
+@@ -56,6 +56,7 @@ android {
+         // Skies Recomp: Dolphin's game list, TV UI and deep link aren't reachable from outside in the brand
+         manifestPlaceholders["dolphinExported"] = "true"
+         resValue("string", "skies_dol_sha256", "")
++        resValue("string", "skies_dol_sha256_eu", "")
+     }
+ 
+     signingConfigs {
+@@ -137,12 +138,14 @@ android {
+     }
+ 
+     // Skies Recomp, the branded app: -PskiesBrand=DIR (DIR/assets holds skies-widescreen.dolpatch and
+-    // skies-GEAE8P.ini, DIR/dol-sha256.txt the patched DOL's SHA-256, DIR/res the launcher icon if
++    // skies-GEAE8P.ini, and for the European game skies-widescreen-eu.dolpatch and skies-GEAP8P.ini;
++    // DIR/dol-sha256.txt and dol-sha256-eu.txt the patched DOLs' SHA-256, DIR/res the launcher icon if
+     // there is one; tools/android-ws-build.sh BRAND=1 makes it) gives the app its own id and
+     // name, makes SkiesLauncherActivity (first-run disc import, Play / Continue) the launcher and
+     // hides Dolphin's game list.
+     providers.gradleProperty("skiesBrand").orNull?.let { brand ->
+         val dolSha256 = file("$brand/dol-sha256.txt").readText().trim()
++        val dolSha256Eu = file("$brand/dol-sha256-eu.txt").takeIf { it.isFile }?.readText()?.trim() ?: ""
+         defaultConfig {
+             applicationId = "com.skiesofarcadia.recomp"
+             manifestPlaceholders["dolphinLauncherCategory"] = "android.intent.category.DEFAULT"
+@@ -156,6 +159,7 @@ android {
+                 manifestPlaceholders["appBanner"] = "@drawable/skies_banner"
+             }
+             resValue("string", "skies_dol_sha256", dolSha256)
++            resValue("string", "skies_dol_sha256_eu", dolSha256Eu)
+             // Its own version: minutes since 2026-01-01 at build time, so every build is a newer
+             // version. With Dolphin's (commit count) unchanged, launchers kept the cached icon.
+             val skiesBuild = ((System.currentTimeMillis() / 60000L) - 29453760L).toInt()
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
+index 3ce7c06e26..23d8358d94 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
+@@ -78,6 +78,13 @@ class SkiesLauncherActivity : FragmentActivity() {
+         /** True from the tap until the import thread ends (the native side refuses a second one). */
+         @Volatile
+         var importRunning = false
++
++        /**
++         * The Dreamcast music import's result (Settings, Sound), as the disc import's: the message
++         * and "ok" on success. Null while none has finished unseen.
++         */
++        @Volatile
++        var musicResult: Array<String>? = null
+     }
+ 
+     private lateinit var message: TextView
+@@ -107,6 +114,13 @@ class SkiesLauncherActivity : FragmentActivity() {
+             if (uri != null) importSave(uri)
+         }
+ 
++    // The Dreamcast disc for the music (Settings, Sound): imported with the disc import's progress
++    // screen, and the Settings window comes back on Sound with what happened
++    private val pickDreamcastDisc =
++        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
++            if (uri != null) startMusicImport(uri)
++        }
++
+     // Back up saves (Settings, Saves): one .zip written where the player chooses
+     private val pickBackup =
+         registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri: Uri? ->
+@@ -226,6 +240,10 @@ class SkiesLauncherActivity : FragmentActivity() {
+             importResult = null
+             if (error.isNotEmpty()) message.text = error
+         }
++        musicResult?.let { result ->
++            musicResult = null
++            openSettings(mainDol.isFile, "Sound", result)
++        }
+     }
+ 
+     /** After a game session: a custom GPU driver that crashed is undone; a new one, kept or not.
+@@ -526,18 +544,24 @@ class SkiesLauncherActivity : FragmentActivity() {
+     }
+ 
+     private val userDirectory get() = File(DirectoryInitialization.getUserDirectory())
+-    private val gameRoot get() = File(userDirectory, "Games/GEAE8P")
++    // The imported game, the USA (GEAE8P) or the European (GEAP8P) one: Games/<disc ID>
++    private val gameId get() = SkiesNative.installedGameId(userDirectory.absolutePath)
++    private val gameRoot get() = File(userDirectory, "Games/$gameId")
+     private val mainDol get() = File(gameRoot, "sys/main.dol")
+ 
++    /** The SHA-256 of the build [id]'s module was made from ("" if the APK has no module for it). */
++    private fun dolSha256(id: String): String =
++        getString(if (id == "GEAP8P") R.string.skies_dol_sha256_eu else R.string.skies_dol_sha256)
++
+     // main.dol's size and time when it was last hashed, and the answer: refresh() runs on the UI
+     // thread at every onResume, and the hash only changes when the file does
+-    private var gameReadyFor: Pair<Long, Long>? = null
++    private var gameReadyFor: Triple<String, Long, Long>? = null
+     private var gameReadyResult = false
+ 
+     private fun gameReady(): Boolean {
+         val dol = mainDol
+         if (!dol.isFile) return false
+-        val stamp = Pair(dol.length(), dol.lastModified())
++        val stamp = Triple(dol.path, dol.length(), dol.lastModified())
+         if (stamp == gameReadyFor) return gameReadyResult
+         gameReadyResult = hashMatches(dol)
+         gameReadyFor = stamp
+@@ -555,7 +579,7 @@ class SkiesLauncherActivity : FragmentActivity() {
+             }
+         }
+         val sha = digest.digest().joinToString("") { "%02x".format(it) }
+-        return sha == getString(R.string.skies_dol_sha256)
++        return sha == dolSha256(gameId)
+     }
+ 
+     /** The newest save state the in-game menu or auto-save made (Continue), or null. */
+@@ -569,14 +593,16 @@ class SkiesLauncherActivity : FragmentActivity() {
+      * The game's newest memory card save (GCI folders GC/<region>/Card A|B), or null. Dolphin rewrites
+      * a .gci only when that save changed, so its time is when the game last saved.
+      */
+-    private fun newestCardSave(): File? =
+-        listOf("USA", "EUR", "JAP").flatMap { region ->
++    private fun newestCardSave(): File? {
++        val gameCode = gameId.take(4)
++        return listOf("USA", "EUR", "JAP").flatMap { region ->
+             listOf("Card A", "Card B").flatMap { card ->
+                 File(userDirectory, "GC/$region/$card").listFiles { file ->
+-                    file.isFile && file.name.endsWith(".gci") && file.name.contains("GEAE")
++                    file.isFile && file.name.endsWith(".gci") && file.name.contains(gameCode)
+                 }?.toList() ?: emptyList()
+             }
+         }.maxByOrNull { it.lastModified() }
++    }
+ 
+     /**
+      * The game's file number (1..99) of a card save on card A ("...SA_LEGENDS.000.gci" is file 1), or
+@@ -608,12 +634,20 @@ class SkiesLauncherActivity : FragmentActivity() {
+     private fun timeText(millis: Long): String =
+         java.text.SimpleDateFormat("MMM d HH:mm", java.util.Locale.getDefault()).format(java.util.Date(millis))
+ 
+-    private fun bundledPatch(): File {
+-        val patch = File(cacheDir, "skies-widescreen.dolpatch")
+-        assets.open("skies-widescreen.dolpatch").use { input ->
+-            patch.outputStream().use { input.copyTo(it) }
++    /** The DOL patches among the assets, copied to a folder of their own (the native import's). */
++    private fun bundledPatches(): File {
++        val directory = File(cacheDir, "dolpatches")
++        directory.mkdirs()
++        for (id in listOf("GEAE8P", "GEAP8P")) {
++            val name = SkiesNative.patchName(id)
++            val patch = File(directory, name)
++            try {
++                assets.open(name).use { input -> patch.outputStream().use { input.copyTo(it) } }
++            } catch (e: java.io.IOException) {
++                patch.delete()  // not in this APK
++            }
+         }
+-        return patch
++        return directory
+     }
+ 
+     private fun refresh() {
+@@ -621,9 +655,10 @@ class SkiesLauncherActivity : FragmentActivity() {
+         // Imported by an earlier version of the app: bring main.dol up to this version's build.
+         var repatchError = ""
+         if (mainDol.isFile && !gameReady()) {
++            val id = gameId
+             repatchError = SkiesNative.repatch(
+-                gameRoot.absolutePath, bundledPatch().absolutePath,
+-                getString(R.string.skies_dol_sha256)
++                gameRoot.absolutePath, File(bundledPatches(), SkiesNative.patchName(id)).absolutePath,
++                dolSha256(id)
+             )
+         }
+         if (gameReady() && org.dolphinemu.dolphinemu.NativeLibrary.IsRunning()) {
+@@ -689,11 +724,12 @@ class SkiesLauncherActivity : FragmentActivity() {
+     private fun openSettings(ready: Boolean, tab: String? = null, saveResult: Array<String>? = null) {
+         settings?.close()
+         column.descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
+-        val game = if (ready) getString(R.string.skies_title) + " [GEAE8P]" else null
++        val game = if (ready) getString(R.string.skies_title) + " [$gameId]" else null
+         settings = SkiesSettingsPanel(this, screen, game,
+             { afterGameClosed { pickDisc.launch(arrayOf("*/*")) } },
+             { pickDriver.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) },
+-            { confirmImportSave() }, { startExport() }, { showLicences() }) {
++            { confirmImportSave() }, { startExport() },
++            { afterGameClosed { pickDreamcastDisc.launch(arrayOf("*/*")) } }, { showLicences() }) {
+             column.descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
+             settings = null
+             buttons.getChildAt(buttons.childCount - 1)?.requestFocus()
+@@ -814,6 +850,29 @@ class SkiesLauncherActivity : FragmentActivity() {
+         handler.post(importPoll)
+     }
+ 
++    private fun startMusicImport(uri: Uri) {
++        if (importRunning) {
++            showImporting()
++            return
++        }
++        importRunning = true
++        musicResult = null
++        val image = uri.toString()
++        Thread({
++            var result = arrayOf("The import stopped.", "")
++            try {
++                val error = SkiesNative.importDreamcastMusic(image)
++                result = if (error.isEmpty())
++                    arrayOf("Imported: " + SkiesNative.describeDreamcastMusic(), "ok")
++                else arrayOf(error, "")
++            } finally {
++                musicResult = result
++                importRunning = false
++            }
++        }, "SkiesMusicImport").start()
++        showImporting()
++    }
++
+     private fun startImport(uri: Uri) {
+         if (importRunning) {
+             showImporting()
+@@ -821,14 +880,13 @@ class SkiesLauncherActivity : FragmentActivity() {
+         }
+         importRunning = true
+         importResult = null
+-        val patch = bundledPatch()
++        val patches = bundledPatches().absolutePath
+         val image = uri.toString()
+-        val root = gameRoot.absolutePath
+-        val sha = getString(R.string.skies_dol_sha256)
++        val games = File(userDirectory, "Games").absolutePath
+         // Only values go to the thread, never this Activity (it can be gone when the import ends)
+         Thread({
+             try {
+-                importResult = SkiesNative.importDisc(image, root, patch.absolutePath, sha)
++                importResult = SkiesNative.importDisc(image, games, patches)
+             } finally {
+                 importRunning = false
+             }
+@@ -841,11 +899,14 @@ class SkiesLauncherActivity : FragmentActivity() {
+      * Retroid build was tuned with, each only if the player hasn't set it.
+      */
+     private fun installDefaults() {
+-        val ini = File(userDirectory, "GameSettings/GEAE8P.ini")
+-        if (!ini.exists()) {
++        for (id in listOf("GEAE8P", "GEAP8P")) {
++            val ini = File(userDirectory, "GameSettings/$id.ini")
++            if (ini.exists()) continue
+             ini.parentFile?.mkdirs()
+-            assets.open("skies-GEAE8P.ini").use { input ->
+-                ini.outputStream().use { input.copyTo(it) }
++            try {
++                assets.open("skies-$id.ini").use { input -> ini.outputStream().use { input.copyTo(it) } }
++            } catch (e: java.io.IOException) {
++                ini.delete()  // not in this APK
+             }
+         }
+         // Every start: a controller profile Android can read (no-op once it is)
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt
+index 427e4b4bf7..562b30dfcb 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt
+@@ -12,13 +12,38 @@ fun isSkiesBrand(context: Context): Boolean =
+ /** Skies Recomp's first-run disc import (jni/SkiesImport.cpp). */
+ object SkiesNative {
+     /**
+-     * Checks [image] (a path or content URI) is Skies of Arcadia Legends (USA), extracts it to
+-     * [gameRoot], patches its main.dol with the whole-file DOL patch at [patch] and checks the result
+-     * against [dolSha256]. Returns "" on success, else a message for the player. Blocks: call it off
+-     * the main thread.
++     * Checks [image] (a path or content URI) is Skies of Arcadia Legends (the USA GEAE8P or the
++     * European GEAP8P), extracts it to [gamesDirectory]/<disc ID>, patches its main.dol with that
++     * region's DOL patch from [patchDirectory] ([patchName]) and checks the result. Importing one
++     * region removes the other's game folder. Returns "" on success, else a message for the player.
++     * Blocks: call it off the main thread.
+      */
+     @JvmStatic
+-    external fun importDisc(image: String, gameRoot: String, patch: String, dolSha256: String): String
++    external fun importDisc(image: String, gamesDirectory: String, patchDirectory: String): String
++
++    /** The disc ID of the game imported in [userDirectory] (Games/<ID>), GEAE8P when there's none. */
++    @JvmStatic
++    external fun installedGameId(userDirectory: String): String
++
++    /** The asset name of the DOL patch for [gameId]. */
++    @JvmStatic
++    external fun patchName(gameId: String): String
++
++    /**
++     * Settings, Sound: copies the Dreamcast music from the player's Skies of Arcadia Dreamcast disc
++     * ([image], a CHD path or content URI) into the user directory. Returns "" on success, else a
++     * message; progress in [importStatus]. Blocks: call it off the main thread.
++     */
++    @JvmStatic
++    external fun importDreamcastMusic(image: String): String
++
++    /** What Dreamcast music is imported ("Disc 1 (USA): 116 music banks"), "" if none. */
++    @JvmStatic
++    external fun describeDreamcastMusic(): String
++
++    /** Removes the imported Dreamcast music. */
++    @JvmStatic
++    external fun removeDreamcastMusic(): Boolean
+ 
+     /**
+      * A game imported by an earlier version of the app: patches the original main.dol kept at import
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+index 1d8a52d957..0c5601fd52 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+@@ -36,6 +36,7 @@ class SkiesSettingsPanel(
+     private val onPickDriver: () -> Unit,
+     private val onImportSave: () -> Unit,
+     private val onExportSaves: () -> Unit,
++    private val onImportDreamcastMusic: () -> Unit,
+     private val onLicences: () -> Unit,
+     private val onClosed: () -> Unit
+ ) {
+@@ -69,6 +70,7 @@ class SkiesSettingsPanel(
+         val REWARDS = choices(0 to "Off", 50 to "1/2", 100 to "Normal", 200 to "2x", 300 to "3x",
+             400 to "4x")
+         val INVINCIBLE = choices(1 to "On (L3 / R3)", 0 to "Off (L3 / R3)")
++        val MUSIC = choices(0 to "GameCube", 1 to "Dreamcast")
+         val VOLUME = (0..100 step 10).map { Choice(it, if (it == 0) "0% (muted)" else "$it%") }
+         val DEAD_ZONE = (0..30 step 5).map { Choice(it, if (it == 0) "Off" else "$it%") }
+         val AUTO_SAVE = choices(0 to "Off", 5 to "Every 5 min", 10 to "Every 10 min",
+@@ -239,8 +241,11 @@ class SkiesSettingsPanel(
+                 configRow(rows, "Invincible", INVINCIBLE, dolphin, "Skies", "Invincible", 0,
+                     "Keeps the party's HP and MP full. Press L3 or R3 in game to switch it.")
+             }
+-            "Sound" -> configRow(rows, "Volume", VOLUME, dolphin, "DSP", "Volume", 100,
+-                "Music and sound effects.")
++            "Sound" -> {
++                configRow(rows, "Volume", VOLUME, dolphin, "DSP", "Volume", 100,
++                    "Music and sound effects.")
++                dreamcastRows(rows)
++            }
+             "Controls" -> {
+                 padRow(rows, "Stick dead zone", DEAD_ZONE,
+                     arrayOf("Main Stick/Dead Zone", "C-Stick/Dead Zone"), 0, 1,
+@@ -317,6 +322,48 @@ class SkiesSettingsPanel(
+         }
+     }
+ 
++    /**
++     * Sound: the Dreamcast version's music (AudioCommon/DCMusic.cpp), from the player's own Dreamcast
++     * disc, which the activity imports (the disc import's progress screen) and then reopens this tab
++     * with the result in [importMessage].
++     */
++    private fun dreamcastRows(rows: LinearLayout) {
++        val imported = SkiesNative.describeDreamcastMusic()
++        if (imported.isNotEmpty()) {
++            configRow(rows, "Music", MUSIC, Settings.FILE_DOLPHIN, "Skies", "DreamcastMusic", 0,
++                "The Dreamcast version's music, played by its own sound chip, or the GameCube's. " +
++                    "Switches in game too.")
++        } else {
++            rowLine(rows, "Music").addView(text("GameCube", 16f, Color.WHITE))
++            describe(rows, "Import your Dreamcast disc below to play the Dreamcast version's music instead.")
++        }
++        val line = rowLine(rows, "Dreamcast disc")
++        line.addView(button("Import a Dreamcast disc…", BUTTON) {
++            close()
++            onImportDreamcastMusic()
++        })
++        if (imported.isNotEmpty()) {
++            line.addView(View(activity), LinearLayout.LayoutParams(dp(10f), 1))
++            line.addView(button("Remove", BUTTON) {
++                val removed = SkiesNative.removeDreamcastMusic()
++                writeInt(Settings.FILE_DOLPHIN, "Skies", "DreamcastMusic", 0)
++                importMessage = if (removed) "The Dreamcast music was removed." else "Couldn't remove it."
++                importOk = removed
++                show()
++            })
++        }
++        describe(rows, "Your own Skies of Arcadia Dreamcast disc, as a CHD file. Either disc has most " +
++            "of the music; import both for all of it.")
++        rows.addView(text(imported.ifEmpty { "Nothing imported yet." }, 15f, Color.WHITE).apply {
++            setPadding(dp(200f), dp(8f), 0, 0)
++        })
++        if (importMessage.isNotEmpty()) {
++            rows.addView(text(importMessage, 15f, if (importOk) ACCENT else Color.rgb(255, 115, 102)).apply {
++                setPadding(dp(200f), dp(10f), 0, 0)
++            })
++        }
++    }
++
+     /** Graphics: Vulkan (default) or OpenGL ES, the way out of a Vulkan driver that misbehaves. */
+     private fun backendRow(rows: LinearLayout) {
+         val stored = NativeConfig.getString(NativeConfig.LAYER_BASE_OR_CURRENT, Settings.FILE_DOLPHIN,
+diff --git a/Source/Android/jni/SkiesImport.cpp b/Source/Android/jni/SkiesImport.cpp
+index f8ce7d81fa..d5ccbcb10e 100644
+--- a/Source/Android/jni/SkiesImport.cpp
++++ b/Source/Android/jni/SkiesImport.cpp
+@@ -1,8 +1,10 @@
+ // Skies Recomp (the branded Android app): first-run import of the player's own disc. The same steps
+ // as the desktop launcher (ModernGekko tools/moderngekko_launcher.cpp, ExtractDisc): check that the
+-// image is Skies of Arcadia Legends (USA, GEAE8P, revision 0), extract it into a game folder, turn its
+-// main.dol into the game build the APK's module was made from with the bundled whole-file DOL patch
+-// (which checks the input and output SHA-256 itself), and only then move the folder into place.
++// image is Skies of Arcadia Legends (the USA GEAE8P or the European GEAP8P, revision 0), extract it
++// into its game folder (Games/<disc ID>), turn its main.dol into the game build the APK's module for
++// that disc was made from with the bundled whole-file DOL patch (which checks the input and output
++// SHA-256 itself), and only then move the folder into place. One game at a time: importing one
++// region's disc removes the other's folder. Also the Dreamcast music import (Settings, Sound).
+ 
+ #include <jni.h>
+ 
+@@ -16,6 +18,7 @@
+ #include <string>
+ #include <system_error>
+ 
++#include "Common/CommonPaths.h"
+ #include "Common/FileUtil.h"
+ #include "Common/IniFile.h"
+ #include "Common/StringUtil.h"
+@@ -28,12 +31,60 @@
+ #include "jni/AndroidCommon/AndroidCommon.h"
+ #include "moderngekko/sha256.hpp"
+ #include "save_import.hpp"
++#ifdef HAVE_DCMUSIC
++#include "AudioCommon/DCMusicImport.h"
++#endif
+ 
+ namespace fs = std::filesystem;
+ 
+ namespace
+ {
+-constexpr const char* SKIES_GAME_ID = "GEAE8P";
++// The releases the app runs, each with its DOL patch among the APK's assets (the app copies them to
++// one folder) and its module, libg<ID>_recomp.so.
++struct Region
++{
++  const char* id;
++  const char* patch;
++  const char* name;
++};
++constexpr Region REGIONS[] = {{"GEAE8P", "skies-widescreen.dolpatch", "USA"},
++                              {"GEAP8P", "skies-widescreen-eu.dolpatch", "European"}};
++
++const Region* FindRegion(const std::string& id)
++{
++  for (const Region& region : REGIONS)
++  {
++    if (id == region.id)
++      return &region;
++  }
++  return nullptr;
++}
++
++// The game imported in the user directory (Games/<ID>; the USA one if there's none yet).
++const Region& InstalledRegion(const fs::path& user_directory)
++{
++  std::error_code ec;
++  for (const Region& region : REGIONS)
++  {
++    if (fs::is_regular_file(user_directory / "Games" / region.id / "sys" / "main.dol", ec))
++      return region;
++  }
++  return REGIONS[0];
++}
++
++// A DOL patch's "output-sha256" line: the build the region's module was made from (the APK's build
++// checks that it is).
++std::string PatchOutputSha256(const fs::path& patch)
++{
++  std::string text;
++  if (!File::ReadFileToString(patch.string(), text))
++    return "";
++  const std::size_t at = text.find("\noutput-sha256 ");
++  if (at == std::string::npos)
++    return "";
++  const std::size_t start = at + std::string_view("\noutput-sha256 ").size();
++  return text.substr(start, text.find('\n', start) - start);
++}
+ 
+ std::mutex s_status_lock;
+ std::string s_status;
+@@ -82,22 +133,11 @@ std::string Repatch(const fs::path& game_root, const fs::path& patch,
+ // Returns "" on success, else what went wrong (shown to the player). The working install, if any,
+ // is only replaced once the new one is complete and patched; a failure leaves it and removes the
+ // staging folder.
+-std::string ImportDiscStaged(const std::string& image, const fs::path& game_root,
++std::string ImportDiscStaged(const DiscIO::Volume& volume_ref, const fs::path& game_root,
+                              const fs::path& staging, const fs::path& patch,
+                              const std::string& expected_dol_sha256)
+ {
+-  SetStatus("Reading the disc image");
+-  const std::unique_ptr<DiscIO::Volume> volume = DiscIO::CreateVolume(image);
+-  if (!volume)
+-    return "That file isn't a GameCube disc image this app can read.";
+-  const std::string id = volume->GetGameID();
+-  if (id != SKIES_GAME_ID)
+-  {
+-    return "That disc is " + (id.empty() ? std::string("unknown") : id) +
+-           ". This port needs Skies of Arcadia Legends for the GameCube, USA version (GEAE8P).";
+-  }
+-  if (volume->GetRevision().value_or(0) != 0)
+-    return "That's a later revision of the disc; this port needs the original USA release.";
++  const DiscIO::Volume* volume = &volume_ref;
+ 
+   const DiscIO::Partition partition = volume->GetGamePartition();
+   const DiscIO::FileSystem* filesystem = volume->GetFileSystem(partition);
+@@ -159,31 +199,83 @@ std::string ImportDiscStaged(const std::string& image, const fs::path& game_root
+ // while this runs on its thread).
+ std::atomic<bool> s_importing{false};
+ 
+-std::string ImportDisc(const std::string& image, const fs::path& game_root, const fs::path& patch,
+-                       const std::string& expected_dol_sha256)
++// Into games_directory/<disc ID>, with that region's patch from patch_directory.
++std::string ImportDisc(const std::string& image, const fs::path& games_directory,
++                       const fs::path& patch_directory)
+ {
++  SetStatus("Reading the disc image");
++  const std::unique_ptr<DiscIO::Volume> volume = DiscIO::CreateVolume(image);
++  if (!volume)
++    return "That file isn't a GameCube disc image this app can read.";
++  const std::string id = volume->GetGameID();
++  const Region* region = FindRegion(id);
++  if (!region)
++  {
++    return "That disc is " + (id.empty() ? std::string("unknown") : id) +
++           ". This port needs Skies of Arcadia Legends for the GameCube: the USA (GEAE8P) or the "
++           "European (GEAP8P) version.";
++  }
++  if (volume->GetRevision().value_or(0) != 0)
++    return "That's a later revision of the disc; this port needs the original release.";
++  const fs::path patch = patch_directory / region->patch;
++  const std::string expected_dol_sha256 = PatchOutputSha256(patch);
++  if (expected_dol_sha256.empty())
++    return std::string("This version of the app can't run the ") + region->name + " disc.";
++
+   if (s_importing.exchange(true))
+     return "A disc is already being imported.";
++  const fs::path game_root = games_directory / region->id;
+   const fs::path staging = game_root.string() + ".importing";
+-  std::string error = ImportDiscStaged(image, game_root, staging, patch, expected_dol_sha256);
++  std::string error = ImportDiscStaged(*volume, game_root, staging, patch, expected_dol_sha256);
++  std::error_code ec;
+   if (!error.empty())
+   {
+-    std::error_code ec;
+     fs::remove_all(staging, ec);
+   }
++  else
++  {
++    // One game at a time: the other region's (1.4 GB)
++    for (const Region& other : REGIONS)
++    {
++      if (&other != region)
++        fs::remove_all(games_directory / other.id, ec);
++    }
++  }
+   SetStatus("");
+   s_importing = false;
+   return error;
+ }
++// The game's card saves are always 3 blocks named SA_LEGENDS.000-.002 (the desktop launcher's
++// SaveGame); for the game imported in the user directory.
++moderngekko::frontend::SaveImportGame SkiesSaves(const fs::path& user_directory)
++{
++  return {InstalledRegion(user_directory).id, "Skies of Arcadia Legends", "state-skies-import-", 3,
++          "SA_LEGENDS."};
++}
+ }  // namespace
+ 
+ extern "C" {
+ 
+ JNIEXPORT jstring JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_importDisc(
+-    JNIEnv* env, jclass, jstring image, jstring game_root, jstring patch, jstring dol_sha256)
++    JNIEnv* env, jclass, jstring image, jstring games_directory, jstring patch_directory)
++{
++  return ToJString(env, ImportDisc(GetJString(env, image), GetJString(env, games_directory),
++                                   GetJString(env, patch_directory)));
++}
++
++// The disc ID of the game imported in the user directory (GEAE8P when there's none).
++JNIEXPORT jstring JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_installedGameId(
++    JNIEnv* env, jclass, jstring user_directory)
+ {
+-  return ToJString(env, ImportDisc(GetJString(env, image), GetJString(env, game_root),
+-                                   GetJString(env, patch), GetJString(env, dol_sha256)));
++  return ToJString(env, InstalledRegion(StringToPath(GetJString(env, user_directory))).id);
++}
++
++// A region's DOL patch file name among the assets.
++JNIEXPORT jstring JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_patchName(
++    JNIEnv* env, jclass, jstring game_id)
++{
++  const Region* region = FindRegion(GetJString(env, game_id));
++  return ToJString(env, (region ? region : &REGIONS[0])->patch);
+ }
+ 
+ JNIEXPORT jstring JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_repatch(
+@@ -326,16 +418,13 @@ JNIEXPORT jstring JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_ensur
+ 
+ // Settings, Saves: a save the player already has (tools/save_import.cpp, as on desktop). The app
+ // copies the picked document to a file first and checks the game isn't running.
+-// The game's card saves are always 3 blocks named SA_LEGENDS.000-.002 (the desktop launcher's SaveGame)
+-constexpr moderngekko::frontend::SaveImportGame SKIES_SAVES{SKIES_GAME_ID, "Skies of Arcadia Legends",
+-                                                            "state-skies-import-", 3, "SA_LEGENDS."};
+ 
+ JNIEXPORT jobjectArray JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_importSave(
+     JNIEnv* env, jclass, jstring file, jstring user_directory)
+ {
+-  const moderngekko::frontend::SaveImportResult result = moderngekko::frontend::ImportSave(
+-      StringToPath(GetJString(env, file)), StringToPath(GetJString(env, user_directory)),
+-      SKIES_SAVES);
++  const fs::path user = StringToPath(GetJString(env, user_directory));
++  const moderngekko::frontend::SaveImportResult result =
++      moderngekko::frontend::ImportSave(StringToPath(GetJString(env, file)), user, SkiesSaves(user));
+   const std::string answer[] = {result.message, result.ok ? "ok" : ""};
+   return SpanToJStringArray(env, std::span<const std::string>(answer));
+ }
+@@ -343,8 +432,53 @@ JNIEXPORT jobjectArray JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_
+ JNIEXPORT jstring JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_describeSaves(
+     JNIEnv* env, jclass, jstring user_directory)
+ {
+-  return ToJString(env, moderngekko::frontend::DescribeSaves(
+-                            StringToPath(GetJString(env, user_directory)), SKIES_SAVES));
++  const fs::path user = StringToPath(GetJString(env, user_directory));
++  return ToJString(env, moderngekko::frontend::DescribeSaves(user, SkiesSaves(user)));
++}
++
++// Settings, Sound: the Dreamcast music from the player's own Dreamcast disc (a CHD: a GDI's track
++// files can't be opened beside a document the picker hands over), into the user directory's
++// DreamcastMusic/ where the game looks for it (AudioCommon/DCMusic.cpp). "" or what went wrong; the
++// progress goes to importStatus.
++JNIEXPORT jstring JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_importDreamcastMusic(
++    JNIEnv* env, jclass, jstring image)
++{
++#ifdef HAVE_DCMUSIC
++  if (s_importing.exchange(true))
++    return ToJString(env, "A disc is already being imported.");
++  std::string summary;
++  const std::string error = DCMusicImport::Import(
++      GetJString(env, image), File::GetUserPath(D_USER_IDX) + "DreamcastMusic" DIR_SEP, &summary,
++      [](const std::string& status) { SetStatus(status); });
++  SetStatus("");
++  s_importing = false;
++  return ToJString(env, error);
++#else
++  return ToJString(env, "This build has no Dreamcast music.");
++#endif
++}
++
++// What's imported, e.g. "Disc 1 (USA): 116 music banks"; "" if nothing.
++JNIEXPORT jstring JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_describeDreamcastMusic(
++    JNIEnv* env, jclass)
++{
++#ifdef HAVE_DCMUSIC
++  return ToJString(env, DCMusicImport::Describe(File::GetUserPath(D_USER_IDX) +
++                                                "DreamcastMusic" DIR_SEP));
++#else
++  return ToJString(env, "");
++#endif
++}
++
++JNIEXPORT jboolean JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_removeDreamcastMusic(
++    JNIEnv* env, jclass)
++{
++#ifdef HAVE_DCMUSIC
++  return DCMusicImport::Remove(File::GetUserPath(D_USER_IDX) + "DreamcastMusic" DIR_SEP) ? JNI_TRUE :
++                                                                                         JNI_FALSE;
++#else
++  return JNI_FALSE;
++#endif
+ }
+ 
+ JNIEXPORT jstring JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_importStatus(JNIEnv* env,
+diff --git a/Source/Core/AudioCommon/CMakeLists.txt b/Source/Core/AudioCommon/CMakeLists.txt
+index 2564448380..114348d5b7 100644
+--- a/Source/Core/AudioCommon/CMakeLists.txt
++++ b/Source/Core/AudioCommon/CMakeLists.txt
+@@ -13,6 +13,62 @@ add_library(audiocommon
+   WaveFile.h
+ )
+ 
++# The Skies of Arcadia Legends recomp's Dreamcast music (DCMusic.cpp) runs the Dreamcast sound chip
++# with Highly Theoretical's AICA + ARM7 emulation (GPL-3; the repo's lib/HighlyTheoretical).
++set(SKIES_HT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../HighlyTheoretical" CACHE PATH
++    "Highly Theoretical source (its Core/ directory has dcsound.c)")
++if(EXISTS "${SKIES_HT_DIR}/Core/dcsound.c")
++  message(STATUS "Highly Theoretical found, enabling the Dreamcast music")
++  add_library(dcsound STATIC
++    "${SKIES_HT_DIR}/Core/dcsound.c"
++    "${SKIES_HT_DIR}/Core/arm.c"
++    "${SKIES_HT_DIR}/Core/yam.c"
++  )
++  target_compile_definitions(dcsound PRIVATE EMU_COMPILE EMU_LITTLE_ENDIAN HAVE_STDINT_H DISABLE_SSF)
++  # yam.c defines __fastcall as __attribute__((regparm(3))) on every non-Windows target, and only
++  # x86 compilers accept regparm (arm64 Android: "'regparm' is not valid on this platform"). An
++  # empty regparm(x) leaves an empty attribute list there (a compile option: CMake drops
++  # function-style macros from compile definitions).
++  if(NOT WIN32 AND NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(i.86|x86|x86_64|AMD64|amd64)$")
++    target_compile_options(dcsound PRIVATE "-Dregparm(x)=")
++  endif()
++  target_include_directories(dcsound PUBLIC "${SKIES_HT_DIR}/Core")
++  # Third-party code: none of Dolphin's warnings (MSVC builds them as errors)
++  if(MSVC)
++    target_compile_options(dcsound PRIVATE /W0 /WX-)
++  else()
++    target_compile_options(dcsound PRIVATE -w)
++  endif()
++  target_sources(audiocommon PRIVATE DCMusic.cpp DCMusic.h DCMusicImport.cpp DCMusicImport.h)
++  target_link_libraries(audiocommon PRIVATE dcsound)
++  target_compile_definitions(audiocommon PUBLIC HAVE_DCMUSIC=1)
++
++  # The music import reads CHD images with libchdr (BSD-3; the repo's lib/libchdr). Without it,
++  # only GDI images.
++  set(SKIES_LIBCHDR_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../libchdr" CACHE PATH
++      "libchdr source")
++  if(EXISTS "${SKIES_LIBCHDR_DIR}/CMakeLists.txt")
++    message(STATUS "libchdr found, the Dreamcast music import reads CHD images")
++    set(CHDR_WANT_TESTS OFF CACHE BOOL "" FORCE)
++    set(INSTALL_STATIC_LIBS OFF CACHE BOOL "" FORCE)
++    # The C LZMA decoder: the assembly one gets Dolphin's compile options, which MASM rejects, and a
++    # one-off import doesn't need its speed
++    set(WITH_LZMA_ASM OFF CACHE BOOL "" FORCE)
++    add_subdirectory("${SKIES_LIBCHDR_DIR}" "${CMAKE_BINARY_DIR}/libchdr" EXCLUDE_FROM_ALL)
++    foreach(_skies_chdr_target IN ITEMS chdr-static chdr-lzma miniz zstd)
++      if(TARGET ${_skies_chdr_target})
++        if(MSVC)
++          target_compile_options(${_skies_chdr_target} PRIVATE /W0 /WX-)
++        else()
++          target_compile_options(${_skies_chdr_target} PRIVATE -w)
++        endif()
++      endif()
++    endforeach()
++    target_link_libraries(audiocommon PRIVATE chdr-static)
++    target_compile_definitions(audiocommon PRIVATE HAVE_LIBCHDR=1)
++  endif()
++endif()
++
+ if(ENABLE_CUBEB)
+   message(STATUS "Cubeb found, enabling Cubeb sound backend")
+   target_sources(audiocommon PRIVATE
+diff --git a/Source/Core/AudioCommon/DCMusic.cpp b/Source/Core/AudioCommon/DCMusic.cpp
+new file mode 100644
+index 0000000000..b49e802746
+--- /dev/null
++++ b/Source/Core/AudioCommon/DCMusic.cpp
+@@ -0,0 +1,608 @@
++// Copyright 2026 Dolphin Emulator Project
++// SPDX-License-Identifier: GPL-3.0-or-later
++
++#include "AudioCommon/DCMusic.h"
++
++#include <algorithm>
++#include <array>
++#include <cstring>
++#include <deque>
++#include <map>
++#include <memory>
++#include <mutex>
++#include <vector>
++
++#include "Common/CommonPaths.h"
++#include "Common/FileUtil.h"
++#include "Common/Logging/Log.h"
++#include "Common/MathUtil.h"
++#include "Core/Core.h"
++#include "Core/System.h"
++
++// Highly Theoretical's emulation headers define bare type macros (uint32, sint16, ...), so they
++// come last and the macros are dropped again right after.
++extern "C" {
++#include "dcsound.h"
++#include "arm.h"
++#include "yam.h"
++}
++#undef uint8
++#undef uint16
++#undef uint32
++#undef uint64
++#undef sint8
++#undef sint16
++#undef sint32
++#undef sint64
++
++namespace DCMusic
++{
++namespace
++{
++constexpr u32 AICA_RATE = 44100;
++// The Dreamcast driver at full master volume plays the same song about 1.4x (3 dB) quieter than
++// the GameCube's MusyX mix (battle theme m0459, 50 s from its start, RMS 2355 against 3412; peaks
++// 19839, so 1.4x still fits): played 1:1 the music would sit lower against the sound effects.
++constexpr int DEFAULT_GAIN = 358;
++// After a stop the chip is rendered this much longer, for the notes' release.
++constexpr int TAIL_SAMPLES = 2 * AICA_RATE;
++
++// Manatee host commands (the Dreamcast sd library's codes; dc-manatee's host_protocol.md).
++enum : u8
++{
++  CMD_MIDI_PLAY = 0x01,
++  CMD_MIDI_STOP = 0x02,
++  CMD_STOP_ALL = 0x80,
++  CMD_MASTER_VOL = 0x81,
++  CMD_MIDI_SEND_MES = 0x86,
++};
++
++using Record = std::array<u8, 16>;
++
++struct Request
++{
++  enum class Kind
++  {
++    Command,   // record goes to the driver
++    Download,  // the MLT named mlt goes into sound RAM
++    Fade,      // the level goes to level over fade_ms, then after
++    Freeze,    // the chip stops (once a running fade has ended) until Thaw
++    Thaw,
++  };
++  Kind kind = Kind::Command;
++  Record record{};
++  std::string mlt;
++  float level = 1.0f;
++  int fade_ms = 0;
++  AfterFade after = AfterFade::None;
++};
++
++u32 Read32(const u8* p)
++{
++  return p[0] | p[1] << 8 | p[2] << 16 | static_cast<u32>(p[3]) << 24;
++}
++
++// One emulated AICA with the Dreamcast driver, playing one song on its MIDI port 0. There are two
++// (PLAYERS): a paused song keeps its chip, frozen, while the next one plays on the other.
++class Engine
++{
++public:
++  bool Load(const std::string& dir, const std::string& common)
++  {
++    std::string drv;
++    if (!File::ReadFileToString(dir + "BONITO.DRV", drv) || drv.size() < 0x120 ||
++        std::memcmp(drv.data(), "SDRV", 4) != 0)
++    {
++      return false;
++    }
++
++    m_state.reset(new u8[dcsound_get_state_size()]);
++    dcsound_clear_state(m_state.get());
++
++    const u8* d = reinterpret_cast<const u8*>(drv.data());
++    const u32 image_size = std::min<u32>(Read32(d + 8), static_cast<u32>(drv.size())) - 0x20;
++    dcsound_upload_to_ram(m_state.get(), 0, const_cast<u8*>(d + 0x20), image_size);
++    // The driver's work table (sd library's sdDrvGetInfo): port status, system block (the host
++    // command flag), bank table, host command buffer.
++    const u8* table = d + 0x20 + 0xC0;
++    m_ports = Read32(table + 4);
++    m_flag = Read32(table + 8);
++    m_banks = Read32(table + 12);
++    m_commands = Read32(table + 16);
++    if (m_ports >= 0x200000 || m_flag >= 0x200000 || m_banks >= 0x200000 || m_commands >= 0x200000)
++      return false;
++
++    // Let the driver initialise (the SH-4 side waits a while after releasing the ARM too), then
++    // download the common banks the Dreamcast game loads at boot.
++    Render(nullptr, AICA_RATE / 4);
++    if (!DownloadUnits(common))
++      return false;
++    Record master{};
++    master[0] = CMD_MASTER_VOL;
++    master[2] = 0xF0;
++    m_pending.push_back(master);
++    m_dir = dir;
++    return true;
++  }
++
++  void Queue(Request&& request)
++  {
++    std::lock_guard lk(m_queue_lock);
++    m_queue.push_back(std::move(request));
++  }
++
++  void SetGain(int gain) { m_gain = std::clamp(gain, 0, 1024); }
++
++  // Adds the chip's output, if it has anything to play.
++  void Mix(s16* out, std::size_t num_samples, u32 out_rate)
++  {
++    if (!out_rate)
++      return;
++    if (m_frozen)
++    {
++      // Only requests can wake it (Thaw, a new Play, a Stop).
++      if (HasQueued())
++        ApplyRequests();
++      if (m_frozen)
++        return;
++    }
++    if (!m_playing && m_tail <= 0 && m_pending.empty() && !HasQueued())
++      return;
++    const double step = static_cast<double>(AICA_RATE) / out_rate;
++    for (std::size_t i = 0; i < num_samples; ++i)
++    {
++      const float gain = m_gain / 256.0f * m_level;
++      // Hermite interpolation between m_hist[1] and m_hist[2].
++      while (m_phase >= 1.0)
++      {
++        m_phase -= 1.0;
++        if (m_buffer_pos >= m_buffer_len)
++        {
++          Refill();
++          if (m_frozen)
++            return;  // a fade to pause ended
++        }
++        for (int k = 0; k < 3; ++k)
++        {
++          m_hist[k][0] = m_hist[k + 1][0];
++          m_hist[k][1] = m_hist[k + 1][1];
++        }
++        m_hist[3][0] = m_buffer[m_buffer_pos * 2];
++        m_hist[3][1] = m_buffer[m_buffer_pos * 2 + 1];
++        ++m_buffer_pos;
++        StepFade();
++      }
++      const float t = static_cast<float>(m_phase);
++      for (int c = 0; c < 2; ++c)
++      {
++        const float y0 = m_hist[0][c], y1 = m_hist[1][c], y2 = m_hist[2][c], y3 = m_hist[3][c];
++        const float c1 = 0.5f * (y2 - y0);
++        const float c2 = y0 - 2.5f * y1 + 2.0f * y2 - 0.5f * y3;
++        const float c3 = 0.5f * (y3 - y0) + 1.5f * (y1 - y2);
++        const float v = ((c3 * t + c2) * t + c1) * t + y1;
++        out[i * 2 + c] = MathUtil::SaturatingCast<s16>(out[i * 2 + c] + v * gain);
++      }
++      m_phase += step;
++    }
++  }
++
++private:
++  static constexpr std::size_t CHUNK = 256;
++
++  bool HasQueued()
++  {
++    std::lock_guard lk(m_queue_lock);
++    return !m_queue.empty();
++  }
++
++  // Fades run per AICA sample, so their time is real time whatever the output rate.
++  void StartFade(float level, int ms, AfterFade after)
++  {
++    m_level_target = std::max(level, 0.0f);
++    m_fade_left = std::max(0, ms) * static_cast<int>(AICA_RATE) / 1000;
++    m_level_step = m_fade_left > 0 ? (m_level_target - m_level) / m_fade_left : 0.0f;
++    m_after = after;
++    if (m_fade_left == 0)
++      FinishFade();
++  }
++
++  void StepFade()
++  {
++    if (m_fade_left <= 0)
++      return;
++    m_level += m_level_step;
++    if (--m_fade_left == 0)
++      FinishFade();
++  }
++
++  void FinishFade()
++  {
++    m_level = m_level_target;
++    if (m_after == AfterFade::Stop)
++      Send(CMD_MIDI_STOP);
++    else if (m_after == AfterFade::Pause)
++      m_frozen = true;
++    m_after = AfterFade::None;
++  }
++
++  void Send(u8 code)
++  {
++    Record r{};
++    r[0] = code;
++    if (code == CMD_STOP_ALL)
++      r[2] = r[3] = r[4] = r[5] = 1;
++    m_pending.push_back(r);
++    if (code == CMD_MIDI_STOP || code == CMD_STOP_ALL)
++    {
++      m_playing = false;
++      m_tail = TAIL_SAMPLES;
++    }
++  }
++
++  u32 Get32(u32 a) const { return dcsound_getword(m_state.get(), a); }
++  u8 Get8(u32 a) const { return static_cast<u8>(Get32(a & ~3u) >> ((a & 3) * 8)); }
++  void Set8(u32 a, u8 v)
++  {
++    u32 w = Get32(a & ~3u);
++    const int shift = (a & 3) * 8;
++    w = (w & ~(0xFFu << shift)) | static_cast<u32>(v) << shift;
++    dcsound_setword(m_state.get(), a & ~3u, w);
++  }
++
++  void Refill()
++  {
++    ApplyRequests();
++    if (m_frozen)
++      return;
++    Render(m_buffer, CHUNK);
++    m_buffer_len = CHUNK;
++    m_buffer_pos = 0;
++    if (!m_playing && m_tail > 0)
++      m_tail -= static_cast<int>(CHUNK);
++  }
++
++  void Render(s16* buffer, std::size_t samples)
++  {
++    s16 scratch[CHUNK * 2];
++    while (samples > 0)
++    {
++      u32 n = static_cast<u32>(std::min(samples, CHUNK));
++      s16* dst = buffer ? buffer : scratch;
++      u32 got = n;
++      if (dcsound_execute(m_state.get(), 0x7FFFFFFF, dst, &got) < 0 || got == 0)
++      {
++        // The ARM crashed; keep the output silent rather than spin.
++        std::fill(dst, dst + n * 2, s16{0});
++        got = n;
++      }
++      samples -= got;
++      if (buffer)
++        buffer += got * 2;
++    }
++  }
++
++  // Takes requests from the queue: commands go out to the driver in batches (it reads the batch
++  // when the flag byte is set and clears the flag when done); a download waits until the driver
++  // has taken every command before it, so a Stop reaches it before its bank is overwritten.
++  void ApplyRequests()
++  {
++    if (Get8(m_flag) != 0)
++      return;
++    if (!m_pending.empty())
++    {
++      SendBatch();
++      return;
++    }
++    std::lock_guard lk(m_queue_lock);
++    while (!m_queue.empty())
++    {
++      Request& r = m_queue.front();
++      switch (r.kind)
++      {
++      case Request::Kind::Fade:
++        StartFade(r.level, r.fade_ms, r.after);
++        break;
++      case Request::Kind::Freeze:
++        // A running fade (the music fading out before a pause) ends first.
++        if (m_fade_left > 0)
++          m_after = AfterFade::Pause;
++        else
++          m_frozen = true;
++        break;
++      case Request::Kind::Thaw:
++        m_frozen = false;
++        break;
++      case Request::Kind::Download:
++        if (!m_pending.empty())
++          goto send;
++        DownloadMlt(r.mlt);
++        break;
++      case Request::Kind::Command:
++        if (r.record[0] == CMD_MIDI_PLAY)
++        {
++          // A new song starts at its own level, on a running chip.
++          StartFade(1.0f, 0, AfterFade::None);
++          m_frozen = false;
++          m_playing = true;
++        }
++        else if (r.record[0] == CMD_MIDI_STOP || r.record[0] == CMD_STOP_ALL)
++        {
++          m_frozen = false;
++          m_after = AfterFade::None;
++          m_playing = false;
++          m_tail = TAIL_SAMPLES;
++        }
++        m_pending.push_back(r.record);
++        if (m_pending.size() == 30)
++        {
++          m_queue.pop_front();
++          goto send;
++        }
++        break;
++      }
++      m_queue.pop_front();
++    }
++  send:
++    if (!m_pending.empty())
++      SendBatch();
++  }
++
++  void SendBatch()
++  {
++    u8 batch[32 * 16] = {};
++    std::size_t n = std::min<std::size_t>(m_pending.size(), 30);
++    for (std::size_t i = 0; i < n; ++i)
++      std::memcpy(batch + i * 16, m_pending[i].data(), 16);
++    m_pending.erase(m_pending.begin(), m_pending.begin() + n);
++    if (n & 1)
++      ++n;
++    dcsound_upload_to_ram(m_state.get(), m_commands, batch, static_cast<u32>(n * 16));
++    Set8(m_flag, 1);
++  }
++
++  void DownloadMlt(const std::string& name)
++  {
++    auto it = m_files.find(name);
++    if (it == m_files.end())
++    {
++      std::string data;
++      if (!File::ReadFileToString(m_dir + "SOUND/" + name + ".MLT", data))
++      {
++        WARN_LOG_FMT(AUDIO, "Dreamcast music: no {}.MLT", name);
++        data.clear();
++      }
++      it = m_files.emplace(name, std::move(data)).first;
++    }
++    if (!it->second.empty())
++      DownloadUnits(it->second);
++  }
++
++  // An MLT (SMLT) file: 0x20-byte unit entries from 0x20, each a type, a bank number, the bank's
++  // sound RAM address and size, and the offset and size of the data the file carries for it. As
++  // the sd library's sdMultiUnitDownload: the bank table entry is written, then the data copied.
++  bool DownloadUnits(const std::string& file)
++  {
++    const u8* d = reinterpret_cast<const u8*>(file.data());
++    if (file.size() < 0x20 || std::memcmp(d, "SMLT", 4) != 0)
++      return false;
++    const u32 count = Read32(d + 8);
++    for (u32 i = 0; i < count && 0x40 + i * 0x20 <= file.size(); ++i)
++    {
++      const u8* e = d + 0x20 + i * 0x20;
++      const u32 num = Read32(e + 4), addr = Read32(e + 8), size = Read32(e + 12);
++      const u32 offset = Read32(e + 16), data_size = Read32(e + 20);
++      int slot = -1;
++      if (!std::memcmp(e, "SMSB", 4) && num < 16)
++        slot = num * 8;
++      else if (!std::memcmp(e, "SMPB", 4) && num < 16)
++        slot = 0x80 + num * 8;
++      else if (!std::memcmp(e, "SOSB", 4) && num < 16)
++        slot = 0x100 + num * 8;
++      else if (!std::memcmp(e, "SPSR", 4) && num < 16)
++        slot = 0x180 + num * 8;
++      else if (!std::memcmp(e, "SFPB", 4))
++        slot = 0x200;
++      else if (!std::memcmp(e, "SFOB", 4))
++        slot = 0x280;
++      else if (!std::memcmp(e, "SFPW", 4))
++        slot = 0x288;
++      if (slot >= 0 && static_cast<s32>(size) >= 0 && addr < 0x200000)
++      {
++        dcsound_setword(m_state.get(), m_banks + slot, addr);
++        dcsound_setword(m_state.get(), m_banks + slot + 4, size);
++      }
++      if (offset != 0xFFFFFFFF && data_size > 0 && offset <= file.size() &&
++          data_size <= file.size() - offset && addr < 0x200000 && data_size <= 0x200000 - addr)
++      {
++        dcsound_upload_to_ram(m_state.get(), addr, const_cast<u8*>(d + offset), data_size);
++      }
++    }
++    return true;
++  }
++
++  std::unique_ptr<u8[]> m_state;
++  std::string m_dir;
++  std::map<std::string, std::string> m_files;
++  u32 m_ports = 0, m_flag = 0, m_banks = 0, m_commands = 0;
++
++  std::mutex m_queue_lock;
++  std::deque<Request> m_queue;
++  std::vector<Record> m_pending;
++
++  s16 m_buffer[CHUNK * 2] = {};
++  std::size_t m_buffer_len = 0;
++  std::size_t m_buffer_pos = 0;
++  float m_hist[4][2] = {};
++  double m_phase = 0.0;
++  int m_gain = DEFAULT_GAIN;
++  float m_level = 1.0f, m_level_target = 1.0f, m_level_step = 0.0f;
++  int m_fade_left = 0;
++  AfterFade m_after = AfterFade::None;
++  bool m_frozen = false;   // paused: not rendered at all
++  bool m_playing = false;  // a song was started and not stopped
++  int m_tail = 0;          // samples still to render after a stop
++};
++
++std::mutex s_lock;  // guards s_engines against Start / Shutdown while the audio thread mixes
++std::array<std::unique_ptr<Engine>, PLAYERS> s_engines;
++int s_gain = DEFAULT_GAIN;
++bool s_initialized = false;
++
++void Send(int player, Request&& request)
++{
++  std::lock_guard lk(s_lock);
++  if (player >= 0 && player < PLAYERS && s_engines[player])
++    s_engines[player]->Queue(std::move(request));
++}
++
++Request Command(u8 code)
++{
++  Request r;
++  r.record[0] = code;  // [2] = port 0
++  return r;
++}
++
++Request Kind(Request::Kind kind)
++{
++  Request r;
++  r.kind = kind;
++  return r;
++}
++}  // namespace
++
++std::string Directory()
++{
++  return File::GetUserPath(D_USER_IDX) + "DreamcastMusic" DIR_SEP;
++}
++
++bool Installed()
++{
++  const std::string dir = Directory();
++  return File::Exists(dir + "BONITO.DRV") && File::Exists(dir + "ARESNEW.MLT") &&
++         File::IsDirectory(dir + "SOUND");
++}
++
++bool Start()
++{
++  std::lock_guard lk(s_lock);
++  if (s_engines[0])
++    return true;
++  if (!s_initialized)
++  {
++    arm_init();
++    yam_init();
++    dcsound_init();
++    s_initialized = true;
++  }
++  const std::string dir = Directory();
++  std::string common;
++  std::array<std::unique_ptr<Engine>, PLAYERS> engines;
++  bool ok = File::ReadFileToString(dir + "ARESNEW.MLT", common);
++  for (auto& engine : engines)
++  {
++    engine = std::make_unique<Engine>();
++    ok = ok && engine->Load(dir, common);
++    engine->SetGain(s_gain);
++  }
++  if (!ok)
++  {
++    WARN_LOG_FMT(AUDIO, "Dreamcast music: the files in {} couldn't be loaded", dir);
++    return false;
++  }
++  s_engines = std::move(engines);
++  INFO_LOG_FMT(AUDIO, "Dreamcast music started");
++  return true;
++}
++
++void Shutdown()
++{
++  std::lock_guard lk(s_lock);
++  for (auto& engine : s_engines)
++    engine.reset();
++}
++
++bool Running()
++{
++  std::lock_guard lk(s_lock);
++  return s_engines[0] != nullptr;
++}
++
++void Download(int player, std::string_view mlt)
++{
++  Request r = Kind(Request::Kind::Download);
++  r.mlt = std::string(mlt);
++  Send(player, std::move(r));
++}
++
++void Play(int player, int bank, int sequence)
++{
++  Request r = Command(CMD_MIDI_PLAY);
++  r.record[3] = static_cast<u8>(bank);
++  r.record[4] = static_cast<u8>(sequence);
++  Send(player, std::move(r));
++}
++
++void Stop(int player)
++{
++  Send(player, Command(CMD_MIDI_STOP));
++}
++
++void Pause(int player)
++{
++  Send(player, Kind(Request::Kind::Freeze));
++}
++
++void Continue(int player)
++{
++  Send(player, Kind(Request::Kind::Thaw));
++}
++
++void MidiControl(int player, int channel, int controller, int value)
++{
++  // sdMidiSendMes: the message bytes are data2, data1, port << 4 | channel, status >> 4 & 7.
++  Request r = Command(CMD_MIDI_SEND_MES);
++  r.record[4] = static_cast<u8>(value & 0x7F);
++  r.record[5] = static_cast<u8>(controller & 0x7F);
++  r.record[6] = static_cast<u8>(channel & 0xF);
++  r.record[7] = 0xB0 >> 4 & 7;
++  Send(player, std::move(r));
++}
++
++void Fade(int player, float level, int fade_ms, AfterFade after)
++{
++  Request r = Kind(Request::Kind::Fade);
++  r.level = level;
++  r.fade_ms = fade_ms;
++  r.after = after;
++  Send(player, std::move(r));
++}
++
++void StopAll()
++{
++  for (int player = 0; player < PLAYERS; ++player)
++    Send(player, Command(CMD_STOP_ALL));
++}
++
++void SetGain(int gain)
++{
++  std::lock_guard lk(s_lock);
++  s_gain = gain;
++  for (auto& engine : s_engines)
++  {
++    if (engine)
++      engine->SetGain(gain);
++  }
++}
++
++void Mix(s16* samples, std::size_t num_samples, u32 out_rate)
++{
++  std::unique_lock lk(s_lock, std::try_to_lock);
++  if (!lk.owns_lock() || !s_engines[0])
++    return;
++  if (Core::GetState(Core::System::GetInstance()) != Core::State::Running)
++    return;
++  for (auto& engine : s_engines)
++    engine->Mix(samples, num_samples, out_rate);
++}
++
++}  // namespace DCMusic
+diff --git a/Source/Core/AudioCommon/DCMusic.h b/Source/Core/AudioCommon/DCMusic.h
+new file mode 100644
+index 0000000000..fbc4b3dbd6
+--- /dev/null
++++ b/Source/Core/AudioCommon/DCMusic.h
+@@ -0,0 +1,70 @@
++// Copyright 2026 Dolphin Emulator Project
++// SPDX-License-Identifier: GPL-3.0-or-later
++
++#pragma once
++
++#include <array>
++#include <cstddef>
++#include <string>
++#include <string_view>
++
++#include "Common/CommonTypes.h"
++
++// The Dreamcast music for the Skies of Arcadia Legends recomp: the original Dreamcast game's sound
++// driver (BONITO.DRV, Sega's Manatee driver for the AICA's ARM7) and its music banks (MLT files),
++// imported from the player's own Dreamcast disc (AudioCommon/DCMusicImport.h), run on an emulated
++// AICA sound chip (Highly Theoretical's dcsound, GPL-3). The game keeps playing its GameCube music
++// engine; Core/SkiesMusic.cpp mutes its music and mirrors each music request here as the Manatee
++// host command the Dreamcast game sent (sdMidiPlay / Stop / Pause / Continue / SetVol).
++//
++// The chip runs in the audio thread's Mix (Mixer::Mix calls DCMusic::Mix), so it plays in real time
++// whatever the emulation speed (the battle speed option) and is silent while emulation is paused.
++// There are two chips (players): a paused song (the field music during a battle) stays frozen on
++// its own while the next plays on the other, and each has its own fades. A player that plays
++// nothing isn't rendered. None of it is part of savestates: after a state load Core/SkiesMusic.cpp
++// starts the music the loaded game is playing again.
++namespace DCMusic
++{
++// Where the import puts the files: <user dir>/DreamcastMusic/ with BONITO.DRV, ARESNEW.MLT and
++// SOUND/*.MLT.
++std::string Directory();
++// The driver, the common bank and at least one music bank are there.
++bool Installed();
++
++// Loads the driver and the common banks and starts the emulated chips (no-op when already running
++// or not installed). Returns whether it runs.
++bool Start();
++void Shutdown();
++bool Running();
++
++constexpr int PLAYERS = 2;
++
++// Music requests to one player (0 or 1), from any thread; the audio thread applies them, in order,
++// before it renders. Download copies an MLT file's units (by name, e.g. "M0231") into the sound RAM
++// banks they name.
++void Download(int player, std::string_view mlt);
++void Play(int player, int bank, int sequence);
++void Stop(int player);
++// Freezes the player (once a fade it runs has ended), Continue thaws it: the song resumes exactly.
++void Pause(int player);
++void Continue(int player);
++void StopAll();
++// A MIDI controller change on the player's sequence (sdMidiSendMes), e.g. the towns' per-channel
++// volume. Channels 0..15.
++void MidiControl(int player, int channel, int controller, int value);
++// The player's level (1 = as the sequence plays it), reached in fade_ms of real time; then, if
++// asked, it stops or pauses (the GameCube's sndSeqVolume modes 1 and 2). Play resets it to 1.
++enum class AfterFade
++{
++  None,
++  Stop,
++  Pause,
++};
++void Fade(int player, float level, int fade_ms, AfterFade after);
++// Overall level of the Dreamcast music against the GameCube sound effects, 0..1024 (256 = the
++// driver's own output level; the default matches the GameCube music's loudness).
++void SetGain(int gain);
++
++// Called from Mixer::Mix: adds num_samples stereo frames at out_rate to samples.
++void Mix(s16* samples, std::size_t num_samples, u32 out_rate);
++}  // namespace DCMusic
+diff --git a/Source/Core/AudioCommon/DCMusicImport.cpp b/Source/Core/AudioCommon/DCMusicImport.cpp
+new file mode 100644
+index 0000000000..72041b585e
+--- /dev/null
++++ b/Source/Core/AudioCommon/DCMusicImport.cpp
+@@ -0,0 +1,472 @@
++// Copyright 2026 Dolphin Emulator Project
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++#include "AudioCommon/DCMusicImport.h"
++
++#include <algorithm>
++#include <array>
++#include <cstring>
++#include <map>
++#include <memory>
++#include <optional>
++#include <sstream>
++#include <string_view>
++#include <vector>
++
++#include <fmt/format.h>
++#include <fmt/ranges.h>
++
++#include "Common/CommonPaths.h"
++#include "Common/CommonTypes.h"
++#include "Common/FileUtil.h"
++#include "Common/IOFile.h"
++#include "Common/StringUtil.h"
++
++#ifdef HAVE_LIBCHDR
++#include <libchdr/chd.h>
++#endif
++
++namespace DCMusicImport
++{
++namespace
++{
++constexpr u32 HIGH_DENSITY_LBA = 45000;
++constexpr u32 RAW_SECTOR = 2352;
++constexpr u32 CHD_FRAME = 2448;  // a raw sector + 96 bytes of subcode
++// The music files and their limits (the largest bank on the discs is 1.3 MB).
++constexpr u32 MAX_FILE = 4 << 20;
++
++// The 2048-byte user data of the high-density area's sectors (mode 1).
++class SectorReader
++{
++public:
++  virtual ~SectorReader() = default;
++  virtual bool Read(u32 lba, u8* out) = 0;
++};
++
++struct Track
++{
++  u32 lba;     // first sector on the disc
++  u32 frames;  // sectors
++  u32 sector;  // bytes per sector in the image (2352 raw or 2048)
++  u64 offset;  // GDI: the track file; CHD: the first frame
++  std::string path;
++};
++
++const Track* FindTrack(const std::vector<Track>& tracks, u32 lba)
++{
++  for (const Track& t : tracks)
++  {
++    if (lba >= t.lba && lba - t.lba < t.frames)
++      return &t;
++  }
++  return nullptr;
++}
++
++class GdiReader final : public SectorReader
++{
++public:
++  bool Open(const std::string& gdi, std::string* error)
++  {
++    std::string text;
++    if (!File::ReadFileToString(gdi, text))
++    {
++      *error = "Can't read the GDI file.";
++      return false;
++    }
++    std::istringstream in(text);
++    std::string line;
++    std::getline(in, line);
++    const std::string dir = gdi.substr(0, gdi.find_last_of("/\\") + 1);
++    while (std::getline(in, line))
++    {
++      std::istringstream fields(line);
++      u32 number, lba, type, size;
++      std::string name;
++      if (!(fields >> number >> lba >> type >> size))
++        continue;
++      std::getline(fields >> std::ws, name);
++      if (!name.empty() && name.front() == '"')
++        name = name.substr(1, name.find('"', 1) - 1);
++      else
++        name = name.substr(0, name.find(' '));
++      if (type != 4 || lba < HIGH_DENSITY_LBA || (size != RAW_SECTOR && size != 2048))
++        continue;
++      Track t{lba, 0, size, 0, dir + name};
++      t.frames = static_cast<u32>(File::GetSize(t.path) / size);
++      m_tracks.push_back(t);
++    }
++    if (m_tracks.empty())
++    {
++      *error = "That GDI has no GD-ROM data track, or its track files aren't beside it.";
++      return false;
++    }
++    return true;
++  }
++
++  bool Read(u32 lba, u8* out) override
++  {
++    const Track* t = FindTrack(m_tracks, lba);
++    if (!t)
++      return false;
++    if (m_open != t)
++    {
++      if (!m_file.Open(t->path, "rb"))
++        return false;
++      m_open = t;
++    }
++    const u64 offset = u64(lba - t->lba) * t->sector + (t->sector == RAW_SECTOR ? 16 : 0);
++    return m_file.Seek(offset, File::SeekOrigin::Begin) && m_file.ReadBytes(out, 2048);
++  }
++
++private:
++  std::vector<Track> m_tracks;
++  const Track* m_open = nullptr;
++  File::IOFile m_file;
++};
++
++#ifdef HAVE_LIBCHDR
++class ChdReader final : public SectorReader
++{
++public:
++  ~ChdReader() override
++  {
++    if (m_chd)
++      chd_close(m_chd);
++  }
++
++  bool Open(const std::string& path, std::string* error)
++  {
++    if (!m_file.Open(path, "rb"))
++    {
++      *error = "Can't open the CHD file.";
++      return false;
++    }
++    if (chd_open_file(m_file.GetHandle(), CHD_OPEN_READ, nullptr, &m_chd) != CHDERR_NONE)
++    {
++      m_chd = nullptr;
++      *error = "That CHD file can't be read.";
++      return false;
++    }
++    const chd_header* header = chd_get_header(m_chd);
++    if (header->hunkbytes == 0 || header->hunkbytes % CHD_FRAME != 0)
++    {
++      *error = "That CHD isn't a CD image.";
++      return false;
++    }
++    m_frames_per_hunk = header->hunkbytes / CHD_FRAME;
++    m_hunk.resize(header->hunkbytes);
++    // The tracks are stored one after another, each padded to a multiple of 4 frames (as MAME
++    // writes them). GD-ROM tracks 1 and 2 are the low-density area, which ends at LBA 45000.
++    u32 frame = 0, lba = 0;
++    for (u32 i = 0;; ++i)
++    {
++      char meta[256];
++      u32 length = 0;
++      if (chd_get_metadata(m_chd, GDROM_TRACK_METADATA_TAG, i, meta, sizeof(meta) - 1, &length,
++                           nullptr, nullptr) != CHDERR_NONE)
++      {
++        break;
++      }
++      meta[std::min<u32>(length, sizeof(meta) - 1)] = 0;
++      char type[32] = {};
++      int number = 0, frames = 0;
++      const char* f = std::strstr(meta, "FRAMES:");
++      if (std::sscanf(meta, "TRACK:%d TYPE:%31s", &number, type) < 2 || !f ||
++          std::sscanf(f, "FRAMES:%d", &frames) != 1 || frames <= 0)
++      {
++        break;
++      }
++      if (number == 3 && lba < HIGH_DENSITY_LBA)
++        lba = HIGH_DENSITY_LBA;
++      const std::string_view kind = type;
++      if (lba >= HIGH_DENSITY_LBA && (kind == "MODE1_RAW" || kind == "MODE1"))
++        m_tracks.push_back({lba, static_cast<u32>(frames), kind == "MODE1" ? 2048u : RAW_SECTOR,
++                            frame, ""});
++      lba += frames;
++      frame += (frames + 3) & ~3;
++    }
++    if (m_tracks.empty())
++    {
++      *error = "That CHD isn't a Dreamcast GD-ROM image.";
++      return false;
++    }
++    return true;
++  }
++
++  bool Read(u32 lba, u8* out) override
++  {
++    const Track* t = FindTrack(m_tracks, lba);
++    if (!t)
++      return false;
++    const u64 frame = t->offset + (lba - t->lba);
++    const u32 hunk = static_cast<u32>(frame / m_frames_per_hunk);
++    if (hunk != m_cached)
++    {
++      if (chd_read(m_chd, hunk, m_hunk.data()) != CHDERR_NONE)
++        return false;
++      m_cached = hunk;
++    }
++    std::memcpy(out,
++                m_hunk.data() + (frame % m_frames_per_hunk) * CHD_FRAME +
++                    (t->sector == RAW_SECTOR ? 16 : 0),
++                2048);
++    return true;
++  }
++
++private:
++  File::IOFile m_file;
++  chd_file* m_chd = nullptr;
++  std::vector<u8> m_hunk;
++  std::vector<Track> m_tracks;
++  u32 m_cached = ~0u;
++  u32 m_frames_per_hunk = 1;
++};
++#endif
++
++u32 Le32(const u8* p)
++{
++  return p[0] | p[1] << 8 | p[2] << 16 | static_cast<u32>(p[3]) << 24;
++}
++
++struct Entry
++{
++  u32 lba;
++  u32 size;
++};
++
++// The ISO 9660 files under the root and SOUND/ (all the music needs), upper case, no ";1".
++bool ListFiles(SectorReader& reader, std::map<std::string, Entry>* files)
++{
++  std::array<u8, 2048> sector;
++  if (!reader.Read(HIGH_DENSITY_LBA + 16, sector.data()) ||
++      std::memcmp(sector.data() + 1, "CD001", 5) != 0)
++  {
++    return false;
++  }
++  struct Dir
++  {
++    std::string prefix;
++    u32 lba, size;
++  };
++  std::vector<Dir> dirs{{"", Le32(sector.data() + 156 + 2), Le32(sector.data() + 156 + 10)}};
++  for (std::size_t d = 0; d < dirs.size(); ++d)
++  {
++    const Dir dir = dirs[d];
++    std::vector<u8> data;
++    for (u32 i = 0; i < std::min<u32>((dir.size + 2047) / 2048, 64); ++i)
++    {
++      if (!reader.Read(dir.lba + i, sector.data()))
++        return false;
++      data.insert(data.end(), sector.begin(), sector.end());
++    }
++    for (std::size_t pos = 0; pos < data.size();)
++    {
++      const u8 length = data[pos];
++      if (length == 0)
++      {
++        pos = (pos / 2048 + 1) * 2048;
++        continue;
++      }
++      if (length < 34 || pos + length > data.size())
++        break;
++      const u8* rec = data.data() + pos;
++      pos += length;
++      const u8 name_length = rec[32];
++      if (33 + name_length > length || (name_length == 1 && rec[33] <= 1))
++        continue;
++      std::string name(reinterpret_cast<const char*>(rec + 33), name_length);
++      name = name.substr(0, name.find(';'));
++      Common::ToUpper(&name);
++      if (rec[25] & 2)
++      {
++        if (dir.prefix.empty() && name == "SOUND")
++          dirs.push_back({"SOUND/", Le32(rec + 2), Le32(rec + 10)});
++      }
++      else
++      {
++        (*files)[dir.prefix + name] = {Le32(rec + 2), Le32(rec + 10)};
++      }
++    }
++  }
++  return true;
++}
++
++bool Wanted(const std::string& name)
++{
++  if (name == "BONITO.DRV" || name == "ARESNEW.MLT")
++    return true;
++  return name.starts_with("SOUND/M") && name.ends_with(".MLT");
++}
++
++// sources.txt in the music folder: one "NAME REGION" line per imported file.
++std::map<std::string, std::string> ReadSources(const std::string& dir)
++{
++  std::map<std::string, std::string> sources;
++  std::string text;
++  File::ReadFileToString(dir + "sources.txt", text);
++  std::istringstream in(text);
++  std::string name, region;
++  while (in >> name >> region)
++    sources[name] = region;
++  return sources;
++}
++
++bool Ntsc(const std::string& region)
++{
++  return region == "USA" || region == "Japan";
++}
++}  // namespace
++
++std::string Import(const std::string& image, const std::string& music_dir, std::string* summary,
++                   const std::function<void(const std::string&)>& status)
++{
++  auto report = [&](const std::string& s) {
++    if (status)
++      status(s);
++  };
++  report("Reading the disc image");
++  std::string error;
++  std::unique_ptr<SectorReader> reader;
++  {
++    File::IOFile probe(image, "rb");
++    char magic[8] = {};
++    if (!probe.IsOpen() || !probe.ReadBytes(magic, sizeof(magic)))
++      return "Can't open that file.";
++    if (std::memcmp(magic, "MComprHD", 8) == 0)
++    {
++#ifdef HAVE_LIBCHDR
++      auto chd = std::make_unique<ChdReader>();
++      if (!chd->Open(image, &error))
++        return error;
++      reader = std::move(chd);
++#else
++      return "This build can't read CHD images; use a GDI.";
++#endif
++    }
++    else if (magic[0] >= '0' && magic[0] <= '9')
++    {
++      auto gdi = std::make_unique<GdiReader>();
++      if (!gdi->Open(image, &error))
++        return error;
++      reader = std::move(gdi);
++    }
++    else
++    {
++      return "That isn't a Dreamcast GDI or CHD image.";
++    }
++  }
++
++  // IP.BIN, the high-density area's first sector: "SEGA SEGAKATANA", "GD-ROMn/m" at 0x25 (the disc
++  // number n at 0x2B), the areas ('J', 'U', 'E') at 0x30 and the title at 0x80.
++  std::array<u8, 2048> ip;
++  if (!reader->Read(HIGH_DENSITY_LBA, ip.data()) ||
++      std::memcmp(ip.data(), "SEGA SEGAKATANA", 15) != 0)
++  {
++    return "That isn't a Dreamcast disc.";
++  }
++  std::string title(reinterpret_cast<const char*>(ip.data() + 0x80), 0x80);
++  Common::ToUpper(&title);
++  if (title.find("ARCADIA") == std::string::npos)
++    return "That disc isn't Skies of Arcadia.";
++  const char* areas = reinterpret_cast<const char*>(ip.data() + 0x30);
++  const std::string region = areas[1] == 'U' ? "USA" : areas[0] == 'J' ? "Japan" : "Europe";
++  const int disc =
++      std::memcmp(ip.data() + 0x25, "GD-ROM", 6) == 0 && ip[0x2B] >= '1' && ip[0x2B] <= '9' ?
++          ip[0x2B] - '0' :
++          1;
++
++  report("Reading the file system");
++  std::map<std::string, Entry> files;
++  if (!ListFiles(*reader, &files))
++    return "The disc's file system can't be read.";
++  if (!files.contains("BONITO.DRV") || !files.contains("ARESNEW.MLT"))
++    return "The disc has no sound driver (BONITO.DRV); is it really Skies of Arcadia?";
++
++  const std::string& dir = music_dir;
++  if (!File::CreateFullPath(dir + "SOUND" DIR_SEP))
++    return "Can't create " + dir + ".";
++  std::map<std::string, std::string> sources = ReadSources(dir);
++
++  int banks = 0, kept = 0;
++  std::vector<u8> data;
++  std::array<u8, 2048> sector;
++  for (const auto& [name, entry] : files)
++  {
++    if (!Wanted(name))
++      continue;
++    // An NTSC disc's file wins over a PAL one's (the PAL event music is slowed for 50 Hz).
++    if (auto it = sources.find(name); it != sources.end() && Ntsc(it->second) && !Ntsc(region))
++    {
++      ++kept;
++      continue;
++    }
++    if (entry.size > MAX_FILE)
++      return "Unexpected file size for " + name + ".";
++    report("Copying " + name);
++    data.resize(entry.size);
++    for (u32 i = 0; i * 2048 < entry.size; ++i)
++    {
++      if (!reader->Read(entry.lba + i, sector.data()))
++        return "Reading " + name + " failed.";
++      std::memcpy(data.data() + i * 2048, sector.data(), std::min<u32>(2048, entry.size - i * 2048));
++    }
++    const std::string path = dir + name;
++    const std::string temp = path + ".part";
++    if (!File::WriteStringToFile(temp, std::string(data.begin(), data.end())) ||
++        !File::Rename(temp, path))
++    {
++      return "Can't write " + path + ".";
++    }
++    sources[name] = region;
++    if (name.starts_with("SOUND/"))
++      ++banks;
++  }
++  std::string list;
++  for (const auto& [name, r] : sources)
++    list += name + ' ' + r + '\n';
++  if (!File::WriteStringToFile(dir + "sources.txt", list))
++    return "Can't write the music folder's list.";
++  std::string discs;
++  File::ReadFileToString(dir + "discs.txt", discs);
++  const std::string line = fmt::format("{} {}\n", disc, region);
++  if (discs.find(line) == std::string::npos)
++    File::WriteStringToFile(dir + "discs.txt", discs + line);
++
++  if (summary)
++  {
++    *summary = fmt::format("Disc {} ({}): {} music banks", disc, region, banks);
++    if (kept)
++      *summary += fmt::format(" ({} kept from an NTSC disc)", kept);
++  }
++  report("");
++  return "";
++}
++
++std::string Describe(const std::string& music_dir)
++{
++  if (!File::Exists(music_dir + "BONITO.DRV") || !File::Exists(music_dir + "ARESNEW.MLT"))
++    return "";
++  std::string discs;
++  File::ReadFileToString(music_dir + "discs.txt", discs);
++  std::istringstream in(discs);
++  std::vector<std::string> parts;
++  int disc;
++  std::string region;
++  while (in >> disc >> region)
++    parts.push_back(fmt::format("disc {} ({})", disc, region));
++  std::sort(parts.begin(), parts.end());
++  int banks = 0;
++  for (const auto& [name, r] : ReadSources(music_dir))
++    banks += name.starts_with("SOUND/") ? 1 : 0;
++  std::string text = parts.empty() ? "Imported" : fmt::format("{}", fmt::join(parts, " and "));
++  if (!text.empty())
++    text[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(text[0])));
++  return fmt::format("{}: {} music banks", text, banks);
++}
++
++bool Remove(const std::string& music_dir)
++{
++  return !File::Exists(music_dir) || File::DeleteDirRecursively(music_dir);
++}
++}  // namespace DCMusicImport
+diff --git a/Source/Core/AudioCommon/DCMusicImport.h b/Source/Core/AudioCommon/DCMusicImport.h
+new file mode 100644
+index 0000000000..3bbb0827ee
+--- /dev/null
++++ b/Source/Core/AudioCommon/DCMusicImport.h
+@@ -0,0 +1,30 @@
++// Copyright 2026 Dolphin Emulator Project
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++#pragma once
++
++#include <functional>
++#include <string>
++
++// Imports the Dreamcast music (AudioCommon/DCMusic.h) from the player's own Skies of Arcadia
++// Dreamcast disc: a GDI (with its track files beside it) or a CHD. It reads the GD-ROM's
++// high-density area (ISO 9660 from LBA 45000) and copies the sound driver (BONITO.DRV), the
++// common banks (ARESNEW.MLT) and the music banks (SOUND/M*.MLT) into a folder: the user
++// directory's DreamcastMusic/ (DCMusic::Directory() in the running game; the launchers pass it).
++//
++// The game shipped on two discs; most music is on both, a few banks only on one, so either disc
++// gives most of it and importing both gives all of it. A file already imported from an NTSC disc
++// (USA or Japan) is kept when a PAL disc is imported: the PAL discs slow the event music by 6/5 for
++// 50 Hz, and the GameCube game runs at 60 Hz.
++namespace DCMusicImport
++{
++// Returns "" on success, else what went wrong (shown to the player). *summary gets what was
++// imported, e.g. "Disc 1 (USA): 117 music banks".
++// music_dir ends with a separator.
++std::string Import(const std::string& image, const std::string& music_dir, std::string* summary,
++                   const std::function<void(const std::string&)>& status = {});
++// What's imported so far, e.g. "Disc 1 (USA) and disc 2 (Europe): 120 music banks", or "" if none.
++std::string Describe(const std::string& music_dir);
++// Removes the imported files.
++bool Remove(const std::string& music_dir);
++}  // namespace DCMusicImport
+diff --git a/Source/Core/AudioCommon/Mixer.cpp b/Source/Core/AudioCommon/Mixer.cpp
+index a57b6024b7..1be23cbfe3 100644
+--- a/Source/Core/AudioCommon/Mixer.cpp
++++ b/Source/Core/AudioCommon/Mixer.cpp
+@@ -3,6 +3,10 @@
+ 
+ #include "AudioCommon/Mixer.h"
+ 
++#ifdef HAVE_DCMUSIC
++#include "AudioCommon/DCMusic.h"
++#endif
++
+ #include <algorithm>
+ #include <cmath>
+ #include <cstring>
+@@ -178,6 +182,9 @@ std::size_t Mixer::Mix(s16* samples, std::size_t num_samples)
+   m_skylander_portal_mixer.Mix(samples, num_samples);
+   for (auto& mixer : m_gba_mixers)
+     mixer.Mix(samples, num_samples);
++#ifdef HAVE_DCMUSIC
++  DCMusic::Mix(samples, num_samples, m_output_sample_rate);
++#endif
+ 
+   return num_samples;
+ }
+diff --git a/Source/Core/Core/CMakeLists.txt b/Source/Core/Core/CMakeLists.txt
+index 27162227e2..edc3ea3f0e 100644
+--- a/Source/Core/Core/CMakeLists.txt
++++ b/Source/Core/Core/CMakeLists.txt
+@@ -640,6 +640,8 @@ add_library(core
+   PowerPC/SignatureDB/MEGASignatureDB.h
+   PowerPC/SignatureDB/SignatureDB.cpp
+   PowerPC/SignatureDB/SignatureDB.h
++  SkiesMusic.cpp
++  SkiesMusic.h
+   SkiesSettings.cpp
+   SkiesSettings.h
+   State.cpp
+diff --git a/Source/Core/Core/Config/ConfigManager.cpp b/Source/Core/Core/Config/ConfigManager.cpp
+index c121351cf4..4edde565b0 100644
+--- a/Source/Core/Core/Config/ConfigManager.cpp
++++ b/Source/Core/Core/Config/ConfigManager.cpp
+@@ -30,6 +30,7 @@
+ #include "Core/Boot/Boot.h"
+ #include "Core/Config/DefaultLocale.h"
+ #include "Core/Config/MainSettings.h"
++#include "Core/Config/SkiesSettings.h"
+ #include "Core/Config/SYSCONFSettings.h"
+ #include "Core/ConfigLoaders/GameConfigLoader.h"
+ #include "Core/Core.h"
+@@ -452,6 +453,13 @@ bool SConfig::SetPathsAndGameMetadata(Core::System& system, const BootParameters
+   if (system.IsTriforce())
+     m_region = DiscIO::Region::DEV;
+ 
++  // The Skies of Arcadia Legends recomp runs the European release as an NTSC game: its render mode
++  // follows the console's TV format, and only NTSC gives it the 60 Hz mode the port is built for
++  // (PAL would run it at 50 Hz, 5/6 speed). Its language comes from [Skies] Language
++  // (GetLanguageAdjustedForRegion).
++  if (m_game_id == "GEAP8P")
++    m_region = DiscIO::Region::NTSC_U;
++
+   // Set up paths
+   const std::string region_dir = Config::GetDirectoryForRegion(Config::ToGameCubeRegion(m_region));
+   m_strSRAM = File::GetUserPath(F_GCSRAM_IDX);
+@@ -478,6 +486,11 @@ DiscIO::Language SConfig::GetLanguageAdjustedForRegion(bool wii, DiscIO::Region
+ {
+   const DiscIO::Language language = GetCurrentLanguage(wii);
+ 
++  // Skies of Arcadia Legends (Europe), booted as NTSC (SetPathsAndGameMetadata): English, German,
++  // French or Spanish, which it reads from SRAM at boot.
++  if (!wii && m_game_id == "GEAP8P")
++    return DiscIO::FromGameCubeLanguage(std::clamp(Config::Get(Config::SKIES_LANGUAGE), 0, 3));
++
+   if (!wii && region == DiscIO::Region::NTSC_K)
+     region = DiscIO::Region::NTSC_J;  // NTSC-K only exists on Wii, so use a fallback
+ 
+diff --git a/Source/Core/Core/Config/SkiesSettings.cpp b/Source/Core/Core/Config/SkiesSettings.cpp
+index 08a19ff176..e89d4c0537 100644
+--- a/Source/Core/Core/Config/SkiesSettings.cpp
++++ b/Source/Core/Core/Config/SkiesSettings.cpp
+@@ -15,4 +15,6 @@ const Info<int> SKIES_MAGIC_EXP{{System::Main, "Skies", "MagicExp"}, 100};
+ const Info<int> SKIES_BATTLE_SPEED{{System::Main, "Skies", "BattleSpeed"}, 1};
+ const Info<int> SKIES_INVINCIBLE{{System::Main, "Skies", "Invincible"}, 0};
+ const Info<int> SKIES_AUTO_SAVE{{System::Main, "Skies", "AutoSave"}, 10};
++const Info<int> SKIES_LANGUAGE{{System::Main, "Skies", "Language"}, 0};
++const Info<int> SKIES_DC_MUSIC{{System::Main, "Skies", "DreamcastMusic"}, 0};
+ }  // namespace Config
+diff --git a/Source/Core/Core/Config/SkiesSettings.h b/Source/Core/Core/Config/SkiesSettings.h
+index b94b6cfa40..ee6107ba48 100644
+--- a/Source/Core/Core/Config/SkiesSettings.h
++++ b/Source/Core/Core/Config/SkiesSettings.h
+@@ -32,4 +32,10 @@ extern const Info<int> SKIES_INVINCIBLE;
+ // Minutes between auto-saves (save states in slots 6-8, the oldest overwritten; only on the field or
+ // world map, VideoCommon/SkiesMenu.cpp), 0 = off.
+ extern const Info<int> SKIES_AUTO_SAVE;
++// The European release's language (GameCube SRAM values: 0 English, 1 German, 2 French,
++// 3 Spanish). The game reads it once at boot (Core/Config/ConfigManager.cpp).
++extern const Info<int> SKIES_LANGUAGE;
++// 1 = the Dreamcast version's music (AudioCommon/DCMusic.h, imported from the player's Dreamcast
++// disc) instead of the GameCube's; 0 = the GameCube music.
++extern const Info<int> SKIES_DC_MUSIC;
+ }  // namespace Config
+diff --git a/Source/Core/Core/SkiesMusic.cpp b/Source/Core/Core/SkiesMusic.cpp
+new file mode 100644
+index 0000000000..097479fb99
+--- /dev/null
++++ b/Source/Core/Core/SkiesMusic.cpp
+@@ -0,0 +1,499 @@
++// Copyright 2026 Dolphin Emulator Project
++// SPDX-License-Identifier: GPL-3.0-or-later
++
++#include "Core/SkiesMusic.h"
++
++#ifdef HAVE_DCMUSIC
++
++#include <algorithm>
++#include <array>
++#include <cstring>
++#include <map>
++#include <string>
++
++#include "AudioCommon/DCMusic.h"
++#include "Common/CommonTypes.h"
++#include "Common/FileUtil.h"
++#include "Common/Logging/Log.h"
++#include "Common/StringUtil.h"
++#include "Core/Config/SkiesSettings.h"
++#include "Core/Config/ConfigManager.h"
++#include "Core/HW/Memmap.h"
++
++namespace SkiesMusic
++{
++namespace
++{
++// patches/game/dcmusic.c's block in MetroTRK's buffers, and the game's sound layer state
++// (../SkiesOfArcadiaLegends-Decomp/docs/sound.md), USA / Europe.
++struct Addresses
++{
++  u32 box;          // struct dcm_box
++  u32 banks;        // the bank table: 11 slots of 0x3C bytes
++  u32 bgm;          // the music's MusyX sequence id, -1 = none
++  u32 bgm_slot;     // its bank slot
++  u32 list;         // the current music list: next pair's index, count, (slot, num) pairs
++  u32 paused;       // the paused music's sequence id, -1 = none
++  u32 paused_slot;  // its bank slot
++  u32 paused_list;  // its list, saved by MusicPause
++  u32 ready;        // 1 once SndInit ran (before that the sound layer's state is zeros)
++};
++constexpr Addresses USA{0x8031A890, 0x80315120, 0x803477E0, 0x803477DC, 0x80315484,
++                        0x803477D8, 0x803477D4, 0x80315434, 0x803474E0};
++constexpr Addresses EUROPE{0x8031DE50, 0x803187C0, 0x8034AF08, 0x8034AF04, 0x80318B24,
++                           0x8034AF00, 0x8034AEFC, 0x80318AD4, 0x8034ABF8};
++
++constexpr u32 DCM_MAGIC = 0x44434D55;  // 'DCMU'
++constexpr int BANK_SLOTS = 11;
++constexpr u32 BANK_SIZE = 0x3C;
++constexpr u32 EVENTS = 12;
++// struct dcm_box's fields
++constexpr u32 BOX_MAGIC = 0x00, BOX_ENABLED = 0x04, BOX_HEAD = 0x08, BOX_SEQ = 0x0C,
++              BOX_SLOT_NUM = 0x10, BOX_MUTED = 0x14, BOX_PAUSED_SEQ = 0x18,
++              BOX_PAUSED_SLOT_NUM = 0x1C, BOX_PAUSED_MUTED = 0x20, BOX_ALLOW = 0x24,
++              BOX_ALLOW_NAME = BOX_ALLOW + BANK_SLOTS * 8, BOX_VOL_SET = BOX_ALLOW_NAME + BANK_SLOTS * 4,
++              BOX_VOL = BOX_VOL_SET + 4, BOX_EVENTS = BOX_VOL + 16;
++
++enum : u32
++{
++  EV_PLAY = 1,
++  EV_STOP = 2,
++  EV_PAUSE = 3,
++  EV_CONTINUE = 4,
++  EV_VOLUME = 5,
++  EV_UNMUTE = 6,
++  EV_MIDICTRL = 7,
++};
++
++// The adaptive music's channel volumes are sent again this often (polls), as the game sets them
++// every frame over whatever the sequence itself does.
++constexpr int VOL_REFRESH = 30;
++
++// A GameCube bank and the Dreamcast data for it: the MLT to download, the bank (SMSB number) it
++// fills on the Dreamcast, and how many sequences that bank has (0 = no Dreamcast data).
++struct DcBank
++{
++  std::string mlt;  // "" = the common banks (ARESNEW.MLT, loaded at start)
++  int bank = 0;
++  u32 sequences = 0;
++};
++
++// A song of the game's (current or paused) and the Dreamcast player it's on.
++struct Song
++{
++  s32 seq = -1;          // its MusyX sequence id, -1 = none
++  int player = 0;
++  bool on_dc = false;    // the player plays it (else the GameCube does, or nobody)
++  float full_volume = 100;  // its bank's default MusyX volume: the Dreamcast sequence's own level
++};
++
++const Addresses* s_addr = nullptr;
++bool s_running = false;
++u32 s_read = 0;  // events taken from the ring so far
++Song s_current, s_paused;
++std::array<std::array<std::string, 16>, DCMusic::PLAYERS> s_resident;  // per player and bank: MLT
++std::map<std::string, DcBank> s_banks;  // by GameCube file name ("/sound/m0231")
++std::array<int, 16> s_vol_sent;  // the channel volumes sent for the current song, -1 = none
++int s_vol_refresh = 0;
++
++u32 Fnv(const std::string& name)
++{
++  u32 h = 2166136261u;
++  for (unsigned char c : name)
++    h = (h ^ c) * 16777619u;
++  return h;
++}
++
++u32 Read32(const std::string& d, std::size_t o)
++{
++  if (o + 4 > d.size())
++    return 0;
++  const auto* p = reinterpret_cast<const u8*>(d.data() + o);
++  return p[0] | p[1] << 8 | p[2] << 16 | static_cast<u32>(p[3]) << 24;
++}
++
++// The SMSB unit an MLT carries data for: its bank and sequence count (the SMSB header's +0xC).
++// want_bank >= 0 picks that bank (the common file carries several).
++bool ReadSequenceBank(const std::string& file, int want_bank, int* bank, u32* sequences)
++{
++  if (file.size() < 0x20 || std::memcmp(file.data(), "SMLT", 4) != 0)
++    return false;
++  const u32 count = Read32(file, 8);
++  for (u32 i = 0; i < count; ++i)
++  {
++    const std::size_t e = 0x20 + i * 0x20;
++    if (e + 0x20 > file.size())
++      break;
++    const u32 num = Read32(file, e + 4), offset = Read32(file, e + 16), size = Read32(file, e + 20);
++    if (std::memcmp(file.data() + e, "SMSB", 4) != 0 || offset == 0xFFFFFFFF || size < 0x10 ||
++        offset + 0x10 > file.size() || (want_bank >= 0 && static_cast<int>(num) != want_bank))
++    {
++      continue;
++    }
++    *bank = static_cast<int>(num);
++    *sequences = Read32(file, offset + 0xC);
++    return true;
++  }
++  return false;
++}
++
++const DcBank& Lookup(const std::string& gc_name)
++{
++  auto it = s_banks.find(gc_name);
++  if (it != s_banks.end())
++    return it->second;
++  DcBank result;
++  std::string base = gc_name.substr(gc_name.find_last_of('/') + 1);
++  Common::ToUpper(&base);
++  const std::string dir = DCMusic::Directory();
++  std::string data;
++  // The common banks the GameCube splits into three files are one Dreamcast file.
++  int common_bank = -1;
++  if (base == "TONE")
++    common_bank = 0;
++  else if (base == "S1000000")
++    common_bank = 1;
++  else if (base == "B7000000")
++    common_bank = 7;
++  if (common_bank >= 0)
++  {
++    if (File::ReadFileToString(dir + "ARESNEW.MLT", data))
++      ReadSequenceBank(data, common_bank, &result.bank, &result.sequences);
++  }
++  else if (File::ReadFileToString(dir + "SOUND/" + base + ".MLT", data) &&
++           ReadSequenceBank(data, -1, &result.bank, &result.sequences))
++  {
++    result.mlt = base;
++  }
++  if (result.bank < 0 || result.bank >= 16)
++    result.sequences = 0;
++  return s_banks.emplace(gc_name, result).first->second;
++}
++
++std::string BankName(Memory::MemoryManager& memory, int slot)
++{
++  char name[0x21] = {};
++  memory.CopyFromEmu(name, s_addr->banks + slot * BANK_SIZE + 0x14, 0x20);
++  return std::string(name, strnlen(name, 0x20));
++}
++
++// The data numbers the Dreamcast has for each loaded bank slot, for the patch's mute decision.
++void WriteAllowed(Memory::MemoryManager& memory)
++{
++  for (int slot = 0; slot < BANK_SLOTS; ++slot)
++  {
++    const u32 entry = s_addr->banks + slot * BANK_SIZE;
++    const std::string name = BankName(memory, slot);
++    const u32 hash = Fnv(name);
++    if (memory.Read_U32(s_addr->box + BOX_ALLOW_NAME + slot * 4) == hash &&
++        static_cast<s32>(memory.Read_U32(entry + 0x10)) >= 0)
++    {
++      continue;
++    }
++    u32 bits[2] = {};
++    if (!name.empty())
++    {
++      const DcBank& bank = Lookup(name);
++      for (u32 n = 0; n < std::min<u32>(bank.sequences, 64); ++n)
++        bits[n >> 5] |= 1u << (n & 31);
++    }
++    memory.Write_U32(bits[0], s_addr->box + BOX_ALLOW + slot * 8);
++    memory.Write_U32(bits[1], s_addr->box + BOX_ALLOW + slot * 8 + 4);
++    memory.Write_U32(hash, s_addr->box + BOX_ALLOW_NAME + slot * 4);
++  }
++}
++
++void StopSong(Song& song)
++{
++  if (song.on_dc)
++    DCMusic::Stop(song.player);
++  song = Song{-1, song.player};
++}
++
++// Starts the song on the Dreamcast: on the player the paused song doesn't hold.
++void Play(Memory::MemoryManager& memory, Song& song, s32 seq, u32 slot_num)
++{
++  const int slot = static_cast<int>(slot_num >> 8);
++  const int num = static_cast<int>(slot_num & 0xFF);
++  const int player = s_paused.seq >= 0 && s_paused.on_dc ? 1 - s_paused.player : song.player;
++  if (song.on_dc && song.player != player)
++    DCMusic::Stop(song.player);
++  song = Song{seq, player};
++  if (slot >= BANK_SLOTS)
++    return;
++  const DcBank& bank = Lookup(BankName(memory, slot));
++  if (static_cast<u32>(num) >= bank.sequences)
++  {
++    DCMusic::Stop(player);
++    return;
++  }
++  if (!bank.mlt.empty() && s_resident[player][bank.bank] != bank.mlt)
++  {
++    DCMusic::Download(player, bank.mlt);
++    s_resident[player][bank.bank] = bank.mlt;
++  }
++  DCMusic::Play(player, bank.bank, num);
++  song.on_dc = true;
++  // The game plays every song at its bank's default volume (slot +0x38) and scales any volume
++  // change by it; read here rather than taken from the start's volume call, which a song taken
++  // over mid-play (an old savestate, the option switched on) never had.
++  song.full_volume = std::max<float>(memory.Read_U8(s_addr->banks + slot * BANK_SIZE + 0x38), 1.0f);
++  if (&song == &s_current)
++    s_vol_sent.fill(-1);
++  DEBUG_LOG_FMT(AUDIO, "Dreamcast music: player {} bank {} ({}) sequence {}", player, bank.bank,
++                bank.mlt, num);
++}
++
++Song* Find(s32 seq)
++{
++  if (seq < 0)
++    return nullptr;
++  if (seq == s_current.seq)
++    return &s_current;
++  if (seq == s_paused.seq)
++    return &s_paused;
++  return nullptr;
++}
++
++void Handle(Memory::MemoryManager& memory, const u32 (&e)[4])
++{
++  const s32 seq = static_cast<s32>(e[1]);
++  switch (e[0])
++  {
++  case EV_PLAY:
++    if (e[3])
++    {
++      Play(memory, s_current, seq, e[2]);
++    }
++    else
++    {
++      StopSong(s_current);
++      s_current.seq = seq;
++    }
++    break;
++  case EV_STOP:
++  case EV_UNMUTE:
++    if (Song* song = Find(seq))
++    {
++      StopSong(*song);
++      if (e[0] == EV_UNMUTE)
++        song->seq = seq;  // still the current song, the GameCube's now
++    }
++    break;
++  case EV_PAUSE:
++    if (seq != s_current.seq)
++      break;
++    if (s_paused.on_dc)
++      DCMusic::Stop(s_paused.player);
++    if (s_current.on_dc)
++      DCMusic::Pause(s_current.player);
++    s_paused = s_current;
++    s_current = Song{-1, s_current.player};
++    break;
++  case EV_CONTINUE:
++  {
++    const bool known = seq == s_paused.seq;
++    const Song resumed = known ? s_paused : Song{seq, s_current.player};
++    s_paused = Song{-1, resumed.player};
++    s_current = resumed;
++    s_vol_sent.fill(-1);
++    if (resumed.on_dc)
++      DCMusic::Continue(resumed.player);
++    else if (e[3])
++      Play(memory, s_current, seq, e[2]);  // a pause from before a state load: from its start
++    break;
++  }
++  case EV_VOLUME:
++  {
++    Song* song = Find(seq);
++    if (!song || !song->on_dc)
++      break;
++    // MusyX volume 0..127; the bank's default is the Dreamcast sequence's own level.
++    const float volume = static_cast<float>(e[2] & 0xFF);
++    const u32 mode = (e[2] >> 8) & 0xF;
++    const DCMusic::AfterFade after = mode == 1 ? DCMusic::AfterFade::Stop :
++                                     mode == 2 ? DCMusic::AfterFade::Pause :
++                                                 DCMusic::AfterFade::None;
++    DCMusic::Fade(song->player, volume / song->full_volume, static_cast<int>(e[3]), after);
++    if (mode == 1)
++      song->on_dc = false;  // the player stops it after the fade
++    break;
++  }
++  case EV_MIDICTRL:
++    if (seq == s_current.seq && s_current.on_dc)
++      DCMusic::MidiControl(s_current.player, (e[2] >> 16) & 0xF, (e[2] >> 8) & 0x7F, e[2] & 0x7F);
++    break;
++  }
++}
++
++// The adaptive music's channel volumes (controller 7), a table the patch keeps for the current song.
++void SendChannelVolumes(Memory::MemoryManager& memory)
++{
++  if (!s_current.on_dc || static_cast<s32>(memory.Read_U32(s_addr->box + BOX_SEQ)) != s_current.seq)
++    return;
++  const u32 set = memory.Read_U32(s_addr->box + BOX_VOL_SET);
++  const bool refresh = ++s_vol_refresh >= VOL_REFRESH;
++  if (refresh)
++    s_vol_refresh = 0;
++  for (int channel = 0; channel < 16; ++channel)
++  {
++    if (!(set >> channel & 1))
++      continue;
++    const int value = memory.Read_U8(s_addr->box + BOX_VOL + channel) & 0x7F;
++    if (value != s_vol_sent[channel] || refresh)
++    {
++      if (value != s_vol_sent[channel])
++      DCMusic::MidiControl(s_current.player, channel, 7, value);
++      s_vol_sent[channel] = value;
++    }
++  }
++}
++
++const Addresses* ForGame()
++{
++  const std::string& id = SConfig::GetInstance().GetGameID();
++  return id == "GEAE8P" ? &USA : id == "GEAP8P" ? &EUROPE : nullptr;
++}
++
++// A song the patch didn't see start, from a savestate made before it: which pair of its music list
++// it is. SndUpdate starts pair idx and then advances idx, to 0 after the last pair of a one-pair
++// list, to 1 (pair 0 is the intro) after the last pair of a longer one. Right after a wrap, idx 1
++// can't tell the intro from the last pair; the intro is taken (the next pair puts both versions
++// back in step). Returns slot << 8 | num, or -1.
++s32 PairFromList(Memory::MemoryManager& memory, u32 list, u32 slot_addr)
++{
++  const u32 idx = memory.Read_U32(list);
++  const u32 count = memory.Read_U32(list + 4);
++  if (count == 0 || count > 16 || idx >= count)
++    return -1;
++  const u32 pair = idx == 0 ? 0 : idx - 1;
++  const u32 slot = memory.Read_U8(list + 8 + pair * 2);
++  const u32 num = memory.Read_U8(list + 9 + pair * 2);
++  if (slot != memory.Read_U32(slot_addr))
++    return -1;
++  return static_cast<s32>(slot << 8 | num);
++}
++
++// Takes up what the game plays now (at the start, after a state load or missed events). The block
++// describes a song the patch didn't see start as playing unmuted: dcm_frame then mutes it and posts
++// its start, or its continue posts it.
++void Restart(Memory::MemoryManager& memory)
++{
++  s_read = memory.Read_U32(s_addr->box + BOX_HEAD);
++  s_current = Song{-1, 0};
++  s_paused = Song{-1, 1};
++  if (memory.Read_U32(s_addr->ready) != 1)
++    return;
++  const s32 bgm = static_cast<s32>(memory.Read_U32(s_addr->bgm));
++  if (bgm >= 0)
++  {
++    s_current.seq = bgm;
++    if (static_cast<s32>(memory.Read_U32(s_addr->box + BOX_SEQ)) == bgm)
++    {
++      if (memory.Read_U32(s_addr->box + BOX_MUTED))
++        Play(memory, s_current, bgm, memory.Read_U32(s_addr->box + BOX_SLOT_NUM));
++    }
++    else if (const s32 pair = PairFromList(memory, s_addr->list, s_addr->bgm_slot); pair >= 0)
++    {
++      memory.Write_U32(static_cast<u32>(bgm), s_addr->box + BOX_SEQ);
++      memory.Write_U32(static_cast<u32>(pair), s_addr->box + BOX_SLOT_NUM);
++      memory.Write_U32(0, s_addr->box + BOX_MUTED);
++    }
++  }
++  const s32 paused = static_cast<s32>(memory.Read_U32(s_addr->paused));
++  if (paused >= 0)
++  {
++    // Not resumed on the Dreamcast (its player's state is gone): its continue starts it again.
++    s_paused.seq = paused;
++    if (static_cast<s32>(memory.Read_U32(s_addr->box + BOX_PAUSED_SEQ)) != paused)
++    {
++      const s32 pair = PairFromList(memory, s_addr->paused_list, s_addr->paused_slot);
++      memory.Write_U32(static_cast<u32>(paused), s_addr->box + BOX_PAUSED_SEQ);
++      memory.Write_U32(static_cast<u32>(pair < 0 ? 0xFFFF : pair), s_addr->box + BOX_PAUSED_SLOT_NUM);
++      memory.Write_U32(0, s_addr->box + BOX_PAUSED_MUTED);
++    }
++  }
++}
++
++// A block without the magic (a savestate made before the patch, or the first poll): zeros would
++// say sequence 0, a valid MusyX id.
++void InitBlock(Memory::MemoryManager& memory)
++{
++  if (memory.Read_U32(s_addr->box + BOX_MAGIC) == DCM_MAGIC)
++    return;
++  memory.Write_U32(0xFFFFFFFF, s_addr->box + BOX_SEQ);
++  memory.Write_U32(0xFFFFFFFF, s_addr->box + BOX_PAUSED_SEQ);
++  memory.Write_U32(0, s_addr->box + BOX_VOL_SET);
++  memory.Write_U32(DCM_MAGIC, s_addr->box + BOX_MAGIC);
++}
++}  // namespace
++
++void Poll(Memory::MemoryManager& memory)
++{
++  s_addr = ForGame();
++  if (!s_addr || !memory.IsInitialized())
++    return;
++  // The magic is there whatever the option: the patch then keeps track of the music (its sequence
++  // and pair) even while the GameCube's plays, so turning the option on mid-song can take it over.
++  InitBlock(memory);
++  const bool want = Config::Get(Config::SKIES_DC_MUSIC) != 0 && DCMusic::Installed();
++  if (want && !s_running)
++  {
++    s_running = DCMusic::Start();
++    for (auto& resident : s_resident)
++      resident.fill({});
++    s_banks.clear();
++    if (s_running)
++    {
++      memory.Write_U32(1, s_addr->box + BOX_ENABLED);
++      WriteAllowed(memory);
++      Restart(memory);
++    }
++  }
++  else if (!want && s_running)
++  {
++    s_running = false;
++    s_current = s_paused = Song{};
++    DCMusic::Shutdown();
++  }
++  if (!s_running)
++  {
++    // The GameCube music: the patch mutes nothing (a running song is unmuted by dcm_frame).
++    memory.Write_U32(0, s_addr->box + BOX_ENABLED);
++    return;
++  }
++  memory.Write_U32(1, s_addr->box + BOX_ENABLED);
++  WriteAllowed(memory);
++
++  const u32 head = memory.Read_U32(s_addr->box + BOX_HEAD);
++  if (head - s_read > EVENTS)
++  {
++    // More than the ring holds since the last poll (or a state from elsewhere): start over from
++    // what plays now.
++    WARN_LOG_FMT(AUDIO, "Dreamcast music: {} events missed", head - s_read - EVENTS);
++    DCMusic::StopAll();
++    Restart(memory);
++    return;
++  }
++  for (; s_read != head; ++s_read)
++  {
++    u32 e[4];
++    const u32 at = s_addr->box + BOX_EVENTS + (s_read % EVENTS) * 16;
++    for (int i = 0; i < 4; ++i)
++      e[i] = memory.Read_U32(at + i * 4);
++    Handle(memory, e);
++  }
++  SendChannelVolumes(memory);
++}
++
++void OnStateLoaded(Memory::MemoryManager& memory)
++{
++  s_addr = ForGame();
++  if (!s_addr || !s_running || !memory.IsInitialized())
++    return;
++  DCMusic::StopAll();
++  InitBlock(memory);
++  Restart(memory);
++}
++}  // namespace SkiesMusic
++#endif  // HAVE_DCMUSIC
+diff --git a/Source/Core/Core/SkiesMusic.h b/Source/Core/Core/SkiesMusic.h
+new file mode 100644
+index 0000000000..b7338f589e
+--- /dev/null
++++ b/Source/Core/Core/SkiesMusic.h
+@@ -0,0 +1,21 @@
++// Copyright 2026 Dolphin Emulator Project
++// SPDX-License-Identifier: GPL-3.0-or-later
++
++#pragma once
++
++namespace Memory
++{
++class MemoryManager;
++}
++
++// The Skies of Arcadia Legends recomp's Dreamcast music option ([Skies] DreamcastMusic): runs the
++// Dreamcast sound driver (AudioCommon/DCMusic.h) while the game patch (patches/game/dcmusic.c)
++// mutes the GameCube music it has Dreamcast data for, and turns the patch's events (a song starts,
++// stops, pauses, continues, fades, a MIDI controller changes) into the Dreamcast driver's requests.
++namespace SkiesMusic
++{
++// Once a frame or more, on the CPU thread (from the pad poll).
++void Poll(Memory::MemoryManager& memory);
++// After a savestate load: the loaded game's song starts again from its beginning.
++void OnStateLoaded(Memory::MemoryManager& memory);
++}  // namespace SkiesMusic
+diff --git a/Source/Core/Core/SkiesSettings.cpp b/Source/Core/Core/SkiesSettings.cpp
+index 6580c269bd..7241b0d30e 100644
+--- a/Source/Core/Core/SkiesSettings.cpp
++++ b/Source/Core/Core/SkiesSettings.cpp
+@@ -14,6 +14,7 @@
+ #include "Core/Config/SkiesSettings.h"
+ #include "Core/Core.h"
+ #include "Core/HW/Memmap.h"
++#include "Core/SkiesMusic.h"
+ #include "Core/System.h"
+ #include "VideoCommon/FrameInterpolator.h"
+ #include "VideoCommon/VideoConfig.h"
+@@ -145,5 +146,8 @@ void OnStateLoaded(Core::System& system)
+   // A load runs with the CPU thread held (on it, or paused under RunOnCPUThread from another
+   // thread), so apply now, before the next frame, instead of from a host job some frames later.
+   ApplyNow(system);
++#ifdef HAVE_DCMUSIC
++  SkiesMusic::OnStateLoaded(system.GetMemory());
++#endif
+ }
+ }  // namespace SkiesSettings
+diff --git a/Source/Core/VideoCommon/SkiesMenu.cpp b/Source/Core/VideoCommon/SkiesMenu.cpp
+index d85813eeff..69226d43cd 100644
+--- a/Source/Core/VideoCommon/SkiesMenu.cpp
++++ b/Source/Core/VideoCommon/SkiesMenu.cpp
+@@ -27,6 +27,9 @@
+ #include <imgui.h>
+ 
+ #include "AudioCommon/AudioCommon.h"
++#ifdef HAVE_DCMUSIC
++#include "AudioCommon/DCMusic.h"
++#endif
+ #include "Common/Config/Config.h"
+ #include "Common/CommonPaths.h"
+ #include "Common/FileUtil.h"
+@@ -43,6 +46,7 @@
+ #include "Core/HW/GCPadEmu.h"
+ #include "Core/HW/Memmap.h"
+ #include "Core/SavestateLayout.h"
++#include "Core/SkiesMusic.h"
+ #include "Core/State.h"
+ #include "InputCommon/ControlReference/ControlReference.h"
+ #include "InputCommon/ControllerEmu/Control/Control.h"
+@@ -92,6 +96,8 @@ enum class Option
+   MagicExp,
+   BattleSpeed,
+   Invincible,
++  Music,
++  Language,
+ };
+ 
+ // The menu's tabs, laid out like the launchers' Settings windows (tools/moderngekko_launcher.cpp,
+@@ -101,8 +107,8 @@ constexpr std::array GRAPHICS_ROWS{Option::Picture,      Option::FrameRate, Opti
+                                    Option::Antialiasing, Option::VSync,     Option::ShowFps};
+ constexpr std::array GAMEPLAY_ROWS{Option::Camera, Option::BattleSpeed, Option::Encounters,
+                                    Option::Exp,    Option::Gold,        Option::MagicExp,
+-                                   Option::Invincible};
+-constexpr std::array SOUND_ROWS{Option::Volume};
++                                   Option::Invincible, Option::Language};
++constexpr std::array SOUND_ROWS{Option::Volume, Option::Music};
+ constexpr std::array CONTROLS_ROWS{Option::DeadZone, Option::Rumble};
+ struct Tab
+ {
+@@ -157,6 +163,8 @@ struct Values
+   int auto_save = 10;
+   int dead_zone = 0;  // percent, controller 1's sticks
+   int rumble = 1;     // controller 1's motor: on (range 100%) or off (0)
++  int music = 0;      // 1 = the Dreamcast music
++  int language = 0;   // the European disc's language: 0 English, 1 German, 2 French, 3 Spanish
+ };
+ 
+ enum class Mode
+@@ -214,11 +222,26 @@ u16 s_previous = 0;
+ u16 s_repeat_button = 0;
+ Clock::time_point s_repeat_next;
+ 
++bool IsEurope()
++{
++  return SConfig::GetInstance().GetGameID() == "GEAP8P";
++}
++
+ bool IsSkies()
+ {
+-  return SConfig::GetInstance().GetGameID() == "GEAE8P";
++  return SConfig::GetInstance().GetGameID() == "GEAE8P" || IsEurope();
+ }
+ 
++// A game address (or an instruction word) in the USA release and the European one: the game patch
++// is the same code at other addresses there (patches/game/GEAP8P.addresses.json). The patch's own
++// blocks in the low-memory gap are at the same addresses in both.
++struct RegionAddress
++{
++  u32 usa;
++  u32 europe;
++  operator u32() const { return IsEurope() ? europe : usa; }
++};
++
+ GCPadStatus Released(const GCPadStatus& raw)
+ {
+   GCPadStatus status;
+@@ -301,6 +324,8 @@ Values ReadValues()
+   values.auto_save = Config::Get(Config::SKIES_AUTO_SAVE);
+   values.dead_zone = pad::ReadDeadZone();
+   values.rumble = pad::ReadRumble() ? 1 : 0;
++  values.music = Config::Get(Config::SKIES_DC_MUSIC) != 0 ? 1 : 0;
++  values.language = std::clamp(Config::Get(Config::SKIES_LANGUAGE), 0, 3);
+   return values;
+ }
+ 
+@@ -349,6 +374,8 @@ void Apply(const Values& values, const Values& before)
+   set(Config::SKIES_BATTLE_SPEED, values.battle_speed, before.battle_speed);
+   set(Config::SKIES_INVINCIBLE, values.invincible, before.invincible);
+   set(Config::SKIES_AUTO_SAVE, values.auto_save, before.auto_save);
++  set(Config::SKIES_DC_MUSIC, values.music, before.music);
++  set(Config::SKIES_LANGUAGE, values.language, before.language);
+   if (values.vsync != before.vsync)
+   {
+     Config::SetBase(Config::GFX_VSYNC, values.vsync);
+@@ -549,6 +576,16 @@ void Change(Option option, int direction, bool wrap)
+   case Option::ShowFps:
+     v.show_fps = !v.show_fps;
+     break;
++  case Option::Music:
++#ifdef HAVE_DCMUSIC
++    if (DCMusic::Installed())
++      v.music = v.music ? 0 : 1;
++#endif
++    break;
++  case Option::Language:
++    if (IsEurope())
++      v.language = (v.language + direction + 4) % 4;
++    break;
+   case Option::SaveState:
+     s_save_slot = (s_save_slot - 1 + direction + SAVE_SLOTS) % SAVE_SLOTS + 1;
+     break;
+@@ -639,8 +676,8 @@ void Close()
+ // battle's first phase) until its results.
+ bool InShipBattle(Memory::MemoryManager& memory)
+ {
+-  constexpr u32 GAME_MODE = 0x803475CC;
+-  constexpr u32 MAP_ID = 0x80311AC4;
++  const RegionAddress GAME_MODE{0x803475CC, 0x8034ACEC};
++  const RegionAddress MAP_ID{0x80311AC4, 0x80315154};
+   constexpr u32 QOL_SHIP_LIVE = 0x80002BA8;
+   const u32 map = memory.Read_U32(MAP_ID);
+   return memory.Read_U32(GAME_MODE) == 6 && map >= 500 && map <= 599 &&
+@@ -653,14 +690,14 @@ bool InShipBattle(Memory::MemoryManager& memory)
+ // towns, dungeons and the world map.
+ namespace camera
+ {
+-constexpr u32 GAME_MODE = 0x803475CC;       // 6 = field / world map
+-constexpr u32 MANAGER = 0x80311970;         // +0 mode (2 = follow), +8 eye source
+-constexpr u32 FIELD_CAMERA_EYE = 0x80302F94;  // the field camera object's eye
+-constexpr u32 FIELD_CAMERA_PITCH = 0x80302FA0;
+-constexpr u32 MAP_ID = 0x80311AC4;          // 0x63 = the world map
++const RegionAddress GAME_MODE{0x803475CC, 0x8034ACEC};  // 6 = field / world map
++const RegionAddress MANAGER{0x80311970, 0x80314FF0};    // +0 mode (2 = follow), +8 eye source
++const RegionAddress FIELD_CAMERA_EYE{0x80302F94, 0x80306614};  // the field camera object's eye
++const RegionAddress FIELD_CAMERA_PITCH{0x80302FA0, 0x80306620};
++const RegionAddress MAP_ID{0x80311AC4, 0x80315154};     // 0x63 = the world map
+ constexpr u32 WORLD_MAP = 0x63;
+-constexpr u32 HOOK_SITE = 0x8022D910;       // bl fn_8022D1F8 in the unpatched game
+-constexpr u32 HOOK_ORIGINAL = 0x4BFFF8E9;
++const RegionAddress HOOK_SITE{0x8022D910, 0x80230BB0};  // bl fn_8022D1F8 in the unpatched game
++const RegionAddress HOOK_ORIGINAL{0x4BFFF8E9, 0x4BFFF8E9};
+ constexpr u32 INPUT = 0x80002EC0;           // camera.c's cam_input
+ constexpr u32 INPUT_MAGIC = 0x43414D43;     // 'CAMC'
+ 
+@@ -778,11 +815,11 @@ void Write(Memory::MemoryManager& memory, const Context& context, bool enabled)
+ // while a battle runs fast (the game then draws a real picture for every retrace or more).
+ namespace qol
+ {
+-constexpr u32 HOOK_SITE = 0x800C207C;      // bl fn_8025ECC4 (rand) in the unpatched game
+-constexpr u32 HOOK_ORIGINAL = 0x4819CC49;
++const RegionAddress HOOK_SITE{0x800C207C, 0x800C2430};  // bl fn_8025ECC4 (rand) in the unpatched game
++const RegionAddress HOOK_ORIGINAL{0x4819CC49, 0x4819EFD5};
+ constexpr u32 INPUT = 0x80002EA0;          // qol.c's qol_input
+ constexpr u32 INPUT_MAGIC = 0x514F4C43;    // 'QOLC'
+-constexpr u32 GAME_MODE = 0x803475CC;      // 7 = battle (ship battles: InShipBattle)
++const RegionAddress GAME_MODE{0x803475CC, 0x8034ACEC};  // 7 = battle (ship battles: InShipBattle)
+ 
+ bool s_interpolation_held = false;  // turned off for a fast battle
+ int s_speed_pending = 0;            // a new battle speed to save (after the lock is let go)
+@@ -943,7 +980,7 @@ void CycleSpeed()
+ // in progress). Waits for such a moment once it's due.
+ namespace autosave
+ {
+-constexpr u32 GAME_MODE = 0x803475CC;          // 6 = field / world map
++const RegionAddress GAME_MODE{0x803475CC, 0x8034ACEC};  // 6 = field / world map
+ constexpr double CARD_QUIET_SECONDS = 10.0;
+ 
+ Clock::time_point s_due{};
+@@ -999,10 +1036,10 @@ namespace autoload
+ const Config::Info<int> AUTO_LOAD_CARD{{Config::System::Main, "Skies", "AutoLoadCard"}, 0};
+ constexpr u32 REQUEST = 0x80002EF0;      // autoload.c's load_request: magic, file, status, error
+ constexpr u32 REQUEST_MAGIC = 0x4C4F4144;  // 'LOAD'
+-constexpr u32 HOOK_SITE = 0x801DC350;    // the title's call, redirected to dl_title by the patch
+-constexpr u32 HOOK_ORIGINAL = 0x4804C6D1;  // bl fn_80228A20
+-constexpr u32 GAME_MODE = 0x803475CC;
+-constexpr u32 TITLE_STATE = 0x80311AE0;  // lbl_80311AD4[3]
++const RegionAddress HOOK_SITE{0x801DC350, 0x801DDFDC};  // the title's call, redirected to dl_title
++const RegionAddress HOOK_ORIGINAL{0x4804C6D1, 0x4804DC89};  // bl fn_80228A20
++const RegionAddress GAME_MODE{0x803475CC, 0x8034ACEC};
++const RegionAddress TITLE_STATE{0x80311AE0, 0x80315170};  // lbl_80311AD4[3]
+ enum : u32
+ {
+   PENDING = 0,
+@@ -1319,6 +1356,9 @@ GCPadStatus FilterPad(int pad_num, const GCPadStatus& raw)
+ {
+   if (pad_num != 0 || !IsSkies())
+     return raw;
++#ifdef HAVE_DCMUSIC
++  SkiesMusic::Poll(Core::System::GetInstance().GetMemory());
++#endif
+   std::unique_lock lock(s_mutex);
+   GCPadStatus out = raw;
+   switch (s_mode)
+@@ -1458,6 +1498,7 @@ void Draw(float scale)
+   int tab, selected;
+   int save_slot, load_slot, text_percent;
+   bool load_confirm, slow_note;
++  int opened_language;
+   std::string save_time, load_time;
+   {
+     std::lock_guard lock(s_mutex);
+@@ -1468,6 +1509,7 @@ void Draw(float scale)
+     if (s_mode != Mode::Open)
+       return;
+     v = s_staged;
++    opened_language = s_current.language;
+     tab = s_tab;
+     selected = s_selected;
+     save_slot = s_save_slot;
+@@ -1548,6 +1590,33 @@ void Draw(float scale)
+               "Ignores small stick movements. Raise it if a stick drifts."};
+     case Option::Rumble:
+       return {"Rumble", OnOff(v.rumble != 0), "Controller vibration."};
++    case Option::Music:
++    {
++#ifdef HAVE_DCMUSIC
++      const bool installed = DCMusic::Installed();
++#else
++      const bool installed = false;
++#endif
++      if (!installed)
++      {
++        return {"Music", "GameCube",
++                "The Dreamcast version's music needs your Dreamcast disc: import it in the "
++                "launcher's Settings, Sound tab."};
++      }
++      return {"Music", v.music ? "Dreamcast" : "GameCube",
++              "Dreamcast plays the original Dreamcast music, from your own disc."};
++    }
++    case Option::Language:
++    {
++      static constexpr std::array<const char*, 4> LANGUAGES{"English", "Deutsch", "Fran\xc3\xa7" "ais",
++                                                            "Espa\xc3\xb1ol"};
++      if (!IsEurope())
++        return {"Language", "English", "Other languages need the European disc."};
++      return {"Language", LANGUAGES[v.language],
++              v.language == opened_language ?
++                  "The game's text. The European disc has English, German, French and Spanish." :
++                  "Changes when the game next starts."};
++    }
+     }
+     return {"", "", ""};
+   };

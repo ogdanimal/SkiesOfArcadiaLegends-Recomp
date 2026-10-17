@@ -16,3 +16,11 @@ Thumbs.db
 # Local build logs
 *.log
 __pycache__/
+
+# Disc images and archives kept beside the repo (never commit game data)
+*.chd
+*.gdi
+*.cdi
+*.7z
+*.rvz
+*:Zone.Identifier
