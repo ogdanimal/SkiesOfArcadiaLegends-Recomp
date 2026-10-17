@@ -4,3 +4,9 @@
 [submodule "lib/DolRecomp"]
 	path = lib/DolRecomp
 	url = https://github.com/ExpansionPak/DolRecomp.git
+[submodule "lib/HighlyTheoretical"]
+	path = lib/HighlyTheoretical
+	url = https://github.com/kode54/Highly_Theoretical.git
+[submodule "lib/libchdr"]
+	path = lib/libchdr
+	url = https://github.com/rtissera/libchdr.git

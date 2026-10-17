@@ -10,7 +10,8 @@
 # only and deleted right after. tools/ci-codegen.sh patches the DOL, runs DolRecomp for both
 # targets (x86_64 Windows and Linux, aarch64 Android), precomputes each module's tables (so the build jobs never need the DOL:
 # -DMODULE_TABLES_INC) and refuses to finish if a DOL ended up in its output. The generated code is
-# game-derived too, so it travels between jobs encrypted (SOAL_ARTIFACT_KEY) and for one day only.
+# game-derived too, so it travels between jobs encrypted (SOAL_ARTIFACT_KEY): for one day within a
+# run, and for 30 days under its cache key so a release tag reuses what validate made for its commit.
 #
 # Required secrets:
 #   SOAL_SECRETS_REPO_WITH_PAT -> https://x-access-token:<PAT>@github.com/<owner>/<secrets repo>.git
@@ -66,6 +67,9 @@ jobs:
     name: codegen
     environment: ci
     runs-on: ubuntu-26.04  # LLVM 20.1.8 in its own archive
+    permissions:
+      contents: read
+      actions: read   # earlier runs' codegen artifacts
     steps:
       - name: Checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -114,8 +118,44 @@ jobs:
           path: codegen.tar.gz.enc
           key: ${{ steps.key.outputs.key }}
 
+      # Caches belong to one branch or tag, so a release tag never saw the codegen dev's run made
+      # for the same commit and generated it again (~55 min). Artifacts belong to none: each key's
+      # codegen is also kept as an artifact named by the key (30 days), and a cache miss takes it
+      # from there. It only decrypts with SOAL_ARTIFACT_KEY (its digest is in the key), so one that
+      # does was made by this repo's workflows.
+      - name: Find earlier codegen
+        id: earlier
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NAME: ${{ steps.key.outputs.key }}
+        run: |
+          ID=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$NAME&per_page=20" \
+            --jq '[.artifacts[] | select(.expired | not)][0].id // empty')
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+          echo "earlier artifact for $NAME: ${ID:-none}"
+
+      - name: Reuse earlier codegen
+        id: reused
+        if: steps.cached.outputs.cache-hit != 'true' && steps.earlier.outputs.id != ''
+        shell: bash  # -o pipefail: a stream that doesn't decrypt mustn't pass as one that does
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ID: ${{ steps.earlier.outputs.id }}
+          SOAL_ARTIFACT_KEY: ${{ secrets.SOAL_ARTIFACT_KEY }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ID/zip" > "$RUNNER_TEMP/codegen.zip"
+          unzip -o -q "$RUNNER_TEMP/codegen.zip" codegen.tar.gz.enc
+          rm -f "$RUNNER_TEMP/codegen.zip"
+          if openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:SOAL_ARTIFACT_KEY -in codegen.tar.gz.enc \
+              | tar tzf - > /dev/null; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            rm -f codegen.tar.gz.enc
+            echo "::warning::Artifact $ID doesn't decrypt; generating the code instead."
+          fi
+
       - name: Install LLVM ${{ env.LLVM_VERSION }}
-        if: steps.cached.outputs.cache-hit != 'true'
+        if: steps.cached.outputs.cache-hit != 'true' && steps.reused.outputs.found != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y "llvm-20-dev=$LLVM_APT_VERSION" ninja-build
@@ -123,14 +163,14 @@ jobs:
             || { echo "::error::llvm-config-20 says $(llvm-config-20 --version), not $LLVM_VERSION"; exit 1; }
 
       - name: Build DolRecomp
-        if: steps.cached.outputs.cache-hit != 'true'
+        if: steps.cached.outputs.cache-hit != 'true' && steps.reused.outputs.found != 'true'
         run: |
           cmake -S lib/ModernGekko/vendor/dolphin/DolRecomp -B build/dolrecomp -G Ninja \
             -DCMAKE_BUILD_TYPE=Release -DDOLRECOMP_ENABLE_LLVM=ON -DLLVM_DIR=/usr/lib/llvm-20/lib/cmake/llvm
           cmake --build build/dolrecomp --target dolrecomp
 
       - name: Fetch private build inputs (DOL, profiles)
-        if: steps.cached.outputs.cache-hit != 'true'
+        if: steps.cached.outputs.cache-hit != 'true' && steps.reused.outputs.found != 'true'
         env:
           SECRETS_URL: ${{ secrets.SOAL_SECRETS_REPO_WITH_PAT }}
         run: |
@@ -150,7 +190,7 @@ jobs:
           echo "$DOL_SHA256  $RUNNER_TEMP/secrets/main.dol" | sha256sum -c --quiet -
 
       - name: Generate code
-        if: steps.cached.outputs.cache-hit != 'true'
+        if: steps.cached.outputs.cache-hit != 'true' && steps.reused.outputs.found != 'true'
         run: DOLRECOMP=build/dolrecomp/dolrecomp tools/ci-codegen.sh "$RUNNER_TEMP/secrets" codegen
 
       - name: Delete the private inputs
@@ -158,7 +198,7 @@ jobs:
         run: rm -rf "$RUNNER_TEMP/secrets" "$RUNNER_TEMP/s"
 
       - name: Encrypt codegen
-        if: steps.cached.outputs.cache-hit != 'true'
+        if: steps.cached.outputs.cache-hit != 'true' && steps.reused.outputs.found != 'true'
         shell: bash  # -o pipefail: a failed tar mustn't encrypt a cut-short stream
         env:
           SOAL_ARTIFACT_KEY: ${{ secrets.SOAL_ARTIFACT_KEY }}
@@ -181,6 +221,17 @@ jobs:
           path: codegen.tar.gz.enc
           if-no-files-found: error
           retention-days: 1
+
+      - name: Keep codegen for later runs
+        if: >-
+          steps.earlier.outputs.id == '' ||
+          (steps.cached.outputs.cache-hit != 'true' && steps.reused.outputs.found != 'true')
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: ${{ steps.key.outputs.key }}
+          path: codegen.tar.gz.enc
+          if-no-files-found: error
+          retention-days: 30
 
   # ---------------------------------------------------------------------------
   windows:
