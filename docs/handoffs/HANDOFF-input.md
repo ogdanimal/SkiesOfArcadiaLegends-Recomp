@@ -130,8 +130,13 @@ checkout at the same time (DC music / EU disc, release); see *Coordination*.
   both patches regenerated (`moderngekko-local.patch` = their launcher hunks plus mine),
   check-patches passes; the six `SkiesMenu.cpp` hunks next to their Music / Language rows and
   `SkiesMusic::Poll` were placed by hand. Checked after the merge on WSL (ws22 USA game and module,
-  state 05): D walks, Esc opens the menu, Sound and Controls tabs both there, keyboard hints. Not
-  re-run on Windows after the merge (`C:\dev\SkiesInput` is still the pre-merge copy).
+  state 05): D walks, Esc opens the menu, Sound and Controls tabs both there, keyboard hints. Windows
+  re-run after the merge on the release code (`affabd9`, 0.10.0-beta; `C:\dev\SkiesInput` synced,
+  `REGIONS=us eu` configure, ws22 pins): `build\input-test22.ps1` with `build\game\GEAE8P-ws22`
+  (ws20's files + the ws22 DOL) and `C:\dev\SkiesRecomp\build\modules-llvm-pgo-ws22b`, user dir
+  `build\user-input22` (a 0.9.x profile naming a missing pad): keyboard layout added, D / A walk,
+  Esc opens (no quit) and closes the menu, E to the Controls tab, Space opens Button mapping with
+  the DirectInput names, Space doesn't fast-forward (59.9 fps).
 - A release build now refuses a game that isn't the pinned ws22 DOL: reconfigure a build folder with
   `REGIONS="us eu" tools/build-release-linux.sh configure` and test with
   `build/game/GEAE8P-ws22` + `build/us-gen22/module-linux/gGEAE8P_recomp.so` (main checkout).
