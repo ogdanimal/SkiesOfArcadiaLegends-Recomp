@@ -72,6 +72,14 @@ Release checklist from here:
    `tools/set-release-secrets.sh --environments ogdanimal/SkiesOfArcadiaLegends-Recomp ogdanimal/SkiesOfArcadiaLegends-RecompSecrets`
    (hidden prompts; deletes the repo-level copies), then `environment: ${{ inputs.release && 'release' || 'ci' }}`
    on validate.yml's four jobs (B7 closed), validate green again.
+   **Done 2026-10-17 (this session is primary for the release):** pre-public sweep of a fresh clone of
+   the published repo clean (tree + history; 3000 high-entropy 24-byte chunks of the original DOL, raw
+   and hex, found 0 times in all 189 published blobs, control found); the user made the repo public;
+   `setup-github-protection.sh` ran (29 old artifacts/caches deleted); the user ran
+   `set-release-secrets.sh --environments` (ci: SOAL_*, release: RELEASE_*, repo level empty);
+   `environment:` lines added (ci on codegen/windows/linux/android-module, release on android-sign).
+   `.recomp.json` added (user: status playable; original USA / GEAE8P / disc SHA-1 `46105320...` from
+   `dolphin-tool verify`, no problems found; Wikidata Q2292272). Notes: `build/notes-0.9.0-beta.md`.
 4. `tools/release.sh 0.9.0-beta SHA notes.md`; the `release` environment waits for the user's
    approval (Actions page) before the signed builds.
 5. Retroid onto the release APK.

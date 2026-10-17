@@ -64,6 +64,7 @@ jobs:
   # ---------------------------------------------------------------------------
   codegen:
     name: codegen
+    environment: ci
     runs-on: ubuntu-26.04  # LLVM 20.1.8 in its own archive
     steps:
       - name: Checkout
@@ -184,6 +185,7 @@ jobs:
   # ---------------------------------------------------------------------------
   windows:
     name: windows
+    environment: ci
     needs: codegen
     runs-on: windows-2025
     steps:
@@ -263,6 +265,7 @@ jobs:
   # Built on the oldest supported Ubuntu LTS runner so the binaries run on older glibc too
   linux:
     name: linux
+    environment: ci
     needs: codegen
     runs-on: ubuntu-24.04
     steps:
@@ -324,6 +327,7 @@ jobs:
   # The module it uploads is the one the APK ships.
   android-module:
     name: android-module
+    environment: ci
     needs: codegen
     runs-on: ubuntu-24.04
     steps:
@@ -442,6 +446,7 @@ jobs:
   # APK not signed by exactly the release key (and the pinned one, release/android-signer.sha256).
   android-sign:
     name: android-sign
+    environment: release
     if: ${{ inputs.release }}
     needs: android
     runs-on: ubuntu-24.04
