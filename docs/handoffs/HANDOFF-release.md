@@ -35,7 +35,11 @@ the release-signed APK** once CI makes it (backup, uninstall the debug-signed te
 restore; ask before touching the device).
 
 Release checklist from here:
-1. validate green on the release commit (run by hand).
+1. **validate green 2026-10-17 on `a83b05e`** (run 38986860040; codegen 52 s from the cache, all four
+   jobs passed). On the way: Windows `core.autocrlf false` (CRLF checkout broke the patches),
+   setup-android `packages: platform-tools`, `tar --force-local` for the Windows LLVM archive. The
+   published refs (`origin/main`, `origin/dev`) swept clean 2026-10-17 (the local clone also holds the
+   draft history, which the plain history sweep flags; it isn't on this repo).
 2. **Sandbox: done 2026-10-13** (`tools/sandbox/skies-sandbox.wsb` + `test.ps1`; the user enabled the
    feature). On a clean Windows (only the .NET copies of the VC runtime DLLs) the zip unpacks, the
    launcher runs, `--extract` imports the RVZ to DOL `f1ee9e8d`. Found and fixed (`5649cd9`): a console
