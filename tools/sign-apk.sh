@@ -21,6 +21,10 @@ if [ -z "${SKIES_STORE_PASS:-}" ]; then
 fi
 export SKIES_STORE_PASS SKIES_KEY_PASS=${SKIES_KEY_PASS:-$SKIES_STORE_PASS}
 
+# A test-only APK installs only through adb install -t, never from a download
+"$BT/aapt2" dump xmltree --file AndroidManifest.xml "$IN" | grep -q 'android:testOnly.*=true' &&
+  { echo "$IN is marked android:testOnly, which players can't install"; exit 1; }
+
 TMP=$(mktemp --suffix=.apk "${OUT%.apk}.XXXXXX")
 trap 'rm -f "$TMP"' EXIT
 "$BT/zipalign" -f -p 4 "$IN" "$TMP"

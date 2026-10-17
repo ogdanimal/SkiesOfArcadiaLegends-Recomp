@@ -92,8 +92,10 @@ if [ "${RELEASE:-0}" = 1 ]; then
   rm -rf $V/Source/Android/app/build/intermediates/apk/release
 fi
 [ -n "${VERSION:-}" ] && SIGN_ARGS+=(-PskiesVersionName=$VERSION)
+# The injected ABI builds arm64 only, but on its own it also marks the APK android:testOnly, which
+# only adb install -t accepts (players' installs failed with "App not installed"); testOnly=false undoes that
 cd $V/Source/Android && ./gradlew :app:$TASK \
-  -Pandroid.injected.build.abi=arm64-v8a -PrecompJniLibs=$A/jniLibs-$NAME "-PrecompNativeFlags=-mno-outline-atomics $PREFIX_MAP" "${BRAND_ARGS[@]}" "${SIGN_ARGS[@]}" > $A/apk-$NAME.log 2>&1
+  -Pandroid.injected.build.abi=arm64-v8a -Pandroid.injected.testOnly=false -PrecompJniLibs=$A/jniLibs-$NAME "-PrecompNativeFlags=-mno-outline-atomics $PREFIX_MAP" "${BRAND_ARGS[@]}" "${SIGN_ARGS[@]}" > $A/apk-$NAME.log 2>&1
 if [ "${RELEASE:-0}" = 1 ]; then
   # No keystore property, so Gradle leaves it unsigned (app-release-unsigned.apk)
   UNSIGNED=(app/build/intermediates/apk/release/*.apk)
