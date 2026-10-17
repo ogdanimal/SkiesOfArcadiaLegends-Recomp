@@ -63,10 +63,17 @@ synced 2026-10-17: the branded release (`lib\ModernGekko\build-release`, `REGION
    (`build/eu-gen22/module-linux`, DolRecomp with `dolrecomp-halfword-byterev.patch`): the text-pack
    count reads `0x68`, the title's Continue shows Load / Slot A / the file list with the European place
    names ("Pirate Isle Underground"), loading file 3 lands in Pirate Isle, the camp menu shows its text;
-   no invalid reads. Saving from a save point not tried (A didn't open it where I stood); it uses the
-   same screens. Even the converted USA saves load (the save format is the same).
+   no invalid reads. Saving from a save point **works** (2026-10-17, `build/eu-gen22b` module,
+   ws22 DOL `30904d88`): file 3 auto-loaded, Vyse walked onto the save point, A opened Save / Slot A /
+   the file list, "Create New File" wrote file 4 ("Pirate Isle Underground 2:08"), and a reboot with
+   `AutoLoadCard = 4` loaded it (camp menu time 2:09). A savestate saved, walked away from and loaded
+   back also works on the European game. No invalid reads; the test file was removed from
+   `build/user-eu` afterwards. Even the converted USA saves load (the save format is the same).
+   Still not run on the European game: a ship battle (no European save near one).
 3. **Release checklist** (the release session's, for the next release with ws22): (a) the Retroid at
-   full speed with the existing `android.profdata` on ws22 (ask the user before using the device);
+   full speed with the existing `android.profdata` on ws22: **passed 2026-10-17** (debug test app,
+   `skies-ws22-2026-10-17.apk`, two rounds: red alert 1.004 / 1.004, world map 1.007 / 1.006, first battle
+   1.003 / 1.003, ship field 1.004 / 1.004, 59.8-59.9 fps; `build/android/bench/ws22-60fps-r{1,2}`);
    (b) a USA regression pass: Continue / card auto-load (done on WSL ws22: save 1 auto-loaded), a
    battle at QOL speed (done on WSL ws22: battle speed 2x, the boss battle from `13-pre-battle` won
    and back to the world map), a 0.9.1 (ws20) save state loading on ws22 (states from older DOLs load: the

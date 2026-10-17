@@ -70,16 +70,20 @@ Committed for it (2026-10-17, local `dev`, **not pushed**: the user keeps it loc
 ws20: configure again (`REGIONS="us eu" tools/build-release-linux.sh configure`).
 
 Blocking the release:
-- The Retroid at full speed, 60 fps, on ws22 with the current `android.profdata` (ask the user first).
+- ~~The Retroid at full speed, 60 fps, on ws22 with the current `android.profdata`~~ **passed
+  2026-10-17** (DC-music session, debug test app: red alert, world map, first battle, ship field at
+  1.003-1.007 in two rounds, as the ws8 baseline; `build/android/bench/ws22-60fps-r{1,2}/`).
+- European checks on WSL passed 2026-10-17 (save point save + autoload, savestate round trip, full
+  speed); a European ship battle not yet run. HANDOFF-dcmusic-eu *Open*.
 - A USA regression pass: Continue / card autoload, a battle at a QOL speed, and **0.9.1 save states
   loading** (players have them; the import refuses other state versions).
 - Someone listening to the Dreamcast music (only checked on WSL, which has no audio).
 - Keyboard and remapping run on Windows and on Android (only WSL so far).
-- European disc in CI (user decision): `main-eu.dol` in the secrets repo, then `validate.yml` with
-  `REGIONS="us eu"` (CI should pass `REGIONS` itself rather than rely on `ci-codegen.sh` detecting
-  `main-eu.dol`), both modules to `package`, and the publish check extended to the European DOL
-  hashes (from `release/skies-widescreen-eu.dolpatch`) and the European module. No European PGO
-  profiles yet: desktop can ship without; Android at 60 fps probably needs Retroid training (ask).
+- European disc in CI: **wired 2026-10-17** (`2436886`, the user said include it; `main-eu.dol`,
+  SHA-256 `d0e9fc91...`, added to the secrets repo): `REGIONS: us eu` for the workflow, both modules
+  in every package, the publish check knows both games' DOL hashes and requires both modules. First
+  two-region CI run: 39058556216. No European PGO profiles yet: desktop ships without; whether
+  Android needs one for 60 fps in Europe is still to be measured (Retroid, ask).
 
 Held by the user: the **nightly prerelease** (latest green `dev` on a fixed `nightly` tag, Android
 under its own app ID such as `com.skiesofarcadia.recomp.nightly`, no signing approval).
