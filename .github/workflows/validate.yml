@@ -227,7 +227,8 @@ jobs:
           curl -sSfL -o "$RUNNER_TEMP/llvm.tar.xz" \
             "https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/clang+llvm-$LLVM_VERSION-x86_64-pc-windows-msvc.tar.xz"
           echo "$LLVM_WINDOWS_SHA256  $RUNNER_TEMP/llvm.tar.xz" | sha256sum -c --quiet -
-          mkdir -p /c/llvm && tar -xf "$RUNNER_TEMP/llvm.tar.xz" -C /c/llvm
+          # --force-local: GNU tar would read the "D:" of D:\a\_temp as a remote host
+          mkdir -p /c/llvm && tar --force-local -xf "$RUNNER_TEMP/llvm.tar.xz" -C /c/llvm
 
       - name: Configure Developer Command Prompt
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
