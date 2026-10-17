@@ -1,0 +1,1785 @@
+diff --git a/Source/Core/Core/CMakeLists.txt b/Source/Core/Core/CMakeLists.txt
+index edc3ea3f0e..e543ab9327 100644
+--- a/Source/Core/Core/CMakeLists.txt
++++ b/Source/Core/Core/CMakeLists.txt
+@@ -640,6 +640,10 @@ add_library(core
+   PowerPC/SignatureDB/MEGASignatureDB.h
+   PowerPC/SignatureDB/SignatureDB.cpp
+   PowerPC/SignatureDB/SignatureDB.h
++  SkiesBindings.cpp
++  SkiesBindings.h
++  SkiesInput.cpp
++  SkiesInput.h
+   SkiesMusic.cpp
+   SkiesMusic.h
+   SkiesSettings.cpp
+diff --git a/Source/Core/Core/SkiesBindings.cpp b/Source/Core/Core/SkiesBindings.cpp
+new file mode 100644
+index 0000000000..cac8fd9512
+--- /dev/null
++++ b/Source/Core/Core/SkiesBindings.cpp
+@@ -0,0 +1,462 @@
++// Copyright 2026 Dolphin Emulator Project
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++#include "Core/SkiesBindings.h"
++
++#include <algorithm>
++#include <array>
++#include <cctype>
++
++namespace SkiesBindings
++{
++namespace
++{
++// This platform's controller names: SDL's gamepad controls on desktop (InputCommon's SDL backend,
++// what the launcher's generated profile uses), Android's keys and axes (jni/SkiesImport.cpp's
++// ensurePadProfile)
++#ifdef __ANDROID__
++#define PAD(sdl, android) android
++#else
++#define PAD(sdl, android) sdl
++#endif
++
++// The keyboard layout: the left hand moves (W A S D) and holds Z (Tab) for the camera, the right
++// hand has the C-stick (I J K L) and the arrow keys (D-pad, menus); Space / Left Shift are A / B.
++constexpr std::array INPUTS{
++    Input{PAD_SECTION, "Buttons/A", "A", nullptr, "Space", PAD("Button A", "Button A"), nullptr},
++    Input{PAD_SECTION, "Buttons/B", "B", nullptr, "Left Shift", PAD("Button B", "Button B"), nullptr},
++    Input{PAD_SECTION, "Buttons/X", "X", nullptr, "F", PAD("Button X", "Button X"), nullptr},
++    Input{PAD_SECTION, "Buttons/Y", "Y", nullptr, "R", PAD("Button Y", "Button Y"), nullptr},
++    Input{PAD_SECTION, "Buttons/Z", "Z", nullptr, "Tab", PAD("Shoulder R", "Button R1"), nullptr},
++    Input{PAD_SECTION, "Buttons/Start", "Start", nullptr, "Return", PAD("Start", "Start"), nullptr},
++    Input{PAD_SECTION, "Triggers/L", "L", "Triggers/L-Analog", "Q", PAD("Trigger L", "Button L2"),
++          PAD("Trigger L", "Axis 23+")},
++    Input{PAD_SECTION, "Triggers/R", "R", "Triggers/R-Analog", "E", PAD("Trigger R", "Button R2"),
++          PAD("Trigger R", "Axis 22+")},
++    Input{PAD_SECTION, "Main Stick/Up", "Stick up", nullptr, "W", PAD("Left Y+", "Axis 1-"), nullptr},
++    Input{PAD_SECTION, "Main Stick/Down", "Stick down", nullptr, "S", PAD("Left Y-", "Axis 1+"),
++          nullptr},
++    Input{PAD_SECTION, "Main Stick/Left", "Stick left", nullptr, "A", PAD("Left X-", "Axis 0-"),
++          nullptr},
++    Input{PAD_SECTION, "Main Stick/Right", "Stick right", nullptr, "D", PAD("Left X+", "Axis 0+"),
++          nullptr},
++    Input{PAD_SECTION, "C-Stick/Up", "C-stick up", nullptr, "I", PAD("Right Y+", "Axis 14-"),
++          nullptr},
++    Input{PAD_SECTION, "C-Stick/Down", "C-stick down", nullptr, "K", PAD("Right Y-", "Axis 14+"),
++          nullptr},
++    Input{PAD_SECTION, "C-Stick/Left", "C-stick left", nullptr, "J", PAD("Right X-", "Axis 11-"),
++          nullptr},
++    Input{PAD_SECTION, "C-Stick/Right", "C-stick right", nullptr, "L", PAD("Right X+", "Axis 11+"),
++          nullptr},
++    Input{PAD_SECTION, "D-Pad/Up", "D-pad up", nullptr, "Up", PAD("Pad N", "Axis 16-"), nullptr},
++    Input{PAD_SECTION, "D-Pad/Down", "D-pad down", nullptr, "Down", PAD("Pad S", "Axis 16+"), nullptr},
++    Input{PAD_SECTION, "D-Pad/Left", "D-pad left", nullptr, "Left", PAD("Pad W", "Axis 15-"), nullptr},
++    Input{PAD_SECTION, "D-Pad/Right", "D-pad right", nullptr, "Right", PAD("Pad E", "Axis 15+"),
++          nullptr},
++    Input{HOTKEY_SECTION, "Menu", "Settings menu", nullptr, "Escape", PAD("Back", "Select"), nullptr},
++    Input{HOTKEY_SECTION, "Invincible", "Invincible on / off", nullptr, "",
++          PAD("Thumb L|Thumb R", "Button L3|Button R3"), nullptr},
++};
++#undef PAD
++
++constexpr std::array KEYS{
++    KeyName{"A", "A", "A", "A", "A"},
++    KeyName{"B", "B", "B", "B", "B"},
++    KeyName{"C", "C", "C", "C", "C"},
++    KeyName{"D", "D", "D", "D", "D"},
++    KeyName{"E", "E", "E", "E", "E"},
++    KeyName{"F", "F", "F", "F", "F"},
++    KeyName{"G", "G", "G", "G", "G"},
++    KeyName{"H", "H", "H", "H", "H"},
++    KeyName{"I", "I", "I", "I", "I"},
++    KeyName{"J", "J", "J", "J", "J"},
++    KeyName{"K", "K", "K", "K", "K"},
++    KeyName{"L", "L", "L", "L", "L"},
++    KeyName{"M", "M", "M", "M", "M"},
++    KeyName{"N", "N", "N", "N", "N"},
++    KeyName{"O", "O", "O", "O", "O"},
++    KeyName{"P", "P", "P", "P", "P"},
++    KeyName{"Q", "Q", "Q", "Q", "Q"},
++    KeyName{"R", "R", "R", "R", "R"},
++    KeyName{"S", "S", "S", "S", "S"},
++    KeyName{"T", "T", "T", "T", "T"},
++    KeyName{"U", "U", "U", "U", "U"},
++    KeyName{"V", "V", "V", "V", "V"},
++    KeyName{"W", "W", "W", "W", "W"},
++    KeyName{"X", "X", "X", "X", "X"},
++    KeyName{"Y", "Y", "Y", "Y", "Y"},
++    KeyName{"Z", "Z", "Z", "Z", "Z"},
++    KeyName{"1", "1", "1", "1", "1"},
++    KeyName{"2", "2", "2", "2", "2"},
++    KeyName{"3", "3", "3", "3", "3"},
++    KeyName{"4", "4", "4", "4", "4"},
++    KeyName{"5", "5", "5", "5", "5"},
++    KeyName{"6", "6", "6", "6", "6"},
++    KeyName{"7", "7", "7", "7", "7"},
++    KeyName{"8", "8", "8", "8", "8"},
++    KeyName{"9", "9", "9", "9", "9"},
++    KeyName{"0", "0", "0", "0", "0"},
++    KeyName{"Return", "RETURN", "Return", "Enter", "Enter"},
++    KeyName{"Escape", "ESCAPE", "Escape", "Escape", "Esc"},
++    KeyName{"Backspace", "BACK", "BackSpace", "Backspace", "Backspace"},
++    KeyName{"Tab", "TAB", "Tab", "Tab", "Tab"},
++    KeyName{"Space", "SPACE", "space", "Space", "Space"},
++    KeyName{"-", "MINUS", "minus", "Minus", "-"},
++    KeyName{"=", "EQUALS", "equal", "Equals", "="},
++    KeyName{"[", "LBRACKET", "bracketleft", "Left Bracket", "["},
++    KeyName{"]", "RBRACKET", "bracketright", "Right Bracket", "]"},
++    KeyName{"\\", "BACKSLASH", "backslash", "Backslash", "\\"},
++    KeyName{";", "SEMICOLON", "semicolon", "Semicolon", ";"},
++    KeyName{"'", "APOSTROPHE", "apostrophe", "Apostrophe", "'"},
++    KeyName{"`", "GRAVE", "grave", "Grave", "`"},
++    KeyName{",", "COMMA", "comma", "Comma", ","},
++    KeyName{".", "PERIOD", "period", "Period", "."},
++    KeyName{"/", "SLASH", "slash", "Slash", "/"},
++    KeyName{"CapsLock", "CAPITAL", "Caps_Lock", "Caps Lock", "Caps Lock"},
++    KeyName{"F1", "F1", "F1", "F1", "F1"},
++    KeyName{"F2", "F2", "F2", "F2", "F2"},
++    KeyName{"F3", "F3", "F3", "F3", "F3"},
++    KeyName{"F4", "F4", "F4", "F4", "F4"},
++    KeyName{"F5", "F5", "F5", "F5", "F5"},
++    KeyName{"F6", "F6", "F6", "F6", "F6"},
++    KeyName{"F7", "F7", "F7", "F7", "F7"},
++    KeyName{"F8", "F8", "F8", "F8", "F8"},
++    KeyName{"F9", "F9", "F9", "F9", "F9"},
++    KeyName{"F10", "F10", "F10", "F10", "F10"},
++    KeyName{"F11", "F11", "F11", "F11", "F11"},
++    KeyName{"F12", "F12", "F12", "F12", "F12"},
++    KeyName{"Insert", "INSERT", "Insert", "Insert", "Insert"},
++    KeyName{"Home", "HOME", "Home", "Move Home", "Home"},
++    KeyName{"PageUp", "PRIOR", "Prior", "Page Up", "Page Up"},
++    KeyName{"Delete", "DELETE", "Delete", "Delete", "Delete"},
++    KeyName{"End", "END", "End", "Move End", "End"},
++    KeyName{"PageDown", "NEXT", "Next", "Page Down", "Page Down"},
++    KeyName{"Right", "RIGHT", "Right", "Right", "Right"},
++    KeyName{"Left", "LEFT", "Left", "Left", "Left"},
++    KeyName{"Down", "DOWN", "Down", "Down", "Down"},
++    KeyName{"Up", "UP", "Up", "Up", "Up"},
++    KeyName{"Keypad /", "DIVIDE", "KP_Divide", "Numpad Divide", "Num /"},
++    KeyName{"Keypad *", "MULTIPLY", "KP_Multiply", "Numpad Multiply", "Num *"},
++    KeyName{"Keypad -", "SUBTRACT", "KP_Subtract", "Numpad Subtract", "Num -"},
++    KeyName{"Keypad +", "ADD", "KP_Add", "Numpad Add", "Num +"},
++    KeyName{"Keypad Enter", "NUMPADENTER", "KP_Enter", "Numpad Enter", "Num Enter"},
++    KeyName{"Keypad 1", "NUMPAD1", "KP_End", "Numpad 1", "Num 1"},
++    KeyName{"Keypad 2", "NUMPAD2", "KP_Down", "Numpad 2", "Num 2"},
++    KeyName{"Keypad 3", "NUMPAD3", "KP_Next", "Numpad 3", "Num 3"},
++    KeyName{"Keypad 4", "NUMPAD4", "KP_Left", "Numpad 4", "Num 4"},
++    KeyName{"Keypad 5", "NUMPAD5", "KP_Begin", "Numpad 5", "Num 5"},
++    KeyName{"Keypad 6", "NUMPAD6", "KP_Right", "Numpad 6", "Num 6"},
++    KeyName{"Keypad 7", "NUMPAD7", "KP_Home", "Numpad 7", "Num 7"},
++    KeyName{"Keypad 8", "NUMPAD8", "KP_Up", "Numpad 8", "Num 8"},
++    KeyName{"Keypad 9", "NUMPAD9", "KP_Prior", "Numpad 9", "Num 9"},
++    KeyName{"Keypad 0", "NUMPAD0", "KP_Insert", "Numpad 0", "Num 0"},
++    KeyName{"Keypad .", "DECIMAL", "KP_Delete", "Numpad Dot", "Num ."},
++    KeyName{"Left Ctrl", "LCONTROL", "Control_L", "Left Ctrl", "Left Ctrl"},
++    KeyName{"Left Shift", "LSHIFT", "Shift_L", "Left Shift", "Left Shift"},
++    KeyName{"Left Alt", "LMENU", "Alt_L", "Left Alt", "Left Alt"},
++    KeyName{"Right Ctrl", "RCONTROL", "Control_R", "Right Ctrl", "Right Ctrl"},
++    KeyName{"Right Shift", "RSHIFT", "Shift_R", "Right Shift", "Right Shift"},
++    KeyName{"Right Alt", "RMENU", "Alt_R", "Right Alt", "Right Alt"},
++};
++
++// Controller controls as shown: Xbox names for SDL's (as the README's table), the buttons' own for
++// Android's
++constexpr std::array<std::pair<const char*, const char*>, 52> CONTROL_LABELS{{
++    {"Button A", "A"},
++    {"Button S", "A"},
++    {"Button B", "B"},
++    {"Button E", "B"},
++    {"Button X", "X"},
++    {"Button W", "X"},
++    {"Button Y", "Y"},
++    {"Button N", "Y"},
++    {"Shoulder L", "LB"},
++    {"Shoulder R", "RB"},
++    {"Trigger L", "LT"},
++    {"Trigger R", "RT"},
++    {"Thumb L", "L3"},
++    {"Thumb R", "R3"},
++    {"Back", "Back"},
++    {"Start", "Start"},
++    {"Guide", "Guide"},
++    {"Pad N", "D-pad up"},
++    {"Pad S", "D-pad down"},
++    {"Pad W", "D-pad left"},
++    {"Pad E", "D-pad right"},
++    {"Left Y+", "Left stick up"},
++    {"Left Y-", "Left stick down"},
++    {"Left X-", "Left stick left"},
++    {"Left X+", "Left stick right"},
++    {"Right Y+", "Right stick up"},
++    {"Right Y-", "Right stick down"},
++    {"Right X-", "Right stick left"},
++    {"Right X+", "Right stick right"},
++    {"Button L1", "L1"},
++    {"Button R1", "R1"},
++    {"Button L2", "L2"},
++    {"Button R2", "R2"},
++    {"Button L3", "L3"},
++    {"Button R3", "R3"},
++    {"Select", "Select"},
++    {"Axis 0-", "Left stick left"},
++    {"Axis 0+", "Left stick right"},
++    {"Axis 1-", "Left stick up"},
++    {"Axis 1+", "Left stick down"},
++    {"Axis 11-", "Right stick left"},
++    {"Axis 11+", "Right stick right"},
++    {"Axis 14-", "Right stick up"},
++    {"Axis 14+", "Right stick down"},
++    {"Axis 15-", "D-pad left"},
++    {"Axis 15+", "D-pad right"},
++    {"Axis 16-", "D-pad up"},
++    {"Axis 16+", "D-pad down"},
++    {"Axis 22+", "R2"},
++    {"Axis 23+", "L2"},
++    {"Misc 1", "Share"},
++    {"Touchpad", "Touchpad click"},
++}};
++
++std::string_view Trim(std::string_view text)
++{
++  while (!text.empty() && std::isspace(static_cast<unsigned char>(text.front())))
++    text.remove_prefix(1);
++  while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back())))
++    text.remove_suffix(1);
++  return text;
++}
++
++// The source of a device string ("DInput/0/Keyboard Mouse" -> "DInput")
++std::string_view Source(std::string_view device)
++{
++  return device.substr(0, device.find('/'));
++}
++
++// A control Dolphin's expressions take without backticks: a word (a letter, then letters, digits or
++// '_') that isn't one of its functions
++bool IsBareName(std::string_view text)
++{
++  static constexpr std::array<std::string_view, 25> FUNCTIONS = {
++      "not",   "if",    "abs",   "sin",   "cos",   "tan",      "asin",     "acos",   "atan",
++      "atan2", "sqrt",  "pow",   "min",   "max",   "clamp",    "timer",    "toggle", "minus",
++      "plus",  "deadzone", "smooth", "hold", "tap", "relative", "pulse"};
++  if (text.empty() || std::isalpha(static_cast<unsigned char>(text.front())) == 0)
++    return false;
++  if (!std::ranges::all_of(text, [](char c) {
++        return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_';
++      }))
++  {
++    return false;
++  }
++  return std::ranges::find(FUNCTIONS, text) == FUNCTIONS.end();
++}
++
++Term ParseTerm(std::string_view text)
++{
++  Term term;
++  term.text = std::string(text);
++  std::string_view inner;
++  if (text.size() >= 2 && text.front() == '`' && text.back() == '`' &&
++      text.substr(1, text.size() - 2).find('`') == std::string_view::npos)
++  {
++    inner = text.substr(1, text.size() - 2);
++  }
++  else if (IsBareName(text))
++  {
++    inner = text;
++  }
++  else
++  {
++    return term;
++  }
++  term.simple = !inner.empty();
++  // As ControlQualifier::FromString: the device is everything before the last ':'
++  const std::size_t colon = inner.find_last_of(':');
++  if (colon != std::string_view::npos)
++  {
++    term.device = std::string(inner.substr(0, colon));
++    term.control = std::string(inner.substr(colon + 1));
++  }
++  else
++  {
++    term.control = std::string(inner);
++  }
++  return term;
++}
++}  // namespace
++
++std::span<const Input> Inputs()
++{
++  return INPUTS;
++}
++
++const Input* FindInput(std::string_view key)
++{
++  const auto found = std::ranges::find_if(INPUTS, [&](const Input& input) { return input.key == key; });
++  return found == INPUTS.end() ? nullptr : &*found;
++}
++
++std::span<const KeyName> KeyNames()
++{
++  return KEYS;
++}
++
++const KeyName* FindKey(std::string_view id)
++{
++  const auto found = std::ranges::find_if(KEYS, [&](const KeyName& key) { return key.id == id; });
++  return found == KEYS.end() ? nullptr : &*found;
++}
++
++std::string PlatformKeyName(const KeyName& key)
++{
++#if defined(_WIN32)
++  return key.dinput;
++#elif defined(__ANDROID__)
++  return key.android;
++#else
++  return key.x11;
++#endif
++}
++
++std::string DefaultKeyboardDevice()
++{
++#if defined(_WIN32)
++  return "DInput/0/Keyboard Mouse";
++#elif defined(__ANDROID__)
++  return "";
++#else
++  return "XInput2/0/Virtual core pointer";
++#endif
++}
++
++bool IsKeyboardSource(std::string_view source)
++{
++  return source == "DInput" || source == "XInput2" || source == "Quartz";
++}
++
++std::vector<Term> SplitExpression(std::string_view expression)
++{
++  std::vector<Term> terms;
++  int depth = 0;
++  bool quoted = false;
++  std::size_t start = 0;
++  for (std::size_t i = 0; i <= expression.size(); ++i)
++  {
++    const char c = i < expression.size() ? expression[i] : '|';
++    if (c == '`')
++      quoted = !quoted;
++    else if (!quoted && c == '(')
++      ++depth;
++    else if (!quoted && c == ')')
++      --depth;
++    else if (!quoted && depth <= 0 && c == '|' &&
++             (i + 1 >= expression.size() || expression[i + 1] != '|'))
++    {
++      const std::string_view text = Trim(expression.substr(start, i - start));
++      if (!text.empty())
++        terms.push_back(ParseTerm(text));
++      start = i + 1;
++    }
++  }
++  return terms;
++}
++
++std::string JoinTerms(const std::vector<Term>& terms)
++{
++  std::string expression;
++  for (const Term& term : terms)
++  {
++    if (!expression.empty())
++      expression += " | ";
++    expression += term.text;
++  }
++  return expression;
++}
++
++std::string ControlTerm(std::string_view device, std::string_view control)
++{
++  std::string text = device.empty() ? std::string(control) :
++                                      std::string(device) + ":" + std::string(control);
++  return IsBareName(text) ? text : "`" + text + "`";
++}
++
++bool TermSlot(const Term& term, Slot* slot)
++{
++  if (!term.simple)
++    return false;
++  if (term.device.empty())
++  {
++    *slot = Slot::Controller;
++    return true;
++  }
++  const std::string_view source = Source(term.device);
++  if (IsKeyboardSource(source))
++  {
++    *slot = Slot::Keyboard;
++    return true;
++  }
++  // Android keyboards are Android devices like the controllers: a qualified Android term is a
++  // keyboard's (the controller's are unqualified)
++  if (source == "Android")
++  {
++    *slot = Slot::Keyboard;
++    return true;
++  }
++  return false;
++}
++
++std::string SlotControl(std::string_view expression, Slot slot, std::string* device)
++{
++  for (const Term& term : SplitExpression(expression))
++  {
++    Slot term_slot;
++    if (TermSlot(term, &term_slot) && term_slot == slot)
++    {
++      if (device)
++        *device = term.device;
++      return term.control;
++    }
++  }
++  return {};
++}
++
++std::string SetSlot(std::string_view expression, Slot slot, std::string_view device,
++                    std::string_view control)
++{
++  std::vector<Term> terms = SplitExpression(expression);
++  std::erase_if(terms, [&](const Term& term) {
++    Slot term_slot;
++    return TermSlot(term, &term_slot) && term_slot == slot;
++  });
++  if (!control.empty())
++  {
++    Term term;
++    term.text = ControlTerm(device, control);
++    term.simple = true;
++    term.device = std::string(device);
++    term.control = std::string(control);
++    // The controller's first, then the keyboard's, then anything else
++    const auto position = slot == Slot::Controller ? terms.begin() :
++                                                     std::ranges::find_if(terms, [](const Term& t) {
++                                                       Slot s;
++                                                       return !TermSlot(t, &s) || s != Slot::Controller;
++                                                     });
++    terms.insert(position, std::move(term));
++  }
++  return JoinTerms(terms);
++}
++
++std::string ControlLabel(std::string_view control)
++{
++  for (const auto& [name, label] : CONTROL_LABELS)
++  {
++    if (control == name)
++      return label;
++  }
++  for (const KeyName& key : KEYS)
++  {
++    if (control == key.dinput || control == key.x11 || control == key.android)
++      return key.label;
++  }
++  return std::string(control);
++}
++}  // namespace SkiesBindings
+diff --git a/Source/Core/Core/SkiesBindings.h b/Source/Core/Core/SkiesBindings.h
+new file mode 100644
+index 0000000000..579f4a1d11
+--- /dev/null
++++ b/Source/Core/Core/SkiesBindings.h
+@@ -0,0 +1,97 @@
++// Copyright 2026 Dolphin Emulator Project
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++#pragma once
++
++#include <span>
++#include <string>
++#include <string_view>
++#include <vector>
++
++// Controller 1's bindings for the Skies of Arcadia Legends recomp, as the launchers and the in-game
++// menu show them: every GameCube input has a controller binding and a keyboard binding, both kept
++// in its expression in GCPadNew.ini ([GCPad1]). The controller's are unqualified (they follow
++// controller 1's device, which Core/SkiesInput.cpp moves to the controller in use); the keyboard's
++// name the keyboard device ("`DInput/0/Keyboard Mouse:SPACE`"). Anything else in an expression (a
++// hand-written combination) is kept as it is. The two hotkeys (the settings menu, Invincible) aren't
++// GameCube inputs and live in [SkiesHotkeys] of the same file. Plain strings only, so the desktop
++// launcher (which has no input devices of Dolphin's) shares it with the runtime.
++namespace SkiesBindings
++{
++enum class Slot
++{
++  Controller,
++  Keyboard,
++};
++
++struct Input
++{
++  const char* section;  // "GCPad1" or HOTKEY_SECTION
++  const char* key;      // "Buttons/A"
++  const char* label;    // "A"
++  // The analog half of a trigger: a controller binding goes here too (the keyboard's only to the
++  // digital key, which presses the trigger all the way)
++  const char* analog_key;
++  const char* keyboard;    // the default key, KeyNames().id
++  // The default controls on this platform's controllers (several: "|"-separated), and for a
++  // trigger the analog half's
++  const char* controller;
++  const char* controller_analog;
++};
++
++inline constexpr const char* PAD_SECTION = "GCPad1";
++inline constexpr const char* HOTKEY_SECTION = "SkiesHotkeys";
++// [SkiesHotkeys] Version: the defaults a profile has had added (KeyboardDefaults below)
++inline constexpr int DEFAULTS_VERSION = 1;
++
++// In the order they're shown
++std::span<const Input> Inputs();
++const Input* FindInput(std::string_view key);
++
++// A key: its id (SDL's scancode name, which the desktop launcher reads keys by), what the keyboard
++// devices of Dolphin's call it on Windows (DirectInput), Linux (X11 keysyms, letters upper case) and
++// Android (KeyEvent names), and how it's shown.
++struct KeyName
++{
++  const char* id;
++  const char* dinput;
++  const char* x11;
++  const char* android;
++  const char* label;
++};
++std::span<const KeyName> KeyNames();
++const KeyName* FindKey(std::string_view id);
++// This platform's name for a key ("" if it has none)
++std::string PlatformKeyName(const KeyName& key);
++
++// The keyboard device the launcher writes before the game has seen one (the runtime moves the
++// bindings to the keyboard it finds, Core/SkiesInput.cpp)
++std::string DefaultKeyboardDevice();
++// Sources of keyboard devices: DInput, XInput2, Quartz (and Android keyboards, found by their keys)
++bool IsKeyboardSource(std::string_view source);
++
++// One part of an expression, split at its top-level "|"
++struct Term
++{
++  std::string text;     // as written
++  bool simple = false;  // a single control: `name` or `device:name`
++  std::string device;   // "" = controller 1's device
++  std::string control;
++};
++std::vector<Term> SplitExpression(std::string_view expression);
++std::string JoinTerms(const std::vector<Term>& terms);
++// The term of a control, quoted as Dolphin writes it
++std::string ControlTerm(std::string_view device, std::string_view control);
++
++// Which slot a term belongs to: unqualified = the controller, a keyboard device = the keyboard,
++// anything else = kept as written (returns false)
++bool TermSlot(const Term& term, Slot* slot);
++// The control of a slot in an expression ("" = unbound), the first if there are several
++std::string SlotControl(std::string_view expression, Slot slot, std::string* device = nullptr);
++// The expression with the slot's terms replaced by one (control "" = unbound)
++std::string SetSlot(std::string_view expression, Slot slot, std::string_view device,
++                    std::string_view control);
++
++// How a control is shown: "Space", "Left Shift", "A", "RB", "Left stick up"
++std::string ControlLabel(std::string_view control);
++}  // namespace SkiesBindings
+diff --git a/Source/Core/Core/SkiesInput.cpp b/Source/Core/Core/SkiesInput.cpp
+new file mode 100644
+index 0000000000..7310c18629
+--- /dev/null
++++ b/Source/Core/Core/SkiesInput.cpp
+@@ -0,0 +1,666 @@
++// Copyright 2026 Dolphin Emulator Project
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++#include "Core/SkiesInput.h"
++
++#include <array>
++#include <atomic>
++#include <chrono>
++#include <memory>
++#include <mutex>
++#include <optional>
++#include <string_view>
++#include <vector>
++
++#include <fmt/format.h>
++
++#include "Common/CommonPaths.h"
++#include "Common/FileUtil.h"
++#include "Common/IniFile.h"
++#include "Common/Logging/Log.h"
++#include "Core/Config/ConfigManager.h"
++#include "Core/HW/GCPad.h"
++#include "Core/HW/GCPadEmu.h"
++#include "InputCommon/ControlReference/ControlReference.h"
++#include "InputCommon/ControllerEmu/Control/Control.h"
++#include "InputCommon/ControllerEmu/ControlGroup/ControlGroup.h"
++#include "InputCommon/ControllerEmu/ControllerEmu.h"
++#include "InputCommon/ControllerEmu/Setting/NumericSetting.h"
++#include "InputCommon/ControllerInterface/ControllerInterface.h"
++#include "InputCommon/InputConfig.h"
++#include "VideoCommon/OnScreenDisplay.h"
++
++namespace SkiesInput
++{
++namespace
++{
++using Clock = std::chrono::steady_clock;
++using SkiesBindings::Slot;
++
++// How often the other controllers are looked at for a press, and how long controller 1's device
++// must have been idle before a press elsewhere takes over
++constexpr std::chrono::milliseconds SCAN_INTERVAL{50};
++constexpr std::chrono::milliseconds IDLE_BEFORE_SWITCH{750};
++constexpr double PRESS_THRESHOLD = 0.6;
++// A capture gives up after this long without a press
++constexpr std::chrono::milliseconds CAPTURE_TIMEOUT{6000};
++
++bool s_ready = false;
++std::atomic<bool> s_owns_keyboard{false};
++std::atomic<bool> s_devices_changed{true};
++std::optional<Common::EventHook> s_devices_hook;
++Clock::time_point s_next_scan{};
++Clock::time_point s_controller_active{};
++Clock::time_point s_keyboard_active{};
++
++struct Hotkey
++{
++  const char* key;
++  std::string expression;
++  InputReference reference;
++  bool previous = false;
++};
++// Under EmulatedController::GetStateLock(): the devices-changed callback resolves them again
++std::array<Hotkey, 2> s_hotkeys{Hotkey{"Menu"}, Hotkey{"Invincible"}};
++ciface::ExpressionParser::ControlEnvironment::VariableContainer s_variables;
++bool s_menu_pressed = false;
++bool s_invincible_held = false;
++
++ciface::Core::InputDetector s_detector;
++int s_capture_input = -1;
++Slot s_capture_slot = Slot::Controller;
++CaptureState s_capture_state = CaptureState::Idle;
++
++std::string ProfilePath()
++{
++  return File::GetUserPath(D_CONFIG_IDX) + "GCPadNew.ini";
++}
++
++GCPad* Controller()
++{
++  return static_cast<GCPad*>(Pad::GetConfig()->GetController(0));
++}
++
++ControlReference* FindControl(std::string_view key)
++{
++  for (const auto& group : Controller()->groups)
++  {
++    for (const auto& control : group->controls)
++    {
++      if (key == group->name + "/" + control->name)
++        return control->control_ref.get();
++    }
++  }
++  return nullptr;
++}
++
++Hotkey* FindHotkey(std::string_view key)
++{
++  for (Hotkey& hotkey : s_hotkeys)
++  {
++    if (key == hotkey.key)
++      return &hotkey;
++  }
++  return nullptr;
++}
++
++// An input's expression, in the profile or the hotkeys
++std::string Expression(const SkiesBindings::Input& input)
++{
++  if (std::string_view(input.section) == SkiesBindings::HOTKEY_SECTION)
++  {
++    const Hotkey* hotkey = FindHotkey(input.key);
++    return hotkey ? hotkey->expression : std::string();
++  }
++  const ControlReference* control = FindControl(input.key);
++  return control ? control->GetExpression() : std::string();
++}
++
++void SetExpression(std::string_view key, const std::string& expression)
++{
++  if (Hotkey* hotkey = FindHotkey(key))
++  {
++    hotkey->expression = expression;
++    return;
++  }
++  if (ControlReference* control = FindControl(key))
++    control->SetExpression(expression);
++}
++
++// A keyboard the bindings can name: on desktop the keyboard device (DirectInput, X11, macOS), on
++// Android a keyboard plugged in (an Android device with letter keys, not the virtual one)
++std::shared_ptr<ciface::Core::Device> FindKeyboard()
++{
++  std::shared_ptr<ciface::Core::Device> android;
++  for (const auto& device : g_controller_interface.GetAllDevices())
++  {
++    if (SkiesBindings::IsKeyboardSource(device->GetSource()) && device->FindInput("A"))
++      return device;
++    if (!android && device->GetSource() == "Android" && device->GetName() != "Virtual" &&
++        device->FindInput("W") && device->FindInput("Space") && !device->FindInput("Axis 0+"))
++    {
++      android = device;
++    }
++  }
++  return android;
++}
++
++// The controllers controller 1 can move to: SDL's gamepads (the controls every profile names)
++bool IsController(const ciface::Core::Device& device)
++{
++  return device.GetSource() == "SDL" && device.FindInput("Button S");
++}
++
++bool Pressed(const ciface::Core::Device& device)
++{
++  for (const ciface::Core::Device::Input* input : device.Inputs())
++  {
++    if (input->IsDetectable() && input->GetState() > PRESS_THRESHOLD)
++      return true;
++  }
++  return false;
++}
++
++// The hotkeys follow controller 1's device and the keyboard. Holds the state lock.
++void ResolveHotkeys()
++{
++  ciface::ExpressionParser::ControlEnvironment env(g_controller_interface,
++                                                   Controller()->GetDefaultDevice(), s_variables);
++  for (Hotkey& hotkey : s_hotkeys)
++  {
++    hotkey.reference.SetExpression(hotkey.expression);
++    hotkey.reference.UpdateReference(env);
++  }
++}
++
++// [SkiesHotkeys] Version: the keyboard layout has been added (once a keyboard was there)
++int s_version = 0;
++
++void SaveHotkeys()
++{
++  Common::IniFile ini;
++  ini.Load(ProfilePath());
++  Common::IniFile::Section* section = ini.GetOrCreateSection(SkiesBindings::HOTKEY_SECTION);
++  for (const Hotkey& hotkey : s_hotkeys)
++    section->Set(hotkey.key, hotkey.expression);
++  section->Set("Version", s_version);
++  ini.Save(ProfilePath());
++}
++
++// Under the state lock: the references follow the new expressions, and the profile (with the
++// hotkeys) is saved
++void Save()
++{
++  Controller()->UpdateReferences(g_controller_interface);
++  ResolveHotkeys();
++  Pad::GetConfig()->SaveConfig();
++  SaveHotkeys();
++}
++
++// The controls of a default ("Thumb L|Thumb R")
++std::vector<std::string> DefaultControls(std::string_view list)
++{
++  std::vector<std::string> controls;
++  while (!list.empty())
++  {
++    const std::size_t bar = list.find('|');
++    controls.emplace_back(list.substr(0, bar));
++    list = bar == std::string_view::npos ? std::string_view() : list.substr(bar + 1);
++  }
++  return controls;
++}
++
++// The default bindings of a slot, added where the slot is empty (reset: replaced). Under the state
++// lock.
++bool AddDefaults(Slot slot, bool replace, const ciface::Core::Device* keyboard)
++{
++  bool changed = false;
++  const std::string keyboard_device = keyboard ? keyboard->GetQualifiedName() : std::string();
++  const auto set = [&](const char* key, const std::string& expression) {
++    const SkiesBindings::Input lookup{SkiesBindings::FindInput(key) ?
++                                          SkiesBindings::FindInput(key)->section :
++                                          SkiesBindings::PAD_SECTION,
++                                      key, "", nullptr, "", "", nullptr};
++    if (Expression(lookup) != expression)
++    {
++      SetExpression(key, expression);
++      changed = true;
++    }
++  };
++  for (const SkiesBindings::Input& input : SkiesBindings::Inputs())
++  {
++    const std::string expression = Expression(input);
++    if (!replace && !SkiesBindings::SlotControl(expression, slot).empty())
++      continue;
++    std::string updated = SkiesBindings::SetSlot(expression, slot, "", "");
++    if (slot == Slot::Keyboard)
++    {
++      const SkiesBindings::KeyName* key = SkiesBindings::FindKey(input.keyboard);
++      const std::string name = key ? SkiesBindings::PlatformKeyName(*key) : std::string();
++      // Only a key this keyboard has (an Android keyboard may lack some)
++      if (keyboard && !name.empty() && keyboard->FindInput(name))
++        updated = SkiesBindings::SetSlot(updated, slot, keyboard_device, name);
++    }
++    else
++    {
++      // Several defaults (Invincible: either stick click) go in as separate terms
++      const std::vector<std::string> controls = DefaultControls(input.controller);
++      std::vector<SkiesBindings::Term> terms = SkiesBindings::SplitExpression(updated);
++      for (std::size_t i = 0; i < controls.size(); ++i)
++      {
++        SkiesBindings::Term term;
++        term.text = SkiesBindings::ControlTerm("", controls[i]);
++        term.simple = true;
++        term.control = controls[i];
++        terms.insert(terms.begin() + static_cast<std::ptrdiff_t>(i), std::move(term));
++      }
++      updated = SkiesBindings::JoinTerms(terms);
++      if (input.analog_key)
++      {
++        const SkiesBindings::Input analog{input.section, input.analog_key, "", nullptr, "", "", nullptr};
++        set(input.analog_key, SkiesBindings::SetSlot(Expression(analog), slot, "",
++                                                     input.controller_analog));
++      }
++    }
++    set(input.key, updated);
++  }
++  return changed;
++}
++
++// Keyboard bindings that name a keyboard not there (another X11 pointer's name, an Android keyboard
++// swapped for another) move to the one that is. Under the state lock.
++bool MoveKeyboardBindings(const std::string& keyboard_device)
++{
++  bool changed = false;
++  for (const SkiesBindings::Input& input : SkiesBindings::Inputs())
++  {
++    for (const char* key : {input.key, input.analog_key})
++    {
++      if (!key)
++        continue;
++      const SkiesBindings::Input lookup{input.section, key, "", nullptr, "", "", nullptr};
++      std::vector<SkiesBindings::Term> terms = SkiesBindings::SplitExpression(Expression(lookup));
++      bool moved = false;
++      for (SkiesBindings::Term& term : terms)
++      {
++        Slot slot;
++        if (!SkiesBindings::TermSlot(term, &slot) || slot != Slot::Keyboard ||
++            term.device == keyboard_device)
++        {
++          continue;
++        }
++        ciface::Core::DeviceQualifier qualifier;
++        qualifier.FromString(term.device);
++        if (g_controller_interface.FindDevice(qualifier))
++          continue;
++        term.device = keyboard_device;
++        term.text = SkiesBindings::ControlTerm(term.device, term.control);
++        moved = true;
++      }
++      if (moved)
++      {
++        SetExpression(key, SkiesBindings::JoinTerms(terms));
++        changed = true;
++      }
++    }
++  }
++  return changed;
++}
++
++// A profile from before the keyboard slot with the keyboard as its device (Dolphin's own keyboard
++// profile): its keys name the keyboard, so they stay keys when controller 1 moves to a controller,
++// and a controller gets the default layout. Under the state lock.
++void QualifyKeyboardProfile(const ciface::Core::Device& keyboard)
++{
++  const std::string device = Controller()->GetDefaultDevice().ToString();
++  ciface::Core::DeviceQualifier qualifier;
++  qualifier.FromString(device);
++  if (!SkiesBindings::IsKeyboardSource(qualifier.source))
++    return;
++  // The keys it has: the profile's keyboard, or the one there if that's another
++  const auto named = g_controller_interface.FindDevice(qualifier);
++  const ciface::Core::Device& keys = named ? *named : keyboard;
++  bool any = false;
++  for (const auto& group : Controller()->groups)
++  {
++    for (const auto& control : group->controls)
++    {
++      std::vector<SkiesBindings::Term> terms =
++          SkiesBindings::SplitExpression(control->control_ref->GetExpression());
++      bool qualified = false;
++      for (SkiesBindings::Term& term : terms)
++      {
++        if (!term.simple || !term.device.empty() || !keys.FindInput(term.control))
++          continue;
++        term.device = device;
++        term.text = SkiesBindings::ControlTerm(term.device, term.control);
++        qualified = true;
++      }
++      if (qualified)
++        control->control_ref->SetExpression(SkiesBindings::JoinTerms(terms));
++      any |= qualified;
++    }
++  }
++  AddDefaults(Slot::Controller, false, nullptr);
++  if (any)
++    NOTICE_LOG_FMT(CORE, "[skies] the keyboard profile's keys now name {}", device);
++}
++
++// The keyboard's layout goes in once (a player who unbinds a key keeps it unbound), when a
++// keyboard is there (on Android maybe only later); bindings naming another keyboard move to it.
++// Under the state lock; true if the profile changed.
++bool UpdateKeyboard()
++{
++  const auto keyboard = FindKeyboard();
++  if (!keyboard)
++    return false;
++  bool changed = false;
++  if (s_version < SkiesBindings::DEFAULTS_VERSION)
++  {
++    QualifyKeyboardProfile(*keyboard);
++    AddDefaults(Slot::Keyboard, false, keyboard.get());
++    s_version = SkiesBindings::DEFAULTS_VERSION;
++    changed = true;
++    NOTICE_LOG_FMT(CORE, "[skies] keyboard layout added for {}", keyboard->GetQualifiedName());
++  }
++  return MoveKeyboardBindings(keyboard->GetQualifiedName()) || changed;
++}
++
++// Controller 1 counts as connected without its device (Dolphin's "Always Connected"): otherwise the
++// game sees no controller at all, keyboard included, while the controller is unplugged or before
++// one has been. Under the state lock; true if it changed.
++bool AlwaysConnected()
++{
++  for (const auto& group : Controller()->groups)
++  {
++    if (group->name != "Options")
++      continue;
++    for (const auto& setting : group->numeric_settings)
++    {
++      if (std::string_view(setting->GetININame()) == "Always Connected" &&
++          setting->GetType() == ControllerEmu::SettingType::Bool)
++      {
++        auto* always = static_cast<ControllerEmu::NumericSetting<bool>*>(setting.get());
++        if (always->GetValue())
++          return false;
++        always->SetValue(true);
++        return true;
++      }
++    }
++  }
++  return false;
++}
++
++// First poll of a boot: the hotkeys from the profile (a profile from before them gets the
++// controller's defaults), the keyboard's layout
++void Setup()
++{
++  Common::IniFile ini;
++  ini.Load(ProfilePath());
++  const Common::IniFile::Section* section = ini.GetOrCreateSection(SkiesBindings::HOTKEY_SECTION);
++  section->Get("Version", &s_version, 0);
++  const auto lock = ControllerEmu::EmulatedController::GetStateLock();
++  bool changed = false;
++  for (Hotkey& hotkey : s_hotkeys)
++  {
++    if (section->Get(hotkey.key, &hotkey.expression))
++      continue;
++    const SkiesBindings::Input* input = SkiesBindings::FindInput(hotkey.key);
++    hotkey.expression.clear();
++    for (const std::string& control : DefaultControls(input ? input->controller : ""))
++      hotkey.expression += (hotkey.expression.empty() ? "" : " | ") + SkiesBindings::ControlTerm("", control);
++    changed = true;
++  }
++  changed |= UpdateKeyboard();
++  changed |= AlwaysConnected();
++  if (changed)
++    Save();
++  else
++    ResolveHotkeys();
++  const auto keyboard = FindKeyboard();
++  NOTICE_LOG_FMT(CORE, "[skies] controller 1: {}; keyboard: {}",
++                 Controller()->GetDefaultDevice().ToString(),
++                 keyboard ? keyboard->GetQualifiedName() : std::string("none"));
++}
++
++void SwitchTo(const std::shared_ptr<ciface::Core::Device>& device)
++{
++  const std::string name = device->GetQualifiedName();
++  {
++    const auto lock = ControllerEmu::EmulatedController::GetStateLock();
++    Controller()->SetDefaultDevice(name);
++    Save();
++  }
++  NOTICE_LOG_FMT(CORE, "[skies] controller 1 is now {}", name);
++  OSD::AddMessage(fmt::format("Controller: {}", device->GetName()), 2500);
++}
++
++// Controller 1 follows the controller in use, and a keyboard that turns up gets its bindings
++void Follow(Clock::time_point now)
++{
++  const bool devices_changed = s_devices_changed.exchange(false);
++  if (!devices_changed && now < s_next_scan)
++    return;
++  s_next_scan = now + SCAN_INTERVAL;
++
++  const auto current = g_controller_interface.FindDevice(Controller()->GetDefaultDevice());
++  std::shared_ptr<ciface::Core::Device> pressed, first;
++  for (const auto& device : g_controller_interface.GetAllDevices())
++  {
++    if (SkiesBindings::IsKeyboardSource(device->GetSource()))
++    {
++      if (Pressed(*device))
++        s_keyboard_active = now;
++      continue;
++    }
++    if (device == current)
++    {
++      if (Pressed(*device))
++        s_controller_active = now;
++      continue;
++    }
++    if (!IsController(*device))
++      continue;
++    if (!first)
++      first = device;
++    if (!pressed && Pressed(*device))
++      pressed = device;
++  }
++  // No controller on controller 1 (its device is gone, was never set, or is the keyboard): the
++  // first there is. Another controller pressed while controller 1's has been idle: that one.
++  const bool has_controller = current && !SkiesBindings::IsKeyboardSource(current->GetSource());
++  if (!has_controller && (pressed || first))
++  {
++    SwitchTo(pressed ? pressed : first);
++    s_controller_active = now;
++  }
++  else if (has_controller && pressed && now - s_controller_active > IDLE_BEFORE_SWITCH)
++  {
++    SwitchTo(pressed);
++    s_controller_active = now;
++  }
++  if (devices_changed)
++  {
++    const auto lock = ControllerEmu::EmulatedController::GetStateLock();
++    if (UpdateKeyboard())
++      Save();
++    else
++      ResolveHotkeys();
++  }
++}
++
++void PollHotkeys()
++{
++  const auto lock = ControllerEmu::EmulatedController::GetStateLock();
++  for (Hotkey& hotkey : s_hotkeys)
++  {
++    const bool down = !hotkey.expression.empty() && hotkey.reference.GetState<bool>();
++    if (std::string_view(hotkey.key) == "Menu" && down && !hotkey.previous)
++      s_menu_pressed = true;
++    if (std::string_view(hotkey.key) == "Invincible")
++      s_invincible_held = down;
++    hotkey.previous = down;
++  }
++}
++
++std::vector<std::string> CaptureDevices(Slot slot)
++{
++  std::vector<std::string> devices;
++  if (slot == Slot::Keyboard)
++  {
++    if (const auto keyboard = FindKeyboard())
++      devices.push_back(keyboard->GetQualifiedName());
++  }
++  else
++  {
++    devices.push_back(Controller()->GetDefaultDevice().ToString());
++  }
++  return devices;
++}
++}  // namespace
++
++void Poll()
++{
++  const std::string& game = SConfig::GetInstance().GetGameID();
++  if (game != "GEAE8P" && game != "GEAP8P")
++    return;
++  s_owns_keyboard = true;
++  if (!s_devices_hook)
++  {
++    s_devices_hook =
++        g_controller_interface.RegisterDevicesChangedCallback([] { s_devices_changed = true; });
++  }
++  if (!s_ready)
++  {
++    s_ready = true;
++    Setup();
++  }
++  if (s_capture_state != CaptureState::Waiting)
++    Follow(Clock::now());
++  PollHotkeys();
++}
++
++bool TakeMenuPress()
++{
++  const bool pressed = s_menu_pressed;
++  s_menu_pressed = false;
++  return pressed;
++}
++
++bool InvincibleHeld()
++{
++  return s_invincible_held;
++}
++
++bool KeyboardInUse()
++{
++  return s_keyboard_active > s_controller_active;
++}
++
++bool OwnsKeyboard()
++{
++  return s_owns_keyboard;
++}
++
++std::string BindingLabel(int input, Slot slot)
++{
++  const auto inputs = SkiesBindings::Inputs();
++  if (input < 0 || input >= static_cast<int>(inputs.size()))
++    return {};
++  if (s_capture_state == CaptureState::Waiting && s_capture_input == input && s_capture_slot == slot)
++    return slot == Slot::Keyboard ? "Press a key..." : "Press a button...";
++  const auto lock = ControllerEmu::EmulatedController::GetStateLock();
++  std::string label;
++  for (const SkiesBindings::Term& term : SkiesBindings::SplitExpression(Expression(inputs[input])))
++  {
++    Slot term_slot;
++    if (SkiesBindings::TermSlot(term, &term_slot) && term_slot == slot)
++      label += (label.empty() ? "" : " / ") + SkiesBindings::ControlLabel(term.control);
++  }
++  return label.empty() ? "-" : label;
++}
++
++void StartCapture(int input, Slot slot)
++{
++  const std::vector<std::string> devices = CaptureDevices(slot);
++  s_capture_input = input;
++  s_capture_slot = slot;
++  if (devices.empty() || devices.front().empty())
++  {
++    OSD::AddMessage(slot == Slot::Keyboard ? "No keyboard connected" : "No controller connected",
++                    2500);
++    s_capture_state = CaptureState::Idle;
++    return;
++  }
++  s_detector.Start(g_controller_interface, devices);
++  s_capture_state = CaptureState::Waiting;
++}
++
++CaptureState PollCapture()
++{
++  if (s_capture_state != CaptureState::Waiting)
++  {
++    const CaptureState state = s_capture_state;
++    s_capture_state = CaptureState::Idle;
++    return state;
++  }
++  s_detector.Update(CAPTURE_TIMEOUT, std::chrono::milliseconds(0), CAPTURE_TIMEOUT);
++  if (!s_detector.IsComplete())
++    return CaptureState::Waiting;
++  const auto results = s_detector.TakeResults();
++  s_capture_state = CaptureState::Idle;
++  if (results.empty() || !results.front().input)
++    return CaptureState::Done;  // timed out: nothing changes
++
++  const auto& detection = results.front();
++  const SkiesBindings::Input& input = SkiesBindings::Inputs()[s_capture_input];
++  const std::string control = detection.input->GetName();
++  const std::string device = s_capture_slot == Slot::Keyboard ? detection.device->GetQualifiedName() : "";
++  {
++    const auto lock = ControllerEmu::EmulatedController::GetStateLock();
++    SetExpression(input.key, SkiesBindings::SetSlot(Expression(input), s_capture_slot, device, control));
++    if (input.analog_key && s_capture_slot == Slot::Controller)
++    {
++      // A trigger: its analog half too when the control is an axis, else only the button
++      const SkiesBindings::Input analog{input.section, input.analog_key, "", nullptr, "", "", nullptr};
++      const bool axis = detection.IsAnalogPress() || control.find("Trigger") != std::string::npos ||
++                        control.find("Axis") != std::string::npos;
++      SetExpression(input.analog_key,
++                    SkiesBindings::SetSlot(Expression(analog), Slot::Controller, "", axis ? control : ""));
++    }
++    Save();
++  }
++  NOTICE_LOG_FMT(CORE, "[skies] {} ({}) bound to {}", input.key,
++                 s_capture_slot == Slot::Keyboard ? "keyboard" : "controller", control);
++  return CaptureState::Done;
++}
++
++void CancelCapture()
++{
++  s_capture_state = CaptureState::Idle;
++}
++
++void Clear(int input, Slot slot)
++{
++  const auto inputs = SkiesBindings::Inputs();
++  if (input < 0 || input >= static_cast<int>(inputs.size()))
++    return;
++  const auto lock = ControllerEmu::EmulatedController::GetStateLock();
++  SetExpression(inputs[input].key, SkiesBindings::SetSlot(Expression(inputs[input]), slot, "", ""));
++  if (inputs[input].analog_key && slot == Slot::Controller)
++  {
++    const SkiesBindings::Input analog{inputs[input].section, inputs[input].analog_key, "", nullptr,
++                                      "", "", nullptr};
++    SetExpression(analog.key, SkiesBindings::SetSlot(Expression(analog), slot, "", ""));
++  }
++  Save();
++}
++
++void ResetDefaults(Slot slot)
++{
++  const auto keyboard = FindKeyboard();
++  const auto lock = ControllerEmu::EmulatedController::GetStateLock();
++  AddDefaults(slot, true, keyboard.get());
++  Save();
++}
++}  // namespace SkiesInput
+diff --git a/Source/Core/Core/SkiesInput.h b/Source/Core/Core/SkiesInput.h
+new file mode 100644
+index 0000000000..d2ff6bd35a
+--- /dev/null
++++ b/Source/Core/Core/SkiesInput.h
+@@ -0,0 +1,49 @@
++// Copyright 2026 Dolphin Emulator Project
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++#pragma once
++
++#include <string>
++
++#include "Core/SkiesBindings.h"
++
++// Controller 1 in the Skies of Arcadia Legends recomp (VideoCommon/SkiesMenu.cpp calls it from
++// every poll of controller 1):
++// - the keyboard plays alongside the controller: its default layout (Core/SkiesBindings.cpp) is
++//   added to the profile once, and its bindings follow the keyboard device the game finds;
++// - controller 1 is the controller in use: when its device isn't there, or another controller is
++//   pressed while it's idle, the profile moves to that one (the same bindings, since SDL names
++//   every gamepad's controls alike), so any controller works without the launcher, also under
++//   Steam Input, whose virtual gamepad has another name than the controller itself;
++// - the hotkeys of [SkiesHotkeys] (the settings menu, Invincible);
++// - remapping for the in-game menu's Controls page.
++namespace SkiesInput
++{
++// CPU thread, controller 1's poll
++void Poll();
++
++// A press of the settings menu hotkey since the last call
++bool TakeMenuPress();
++// The Invincible hotkey is held
++bool InvincibleHeld();
++// True when the keyboard was used more recently than a controller (the menu's hints)
++bool KeyboardInUse();
++// True when the game should have the keyboard to itself: the host window's own keys (fast-forward,
++// save states, quitting on Escape) stay out of the way (DolphinNoGUI's platforms)
++bool OwnsKeyboard();
++
++// Remapping (the in-game menu, CPU thread). Index into SkiesBindings::Inputs().
++std::string BindingLabel(int input, SkiesBindings::Slot slot);
++// Waits for the next press on the slot's devices: the controller in use or the keyboard
++void StartCapture(int input, SkiesBindings::Slot slot);
++enum class CaptureState
++{
++  Idle,
++  Waiting,
++  Done,
++};
++CaptureState PollCapture();
++void CancelCapture();
++void Clear(int input, SkiesBindings::Slot slot);
++void ResetDefaults(SkiesBindings::Slot slot);
++}  // namespace SkiesInput
+diff --git a/Source/Core/DolphinNoGUI/PlatformWin32.cpp b/Source/Core/DolphinNoGUI/PlatformWin32.cpp
+index b45eea2421..7dc7c81fc6 100644
+--- a/Source/Core/DolphinNoGUI/PlatformWin32.cpp
++++ b/Source/Core/DolphinNoGUI/PlatformWin32.cpp
+@@ -7,6 +7,7 @@
+ #include "Core/Config/ConfigManager.h"
+ #include "Core/Core.h"
+ #include "Core/SavestateLayout.h"
++#include "Core/SkiesInput.h"
+ #include "Core/State.h"
+ #include "Core/System.h"
+ 
+@@ -390,6 +391,10 @@ LRESULT PlatformWin32::WndProc(const HWND hwnd, const UINT msg, const WPARAM wPa
+   break;
+ 
+   case WM_KEYDOWN:
++    // Skies plays on the keyboard: Space is A, Escape opens its menu (Core/SkiesInput.cpp), and the
++    // developer keys (F1 state, Space fast-forward, Escape quits) are off. F11 / Alt+Enter stay.
++    if (SkiesInput::OwnsKeyboard() && wParam != VK_F11)
++      break;
+     // Bit 30 of lParam is the previous key state: ignore auto-repeat, or holding
+     // F1 down would write a state every few milliseconds.
+     if (wParam == VK_F1 && (static_cast<ULONG_PTR>(lParam) & (1u << 30)) == 0)
+diff --git a/Source/Core/DolphinNoGUI/PlatformX11.cpp b/Source/Core/DolphinNoGUI/PlatformX11.cpp
+index 8d0ae0c342..a8cb6ffbfa 100644
+--- a/Source/Core/DolphinNoGUI/PlatformX11.cpp
++++ b/Source/Core/DolphinNoGUI/PlatformX11.cpp
+@@ -14,6 +14,7 @@ static constexpr auto X_None = None;
+ #include "Common/MsgHandler.h"
+ #include "Core/Config/MainSettings.h"
+ #include "Core/Core.h"
++#include "Core/SkiesInput.h"
+ #include "Core/State.h"
+ #include "Core/System.h"
+ 
+@@ -192,6 +193,15 @@ void PlatformX11::ProcessEvents()
+     {
+     case KeyPress:
+       key = XLookupKeysym((XKeyEvent*)&event, 0);
++      // Skies plays on the keyboard (Core/SkiesInput.cpp): the developer keys (F1-F12 states,
++      // F10 pause, Ctrl+Esc quits) are off; Alt+Enter and F11 switch fullscreen.
++      if (SkiesInput::OwnsKeyboard() && key == XK_F11)
++      {
++        key = XK_Return;
++        event.xkey.state |= Mod1Mask;
++      }
++      if (SkiesInput::OwnsKeyboard() && !(key == XK_Return && (event.xkey.state & Mod1Mask)))
++        break;
+       if (key == XK_Escape && (event.xkey.state & ControlMask))
+       {
+         RequestShutdown();
+diff --git a/Source/Core/VideoCommon/SkiesMenu.cpp b/Source/Core/VideoCommon/SkiesMenu.cpp
+index 69226d43cd..c20cd7c038 100644
+--- a/Source/Core/VideoCommon/SkiesMenu.cpp
++++ b/Source/Core/VideoCommon/SkiesMenu.cpp
+@@ -46,6 +46,8 @@
+ #include "Core/HW/GCPadEmu.h"
+ #include "Core/HW/Memmap.h"
+ #include "Core/SavestateLayout.h"
++#include "Core/SkiesBindings.h"
++#include "Core/SkiesInput.h"
+ #include "Core/SkiesMusic.h"
+ #include "Core/State.h"
+ #include "InputCommon/ControlReference/ControlReference.h"
+@@ -87,6 +89,7 @@ enum class Option
+   Camera,
+   DeadZone,
+   Rumble,
++  Mapping,
+   VSync,
+   Volume,
+   ShowFps,
+@@ -109,7 +112,7 @@ constexpr std::array GAMEPLAY_ROWS{Option::Camera, Option::BattleSpeed, Option::
+                                    Option::Exp,    Option::Gold,        Option::MagicExp,
+                                    Option::Invincible, Option::Language};
+ constexpr std::array SOUND_ROWS{Option::Volume, Option::Music};
+-constexpr std::array CONTROLS_ROWS{Option::DeadZone, Option::Rumble};
++constexpr std::array CONTROLS_ROWS{Option::Mapping, Option::DeadZone, Option::Rumble};
+ struct Tab
+ {
+   const char* name;
+@@ -222,6 +225,24 @@ u16 s_previous = 0;
+ u16 s_repeat_button = 0;
+ Clock::time_point s_repeat_next;
+ 
++// Controls, Button mapping: a page of its own over the tabs, a row per input (SkiesBindings) and two
++// columns (controller, keyboard), then the two resets. A on a binding waits for the new one.
++bool s_mapping = false;
++int s_map_row = 0;
++int s_map_column = 0;  // 0 = controller, 1 = keyboard
++bool s_capturing = false;
++// The bindings as shown, read when the page opens and after every change (the video thread draws
++// them from here)
++std::vector<std::array<std::string, 2>> s_map_labels;
++// The hints name keyboard keys while the keyboard is the one in use: these, read when the menu opens
++bool s_keyboard_hints = false;
++struct HintKeys
++{
++  std::string a = "A", b = "B", x = "X", l = "L", r = "R";
++};
++HintKeys s_hint_keys;
++
++
+ bool IsEurope()
+ {
+   return SConfig::GetInstance().GetGameID() == "GEAP8P";
+@@ -549,6 +570,8 @@ void Change(Option option, int direction, bool wrap)
+   case Option::Rumble:
+     v.rumble = v.rumble ? 0 : 1;
+     break;
++  case Option::Mapping:
++    break;
+   case Option::Encounters:
+     v.encounters = Step(ENCOUNTER_RATES, v.encounters, direction, wrap);
+     break;
+@@ -656,6 +679,23 @@ void Open()
+   s_repeat_button = 0;
+   s_load_confirm = false;
+   s_slow_note = false;
++  s_mapping = false;
++  s_capturing = false;
++  s_keyboard_hints = SkiesInput::KeyboardInUse();
++  const auto key = [](const char* input, const char* fallback) {
++    const auto inputs = SkiesBindings::Inputs();
++    for (int i = 0; i < static_cast<int>(inputs.size()); ++i)
++    {
++      if (std::string_view(inputs[i].key) == input)
++      {
++        const std::string label = SkiesInput::BindingLabel(i, SkiesBindings::Slot::Keyboard);
++        return label == "-" ? std::string(fallback) : label;
++      }
++    }
++    return std::string(fallback);
++  };
++  s_hint_keys = {key("Buttons/A", "A"), key("Buttons/B", "B"), key("Buttons/X", "X"),
++                 key("Triggers/L", "L"), key("Triggers/R", "R")};
+   ReadSlotTimes();
+   NOTICE_LOG_FMT(CORE, "[skies] menu open");
+ }
+@@ -923,40 +963,12 @@ void ApplyOverclock(float factor)
+   }
+ }
+ 
+-// L3 / R3: the stick clicks of controller 1's real device. They aren't GameCube buttons, so they're
+-// read from the device itself: "Thumb L" / "Thumb R" on desktop (SDL, XInput, WGInput), "Button
+-// L3" / "Button R3" on Android. The device is looked up again every 2 s (it can be reconnected).
+-bool StickClick()
+-{
+-  static std::weak_ptr<ciface::Core::Device> s_device;
+-  static std::vector<ciface::Core::Device::Input*> s_inputs;
+-  static Clock::time_point s_next_lookup;
+-  const Clock::time_point now = Clock::now();
+-  std::shared_ptr<ciface::Core::Device> device = s_device.lock();
+-  if (!device || now >= s_next_lookup)
+-  {
+-    s_next_lookup = now + std::chrono::seconds(2);
+-    device = g_controller_interface.FindDevice(Pad::GetConfig()->GetController(0)->GetDefaultDevice());
+-    s_device = device;
+-    s_inputs.clear();
+-    if (device)
+-    {
+-      for (const char* name : {"Thumb L", "Thumb R", "Button L3", "Button R3"})
+-      {
+-        if (ciface::Core::Device::Input* input = device->FindInput(name))
+-          s_inputs.push_back(input);
+-      }
+-    }
+-  }
+-  if (!device)
+-    return false;
+-  return std::ranges::any_of(s_inputs, [](auto* input) { return input->GetState() > 0.5; });
+-}
+-
+-// A new stick click: toggle Invincible (saved and shown once the lock is let go).
++// A press of the Invincible hotkey (Core/SkiesInput.cpp, [SkiesHotkeys]; by default L3 / R3, the
++// stick clicks of controller 1's real device, which aren't GameCube buttons): toggle Invincible
++// (saved and shown once the lock is let go).
+ void PollStickClick()
+ {
+-  const bool down = StickClick();
++  const bool down = SkiesInput::InvincibleHeld();
+   if (down && !s_stick_click)
+   {
+     const int now_on =
+@@ -1220,8 +1232,90 @@ GCPadStatus FilterClosed(const GCPadStatus& raw)
+   return out;
+ }
+ 
++// The mapping page's rows: the inputs, then the two resets
++int MappingRows()
++{
++  return static_cast<int>(SkiesBindings::Inputs().size()) + 2;
++}
++
++void ReadMapping()
++{
++  const int count = static_cast<int>(SkiesBindings::Inputs().size());
++  s_map_labels.resize(count);
++  for (int i = 0; i < count; ++i)
++  {
++    s_map_labels[i] = {SkiesInput::BindingLabel(i, SkiesBindings::Slot::Controller),
++                       SkiesInput::BindingLabel(i, SkiesBindings::Slot::Keyboard)};
++  }
++}
++
++void OpenMapping()
++{
++  s_mapping = true;
++  s_map_row = 0;
++  s_map_column = SkiesInput::KeyboardInUse() ? 1 : 0;
++  s_capturing = false;
++  ReadMapping();
++}
++
++GCPadStatus FilterMapping(const GCPadStatus& raw)
++{
++  const SkiesBindings::Slot slot =
++      s_map_column ? SkiesBindings::Slot::Keyboard : SkiesBindings::Slot::Controller;
++  if (s_capturing)
++  {
++    // The press goes to the binding, not the menu, and counts once it's been released
++    if (SkiesInput::PollCapture() != SkiesInput::CaptureState::Waiting)
++    {
++      s_capturing = false;
++      s_previous = 0xFFFF;
++      ReadMapping();
++    }
++    return Released(raw);
++  }
++  const u16 pressed = Pressed(MenuButtons(raw), false);
++  const int count = static_cast<int>(SkiesBindings::Inputs().size());
++  const int rows = MappingRows();
++  if (pressed & PAD_BUTTON_UP)
++    s_map_row = (s_map_row + rows - 1) % rows;
++  else if (pressed & PAD_BUTTON_DOWN)
++    s_map_row = (s_map_row + 1) % rows;
++  else if (pressed & (PAD_BUTTON_LEFT | PAD_BUTTON_RIGHT))
++    s_map_column = s_map_column ? 0 : 1;
++  else if (pressed & PAD_BUTTON_A)
++  {
++    if (s_map_row < count)
++    {
++      SkiesInput::StartCapture(s_map_row, slot);
++      s_capturing = SkiesInput::PollCapture() == SkiesInput::CaptureState::Waiting;
++      if (!s_capturing)
++        ReadMapping();
++    }
++    else
++    {
++      SkiesInput::ResetDefaults(s_map_row == count ? SkiesBindings::Slot::Controller :
++                                                     SkiesBindings::Slot::Keyboard);
++      ReadMapping();
++      OSD::AddMessage(s_map_row == count ? "Controller buttons reset" : "Keyboard keys reset", 2000);
++    }
++  }
++  else if ((pressed & PAD_BUTTON_X) && s_map_row < count)
++  {
++    SkiesInput::Clear(s_map_row, slot);
++    ReadMapping();
++  }
++  else if (pressed & (PAD_BUTTON_B | PAD_BUTTON_START))
++  {
++    s_mapping = false;
++  }
++  return Released(raw);
++}
++
+ GCPadStatus FilterOpen(const GCPadStatus& raw)
+ {
++  s_keyboard_hints = SkiesInput::KeyboardInUse();
++  if (s_mapping)
++    return FilterMapping(raw);
+   const std::span<const Option> rows = TABS[s_tab].rows;
+   const bool on_tabs = s_selected == TAB_BAR;
+   const u16 pressed = Pressed(MenuButtons(raw), !on_tabs && rows[s_selected] == Option::Volume);
+@@ -1275,6 +1369,10 @@ GCPadStatus FilterOpen(const GCPadStatus& raw)
+       s_state_path = SlotPath(s_save_slot);
+       Close();
+     }
++    else if (option == Option::Mapping)
++    {
++      OpenMapping();
++    }
+     else if (option == Option::LoadState)
+     {
+       // Loading throws away the play since that state, so it takes a second A.
+@@ -1359,16 +1457,32 @@ GCPadStatus FilterPad(int pad_num, const GCPadStatus& raw)
+ #ifdef HAVE_DCMUSIC
+   SkiesMusic::Poll(Core::System::GetInstance().GetMemory());
+ #endif
++  // Controller 1's device, the keyboard and the hotkeys (before the lock: it may save the profile)
++  SkiesInput::Poll();
++  const bool menu_key = SkiesInput::TakeMenuPress();
+   std::unique_lock lock(s_mutex);
+   GCPadStatus out = raw;
+   switch (s_mode)
+   {
+   case Mode::Closed:
++    // The menu hotkey (Esc, a controller's Back / Select) opens it straight away
++    if (menu_key && !autoload::Active())
++    {
++      Open();
++      out = Released(raw);
++      break;
++    }
+     out = autoload::Active() ? autoload::Drive(raw) : FilterClosed(raw);
+     if (s_mode == Mode::Closed && !autoload::Active() && slowprompt::Poll())
+       out = Released(raw);
+     break;
+   case Mode::Open:
++    if (menu_key && !s_capturing)
++    {
++      Close();
++      out = Released(raw);
++      break;
++    }
+     out = FilterOpen(raw);
+     break;
+   case Mode::Closing:
+@@ -1500,6 +1614,10 @@ void Draw(float scale)
+   bool load_confirm, slow_note;
+   int opened_language;
+   std::string save_time, load_time;
++  bool mapping, capturing, keyboard_hints;
++  int map_row, map_column;
++  std::vector<std::array<std::string, 2>> map_labels;
++  HintKeys keys;
+   {
+     std::lock_guard lock(s_mutex);
+     // The direct load's request goes in as early as the first frame (controller polls start later,
+@@ -1519,6 +1637,13 @@ void Draw(float scale)
+     slow_note = s_slow_note;
+     save_time = SlotTime(s_save_slot);
+     load_time = SlotTime(s_load_slot);
++    mapping = s_mapping;
++    capturing = s_capturing;
++    map_row = s_map_row;
++    map_column = s_map_column;
++    map_labels = s_map_labels;
++    keyboard_hints = s_keyboard_hints;
++    keys = keyboard_hints ? s_hint_keys : HintKeys{};
+   }
+ 
+   struct Row
+@@ -1590,6 +1715,11 @@ void Draw(float scale)
+               "Ignores small stick movements. Raise it if a stick drifts."};
+     case Option::Rumble:
+       return {"Rumble", OnOff(v.rumble != 0), "Controller vibration."};
++    case Option::Mapping:
++      return {"Button mapping", "Change...",
++              keyboard_hints ? "The controller button and keyboard key for each GameCube button." :
++                               "The controller button and keyboard key for each GameCube button. "
++                               "The keyboard plays too: Esc opens this menu."};
+     case Option::Music:
+     {
+ #ifdef HAVE_DCMUSIC
+@@ -1623,11 +1753,22 @@ void Draw(float scale)
+   const std::span<const Option> options = TABS[tab].rows;
+   const bool on_tabs = selected == TAB_BAR;
+   const Option current = on_tabs ? options[0] : options[selected];
+-  const char* const hint =
+-      on_tabs                      ? "Left / Right or L / R: tab    Down or A: settings    B: close" :
+-      current == Option::SaveState ? "L / R: tab    Up / Down: choose    Left / Right: slot    A: save    B: close" :
+-      current == Option::LoadState ? "L / R: tab    Up / Down: choose    Left / Right: slot    A: load    B: close" :
+-                                     "L / R: tab    Up / Down: choose    Left / Right or A: change    B: close";
++  // The controls for the selected row, in the keyboard's keys while it's the one in use
++  const std::string tabs = keys.l + " / " + keys.r + ": tab    ";
++  const std::string close = "    " + keys.b + (keyboard_hints ? " or Esc: close" : ": close");
++  const std::string hint =
++      mapping   ? (capturing ? std::string("Press the new button or key (wait to keep the old one)") :
++                               "Up / Down: choose    Left / Right: column    " + keys.a +
++                                   ": change    " + keys.x + ": clear    " + keys.b + ": back") :
++      on_tabs   ? "Left / Right or " + keys.l + " / " + keys.r + ": tab    Down or " + keys.a +
++                    ": settings" + close :
++      current == Option::SaveState ? tabs + "Up / Down: choose    Left / Right: slot    " + keys.a +
++                                         ": save" + close :
++      current == Option::LoadState ? tabs + "Up / Down: choose    Left / Right: slot    " + keys.a +
++                                         ": load" + close :
++      current == Option::Mapping   ? tabs + "Up / Down: choose    " + keys.a + ": open" + close :
++                                     tabs + "Up / Down: choose    Left / Right or " + keys.a +
++                                         ": change" + close;
+ 
+   // The layout is in units of the picture (a 480-line picture = 1 unit per pixel), times the
+   // launchers' text size, shrunk to fit the screen. Every length comes from these constants, not
+@@ -1690,8 +1831,75 @@ void Draw(float scale)
+                 14.0f * u, 0, std::max(1.0f, 1.5f * u));
+ 
+   float y = PAD;
+-  draw->AddText(bold, px(TITLE), at(PAD, y), white, "Settings");
++  draw->AddText(bold, px(TITLE), at(PAD, y), white, mapping ? "Button mapping" : "Settings");
+   y += TITLE_H + 6.0f;
++  const float footer_y = size.y / u - PAD * 0.6f - FOOTER_H;
++
++  if (mapping)
++  {
++    // Columns: the GameCube input, its controller binding, its keyboard binding; the rows scroll
++    // with the selection
++    constexpr float MAP_BOX_W = 240.0f, MAP_GAP = 10.0f, MAP_ROW_H = 30.0f;
++    const float column_x[2] = {PAD + LABEL_W, PAD + LABEL_W + MAP_BOX_W + MAP_GAP};
++    const float header_y = y;
++    draw->AddText(ui, px(SMALL), at(PAD, header_y), dim, "GameCube");
++    draw->AddText(ui, px(SMALL), at(column_x[0] + 4.0f, header_y), map_column == 0 ? gold : dim,
++                  "Controller");
++    draw->AddText(ui, px(SMALL), at(column_x[1] + 4.0f, header_y), map_column == 1 ? gold : dim,
++                  "Keyboard");
++    y += 22.0f;
++    const int input_count = static_cast<int>(map_labels.size());
++    const int row_count = input_count + 2;
++    const int visible = std::max(1, static_cast<int>((footer_y - 8.0f - y) / MAP_ROW_H));
++    const int first = std::clamp(map_row - visible / 2, 0, std::max(0, row_count - visible));
++    const auto inputs = SkiesBindings::Inputs();
++    for (int i = first; i < std::min(row_count, first + visible); ++i)
++    {
++      const float text_y = y + (BOX_H - TEXT * 1.33f) * 0.5f;
++      const bool row_selected = i == map_row;
++      if (i >= input_count)
++      {
++        // The resets: one box across both columns
++        const char* label = i == input_count ? "Reset controller buttons" : "Reset keyboard keys";
++        const ImVec2 a = at(column_x[0], y), b = at(column_x[1] + MAP_BOX_W, y + BOX_H);
++        draw->AddRectFilled(a, b, row_selected ? IM_COL32(41, 66, 118, 255) : IM_COL32(26, 41, 77, 255),
++                            6.0f * u);
++        if (row_selected)
++          draw->AddRect(a, b, gold, 6.0f * u, 0, std::max(1.0f, 2.0f * u));
++        draw->AddText(ui, px(TEXT), at(column_x[0] + 12.0f, text_y), row_selected ? gold : white, label);
++      }
++      else
++      {
++        draw->AddText(ui, px(TEXT), at(PAD, text_y), row_selected ? gold : white, inputs[i].label);
++        for (int column = 0; column < 2; ++column)
++        {
++          const bool cell_selected = row_selected && column == map_column;
++          const ImVec2 a = at(column_x[column], y), b = at(column_x[column] + MAP_BOX_W, y + BOX_H);
++          draw->AddRectFilled(a, b,
++                              cell_selected ? IM_COL32(41, 66, 118, 255) : IM_COL32(26, 41, 77, 255),
++                              6.0f * u);
++          if (cell_selected)
++            draw->AddRect(a, b, gold, 6.0f * u, 0, std::max(1.0f, 2.0f * u));
++          const std::string& text =
++              cell_selected && capturing ?
++                  std::string(column ? "Press a key..." : "Press a button...") :
++                  map_labels[i][column];
++          draw->AddText(ui, px(TEXT), at(column_x[column] + 12.0f, text_y),
++                        cell_selected && capturing ? gold : text == "-" ? dim : white, text.c_str());
++        }
++      }
++      y += MAP_ROW_H;
++    }
++    // More above / below
++    if (first > 0)
++      draw->AddText(ui, px(SMALL), at(PAD + CONTENT_W - 14.0f, header_y), dim, "^");
++    if (first + visible < row_count)
++      draw->AddText(ui, px(SMALL), at(PAD + CONTENT_W - 14.0f, footer_y - 20.0f), dim, "v");
++    draw->AddRectFilled(at(PAD, footer_y), at(PAD + CONTENT_W, footer_y + 1.0f),
++                        IM_COL32(255, 255, 255, 40));
++    draw->AddText(ui, px(SMALL), at(PAD, footer_y + 9.0f), dim, hint.c_str());
++    return;
++  }
+ 
+   // Tabs: the current one blue with a gold line on top
+   float x = PAD;
+@@ -1745,9 +1953,8 @@ void Draw(float scale)
+   }
+ 
+   // Footer: the controls for the selected row
+-  const float footer_y = size.y / u - PAD * 0.6f - FOOTER_H;
+   draw->AddRectFilled(at(PAD, footer_y), at(PAD + CONTENT_W, footer_y + 1.0f),
+                       IM_COL32(255, 255, 255, 40));
+-  draw->AddText(ui, px(SMALL), at(PAD, footer_y + 9.0f), dim, hint);
++  draw->AddText(ui, px(SMALL), at(PAD, footer_y + 9.0f), dim, hint.c_str());
+ }
+ }  // namespace SkiesMenu

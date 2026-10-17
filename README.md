@@ -59,33 +59,38 @@ and on Windows. Slower Android devices may not keep 60 fps (see [Slower devices]
 
 ## Controls
 
-A controller is needed on Windows and Linux: the launcher sets up the first one it finds (there's no
-keyboard layout yet). On Android a controller works the same way; without one, the game shows touch
-controls (the in-game **Back** menu turns them on and off).
+On Windows and Linux the keyboard and a controller both work, together or on their own. The game
+uses whichever controller you press, so a controller plugged in later, a second one, or one through
+Steam Input needs no setup. On Android a controller works the same way; without one, the game shows
+touch controls (the in-game **Back** menu turns them on and off).
 
-| Controller (Xbox / PlayStation) | GameCube |
-|---|---|
-| A / B / X / Y (Cross / Circle / Square / Triangle) | A / B / X / Y |
-| RB (R1) | Z |
-| LT / RT (L2 / R2) | L / R |
-| Start (Options) | Start |
-| Left stick | Control stick |
-| Right stick | C-stick |
-| D-pad | D-pad |
+| GameCube | Controller (Xbox / PlayStation) | Keyboard |
+|---|---|---|
+| A / B | A / B (Cross / Circle) | Space / Left Shift |
+| X / Y | X / Y (Square / Triangle) | F / R |
+| Z | RB (R1) | Tab |
+| L / R | LT / RT (L2 / R2) | Q / E |
+| Start | Start (Options) | Enter |
+| Control stick | Left stick | W A S D |
+| C-stick | Right stick | I J K L |
+| D-pad | D-pad | Arrow keys |
 
-The face buttons go by name, not position: Xbox A is GameCube A. The game's own controls are
-unchanged; on top of them:
+The face buttons go by name, not position: Xbox A is GameCube A. Every button and key can be
+changed: **Settings → Controls** in the launcher, or **Controls → Button mapping** in the in-game
+menu. On Linux the keyboard needs an X11 session or XWayland (what most desktops run games in).
+
+The game's own controls are unchanged; on top of them:
 
 | Input | What it does |
 |---|---|
-| Hold Z, press Start | The settings menu (L / R switch tabs; B or Start close it). Its Saves tab saves and loads states |
+| Esc, the controller's Back / View (Create), or hold Z and press Start | The settings menu (L / R switch tabs; B, Start or Esc close it). Its Saves tab saves and loads states |
 | Hold Z + C-stick up / down | Tilt the camera |
 | Hold Z + R / L | Zoom out / in |
 | Tap Z in battle | Battle speed: Normal, 2x, 3x, 4x |
-| L3 or R3 (a stick click) | Invincible on / off |
+| L3 or R3 (a stick click) | Invincible on / off (a key for it can be set in Button mapping) |
 
 Every setting is also in the launcher's **Settings** window, with a short description of each.
-**Settings → Controls** has the controller profile, the stick dead zone and rumble.
+**Settings → Controls** has the controller, every button and key, the stick dead zone and rumble.
 
 ## What It Adds
 

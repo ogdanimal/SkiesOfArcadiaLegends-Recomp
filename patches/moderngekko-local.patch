@@ -1,5 +1,5 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index c0548a0..ea93f38 100644
+index c0548a0..5d68cde 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -33,9 +33,9 @@ set(MODERNGEKKO_RUNNER_OUTPUT_NAME "moderngekko-run" CACHE STRING
@@ -100,7 +100,7 @@ index c0548a0..ea93f38 100644
      endif()
      if(MODERNGEKKO_REQUIRED_REL_SHA256)
          target_compile_definitions(moderngekko-run PRIVATE
-@@ -486,37 +518,35 @@ if(MODERNGEKKO_ENABLE_DOLPHIN_RUNTIME)
+@@ -486,37 +518,36 @@ if(MODERNGEKKO_ENABLE_DOLPHIN_RUNTIME)
          target_compile_definitions(moderngekko-run PRIVATE
              MODERNGEKKO_USER_DIRECTORY_IN_DOCUMENTS=1)
      endif()
@@ -149,13 +149,14 @@ index c0548a0..ea93f38 100644
      add_executable(moderngekko-launcher
          tools/moderngekko_launcher.cpp
          tools/frontend_config.cpp
++        tools/launcher_controls.cpp
 +        tools/disc_extract.cpp
          tools/dol_patch.cpp
 +        tools/save_import.cpp
          vendor/dolphin/Externals/imgui/imgui/backends/imgui_impl_sdl3.cpp
          vendor/dolphin/Externals/imgui/imgui/backends/imgui_impl_sdlrenderer3.cpp)
      target_include_directories(moderngekko-launcher PRIVATE
-@@ -547,12 +577,8 @@ if(MODERNGEKKO_ENABLE_DOLPHIN_RUNTIME)
+@@ -547,12 +578,8 @@ if(MODERNGEKKO_ENABLE_DOLPHIN_RUNTIME)
          MODERNGEKKO_USER_DIRECTORY_NAME="${MODERNGEKKO_USER_DIRECTORY_NAME}"
          MODERNGEKKO_LOG_FILENAME="${MODERNGEKKO_LOG_FILENAME}")
      if(MODERNGEKKO_REQUIRED_DISC_ID)
@@ -170,7 +171,7 @@ index c0548a0..ea93f38 100644
      endif()
      if(MODERNGEKKO_REQUIRED_REL_SHA256)
          target_compile_definitions(moderngekko-launcher PRIVATE
-@@ -574,10 +600,6 @@ if(MODERNGEKKO_ENABLE_DOLPHIN_RUNTIME)
+@@ -574,10 +601,6 @@ if(MODERNGEKKO_ENABLE_DOLPHIN_RUNTIME)
          target_compile_definitions(moderngekko-launcher PRIVATE
              MODERNGEKKO_USER_DIRECTORY_IN_DOCUMENTS=1)
      endif()
@@ -181,7 +182,7 @@ index c0548a0..ea93f38 100644
      if(MODERNGEKKO_DISC_PREPARER_OUTPUT_NAME)
          target_compile_definitions(moderngekko-launcher PRIVATE
              MODERNGEKKO_DISC_PREPARER_FILENAME="${MODERNGEKKO_DISC_PREPARER_OUTPUT_NAME}")
-@@ -599,6 +621,33 @@ if(MODERNGEKKO_ENABLE_DOLPHIN_RUNTIME)
+@@ -599,6 +622,33 @@ if(MODERNGEKKO_ENABLE_DOLPHIN_RUNTIME)
              INSTALL_RPATH "$ORIGIN/lib")
      endif()
      add_dependencies(moderngekko-launcher moderngekko-run)
@@ -1104,14 +1105,627 @@ index 3b18d05..7998f2c 100644
    bool fullscreen = false;
    std::string netplay_nickname = "Player";
    std::string netplay_address = "127.0.0.1";
+diff --git a/tools/launcher_controls.cpp b/tools/launcher_controls.cpp
+new file mode 100644
+index 0000000..78c9530
+--- /dev/null
++++ b/tools/launcher_controls.cpp
+@@ -0,0 +1,550 @@
++#include "launcher_controls.hpp"
++
++#include <array>
++#include <cctype>
++
++#include <imgui.h>
++
++#include "Common/IniFile.h"
++
++namespace moderngekko::launcher_controls
++{
++namespace
++{
++using Clock = std::chrono::steady_clock;
++using SkiesBindings::Slot;
++
++constexpr std::chrono::seconds CAPTURE_TIME{6};
++constexpr Sint16 AXIS_PRESS = 20000;  // of 32767, as the game's press threshold (0.6)
++
++// InputCommon's SDL backend's names (SDL/SDLGamepad.h), so a binding made here is the one the game
++// would detect
++constexpr std::array<const char*, 21> BUTTON_NAMES{
++    "Button S",   "Button E",   "Button W", "Button N", "Back",     "Guide",    "Start",
++    "Thumb L",    "Thumb R",    "Shoulder L", "Shoulder R", "Pad N", "Pad S", "Pad W",
++    "Pad E",      "Misc 1",     "Paddle 1", "Paddle 2", "Paddle 3", "Paddle 4", "Touchpad"};
++
++fs::path ProfilePath(const fs::path& user_directory)
++{
++  return user_directory / "Config" / "GCPadNew.ini";
++}
++
++std::string Get(Common::IniFile& ini, const char* section, const char* key)
++{
++  std::string value;
++  ini.GetOrCreateSection(section)->Get(key, &value, "");
++  return value;
++}
++
++void Set(Common::IniFile& ini, const char* section, const char* key, const std::string& value)
++{
++  if (value.empty())
++    ini.GetOrCreateSection(section)->Delete(key);
++  else
++    ini.GetOrCreateSection(section)->Set(key, value);
++}
++
++// A key's name on this platform's keyboard ("SPACE" on Windows, "space" on X11)
++bool IsPlatformKey(std::string_view control)
++{
++  for (const SkiesBindings::KeyName& key : SkiesBindings::KeyNames())
++  {
++    if (SkiesBindings::PlatformKeyName(key) == control)
++      return true;
++  }
++  return false;
++}
++
++std::vector<std::string> Controls(std::string_view list)
++{
++  std::vector<std::string> controls;
++  while (!list.empty())
++  {
++    const std::size_t bar = list.find('|');
++    controls.emplace_back(list.substr(0, bar));
++    list = bar == std::string_view::npos ? std::string_view() : list.substr(bar + 1);
++  }
++  return controls;
++}
++
++// The default layout for a slot, written over what the slot had (as the runtime's ResetDefaults),
++// or only where it has nothing
++void WriteDefaults(Common::IniFile& ini, Slot slot, bool only_empty = false)
++{
++  const std::string keyboard = SkiesBindings::DefaultKeyboardDevice();
++  for (const SkiesBindings::Input& input : SkiesBindings::Inputs())
++  {
++    if (only_empty && !SkiesBindings::SlotControl(Get(ini, input.section, input.key), slot).empty())
++      continue;
++    std::string expression = SkiesBindings::SetSlot(Get(ini, input.section, input.key), slot, "", "");
++    if (slot == Slot::Keyboard)
++    {
++      const SkiesBindings::KeyName* key = SkiesBindings::FindKey(input.keyboard);
++      if (key && !keyboard.empty())
++        expression = SkiesBindings::SetSlot(expression, slot, keyboard, SkiesBindings::PlatformKeyName(*key));
++    }
++    else
++    {
++      std::vector<SkiesBindings::Term> terms = SkiesBindings::SplitExpression(expression);
++      const std::vector<std::string> controls = Controls(input.controller);
++      for (std::size_t i = 0; i < controls.size(); ++i)
++      {
++        SkiesBindings::Term term;
++        term.text = SkiesBindings::ControlTerm("", controls[i]);
++        term.simple = true;
++        term.control = controls[i];
++        terms.insert(terms.begin() + static_cast<std::ptrdiff_t>(i), std::move(term));
++      }
++      expression = SkiesBindings::JoinTerms(terms);
++      if (input.analog_key)
++        Set(ini, input.section, input.analog_key,
++            SkiesBindings::SetSlot(Get(ini, input.section, input.analog_key), slot, "",
++                                   input.controller_analog));
++    }
++    Set(ini, input.section, input.key, expression);
++  }
++  if (slot == Slot::Keyboard)
++    ini.GetOrCreateSection(SkiesBindings::HOTKEY_SECTION)->Set("Version", SkiesBindings::DEFAULTS_VERSION);
++}
++
++// A profile from before the keyboard (0.9.x) gets its layout and the hotkeys, as the game would
++// add them at its next start (Core/SkiesInput.cpp)
++bool Upgrade(Common::IniFile& ini)
++{
++  bool changed = false;
++  Common::IniFile::Section* hotkeys = ini.GetOrCreateSection(SkiesBindings::HOTKEY_SECTION);
++  for (const SkiesBindings::Input& input : SkiesBindings::Inputs())
++  {
++    if (std::string_view(input.section) != SkiesBindings::HOTKEY_SECTION || hotkeys->Exists(input.key))
++      continue;
++    std::string expression;
++    for (const std::string& control : Controls(input.controller))
++      expression += (expression.empty() ? "" : " | ") + SkiesBindings::ControlTerm("", control);
++    hotkeys->Set(input.key, expression);
++    changed = true;
++  }
++  int version = 0;
++  hotkeys->Get("Version", &version, 0);
++  if (version < SkiesBindings::DEFAULTS_VERSION)
++  {
++    const std::string keyboard = SkiesBindings::DefaultKeyboardDevice();
++    // Dolphin's own keyboard profile (the keyboard as the device): its keys name the keyboard, so
++    // they stay keys when controller 1 moves to a controller
++    std::string device;
++    ini.GetOrCreateSection(SkiesBindings::PAD_SECTION)->Get("Device", &device);
++    if (SkiesBindings::IsKeyboardSource(device.substr(0, device.find('/'))))
++    {
++      std::vector<std::string> keys;
++      for (const SkiesBindings::Input& input : SkiesBindings::Inputs())
++      {
++        if (std::string_view(input.section) != SkiesBindings::PAD_SECTION)
++          continue;
++        keys.emplace_back(input.key);
++        if (input.analog_key)
++          keys.emplace_back(input.analog_key);
++      }
++      keys.emplace_back("Main Stick/Modifier");
++      keys.emplace_back("C-Stick/Modifier");
++      for (const std::string& key : keys)
++      {
++        std::vector<SkiesBindings::Term> terms =
++            SkiesBindings::SplitExpression(Get(ini, SkiesBindings::PAD_SECTION, key.c_str()));
++        bool qualified = false;
++        for (SkiesBindings::Term& term : terms)
++        {
++          if (!term.simple || !term.device.empty() || !IsPlatformKey(term.control))
++            continue;
++          term.device = device;
++          term.text = SkiesBindings::ControlTerm(device, term.control);
++          qualified = true;
++        }
++        if (qualified)
++          Set(ini, SkiesBindings::PAD_SECTION, key.c_str(), SkiesBindings::JoinTerms(terms));
++      }
++      // and a controller gets the default layout
++      WriteDefaults(ini, Slot::Controller, true);
++    }
++    // Only into empty keyboard slots
++    for (const SkiesBindings::Input& input : SkiesBindings::Inputs())
++    {
++      const std::string expression = Get(ini, input.section, input.key);
++      const SkiesBindings::KeyName* key = SkiesBindings::FindKey(input.keyboard);
++      if (key && !keyboard.empty() && SkiesBindings::SlotControl(expression, Slot::Keyboard).empty())
++        Set(ini, input.section, input.key,
++            SkiesBindings::SetSlot(expression, Slot::Keyboard, keyboard,
++                                   SkiesBindings::PlatformKeyName(*key)));
++    }
++    hotkeys->Set("Version", SkiesBindings::DEFAULTS_VERSION);
++    changed = true;
++  }
++  return changed;
++}
++
++bool Save(Common::IniFile& ini, const fs::path& user_directory, std::string* message)
++{
++  std::error_code ec;
++  fs::create_directories(ProfilePath(user_directory).parent_path(), ec);
++  if (!ini.Save(ProfilePath(user_directory).string()))
++  {
++    if (message)
++      *message = "can't write " + ProfilePath(user_directory).string();
++    return false;
++  }
++  return true;
++}
++
++bool UseControllerImpl(const fs::path& user_directory, const std::string& device, std::string* message);
++
++void Load(State& state, const fs::path& user_directory)
++{
++  Common::IniFile ini;
++  std::error_code ec;
++  // No profile yet (no controller has been connected): the default layout, for the keyboard
++  if (!fs::exists(ProfilePath(user_directory), ec))
++    UseControllerImpl(user_directory, "", nullptr);
++  if (ini.Load(ProfilePath(user_directory).string()) && Upgrade(ini))
++    Save(ini, user_directory, nullptr);
++  state.controller_labels.clear();
++  state.keyboard_labels.clear();
++  for (const SkiesBindings::Input& input : SkiesBindings::Inputs())
++  {
++    const std::string expression = Get(ini, input.section, input.key);
++    for (const Slot slot : {Slot::Controller, Slot::Keyboard})
++    {
++      std::string label;
++      for (const SkiesBindings::Term& term : SkiesBindings::SplitExpression(expression))
++      {
++        Slot term_slot;
++        if (SkiesBindings::TermSlot(term, &term_slot) && term_slot == slot)
++          label += (label.empty() ? "" : " / ") + SkiesBindings::ControlLabel(term.control);
++      }
++      (slot == Slot::Controller ? state.controller_labels : state.keyboard_labels)
++          .push_back(label.empty() ? "-" : label);
++    }
++  }
++  state.loaded = true;
++}
++
++bool Bind(State& state, const fs::path& user_directory, const std::string& control, bool analog)
++{
++  const SkiesBindings::Input& input = SkiesBindings::Inputs()[state.capture_input];
++  const Slot slot = state.capture_slot;
++  Common::IniFile ini;
++  ini.Load(ProfilePath(user_directory).string());
++  const std::string device = slot == Slot::Keyboard ? SkiesBindings::DefaultKeyboardDevice() : "";
++  Set(ini, input.section, input.key,
++      SkiesBindings::SetSlot(Get(ini, input.section, input.key), slot, device, control));
++  // A trigger's analog half follows a controller axis (a button only presses it all the way)
++  if (input.analog_key && slot == Slot::Controller)
++    Set(ini, input.section, input.analog_key,
++        SkiesBindings::SetSlot(Get(ini, input.section, input.analog_key), slot, "",
++                               analog ? control : ""));
++  state.capture_input = -1;
++  const bool saved = Save(ini, user_directory, &state.status);
++  if (saved)
++    state.status = std::string(input.label) + ": " + SkiesBindings::ControlLabel(control);
++  state.loaded = false;
++  return saved;
++}
++
++void StopCapture(State& state)
++{
++  state.capture_input = -1;
++  for (SDL_Gamepad* gamepad : state.gamepads)
++    SDL_CloseGamepad(gamepad);
++  state.gamepads.clear();
++  state.held.clear();
++}
++
++// Every gamepad's buttons and axes, in one list (the order of AxisOrButton below)
++std::vector<bool> ReadHeld(const State& state)
++{
++  std::vector<bool> held;
++  for (SDL_Gamepad* gamepad : state.gamepads)
++  {
++    for (int button = 0; button < static_cast<int>(BUTTON_NAMES.size()); ++button)
++      held.push_back(SDL_GetGamepadButton(gamepad, static_cast<SDL_GamepadButton>(button)));
++    for (int axis = 0; axis < SDL_GAMEPAD_AXIS_COUNT; ++axis)
++    {
++      const Sint16 value = SDL_GetGamepadAxis(gamepad, static_cast<SDL_GamepadAxis>(axis));
++      held.push_back(value > AXIS_PRESS);
++      held.push_back(value < -AXIS_PRESS);
++    }
++  }
++  return held;
++}
++
++// The name of entry `index` of ReadHeld's list, and whether it's an axis
++std::string HeldName(std::size_t index, bool* analog)
++{
++  const std::size_t per_pad = BUTTON_NAMES.size() + 2 * SDL_GAMEPAD_AXIS_COUNT;
++  const std::size_t i = index % per_pad;
++  *analog = i >= BUTTON_NAMES.size();
++  if (!*analog)
++    return BUTTON_NAMES[i];
++  const int axis = static_cast<int>((i - BUTTON_NAMES.size()) / 2);
++  const bool positive = (i - BUTTON_NAMES.size()) % 2 == 0;
++  switch (axis)
++  {
++  case SDL_GAMEPAD_AXIS_LEFTX:
++    return positive ? "Left X+" : "Left X-";
++  case SDL_GAMEPAD_AXIS_LEFTY:  // SDL's down is positive; Dolphin's names follow XInput (up = +)
++    return positive ? "Left Y-" : "Left Y+";
++  case SDL_GAMEPAD_AXIS_RIGHTX:
++    return positive ? "Right X+" : "Right X-";
++  case SDL_GAMEPAD_AXIS_RIGHTY:
++    return positive ? "Right Y-" : "Right Y+";
++  case SDL_GAMEPAD_AXIS_LEFT_TRIGGER:
++    return positive ? "Trigger L" : "";
++  case SDL_GAMEPAD_AXIS_RIGHT_TRIGGER:
++    return positive ? "Trigger R" : "";
++  default:
++    return "";
++  }
++}
++
++void StartCapture(State& state, int input, Slot slot)
++{
++  StopCapture(state);
++  state.capture_input = input;
++  state.capture_slot = slot;
++  state.capture_deadline = Clock::now() + CAPTURE_TIME;
++  state.status.clear();
++  if (slot == Slot::Controller)
++  {
++    int count = 0;
++    SDL_JoystickID* ids = SDL_GetGamepads(&count);
++    for (int i = 0; i < count; ++i)
++    {
++      if (SDL_Gamepad* gamepad = SDL_OpenGamepad(ids[i]))
++        state.gamepads.push_back(gamepad);
++    }
++    SDL_free(ids);
++    if (state.gamepads.empty())
++    {
++      state.capture_input = -1;
++      state.status = "Connect a controller to change its buttons";
++      return;
++    }
++    state.held = ReadHeld(state);
++  }
++  // Pad navigation would act on the press too
++  ImGui::GetIO().ConfigFlags &= ~ImGuiConfigFlags_NavEnableGamepad;
++  state.nav_suspended = true;
++}
++
++// The keyboard's name for a key: the layout's letter (X11 names letters by the layout, as SDL's
++// keycodes), else the key's position (KeyNames)
++std::string KeyboardName(SDL_Scancode scancode)
++{
++#if !defined(_WIN32)
++  const SDL_Keycode keycode = SDL_GetKeyFromScancode(scancode, SDL_KMOD_NONE, false);
++  if (keycode >= 'a' && keycode <= 'z')
++    return std::string(1, static_cast<char>(std::toupper(static_cast<int>(keycode))));
++#endif
++  const SkiesBindings::KeyName* key = SkiesBindings::FindKey(SDL_GetScancodeName(scancode));
++  return key ? SkiesBindings::PlatformKeyName(*key) : std::string();
++}
++
++void PollCapture(State& state, const fs::path& user_directory)
++{
++  if (state.capture_input < 0)
++  {
++    // Pad navigation comes back once the press that bound a button is let go
++    if (state.nav_suspended)
++    {
++      bool any = false;
++      int count = 0;
++      SDL_JoystickID* ids = SDL_GetGamepads(&count);
++      for (int i = 0; i < count; ++i)
++      {
++        if (SDL_Gamepad* gamepad = SDL_GetGamepadFromID(ids[i]))
++        {
++          for (int button = 0; button < SDL_GAMEPAD_BUTTON_COUNT; ++button)
++            any |= SDL_GetGamepadButton(gamepad, static_cast<SDL_GamepadButton>(button));
++        }
++      }
++      SDL_free(ids);
++      if (!any)
++      {
++        ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
++        state.nav_suspended = false;
++      }
++    }
++    return;
++  }
++  if (Clock::now() > state.capture_deadline)
++  {
++    StopCapture(state);
++    state.status = "Nothing pressed: unchanged";
++    return;
++  }
++  if (state.capture_slot != Slot::Controller)
++    return;
++  const std::vector<bool> held = ReadHeld(state);
++  for (std::size_t i = 0; i < held.size() && i < state.held.size(); ++i)
++  {
++    if (held[i] && !state.held[i])
++    {
++      bool analog = false;
++      const std::string name = HeldName(i, &analog);
++      if (name.empty())
++        continue;
++      Bind(state, user_directory, name, analog);
++      StopCapture(state);
++      return;
++    }
++    if (!held[i])
++      state.held[i] = false;
++  }
++}
++}  // namespace
++
++bool UseController(const fs::path& user_directory, const std::string& device, std::string* message)
++{
++  return UseControllerImpl(user_directory, device, message);
++}
++
++namespace
++{
++bool UseControllerImpl(const fs::path& user_directory, const std::string& device, std::string* message)
++{
++  Common::IniFile ini;
++  const bool exists = ini.Load(ProfilePath(user_directory).string()) &&
++                      ini.GetOrCreateSection(SkiesBindings::PAD_SECTION)->Exists("Buttons/A");
++  if (!exists)
++  {
++    // A new profile: the default layout for both, the sticks' calibration and rumble as the
++    // generated GameCube profile had them (frontend_config.cpp)
++    WriteDefaults(ini, Slot::Controller);
++    WriteDefaults(ini, Slot::Keyboard);
++    Common::IniFile::Section* pad = ini.GetOrCreateSection(SkiesBindings::PAD_SECTION);
++    pad->Set("Main Stick/Calibration", std::string("100.00"));
++    pad->Set("C-Stick/Calibration", std::string("100.00"));
++    pad->Set("Rumble/Motor", std::string("`Motor L` | `Motor R`"));
++  }
++  // The game sees controller 1 without its device too (the keyboard plays while it's unplugged)
++  ini.GetOrCreateSection(SkiesBindings::PAD_SECTION)->Set("Options/Always Connected", std::string("True"));
++  Upgrade(ini);
++  Set(ini, SkiesBindings::PAD_SECTION, "Device", device);
++  if (!Save(ini, user_directory, message))
++    return false;
++  if (message)
++    *message = device.empty() ? "Keyboard (a controller works as soon as it's connected)" :
++                                "Controller set up";
++  return true;
++}
++}  // namespace
++
++bool ResetDefaults(const fs::path& user_directory, bool controller, bool keyboard,
++                   std::string* message)
++{
++  Common::IniFile ini;
++  ini.Load(ProfilePath(user_directory).string());
++  if (controller)
++    WriteDefaults(ini, Slot::Controller);
++  if (keyboard)
++    WriteDefaults(ini, Slot::Keyboard);
++  return Save(ini, user_directory, message);
++}
++
++bool HandleEvent(State& state, const SDL_Event& event, const fs::path& user_directory)
++{
++  if (state.capture_input < 0 || state.capture_slot != Slot::Keyboard)
++    return false;
++  if (event.type != SDL_EVENT_KEY_DOWN)
++    return false;
++  if (!event.key.repeat)
++  {
++    const std::string name = KeyboardName(event.key.scancode);
++    if (name.empty())
++      state.status = std::string("That key can't be used: ") + SDL_GetScancodeName(event.key.scancode);
++    else
++      Bind(state, user_directory, name, false);
++    StopCapture(state);
++  }
++  return true;
++}
++
++void DrawMapping(State& state, const fs::path& user_directory, float scale)
++{
++  PollCapture(state, user_directory);
++  if (!state.loaded)
++    Load(state, user_directory);
++  const auto inputs = SkiesBindings::Inputs();
++  const ImGuiTableFlags flags = ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg |
++                                ImGuiTableFlags_PadOuterX;
++  if (ImGui::BeginTable("##mapping", 3, flags))
++  {
++    ImGui::TableSetupColumn("GameCube", ImGuiTableColumnFlags_WidthStretch, 1.0f);
++    ImGui::TableSetupColumn("Controller", ImGuiTableColumnFlags_WidthStretch, 1.3f);
++    ImGui::TableSetupColumn("Keyboard", ImGuiTableColumnFlags_WidthStretch, 1.3f);
++    ImGui::TableHeadersRow();
++    for (int i = 0; i < static_cast<int>(inputs.size()); ++i)
++    {
++      ImGui::TableNextRow();
++      ImGui::TableNextColumn();
++      ImGui::AlignTextToFramePadding();
++      ImGui::TextUnformatted(inputs[i].label);
++      for (const Slot slot : {Slot::Controller, Slot::Keyboard})
++      {
++        ImGui::TableNextColumn();
++        const bool capturing = state.capture_input == i && state.capture_slot == slot;
++        const std::string& label =
++            (slot == Slot::Controller ? state.controller_labels : state.keyboard_labels)[i];
++        const std::string text = (capturing ? (slot == Slot::Keyboard ? std::string("Press a key...") :
++                                                                        std::string("Press a button...")) :
++                                              label) +
++                                 "##" + std::to_string(i) + (slot == Slot::Keyboard ? "k" : "c");
++        if (capturing)
++          ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
++        if (ImGui::Button(text.c_str(), ImVec2(-FLT_MIN, 0)))
++        {
++          if (capturing)
++            StopCapture(state);
++          else
++            StartCapture(state, i, slot);
++        }
++        if (capturing)
++          ImGui::PopStyleColor();
++        // Clear: right click, Delete / Backspace or the pad's X on the focused binding
++        const bool clear = ImGui::IsItemClicked(ImGuiMouseButton_Right) ||
++                           (ImGui::IsItemFocused() && !capturing &&
++                            (ImGui::IsKeyPressed(ImGuiKey_Delete, false) ||
++                             ImGui::IsKeyPressed(ImGuiKey_Backspace, false) ||
++                             ImGui::IsKeyPressed(ImGuiKey_GamepadFaceLeft, false)));
++        if (clear && state.capture_input < 0)
++        {
++          state.capture_input = i;
++          state.capture_slot = slot;
++          Bind(state, user_directory, "", false);
++          state.status = std::string(inputs[i].label) + ": unbound";
++        }
++        if (ImGui::IsItemHovered() && !capturing)
++          ImGui::SetTooltip("Click, then press the new %s. Right-click or Delete unbinds it.",
++                            slot == Slot::Keyboard ? "key" : "button");
++      }
++    }
++    ImGui::EndTable();
++  }
++  if (ImGui::Button("Reset controller buttons"))
++  {
++    ResetDefaults(user_directory, true, false, &state.status);
++    state.status = "Controller buttons reset";
++    state.loaded = false;
++  }
++  ImGui::SameLine();
++  if (ImGui::Button("Reset keyboard keys"))
++  {
++    ResetDefaults(user_directory, false, true, &state.status);
++    state.status = "Keyboard keys reset";
++    state.loaded = false;
++  }
++  if (!state.status.empty())
++  {
++    ImGui::SameLine(0.0f, 16.0f * scale);
++    ImGui::AlignTextToFramePadding();
++    ImGui::TextDisabled("%s", state.status.c_str());
++  }
++}
++}  // namespace moderngekko::launcher_controls
+diff --git a/tools/launcher_controls.hpp b/tools/launcher_controls.hpp
+new file mode 100644
+index 0000000..0895367
+--- /dev/null
++++ b/tools/launcher_controls.hpp
+@@ -0,0 +1,50 @@
++#pragma once
++
++#include <SDL3/SDL.h>
++
++#include <chrono>
++#include <filesystem>
++#include <string>
++#include <vector>
++
++#include "Core/SkiesBindings.h"
++
++// Settings, Controls in the GameCube launcher: controller 1's profile (GCPadNew.ini) with the
++// keyboard beside the controller, and a table to change any button or key (Core/SkiesBindings.h,
++// the same bindings the in-game menu's Button mapping shows).
++namespace moderngekko::launcher_controls
++{
++namespace fs = std::filesystem;
++
++struct State
++{
++  // A binding waiting for its new button or key
++  int capture_input = -1;
++  SkiesBindings::Slot capture_slot = SkiesBindings::Slot::Controller;
++  std::chrono::steady_clock::time_point capture_deadline{};
++  // Gamepad buttons and axes held when the capture started: they count once released
++  std::vector<SDL_Gamepad*> gamepads;
++  std::vector<bool> held;
++  // Pad navigation is off while capturing, until every button is let go again
++  bool nav_suspended = false;
++  // What the table shows, read from the profile when it changes
++  bool loaded = false;
++  std::vector<std::string> controller_labels;
++  std::vector<std::string> keyboard_labels;
++  std::string status;
++};
++
++// Controller 1 uses this device (an SDL gamepad, "" = none yet: the keyboard plays and the game
++// takes the first controller it sees). Keeps the bindings; makes the default profile if there is
++// none.
++bool UseController(const fs::path& user_directory, const std::string& device, std::string* message);
++// The default layout back, for the controller, the keyboard or both (dead zone, rumble and the
++// device stay)
++bool ResetDefaults(const fs::path& user_directory, bool controller, bool keyboard,
++                   std::string* message);
++
++// Before ImGui sees an event: a capture takes key presses. True if it took the event.
++bool HandleEvent(State& state, const SDL_Event& event, const fs::path& user_directory);
++// The mapping table (inside the Controls tab). scale: the launcher's layout scale.
++void DrawMapping(State& state, const fs::path& user_directory, float scale);
++}  // namespace moderngekko::launcher_controls
 diff --git a/tools/moderngekko_launcher.cpp b/tools/moderngekko_launcher.cpp
-index 7699c3d..992021f 100644
+index 7699c3d..0c9ae5d 100644
 --- a/tools/moderngekko_launcher.cpp
 +++ b/tools/moderngekko_launcher.cpp
-@@ -1,12 +1,21 @@
+@@ -1,12 +1,22 @@
  #include "frontend_config.hpp"
 +#include "disc_extract.hpp"
  #include "dol_patch.hpp"
++#include "launcher_controls.hpp"
  #include "launcher_savestates.hpp"
  #include "moderngekko/game.hpp"
  #include "netplay_session.hpp"
@@ -1130,7 +1744,7 @@ index 7699c3d..992021f 100644
  
  #include <SDL3/SDL.h>
  #include <imgui.h>
-@@ -19,7 +28,12 @@
+@@ -19,7 +29,12 @@
  #include <cstdio>
  #include <cstdlib>
  #include <filesystem>
@@ -1143,7 +1757,7 @@ index 7699c3d..992021f 100644
  #include <iostream>
  #include <mutex>
  #include <optional>
-@@ -51,7 +65,22 @@ namespace
+@@ -51,7 +66,22 @@ namespace
  #ifdef MODERNGEKKO_GAMECUBE_CONTROLLERS
  constexpr std::string_view CONTROLLER_PROFILE_NAME = "GCPadNew.ini";
  constexpr std::string_view GENERATED_PROFILE_LABEL = "GameCube profile";
@@ -1166,7 +1780,7 @@ index 7699c3d..992021f 100644
  constexpr std::string_view CONTROLLER_PROFILE_NAME = "WiimoteNew.ini";
  constexpr std::string_view GENERATED_PROFILE_LABEL = "sideways profile";
  #endif
-@@ -74,22 +103,158 @@ struct DialogState
+@@ -74,22 +104,158 @@ struct DialogState
    std::string error;
  };
  
@@ -1333,7 +1947,7 @@ index 7699c3d..992021f 100644
  #ifdef MODERNGEKKO_REQUIRED_REL_SHA256
    if (metadata.rel_sha256 != MODERNGEKKO_REQUIRED_REL_SHA256)
      return "_Main.rel does not match the pinned release";
-@@ -101,6 +266,18 @@ std::string RequiredGameError(const moderngekko::GameMetadata& metadata)
+@@ -101,6 +267,18 @@ std::string RequiredGameError(const moderngekko::GameMetadata& metadata)
    return {};
  }
  
@@ -1352,7 +1966,7 @@ index 7699c3d..992021f 100644
  std::vector<ControllerOption> EnumerateControllers()
  {
    std::vector<ControllerOption> result;
-@@ -146,9 +323,10 @@ fs::path DefaultUserDirectory()
+@@ -146,9 +324,10 @@ fs::path DefaultUserDirectory()
    if (const char* local_app_data = std::getenv("LOCALAPPDATA"))
      return fs::path(local_app_data) / MODERNGEKKO_USER_DIRECTORY_NAME;
  #endif
@@ -1365,7 +1979,7 @@ index 7699c3d..992021f 100644
      return fs::path(home) / ".local/share" / MODERNGEKKO_USER_DIRECTORY_NAME;
    return std::string(MODERNGEKKO_USER_DIRECTORY_NAME) + "-user";
  }
-@@ -166,6 +344,13 @@ fs::path DocumentsDirectory()
+@@ -166,6 +345,13 @@ fs::path DocumentsDirectory()
  
  fs::path ExecutableDirectory(const char* argv0)
  {
@@ -1379,7 +1993,7 @@ index 7699c3d..992021f 100644
    std::error_code ec;
  #if defined(__linux__)
    const fs::path proc_executable = fs::read_symlink("/proc/self/exe", ec);
-@@ -182,26 +367,23 @@ fs::path SiblingExecutable(const fs::path& release_directory, std::string name)
+@@ -182,26 +368,23 @@ fs::path SiblingExecutable(const fs::path& release_directory, std::string name)
  #if defined(_WIN32)
    name += ".exe";
  #endif
@@ -1415,7 +2029,7 @@ index 7699c3d..992021f 100644
  }
  
  fs::path DefaultGameFile(const fs::path& user_directory, const fs::path& release_directory)
-@@ -232,7 +414,10 @@ bool WriteDefaultGame(const fs::path& user_directory, const fs::path& release_di
+@@ -232,7 +415,10 @@ bool WriteDefaultGame(const fs::path& user_directory, const fs::path& release_di
    const fs::path destination = DefaultGameFile(user_directory, release_directory);
    std::error_code ec;
    fs::create_directories(destination.parent_path(), ec);
@@ -1427,7 +2041,7 @@ index 7699c3d..992021f 100644
    if (!file)
    {
      if (error)
-@@ -246,9 +431,150 @@ bool WriteDefaultGame(const fs::path& user_directory, const fs::path& release_di
+@@ -246,9 +432,150 @@ bool WriteDefaultGame(const fs::path& user_directory, const fs::path& release_di
      stored = relative;
  #endif
    file << stored.string() << '\n';
@@ -1578,7 +2192,7 @@ index 7699c3d..992021f 100644
  std::vector<fs::path> FindDiscImages()
  {
    std::vector<fs::path> images;
-@@ -259,7 +585,9 @@ std::vector<fs::path> FindDiscImages()
+@@ -259,7 +586,9 @@ std::vector<fs::path> FindDiscImages()
    fs::recursive_directory_iterator iterator(documents,
                                              fs::directory_options::skip_permission_denied, ec);
    const fs::recursive_directory_iterator end;
@@ -1589,7 +2203,7 @@ index 7699c3d..992021f 100644
    {
      if (iterator.depth() > 4)
        iterator.disable_recursion_pending();
-@@ -268,7 +596,7 @@ std::vector<fs::path> FindDiscImages()
+@@ -268,7 +597,7 @@ std::vector<fs::path> FindDiscImages()
        std::string extension = iterator->path().extension().string();
        std::ranges::transform(extension, extension.begin(),
                               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
@@ -1598,7 +2212,7 @@ index 7699c3d..992021f 100644
          images.push_back(iterator->path());
      }
      iterator.increment(ec);
-@@ -290,16 +618,14 @@ std::optional<fs::path> PrepareDisc(const fs::path& image, const fs::path& user_
+@@ -290,16 +619,14 @@ std::optional<fs::path> PrepareDisc(const fs::path& image, const fs::path& user_
      return std::nullopt;
    }
    const std::string source_id = source->GetGameID(source->GetGamePartition());
@@ -1619,7 +2233,7 @@ index 7699c3d..992021f 100644
      return std::nullopt;
    }
    const fs::path output = user_directory / "Setup" / "SonicRidersTE-2.4.6.1.iso";
-@@ -372,13 +698,13 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+@@ -372,13 +699,13 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
      return fail("Dolphin could not read the game partition filesystem");
  
    std::string disc_id = volume->GetGameID(partition);
@@ -1639,7 +2253,7 @@ index 7699c3d..992021f 100644
  #ifdef MODERNGEKKO_PORTABLE_DEFAULT_GAME
    const fs::path games_directory = release_directory;
    const fs::path output = games_directory / "Game";
-@@ -387,14 +713,47 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+@@ -387,14 +714,47 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
    const fs::path output = games_directory / disc_id;
  #endif
    std::error_code ec;
@@ -1689,7 +2303,7 @@ index 7699c3d..992021f 100644
    if (existing && RequiredGameError(*existing.metadata).empty())
    {
      std::string error;
-@@ -407,8 +766,27 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+@@ -407,8 +767,27 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
      return true;
    }
  
@@ -1717,7 +2331,7 @@ index 7699c3d..992021f 100644
    fs::create_directories(staging / "files", ec);
    if (ec)
      return fail("can't create extraction directory: " + ec.message());
-@@ -423,20 +801,25 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+@@ -423,20 +802,25 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
      return fail("Dolphin failed while extracting the disc system data");
    }
  
@@ -1753,7 +2367,7 @@ index 7699c3d..992021f 100644
  
    bool dol_changed = false;
    std::string dol_patch_error;
-@@ -446,7 +829,7 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+@@ -446,7 +830,7 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
      return fail("extracted DOL patching failed: " + dol_patch_error);
    }
  
@@ -1762,7 +2376,7 @@ index 7699c3d..992021f 100644
    if (!inspected)
    {
      fs::remove_all(staging, ec);
-@@ -459,11 +842,13 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+@@ -459,11 +843,13 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
      return fail("extracted game validation failed: " + identity_error);
    }
  
@@ -1781,7 +2395,7 @@ index 7699c3d..992021f 100644
    std::string error;
    if (!WriteDefaultGame(user_directory, release_directory, output, &error))
      return fail(error);
-@@ -487,16 +872,26 @@ void SDLCALL FileDialogCallback(void* userdata, const char* const* filelist, int
+@@ -487,16 +873,26 @@ void SDLCALL FileDialogCallback(void* userdata, const char* const* filelist, int
      state->selected = filelist[0];
  }
  
@@ -1812,7 +2426,7 @@ index 7699c3d..992021f 100644
  }
  } // namespace
  
-@@ -504,6 +899,8 @@ int main(int argc, char** argv)
+@@ -504,6 +900,8 @@ int main(int argc, char** argv)
  {
    bool use_wayland = false;
    std::optional<fs::path> extract_only;
@@ -1821,7 +2435,7 @@ index 7699c3d..992021f 100644
    for (int i = 1; i < argc; ++i)
    {
      if (std::string_view(argv[i]) == "-X11" || std::string_view(argv[i]) == "--x11")
-@@ -512,10 +909,28 @@ int main(int argc, char** argv)
+@@ -512,10 +910,28 @@ int main(int argc, char** argv)
        use_wayland = true;
      else if (std::string_view(argv[i]) == "--extract" && i + 1 < argc)
        extract_only = argv[++i];
@@ -1850,7 +2464,7 @@ index 7699c3d..992021f 100644
    if (extract_only)
    {
      ExtractionState extraction;
-@@ -529,6 +944,21 @@ int main(int argc, char** argv)
+@@ -529,6 +945,21 @@ int main(int argc, char** argv)
        std::cout << extraction.status << ": " << *extraction.finished_game << '\n';
      return success ? 0 : 1;
    }
@@ -1872,7 +2486,7 @@ index 7699c3d..992021f 100644
  
    auto config = moderngekko::frontend::LoadConfig(user_directory, true);
    if (!config)
-@@ -546,9 +976,18 @@ int main(int argc, char** argv)
+@@ -546,9 +977,18 @@ int main(int argc, char** argv)
    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD))
      return 1;
  
@@ -1893,7 +2507,7 @@ index 7699c3d..992021f 100644
                                          SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
    if (!window)
    {
-@@ -578,19 +1017,88 @@ int main(int argc, char** argv)
+@@ -578,19 +1018,88 @@ int main(int argc, char** argv)
    ImGui::GetStyle().FontScaleDpi = scale;
    ImGui_ImplSDL3_InitForSDLRenderer(window, renderer);
    ImGui_ImplSDLRenderer3_Init(renderer);
@@ -1985,7 +2599,7 @@ index 7699c3d..992021f 100644
    const auto& resolutions = moderngekko::frontend::SupportedResolutions();
    const auto& graphics_backends =
        moderngekko::frontend::SupportedGraphicsBackends();
-@@ -605,6 +1113,42 @@ int main(int argc, char** argv)
+@@ -605,6 +1114,42 @@ int main(int argc, char** argv)
    int netplay_port = config.netplay_port;
    bool automatic_buffer = config.netplay_buffer == "auto";
    int manual_buffer = automatic_buffer ? 5 : std::stoi(config.netplay_buffer);
@@ -2028,7 +2642,7 @@ index 7699c3d..992021f 100644
    int resolution_index = 0;
    for (std::size_t i = 0; i < resolutions.size(); ++i)
    {
-@@ -621,17 +1165,117 @@ int main(int argc, char** argv)
+@@ -621,17 +1166,117 @@ int main(int argc, char** argv)
    // StateSaves is Dolphin's own state directory, so states written in-game land
    // here without any extra configuration and show up on the next launch.
    //
@@ -2153,7 +2767,79 @@ index 7699c3d..992021f 100644
    std::vector<ControllerOption> controllers = EnumerateControllers();
    bool controller_profile_exists = moderngekko::frontend::ControllerConfigExists(user_directory);
    std::vector<std::string> configured_controllers =
-@@ -726,7 +1370,11 @@ int main(int argc, char** argv)
+@@ -640,11 +1285,22 @@ int main(int argc, char** argv)
+       configured_controllers.empty() ? config.controller : configured_controllers.front();
+   int controller_index = FindController(controllers, selected_controller);
+   std::string controller_status;
++#ifdef MODERNGEKKO_GAMECUBE_CONTROLLERS
++  moderngekko::launcher_controls::State controls_state;
++#endif
+   const auto select_controller = [&](int index)
+   {
+     std::string message;
+-    if (!moderngekko::frontend::GenerateControllerConfig(user_directory, controllers[index].device,
+-                                                         &message))
++#ifdef MODERNGEKKO_GAMECUBE_CONTROLLERS
++    // Controller 1 moves to this controller with its buttons as they are (the keyboard's too); a
++    // first profile gets the default layout. index -1: none yet, the keyboard plays.
++    const std::string device = index >= 0 ? controllers[index].device : std::string();
++    controls_state.loaded = false;
++    if (!moderngekko::launcher_controls::UseController(user_directory, device, &message))
++#else
++    const std::string device = controllers[index].device;
++    if (!moderngekko::frontend::GenerateControllerConfig(user_directory, device, &message))
++#endif
+     {
+       std::lock_guard lock(dialog.mutex);
+       dialog.error = std::move(message);
+@@ -652,13 +1308,13 @@ int main(int argc, char** argv)
+     }
+     std::string error;
+     if (!moderngekko::frontend::SaveConfig(user_directory, resolutions[resolution_index].text,
+-                                           show_fps_in_title, controllers[index].device, &error))
++                                           show_fps_in_title, device, &error))
+     {
+       std::lock_guard lock(dialog.mutex);
+       dialog.error = std::move(error);
+       return false;
+     }
+-    selected_controller = controllers[index].device;
++    selected_controller = device;
+     configured_controllers = {selected_controller};
+     config.controller = selected_controller;
+     config.controllers = configured_controllers;
+@@ -674,6 +1330,15 @@ int main(int argc, char** argv)
+     {
+       controller_profile_exists = true;
+       configured_controllers = moderngekko::frontend::ReadConfiguredControllers(user_directory);
++#ifdef MODERNGEKKO_GAMECUBE_CONTROLLERS
++      // No controller in the profile: the keyboard plays, and the game takes the first controller
++      // it sees (Core/SkiesInput.cpp)
++      if (configured_controllers.empty())
++      {
++        controller_status = "Keyboard (a controller works as soon as it's connected)";
++        return true;
++      }
++#endif
+       if (configured_controllers.empty())
+       {
+         std::lock_guard lock(dialog.mutex);
+@@ -686,12 +1351,14 @@ int main(int argc, char** argv)
+       controller_status = "Using existing " + std::string(CONTROLLER_PROFILE_NAME);
+       return true;
+     }
++#ifndef MODERNGEKKO_GAMECUBE_CONTROLLERS
+     if (controller_index < 0)
+     {
+       std::lock_guard lock(dialog.mutex);
+       dialog.error = "Connect an SDL-compatible controller before playing";
+       return false;
+     }
++#endif
+     return select_controller(controller_index);
+   };
+   const auto refresh_controllers = [&]
+@@ -726,13 +1393,22 @@ int main(int argc, char** argv)
      Join,
    };
    bool done = false;
@@ -2165,7 +2851,18 @@ index 7699c3d..992021f 100644
    while (!done)
    {
      bool controllers_changed = false;
-@@ -744,6 +1392,7 @@ int main(int argc, char** argv)
+     SDL_Event event;
+     while (SDL_PollEvent(&event))
+     {
++#ifdef MODERNGEKKO_GAMECUBE_CONTROLLERS
++      // A binding waiting for its key in Settings, Controls takes the key press
++      if (moderngekko::launcher_controls::HandleEvent(controls_state, event, user_directory))
++        continue;
++#endif
+       ImGui_ImplSDL3_ProcessEvent(&event);
+       if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED)
+         done = true;
+@@ -744,6 +1420,7 @@ int main(int argc, char** argv)
      }
      if (controllers_changed)
        refresh_controllers();
@@ -2173,7 +2870,7 @@ index 7699c3d..992021f 100644
  
      {
        std::lock_guard lock(dialog.mutex);
-@@ -751,14 +1400,34 @@ int main(int argc, char** argv)
+@@ -751,14 +1428,34 @@ int main(int argc, char** argv)
        {
          selected_image = std::move(dialog.selected);
          dialog.selected.reset();
@@ -2209,7 +2906,7 @@ index 7699c3d..992021f 100644
          if (current_metadata && !RequiredGameError(*current_metadata.metadata).empty())
            current_metadata = {{}, RequiredGameError(*current_metadata.metadata)};
          extraction.finished_game.reset();
-@@ -774,18 +1443,79 @@ int main(int argc, char** argv)
+@@ -774,18 +1471,79 @@ int main(int argc, char** argv)
      ImGui_ImplSDL3_NewFrame();
      ImGui::NewFrame();
      const ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -2300,7 +2997,7 @@ index 7699c3d..992021f 100644
        if (!launcher_savestates.empty())
        {
          ImGui::TextUnformatted("Start from savestate");
-@@ -820,6 +1550,24 @@ int main(int argc, char** argv)
+@@ -820,6 +1578,24 @@ int main(int argc, char** argv)
          ImGui::TextDisabled("Solo play only.");
          ImGui::Spacing();
        }
@@ -2325,7 +3022,7 @@ index 7699c3d..992021f 100644
        if (ImGui::Button("Play", ImVec2(180 * scale, 42 * scale)))
        {
          if (ensure_controller())
-@@ -828,7 +1576,9 @@ int main(int argc, char** argv)
+@@ -828,7 +1604,9 @@ int main(int argc, char** argv)
            done = true;
          }
        }
@@ -2336,7 +3033,7 @@ index 7699c3d..992021f 100644
        if (ImGui::Button("Host Netplay", ImVec2(180 * scale, 42 * scale)))
        {
          if (ensure_controller())
-@@ -884,213 +1634,1021 @@ int main(int argc, char** argv)
+@@ -884,213 +1662,1064 @@ int main(int argc, char** argv)
            }
          }
        }
@@ -2580,7 +3277,7 @@ index 7699c3d..992021f 100644
 +                ImGui::SetItemDefaultFocus();
 +            }
 +            ImGui::EndCombo();
-+          }
+           }
 +          describe(description);
 +        };
 +        if (first <= 0 && last >= 0)
@@ -2603,15 +3300,64 @@ index 7699c3d..992021f 100644
 +      title_fps_row();
 +      skies_video_rows(0, 2);
 +    };
++#ifdef MODERNGEKKO_GAMECUBE_CONTROLLERS
++    // Controller 1 and its bindings. In game, controller 1 also moves to any controller pressed and
++    // the keyboard plays alongside it (Core/SkiesInput.cpp), so this is the starting choice.
 +    const auto controller_section = [&]
 +    {
++      row_label("Controller");
++      const std::string none = controllers.empty() ? "None connected: the keyboard plays"
++                                                   : "Choose a controller";
++      // A keyboard as the device (Dolphin's keyboard profile) is no controller
++      const bool no_controller =
++          selected_controller.empty() ||
++          SkiesBindings::IsKeyboardSource(selected_controller.substr(0, selected_controller.find('/')));
++      const std::string preview = controller_index >= 0 ? controllers[controller_index].label
++                                  : no_controller
++                                      ? none
++                                      : selected_controller.substr(selected_controller.rfind('/') + 1) +
++                                            " (not connected)";
++      if (ImGui::BeginCombo("##controller", preview.c_str()))
++      {
++        for (std::size_t i = 0; i < controllers.size(); ++i)
++        {
++          const bool selected = controller_index == static_cast<int>(i);
++          if (ImGui::Selectable(controllers[i].label.c_str(), selected) && !selected)
++          {
++            controller_index = static_cast<int>(i);
++            select_controller(controller_index);
++          }
++          if (selected)
++            ImGui::SetItemDefaultFocus();
+         }
++        ImGui::EndCombo();
+       }
+-      ImGui::EndCombo();
+-    }
+-    const bool previous_show_fps_in_title = show_fps_in_title;
+-    if (ImGui::Checkbox("Show FPS in window title", &show_fps_in_title))
++      describe("Player 1's controller. The keyboard plays too, and in game any controller you press "
++               "takes over. Esc or a controller's Back button opens the in-game menu.");
++      ImGui::Spacing();
++      moderngekko::launcher_controls::DrawMapping(controls_state, user_directory, ui_scale);
++      ImGui::Spacing();
++    };
++#else
++    const auto controller_section = [&]
+     {
+-      std::string error;
+-      if (!moderngekko::frontend::SaveConfig(user_directory, resolutions[resolution_index].text,
+-                                             show_fps_in_title, selected_controller, &error))
 +      row_label("Controller profile");
 +      const char* controller_preview = controller_index >= 0
 +                                           ? controllers[controller_index].label.c_str()
 +                                       : selected_controller.empty() ? "No SDL gamepad detected"
 +                                                                     : selected_controller.c_str();
 +      if (ImGui::BeginCombo("##controller", controller_preview))
-+      {
+       {
+-        show_fps_in_title = previous_show_fps_in_title;
+-        std::lock_guard lock(dialog.mutex);
+-        dialog.error = std::move(error);
 +        for (std::size_t i = 0; i < controllers.size(); ++i)
 +        {
 +          const bool selected = controller_index == static_cast<int>(i);
@@ -2623,16 +3369,12 @@ index 7699c3d..992021f 100644
 +                controller_profile_exists
 +                    ? "Existing " + std::string(CONTROLLER_PROFILE_NAME) + " unchanged"
 +                    : "Ready to generate controller profile";
-           }
++          }
 +          if (selected)
 +            ImGui::SetItemDefaultFocus();
-         }
++        }
 +        ImGui::EndCombo();
-       }
--      ImGui::EndCombo();
--    }
--    const bool previous_show_fps_in_title = show_fps_in_title;
--    if (ImGui::Checkbox("Show FPS in window title", &show_fps_in_title))
++      }
 +      ImGui::BeginDisabled(controller_index < 0);
 +      const std::string replace_profile =
 +          "Replace with generated " + std::string(GENERATED_PROFILE_LABEL);
@@ -2642,11 +3384,9 @@ index 7699c3d..992021f 100644
 +      ImGui::EndDisabled();
 +      describe("The controller for player 1. Replace resets its buttons to the standard layout.");
 +    };
++#endif
 +    const auto netplay_section = [&]
-     {
--      std::string error;
--      if (!moderngekko::frontend::SaveConfig(user_directory, resolutions[resolution_index].text,
--                                             show_fps_in_title, selected_controller, &error))
++    {
 +      ImGui::Spacing();
 +      ImGui::TextUnformatted("Netplay");
 +      ImGui::SetNextItemWidth(220 * scale);
@@ -2658,10 +3398,7 @@ index 7699c3d..992021f 100644
 +      netplay_port = std::clamp(netplay_port, 1, 65535);
 +      ImGui::Checkbox("Automatic input buffer", &automatic_buffer);
 +      if (!automatic_buffer)
-       {
--        show_fps_in_title = previous_show_fps_in_title;
--        std::lock_guard lock(dialog.mutex);
--        dialog.error = std::move(error);
++      {
 +        ImGui::SetNextItemWidth(180 * scale);
 +        ImGui::SliderInt("Buffer frames", &manual_buffer, 1, 20);
 +      }
@@ -2762,7 +3499,9 @@ index 7699c3d..992021f 100644
 +      row_label("Your saves");
 +      std::string_view lines = saves_text;
 +      for (bool first = true; !lines.empty(); first = false)
-+      {
+       {
+-        const bool selected = controller_index == static_cast<int>(i);
+-        if (ImGui::Selectable(controllers[i].label.c_str(), selected))
 +        const std::size_t end = std::min(lines.find('\n'), lines.size());
 +        if (!first)
 +          control_column();
@@ -2789,9 +3528,7 @@ index 7699c3d..992021f 100644
 +      if (ImGui::BeginPopupModal("Import a save?", nullptr,
 +                                 ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
 +                                     ImGuiWindowFlags_NoSavedSettings))
-       {
--        const bool selected = controller_index == static_cast<int>(i);
--        if (ImGui::Selectable(controllers[i].label.c_str(), selected))
++      {
 +        // What happens to the saves there now; re-read, since the game may have saved since
 +        if (ImGui::IsWindowAppearing())
 +          saves_text = moderngekko::frontend::DescribeSaves(user_directory, save_game);
@@ -2924,10 +3661,7 @@ index 7699c3d..992021f 100644
 -        ImGui::SameLine();
 -        if (ImGui::Button("Extract and Play"))
 +        for (const LauncherChoice& choice : choices)
-         {
--          extraction.completed = 0;
--          extraction.total = 1;
--          extraction.running = true;
++        {
 +          const bool selected = choice.value == shown;
 +          if (ImGui::Selectable(choice.text, selected) && !selected)
 +            picked = choice.value;
@@ -3005,7 +3739,10 @@ index 7699c3d..992021f 100644
 +              .detach();
 +        }
 +        else if (!dc_dialog.error.empty())
-+        {
+         {
+-          extraction.completed = 0;
+-          extraction.total = 1;
+-          extraction.running = true;
 +          std::lock_guard import_lock(dc_import.mutex);
 +          dc_import.ok = false;
 +          dc_import.message = "Couldn't open the file picker: " + dc_dialog.error;
@@ -3477,8 +4214,11 @@ index 7699c3d..992021f 100644
 +                        "Ignores small stick movements. Raise it if a stick drifts.");
 +                pad_row("Rumble", "##rumble", &rumble, ON_OFF, {"Rumble/Motor/Range"}, 100,
 +                        "Controller vibration.");
-+                ImGui::Spacing();
-+                ImGui::TextWrapped("Controller: %s", controller_status.c_str());
++                if (!controller_status.empty())
++                {
++                  ImGui::Spacing();
++                  ImGui::TextWrapped("Controller: %s", controller_status.c_str());
++                }
 +              });
 +          tab("Saves", [&]
 +              {
@@ -3515,7 +4255,7 @@ index 7699c3d..992021f 100644
  
      ImGui::Render();
      SDL_SetRenderScale(renderer, io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y);
-@@ -1107,8 +2665,17 @@ int main(int argc, char** argv)
+@@ -1107,8 +2736,17 @@ int main(int argc, char** argv)
    if (launch_mode != LaunchMode::None)
    {
      std::string launch_error;
@@ -3535,7 +4275,7 @@ index 7699c3d..992021f 100644
      {
        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Launch failed", launch_error.c_str(), window);
        result = 1;
-@@ -1163,6 +2730,15 @@ int main(int argc, char** argv)
+@@ -1163,6 +2801,15 @@ int main(int argc, char** argv)
            user_directory / "Logs" / MODERNGEKKO_LOG_FILENAME;
        std::error_code log_error;
        std::filesystem::create_directories(log_path.parent_path(), log_error);
@@ -3551,7 +4291,7 @@ index 7699c3d..992021f 100644
        SDL_IOStream* log_stream =
            log_error ? nullptr : SDL_IOFromFile(log_path.string().c_str(), "w");
        SDL_Process* process = nullptr;
-@@ -1263,6 +2839,8 @@ int main(int argc, char** argv)
+@@ -1263,6 +2910,8 @@ int main(int argc, char** argv)
      }
    }
  
