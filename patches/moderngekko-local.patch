@@ -1729,7 +1729,7 @@ index 0000000..0895367
 +void DrawMapping(State& state, const fs::path& user_directory, float scale);
 +}  // namespace moderngekko::launcher_controls
 diff --git a/tools/moderngekko_launcher.cpp b/tools/moderngekko_launcher.cpp
-index 7699c3d..0c9ae5d 100644
+index 7699c3d..5217750 100644
 --- a/tools/moderngekko_launcher.cpp
 +++ b/tools/moderngekko_launcher.cpp
 @@ -1,12 +1,22 @@
@@ -2518,7 +2518,7 @@ index 7699c3d..0c9ae5d 100644
                                          SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
    if (!window)
    {
-@@ -578,19 +1018,88 @@ int main(int argc, char** argv)
+@@ -578,19 +1018,92 @@ int main(int argc, char** argv)
    ImGui::GetStyle().FontScaleDpi = scale;
    ImGui_ImplSDL3_InitForSDLRenderer(window, renderer);
    ImGui_ImplSDLRenderer3_Init(renderer);
@@ -2604,13 +2604,17 @@ index 7699c3d..0c9ae5d 100644
            moderngekko::GameInspectResult{{}, current_dol_error};
    if (current_metadata && !RequiredGameError(*current_metadata.metadata).empty())
      current_metadata = {{}, RequiredGameError(*current_metadata.metadata)};
++  // A game imported by an earlier release: its main.dol is that release's patched build, which this
++  // release's patch doesn't take, so the disc is needed once more (ExtractDisc refreshes sys/ and
++  // keeps the rest). Said on the home screen, or it looks like a first run with the saves gone.
++  const bool earlier_import = !current_dol_error.empty();
 +  // A disc image to offer, only while there is no playable game yet
 +  std::vector<fs::path> images = current_metadata ? std::vector<fs::path>{} : FindDiscImages();
 +  std::optional<fs::path> selected_image = images.empty() ? std::nullopt : std::optional(images[0]);
    const auto& resolutions = moderngekko::frontend::SupportedResolutions();
    const auto& graphics_backends =
        moderngekko::frontend::SupportedGraphicsBackends();
-@@ -605,6 +1114,42 @@ int main(int argc, char** argv)
+@@ -605,6 +1118,42 @@ int main(int argc, char** argv)
    int netplay_port = config.netplay_port;
    bool automatic_buffer = config.netplay_buffer == "auto";
    int manual_buffer = automatic_buffer ? 5 : std::stoi(config.netplay_buffer);
@@ -2653,7 +2657,7 @@ index 7699c3d..0c9ae5d 100644
    int resolution_index = 0;
    for (std::size_t i = 0; i < resolutions.size(); ++i)
    {
-@@ -621,17 +1166,117 @@ int main(int argc, char** argv)
+@@ -621,17 +1170,117 @@ int main(int argc, char** argv)
    // StateSaves is Dolphin's own state directory, so states written in-game land
    // here without any extra configuration and show up on the next launch.
    //
@@ -2778,7 +2782,7 @@ index 7699c3d..0c9ae5d 100644
    std::vector<ControllerOption> controllers = EnumerateControllers();
    bool controller_profile_exists = moderngekko::frontend::ControllerConfigExists(user_directory);
    std::vector<std::string> configured_controllers =
-@@ -640,11 +1285,22 @@ int main(int argc, char** argv)
+@@ -640,11 +1289,22 @@ int main(int argc, char** argv)
        configured_controllers.empty() ? config.controller : configured_controllers.front();
    int controller_index = FindController(controllers, selected_controller);
    std::string controller_status;
@@ -2803,7 +2807,7 @@ index 7699c3d..0c9ae5d 100644
      {
        std::lock_guard lock(dialog.mutex);
        dialog.error = std::move(message);
-@@ -652,13 +1308,13 @@ int main(int argc, char** argv)
+@@ -652,13 +1312,13 @@ int main(int argc, char** argv)
      }
      std::string error;
      if (!moderngekko::frontend::SaveConfig(user_directory, resolutions[resolution_index].text,
@@ -2819,7 +2823,7 @@ index 7699c3d..0c9ae5d 100644
      configured_controllers = {selected_controller};
      config.controller = selected_controller;
      config.controllers = configured_controllers;
-@@ -674,6 +1330,15 @@ int main(int argc, char** argv)
+@@ -674,6 +1334,15 @@ int main(int argc, char** argv)
      {
        controller_profile_exists = true;
        configured_controllers = moderngekko::frontend::ReadConfiguredControllers(user_directory);
@@ -2835,7 +2839,7 @@ index 7699c3d..0c9ae5d 100644
        if (configured_controllers.empty())
        {
          std::lock_guard lock(dialog.mutex);
-@@ -686,12 +1351,14 @@ int main(int argc, char** argv)
+@@ -686,12 +1355,14 @@ int main(int argc, char** argv)
        controller_status = "Using existing " + std::string(CONTROLLER_PROFILE_NAME);
        return true;
      }
@@ -2850,7 +2854,7 @@ index 7699c3d..0c9ae5d 100644
      return select_controller(controller_index);
    };
    const auto refresh_controllers = [&]
-@@ -726,13 +1393,22 @@ int main(int argc, char** argv)
+@@ -726,13 +1397,22 @@ int main(int argc, char** argv)
      Join,
    };
    bool done = false;
@@ -2873,7 +2877,7 @@ index 7699c3d..0c9ae5d 100644
        ImGui_ImplSDL3_ProcessEvent(&event);
        if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED)
          done = true;
-@@ -744,6 +1420,7 @@ int main(int argc, char** argv)
+@@ -744,6 +1424,7 @@ int main(int argc, char** argv)
      }
      if (controllers_changed)
        refresh_controllers();
@@ -2881,7 +2885,7 @@ index 7699c3d..0c9ae5d 100644
  
      {
        std::lock_guard lock(dialog.mutex);
-@@ -751,14 +1428,34 @@ int main(int argc, char** argv)
+@@ -751,14 +1432,34 @@ int main(int argc, char** argv)
        {
          selected_image = std::move(dialog.selected);
          dialog.selected.reset();
@@ -2917,7 +2921,7 @@ index 7699c3d..0c9ae5d 100644
          if (current_metadata && !RequiredGameError(*current_metadata.metadata).empty())
            current_metadata = {{}, RequiredGameError(*current_metadata.metadata)};
          extraction.finished_game.reset();
-@@ -774,18 +1471,79 @@ int main(int argc, char** argv)
+@@ -774,18 +1475,79 @@ int main(int argc, char** argv)
      ImGui_ImplSDL3_NewFrame();
      ImGui::NewFrame();
      const ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -3008,7 +3012,7 @@ index 7699c3d..0c9ae5d 100644
        if (!launcher_savestates.empty())
        {
          ImGui::TextUnformatted("Start from savestate");
-@@ -820,6 +1578,24 @@ int main(int argc, char** argv)
+@@ -820,6 +1582,24 @@ int main(int argc, char** argv)
          ImGui::TextDisabled("Solo play only.");
          ImGui::Spacing();
        }
@@ -3033,7 +3037,7 @@ index 7699c3d..0c9ae5d 100644
        if (ImGui::Button("Play", ImVec2(180 * scale, 42 * scale)))
        {
          if (ensure_controller())
-@@ -828,7 +1604,9 @@ int main(int argc, char** argv)
+@@ -828,7 +1608,9 @@ int main(int argc, char** argv)
            done = true;
          }
        }
@@ -3044,7 +3048,7 @@ index 7699c3d..0c9ae5d 100644
        if (ImGui::Button("Host Netplay", ImVec2(180 * scale, 42 * scale)))
        {
          if (ensure_controller())
-@@ -884,213 +1662,1064 @@ int main(int argc, char** argv)
+@@ -884,213 +1666,1065 @@ int main(int argc, char** argv)
            }
          }
        }
@@ -3966,7 +3970,8 @@ index 7699c3d..0c9ae5d 100644
 +      // Tight items; Select Disc carries its hint as the bottom line of the same item, so the gap
 +      // below the hint matches the gap between the other items.
 +      const std::string disc_hint =
-+          std::string("Choose your own disc image (") + DISC_FORMATS_TEXT + ") to play.";
++          earlier_import ? std::string("This update needs your disc once more. Your saves and settings are kept.") :
++                           std::string("Choose your own disc image (") + DISC_FORMATS_TEXT + ") to play.";
 +      const char* DISC_HINT = disc_hint.c_str();
 +      // Select Disc and Start Game carry a second line: the disc hint, or which game is ready
 +      const std::string ready_text =
@@ -4266,7 +4271,7 @@ index 7699c3d..0c9ae5d 100644
  
      ImGui::Render();
      SDL_SetRenderScale(renderer, io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y);
-@@ -1107,8 +2736,17 @@ int main(int argc, char** argv)
+@@ -1107,8 +2741,17 @@ int main(int argc, char** argv)
    if (launch_mode != LaunchMode::None)
    {
      std::string launch_error;
@@ -4286,7 +4291,7 @@ index 7699c3d..0c9ae5d 100644
      {
        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Launch failed", launch_error.c_str(), window);
        result = 1;
-@@ -1163,6 +2801,15 @@ int main(int argc, char** argv)
+@@ -1163,6 +2806,15 @@ int main(int argc, char** argv)
            user_directory / "Logs" / MODERNGEKKO_LOG_FILENAME;
        std::error_code log_error;
        std::filesystem::create_directories(log_path.parent_path(), log_error);
@@ -4302,7 +4307,7 @@ index 7699c3d..0c9ae5d 100644
        SDL_IOStream* log_stream =
            log_error ? nullptr : SDL_IOFromFile(log_path.string().c_str(), "w");
        SDL_Process* process = nullptr;
-@@ -1263,6 +2910,8 @@ int main(int argc, char** argv)
+@@ -1263,6 +2915,8 @@ int main(int argc, char** argv)
      }
    }
  
@@ -4356,7 +4361,7 @@ index af1c2a5..1a61395 100644
                 "       moderngekko-port pgo-run <game-root> [--backend c|llvm] [--toolchain auto|clang] [--opt-level 0-3]\n"
                 "               [--output path] [--profile-dir path] [--llvm-profdata path] [--keep-work]\n"
 diff --git a/tools/moderngekko_run.cpp b/tools/moderngekko_run.cpp
-index d6b3569..7f2876b 100644
+index d6b3569..370f310 100644
 --- a/tools/moderngekko_run.cpp
 +++ b/tools/moderngekko_run.cpp
 @@ -4,8 +4,10 @@
@@ -4499,7 +4504,7 @@ index d6b3569..7f2876b 100644
    if (use_default_mods) {
      config.mod_directories.push_back(executable_directory / "Mods");
      config.mod_directories.push_back(config.user_directory / "Mods");
-@@ -266,39 +360,50 @@ int RunMain(int argc, char **argv) {
+@@ -266,39 +360,58 @@ int RunMain(int argc, char **argv) {
      std::cout << "controller configuration: " << controller_message << '\n';
    }
  
@@ -4523,6 +4528,14 @@ index d6b3569..7f2876b 100644
 +            executable_directory / release_game->dol_patch, &dol_changed,
 +            &dol_patch_error)) {
 +      std::cerr << "DOL patching failed: " << dol_patch_error << '\n';
++      // Almost always a game imported by an earlier release (its main.dol is that release's
++      // patched build); the launcher's Select Disc updates it. Said where a player sees it, since
++      // the release runner has no console on Windows.
++      SDL_ShowSimpleMessageBox(
++          SDL_MESSAGEBOX_ERROR, "The game needs updating",
++          "This game was imported by an earlier version. Open the launcher and choose Select Disc "
++          "with the same disc image to update it. Your saves and settings are kept.",
++          nullptr);
 +      return 2;
 +    }
 +    if (dol_changed)
@@ -4575,7 +4588,7 @@ index d6b3569..7f2876b 100644
  #ifdef MODERNGEKKO_REQUIRED_REL_SHA256
    if (inspected.metadata->rel_sha256 != MODERNGEKKO_REQUIRED_REL_SHA256) {
      std::cerr << "unsupported _Main.rel: this release requires its pinned game build\n";
-@@ -385,6 +490,8 @@ int RunMain(int argc, char **argv) {
+@@ -385,6 +498,8 @@ int RunMain(int argc, char **argv) {
          std::move(config), std::move(frontend_config), std::move(options));
    }
  
@@ -4584,7 +4597,7 @@ index d6b3569..7f2876b 100644
    auto created = moderngekko::Runtime::Create(std::move(config));
    if (!created) {
      std::cerr << "initialization failed: " << created.error->message << '\n';
-@@ -409,6 +516,29 @@ int RunMain(int argc, char **argv) {
+@@ -409,6 +524,29 @@ int RunMain(int argc, char **argv) {
    signal_watcher.request_stop();
    if (result.error) {
      std::cerr << "runtime failed: " << result.error->message << '\n';
