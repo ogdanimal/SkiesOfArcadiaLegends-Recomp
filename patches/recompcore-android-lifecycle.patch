@@ -1,0 +1,197 @@
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/activities/EmulationActivity.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/activities/EmulationActivity.kt
+index ccdc639e21..f764bdf241 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/activities/EmulationActivity.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/activities/EmulationActivity.kt
+@@ -1042,8 +1042,14 @@ class EmulationActivity : AppCompatActivity(), ThemeProvider {
+         private const val BACKSTACK_NAME_MENU = "menu"
+         private const val BACKSTACK_NAME_SUBMENU = "submenu"
+ 
++        // Skies Recomp: read by the launcher's UI thread while the emulation thread clears it
++        @Volatile
+         private var ignoreLaunchRequests = false
+ 
++        /** Skies Recomp: a launch is under way or a session is still running. */
++        val isIgnoringLaunchRequests: Boolean
++            get() = ignoreLaunchRequests
++
+         var hasUserPausedEmulation = false
+ 
+         private val skylanderSlots: MutableList<SkylanderSlot> = ArrayList()
+@@ -1131,6 +1137,18 @@ class EmulationActivity : AppCompatActivity(), ThemeProvider {
+                    beforeStart: Runnable? = null) =
+             launch(activity, arrayOf(filePath), riivolution, fromIntent, beforeStart)
+ 
++        /**
++         * Skies Recomp: shows a session that still runs without its Activity (a frontend relaunched
++         * the app with its task cleared). launch() drops this request: that session holds the flag.
++         */
++        @JvmStatic
++        fun resumeSession(activity: FragmentActivity, filePath: String) {
++            val launcher = Intent(activity, EmulationActivity::class.java)
++            launcher.putExtra(EXTRA_SELECTED_GAMES, arrayOf(filePath))
++            launcher.putExtra(EXTRA_RIIVOLUTION, false)
++            activity.startActivity(launcher)
++        }
++
+         private fun launchWithoutChecks(
+             activity: FragmentActivity,
+             filePaths: Array<String>,
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/fragments/EmulationFragment.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/fragments/EmulationFragment.kt
+index 4adef990cc..1335046ca6 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/fragments/EmulationFragment.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/fragments/EmulationFragment.kt
+@@ -210,8 +210,9 @@ class EmulationFragment : Fragment(), SurfaceHolder.Callback {
+                         "Cannot start emulation without any game paths"
+                     }
+                     NativeLibrary.Run(paths, riivolution, temporaryStateFilePath, true)
+-                }
+-                if (launchSystemMenu) {
++                // Skies Recomp: Run returns when that session ends; without the else, Exit Game
++                // booted the game again behind the closing Activity (which crashed on its surface)
++                } else if (launchSystemMenu) {
+                     Log.debug("[EmulationFragment] Starting emulation thread for the Wii Menu.")
+                     NativeLibrary.RunSystemMenu()
+                 } else {
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
+index 75fa22736d..ca78a46c65 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
+@@ -61,6 +61,9 @@ class SkiesLauncherActivity : FragmentActivity() {
+         /** The largest file Import a save copies: a save state of at most 1 GiB plus its header. */
+         const val MAX_IMPORT_BYTES = (1L shl 30) + (1L shl 20)
+ 
++        /** How long the launcher waits for a game it stopped (afterGameClosed) to end. */
++        const val CLOSE_TIMEOUT_MS = 10_000L
++
+         /**
+          * The disc import's result for whichever launcher is showing when it ends: the import runs on
+          * its own thread and outlives the Activity that started it (rotation, dark mode, a new task).
+@@ -168,6 +171,7 @@ class SkiesLauncherActivity : FragmentActivity() {
+ 
+     override fun onDestroy() {
+         handler.removeCallbacks(importPoll)
++        handler.removeCallbacks(closePoll)
+         driverDialog?.dismiss()
+         super.onDestroy()
+     }
+@@ -255,8 +259,8 @@ class SkiesLauncherActivity : FragmentActivity() {
+      */
+     private fun confirmImportSave() {
+         if (org.dolphinemu.dolphinemu.NativeLibrary.IsRunning()) {
+-            openSettings(mainDol.isFile, "Saves", arrayOf("Close the game first: it keeps the " +
+-                "memory card in memory and would write over an imported save.", ""))
++            // Only a game left running without its screen gets here (see refresh)
++            afterGameClosed { confirmImportSave() }
+             return
+         }
+         val hasCard = !SkiesNative.describeSaves(userDirectory.absolutePath).startsWith("Memory card: no saves")
+@@ -522,7 +526,24 @@ class SkiesLauncherActivity : FragmentActivity() {
+                 getString(R.string.skies_dol_sha256)
+             )
+         }
+-        if (gameReady()) {
++        if (gameReady() && org.dolphinemu.dolphinemu.NativeLibrary.IsRunning()) {
++            // The game still runs (paused) without its screen: a frontend relaunched the app with
++            // its task cleared. Continue brings it back; what boots or changes files closes it first.
++            message.text = getString(R.string.skies_ready)
++            addButton(getString(R.string.skies_continue), "Game in progress") {
++                EmulationActivity.resumeSession(this, mainDol.absolutePath)
++            }
++            addButton(getString(R.string.skies_play)) {
++                afterGameClosed {
++                    setAutoLoadCard(0)
++                    launch(null)
++                }
++            }
++            addButton(getString(R.string.skies_change_disc)) {
++                afterGameClosed { pickDisc.launch(arrayOf("*/*")) }
++            }
++            addButton(getString(R.string.skies_settings)) { openSettings(true) }
++        } else if (gameReady()) {
+             message.text = getString(R.string.skies_ready)
+             // Continue: the newer of the newest save state and the newest memory card save (as on
+             // desktop); a card save is loaded on the title screen, so for one it boots normally
+@@ -569,7 +590,8 @@ class SkiesLauncherActivity : FragmentActivity() {
+         settings?.close()
+         column.descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
+         val game = if (ready) getString(R.string.skies_title) + " [GEAE8P]" else null
+-        settings = SkiesSettingsPanel(this, screen, game, { pickDisc.launch(arrayOf("*/*")) },
++        settings = SkiesSettingsPanel(this, screen, game,
++            { afterGameClosed { pickDisc.launch(arrayOf("*/*")) } },
+             { pickDriver.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) },
+             { confirmImportSave() }, { showLicences() }) {
+             column.descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
+@@ -630,6 +652,38 @@ class SkiesLauncherActivity : FragmentActivity() {
+             LinearLayout.LayoutParams.WRAP_CONTENT))
+     }
+ 
++    /**
++     * Runs [action] once no game runs: a session left running without its screen (see refresh) is
++     * stopped first, as Exit Game would, and its emulation thread has ended.
++     */
++    private fun afterGameClosed(action: () -> Unit) {
++        val native = org.dolphinemu.dolphinemu.NativeLibrary
++        if (!native.IsRunning()) {
++            action()
++            return
++        }
++        message.text = "Closing the game…"
++        buttons.removeAllViews()
++        native.StopEmulation()
++        val deadline = android.os.SystemClock.uptimeMillis() + CLOSE_TIMEOUT_MS
++        handler.removeCallbacks(closePoll)
++        closePoll = object : Runnable {
++            override fun run() {
++                val closed = native.IsUninitialized() && !EmulationActivity.isIgnoringLaunchRequests
++                if (!closed && android.os.SystemClock.uptimeMillis() < deadline) {
++                    handler.postDelayed(this, 100)
++                    return
++                }
++                if (!closed) Log.w("SkiesLauncher", "The game didn't close in time")
++                refresh()
++                action()
++            }
++        }
++        handler.post(closePoll)
++    }
++
++    private var closePoll = Runnable {}
++
+     private fun launch(state: File?) {
+         // Only for a launch that goes ahead: a stale driver marker would later read as a crash
+         EmulationActivity.launch(this, mainDol.absolutePath, false) {
+diff --git a/Source/Android/jni/MainAndroid.cpp b/Source/Android/jni/MainAndroid.cpp
+index f5a94f1682..9f31631acf 100644
+--- a/Source/Android/jni/MainAndroid.cpp
++++ b/Source/Android/jni/MainAndroid.cpp
+@@ -63,6 +63,7 @@
+ #include "UICommon/GameFile.h"
+ #include "UICommon/UICommon.h"
+ 
++#include "VideoCommon/AsyncRequests.h"
+ #include "VideoCommon/OnScreenDisplay.h"
+ #include "VideoCommon/Present.h"
+ #include "VideoCommon/VideoBackendBase.h"
+@@ -455,8 +456,22 @@ JNIEXPORT void JNICALL Java_org_dolphinemu_dolphinemu_NativeLibrary_SurfaceChang
+     __android_log_print(ANDROID_LOG_ERROR, DOLPHIN_TAG, "Error: Surface is null.");
+ 
+   if (g_presenter)
++  {
+     g_presenter->ChangeSurface(s_surf);
+ 
++    // A paused game draws nothing, so the new surface (back from Home after Pause) stayed black:
++    // the GPU thread shows the last picture again. Only in dual core, where that thread still
++    // pulls these events while paused (in single core they'd run here, on the UI thread).
++    auto& system = Core::System::GetInstance();
++    if (s_surf && system.IsDualCoreMode() && Core::GetState(system) == Core::State::Paused)
++    {
++      AsyncRequests::GetInstance()->PushEvent([] {
++        if (g_presenter)
++          g_presenter->Present();
++      });
++    }
++  }
++
+   s_surface_cv.notify_all();
+ }
+ 

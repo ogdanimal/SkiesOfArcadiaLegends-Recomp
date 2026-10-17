@@ -1,4 +1,26 @@
-# Handoff: Android build of the Skies recomp (2026-10-05, updated 2026-10-12)
+# Handoff: Android build of the Skies recomp (2026-10-05, updated 2026-10-16)
+
+## Status (2026-10-16): background / foreground tested; three fixes (`recompcore-android-lifecycle.patch`)
+
+Tested on the Retroid (state saved first, user OK): Home / app switcher / screen off and back, in a menu,
+the opening cutscene and a battle, 60 s away, six fast toggles, Home during boot, Android killing the
+process in the background (restored from Dolphin's `temp.sav`), the Z+Start menu open (it doesn't pause
+the core), audio (AudioTrack paused, then started again). All of those resumed at ~59.9 fps. Broken, now
+fixed and checked on the device with `skies-recomp-ws20-bgfix-2026-10-16.apk` (Gradle-only build on the
+ws20 module, installed over the app, data kept):
+- **Pause (Back menu), Home, back: black game area** until Resume. Nothing presents while paused, so
+  the new surface stayed empty. `MainAndroid.cpp` SurfaceChanged: when paused in dual core, an
+  `AsyncRequests` event makes the GPU thread `Present()` the held XFB again. (Dolphin's "Saved State to
+  temp.sav" OSD from `onSaveInstanceState` then stays on that still picture until Resume.)
+- **Exit Game after a process kill + restore: second boot, then SIGSEGV** in `CreateAndroidSurfaceKHR`
+  (upstream `EmulationFragment.kt`: `if (loadPreviousTemporaryState)` lacked an `else`).
+- **Task-clearing relaunch** (`FLAG_ACTIVITY_CLEAR_TASK`, as some frontends do) destroys EmulationActivity
+  but the game keeps running, paused; `launch()` dropped every request (the session holds
+  `ignoreLaunchRequests`). The launcher now shows Continue "Game in progress" (`resumeSession`), and
+  Start Game / Change Disc / Import a save stop the session first (`afterGameClosed`).
+Test helper: `cycle.sh NAME home|recents|screen [seconds]` (scratchpad, not kept): logcat, status.txt,
+two screenshots compared. Return to the app with the LAUNCHER intent + `-f 0x10200000` (EmulationActivity
+isn't exported, so `am start -n` on it fails). Uncommitted at time of writing.
 
 ## Decision (2026-10-11, user agreed): keep Dolphin's hardware layer; own app shell before release
 
