@@ -8,8 +8,9 @@ This is a **beta** (v0.9.0). Please report what you run into.
 
 ## What you need
 
-- Your own dump of the **USA** GameCube disc (game ID `GEAE8P`). Other regions aren't supported yet;
-  the import checks the game and refuses any other version.
+- Your own dump of the **USA** or the **European** GameCube disc (game ID `GEAE8P` or `GEAP8P`, the
+  original release). The European disc has English, German, French and Spanish (**Language** in the
+  settings menu's Gameplay tab). The Japanese release isn't supported; the import checks the game.
 - As RVZ, ISO, GCM, GCZ, WIA or CISO.
 - **Windows:** 64-bit Windows 10 or 11.
 - **Linux:** 64-bit (x86_64), with a Vulkan or OpenGL driver.
@@ -46,8 +47,8 @@ it. It asks first, then opens a file picker. It takes:
 
 A memory card save replaces the file with the same number here; the one it replaces is kept beside
 it as a `.pre-import.bak` file (`.pre-import.2.bak` and so on if you import over it again). A save state is added to the ones you have. **Continue** then starts
-from what you imported. Saves from the European or Japanese version of the game can't be used: this
-port plays the USA version.
+from what you imported. A save has to be from the same version as your disc (USA or European);
+saves from the Japanese version can't be used.
 
 ## What it adds
 
@@ -66,6 +67,16 @@ port plays the USA version.
   newer. A memory card save loads straight into the game, without the intro or title screen.
 - **Import a save** from Dolphin, a GameCube memory card or another device (see *Bringing your
   saves*).
+- **Dreamcast music** (optional), from your own Dreamcast disc: see below.
+
+### Dreamcast music
+
+**Settings → Sound → Import a Dreamcast disc...** in the launcher takes your own Skies of Arcadia
+Dreamcast disc as a **GDI** (with its track files beside it) or a **CHD** (Android: CHD). Either
+disc has most of the music; import both for all of it. Then set **Music** to **Dreamcast**
+(there, or in the settings menu's Sound tab in game). The Dreamcast's sound driver plays the songs
+from your disc on an emulated sound chip, in place of the GameCube music. The streamed tracks (the
+staff roll, the ending and two story scenes) stay GameCube. **Remove** deletes the imported music.
 
 ## Controls
 

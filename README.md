@@ -31,8 +31,11 @@ Versions ending in `-beta` (or `-rc1`, `-rc2`, ...) are published as prereleases
    and patches it for this port; you only do this once.
 3. Press **Start Game**. Later, **Continue** starts from your newest save.
 
-**The disc is the USA GameCube release** (game ID `GEAE8P`), as RVZ, ISO, GCM, GCZ, WIA or CISO.
-Other regions aren't supported yet; the import refuses them.
+**The disc is the USA or the European GameCube release** (game ID `GEAE8P` or `GEAP8P`, the original
+release), as RVZ, ISO, GCM, GCZ, WIA or CISO. The European disc has the text in English, German,
+French and Spanish (**Language** in the settings menu's Gameplay tab) and runs at 60 Hz like the USA
+one. The Japanese release isn't supported. One disc is installed at a time: **Change Disc** replaces
+it.
 
 **Requirements:**
 
@@ -51,7 +54,7 @@ and on Windows. Slower Android devices may not keep 60 fps (see [Slower devices]
 |---|---|
 | **Windows / Linux:** "Failed to create Vulkan device" or a similar message at start | Your graphics driver can't run Vulkan. The game switches to OpenGL by itself and keeps it (**Settings → Display → Graphics backend**). If neither starts, install the latest driver for your graphics card. |
 | **Android:** the game crashes or draws things wrong | **Settings → Graphics → Renderer** switches between Vulkan and OpenGL ES. On Adreno devices, **Settings → Graphics → GPU driver** can load another driver (see [GPU driver](#gpu-driver-android)). |
-| The import refuses your disc | It must be the USA disc (`GEAE8P`). European and Japanese discs aren't supported yet. |
+| The import refuses your disc | It must be the USA (`GEAE8P`) or European (`GEAP8P`) disc, the original release. The Japanese disc isn't supported. |
 | Battle freezes after changing the battle speed | A known issue: change the speed while you choose commands, not while a round plays out. |
 | You want saves from Dolphin, a GameCube or another device | **Settings → Saves → Import a save**; see [Importing a save](#importing-a-save). |
 | **Android:** installing an update fails or asks you to uninstall first | It was signed with a different key (a self-built APK). Uninstalling **deletes your saves**; back them up first with **Settings → Saves → Back up saves**. |
@@ -105,6 +108,8 @@ Most of these are set in game from the settings menu (**hold Z, press Start**), 
   world map; on the world map Z + C-stick left / right also turns around the ship).
 - **Battle speed** up to 4x: tap Z during a battle.
 - **Options:** random encounter rate (off to 4x), EXP / gold / magic EXP (off to 4x), and Invincible.
+- **Dreamcast music** (optional): the Dreamcast version's soundtrack, from your own Dreamcast disc
+  (see [Dreamcast music](#dreamcast-music)).
 - **Save states:** five slots, plus an auto-save every 10 minutes on the field (the newest three are
   kept). Your memory card saves are never touched by a state.
 - **Continue** in the launcher starts from your newest save state or memory card save, whichever is
@@ -124,7 +129,25 @@ it:
   Make one before uninstalling the app, which deletes its saves.
 
 A memory card save replaces the file with the same number; the old one is kept beside it as
-`.pre-import.bak`. Saves from the European or Japanese version can't be used.
+`.pre-import.bak`. A save has to be from the same version as your disc: USA saves with the USA
+disc, European saves with the European disc. Saves from the Japanese version can't be used.
+
+### Dreamcast music
+
+The Dreamcast release of Skies of Arcadia plays the same soundtrack on the Dreamcast's own sound
+chip, and it sounds different from the GameCube version. To hear it here:
+
+1. In the launcher, **Settings → Sound → Import a Dreamcast disc...** and pick your own Skies of
+   Arcadia Dreamcast disc: a **GDI** (with its track files beside it) or a **CHD**. On Android, use a
+   CHD. Either disc has most of the music; import both for all of it.
+2. Set **Music** to **Dreamcast** (launcher **Settings → Sound**, or the settings menu's Sound tab in
+   game; it switches mid-song).
+
+The port runs the Dreamcast's sound driver on an emulated sound chip and plays the songs from your
+disc, in place of the GameCube music. The few streamed tracks (the staff roll, the ending and two
+story scenes) stay GameCube: the Dreamcast recordings differ in length, and those scenes are timed to
+the GameCube ones. **Remove** deletes the imported music. Only the sound driver and
+the music are copied from the disc.
 
 ### GPU driver (Android)
 
