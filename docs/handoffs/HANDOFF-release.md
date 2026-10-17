@@ -1,5 +1,57 @@
 # Handoff: release v0.9.0 beta (Windows, Linux, Android)
 
+## Released (2026-10-17): v0.9.0-beta, then v0.9.1-beta
+
+**v0.9.1-beta is the current release** (prerelease, `4eebf7f`, run 39035626182):
+https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/releases/tag/v0.9.1-beta. Notes are in
+`build/notes-0.9.1-beta.md` (local; `release.sh` puts them on the release).
+
+How it went:
+- **v0.9.0-beta, first try** (run 39004174568, tag on `3bd58db`): every build passed, then `android-sign`
+  failed: the runner's newest build-tools (37.0.0) print `V3.0 Signer: certificate DN:` where older ones
+  printed `Signer #1 certificate DN:`, so `tools/sign-apk.sh` counted no signer. Fixed in `a311b1a`
+  (matches the text after the label; tested with 36.0.0 and 37.0.0). Nothing was published; the tag was
+  deleted and made again on `a311b1a` (run 39027600679, published 11:36 UTC).
+- **A player couldn't install the 0.9.0 APK** ("App not installed" after Play Protect passed, Snapdragon
+  8 Elite Gen 5): it was `android:testOnly`, because `-Pandroid.injected.build.abi` (how the build stays
+  arm64-only) is an Android Studio property and AGP marks such builds test-only; only `adb install -t`
+  takes them, which is why the Retroid never showed it. `838f4c0`: `-Pandroid.injected.testOnly=false`,
+  and `sign-apk.sh` refuses a test-only APK.
+- **No Z on Android controllers** (found writing the controls table): the default profile's Z is SDL's
+  `Shoulder R`, not an Android name; the Retroid only worked because its Z was mapped to L1 by hand. A
+  fresh install also lost the face buttons. `4eebf7f` (HANDOFF-android *2026-10-17*).
+- **v0.9.1-beta** from `4eebf7f` (published 14:32 UTC) carries both Android fixes; Windows and Linux are
+  unchanged. The 0.9.0 APK was deleted from that release, whose notes now point Android players to 0.9.1.
+- Signing: the user approves the `release` environment, or delegates it for one release; before
+  approving check that the run is `release.yml` on the tag at the expected SHA, that only
+  `android-sign` waits and that every other job passed.
+- Every published file was checked: checksums, the APK's signer is the pinned key, no `testOnly`, no
+  disc image / DOL / REL / GCI, and 3000 sampled 32-byte runs of the DOL only matched alphabet and
+  counting tables that the MS runtime DLLs and the fonts hold too.
+- The Retroid runs the release 0.9.1 APK with the user's data (backups in
+  `C:\Users\Public\claude\retroid-backup-20261017`). Restoring with plain `adb pull` / `adb push`
+  resets file times and Continue then picks a stale save: use `adb pull -a` / `adb push -a`.
+- Players found the `dev` builds in the Actions artifacts (the repo is public); the Android one is
+  debug-signed, so it can't update to or from a release install without an uninstall.
+
+After the release, on `dev` (not released yet):
+- `177be84`: a release reuses its commit's codegen. Each cache key's encrypted codegen is also kept as an
+  artifact named by the key for 30 days (once per key), and a cache miss downloads it (it must decrypt
+  with `SOAL_ARTIFACT_KEY`) instead of generating; tags no longer pay ~55 min of codegen. Verified by
+  run 39043183100 (dev cache deleted: codegen job 1.5 min, the reuse step 25 s). A tag must be on a
+  commit validated within 30 days, or it generates again. `177be84` also carries the DC-music
+  session's `lib/HighlyTheoretical` + `lib/libchdr` submodules (staged in the shared checkout and swept
+  into that commit; the user approved keeping them).
+- `b527364`: Android **Back up saves** (Settings → Saves, one `.zip` through the system picker) and
+  Import a save takes that `.zip`; README and release README got the default controller table.
+
+Open:
+- **Nightly prerelease** (latest green `dev` on a fixed `nightly` tag, Android under its own app ID such
+  as `com.skiesofarcadia.recomp.nightly`, no signing approval): **held by the user** (2026-10-17).
+- Other sessions on this repo (2026-10-17): DC music + European disc (shares the main checkout; commit
+  with explicit paths only) and keyboard / remapping / input (own worktree, branch `input`, its own
+  `recompcore-input.patch`).
+
 Decided by the user (2026-10-11): first release **v0.9.0 beta**, **Windows + Android** (Linux later),
 source in a **private repo for now**, Android app ID **`com.skiesofarcadia.recomp`** (like the user's
 other ports). Hard rule: **no game files in anything we build or publish** (no disc, no DOL, no
@@ -22,7 +74,7 @@ linux (30m) passed:
   `gen_module_tables.py`, LLVM apt version, secrets repo HEAD, a hash of the artifact key), and pushes
   to `main` no longer run validate (the tag's release run builds that commit anyway). Caches made on
   `dev` aren't visible to tag runs (GitHub scopes caches to the branch and the default branch), so a
-  release still runs codegen once.
+  release still ran codegen once (until `177be84`: tags now reuse the validated codegen artifact).
 - **Pushes don't start workflows on this repo** (the 10-12 and 10-13 pushes are recorded as
   PushEvents, no runs; Hybrid Heaven, public, runs on every push). validate is started by hand
   (`gh workflow run validate.yml --ref dev`); `release.yml` now also takes `workflow_dispatch` on the
@@ -81,8 +133,8 @@ Release checklist from here:
    `.recomp.json` added (user: status playable; original USA / GEAE8P / disc SHA-1 `46105320...` from
    `dolphin-tool verify`, no problems found; Wikidata Q2292272). Notes: `build/notes-0.9.0-beta.md`.
 4. `tools/release.sh 0.9.0-beta SHA notes.md`; the `release` environment waits for the user's
-   approval (Actions page) before the signed builds.
-5. Retroid onto the release APK.
+   approval (Actions page) before the signed builds. **Done 2026-10-17** (see *Released* above).
+5. Retroid onto the release APK. **Done 2026-10-17** (on 0.9.1-beta).
 
 ## Set up like the N64 recomps (2026-10-12, afternoon)
 

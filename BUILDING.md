@@ -130,7 +130,10 @@ This makes a debug-signed branded APK in `build/android/apk/`. `RELEASE=1 VERSIO
 minified APK, built unsigned by Gradle and then signed with the release key by `tools/sign-apk.sh`
 (`tools/make-release-key.sh`; it refuses an APK not signed with that key). `SIGN=0` stops at the
 unsigned APK, as CI does: there a separate `android-sign` job signs it, so Gradle and the build's
-dependencies never run alongside the signing secrets.
+dependencies never run alongside the signing secrets. The build stays arm64-only through
+`-Pandroid.injected.build.abi`, an Android Studio property that makes the Android Gradle plugin mark the
+APK `android:testOnly` (installable only with `adb install -t`); the script also passes
+`-Pandroid.injected.testOnly=false`, and `tools/sign-apk.sh` refuses a test-only APK.
 
 ### Development builds
 
@@ -161,11 +164,12 @@ GitHub Actions builds every platform the same way:
 - **`validate.yml`** runs on pushes to `dev` (and by hand; `main` only ever moves to a `dev` commit it
   passed). Its `codegen` job is the only one that sees the game: it clones the private secrets repo
   (the original `main.dol` and the PGO profiles) with a read-only token, runs `tools/ci-codegen.sh`,
-  deletes the inputs, and passes the generated code to the build jobs **encrypted** and for one day
-  only. Codegen takes about two hours, so its encrypted output is also kept in the Actions cache,
-  keyed on what it depends on (the DOL patch, DolRecomp and its patches, the table generator, LLVM,
-  the secrets repo's commit, the artifact key); a push that changes none of those reuses it. The `windows`, `linux` and
-  `android` jobs build and upload a package each.
+  deletes the inputs, and passes the generated code to the build jobs **encrypted**. Codegen takes
+  about an hour, so its encrypted output is kept under a key made of what it depends on (the DOL
+  patch, DolRecomp and its patches, the table generator, LLVM, the secrets repo's commit, the artifact
+  key): in the Actions cache, and as an artifact named by that key for 30 days. A run whose inputs
+  are unchanged reuses it; the artifact is what lets a release tag (which can't see `dev`'s cache)
+  reuse what validate made. The `windows`, `linux` and `android` jobs build and upload a package each.
 - **`release.yml`** runs on a `v*` tag on a commit on `main`: it calls `validate.yml` in release mode
   (version from the tag, a signed Android APK), refuses any package that holds a disc image, a DOL or
   generated code, and publishes a GitHub Release with the three packages and `SHA256SUMS.txt`. A tag
@@ -173,7 +177,7 @@ GitHub Actions builds every platform the same way:
 
 Neither runs on pull requests, so code from forks never reaches the secrets.
 
-Repository secrets:
+Secrets (in the `ci` environment, and `release` for signing; none at repository level):
 
 | Secret | What |
 |---|---|
@@ -183,5 +187,8 @@ Repository secrets:
 
 **Cutting a release:** work lands on `dev`; once `validate` is green there, `tools/release.sh VERSION
 SHA NOTES.md` fast-forwards `main` to that commit, tags it, waits for `release.yml` to publish and
-replaces the generated text with the release notes. Release notes say what this release adds or
-fixes, and link the README for everything else.
+replaces the generated text with the release notes. The `android-sign` job waits for the owner's
+approval of the `release` environment (Actions page) before it signs. A tag on a commit validated
+within the last 30 days reuses its codegen, so the release takes about 25 minutes; otherwise it
+generates again (about an hour more). Release notes say what this release adds or fixes, and link the
+README for everything else.

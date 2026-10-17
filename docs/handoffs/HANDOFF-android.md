@@ -1,4 +1,37 @@
-# Handoff: Android build of the Skies recomp (2026-10-05, updated 2026-10-16)
+# Handoff: Android build of the Skies recomp (2026-10-05, updated 2026-10-17)
+
+## Status (2026-10-17): release APK fixes, controller Z, Back up saves
+
+All in `recompcore-android-lifecycle.patch` (the last patch; it now also covers `SkiesImport.cpp`'s
+`ensurePadProfile` and `SkiesSettingsPanel.kt`) or in the build scripts. Release story: HANDOFF-release
+*Released*.
+- **Release APK was test-only** (players: "App not installed"): `tools/android-ws-build.sh` passes
+  `-Pandroid.injected.build.abi=arm64-v8a`, and AGP marks any APK built with an injected ABI
+  `android:testOnly="true"`; only `adb install -t` installs those. Now also
+  `-Pandroid.injected.testOnly=false` (checked on the merged release manifest), and `tools/sign-apk.sh`
+  refuses a test-only APK. `tools/sign-apk.sh` also reads the signer from build-tools 37's apksigner
+  (`V3.0 Signer:` instead of `Signer #1`).
+- **Controllers had no Z**: Dolphin's bundled `SDL Gamepad.ini` maps Z to `Shoulder R`, an SDL name;
+  Android's inputs are `Button R1` / `Button L1`. `ensurePadProfile` (every start) now puts Z on
+  `Button R1` (the right bumper, as on desktop) when Z is empty or a `Shoulder` name, and keeps a Z the
+  player mapped (the Retroid's `Button L1`). On a fresh install there's no `GCPadNew.ini` yet (Dolphin
+  keeps its defaults in memory and writes the file only when settings are saved), and the old code wrote
+  only the sticks, D-pad and triggers, so the face buttons loaded empty: it now writes A / B / X / Y /
+  Start too when missing. Retroid: fresh install -> full profile with Z on R1; a planted `Shoulder R` ->
+  R1; the user's L1 kept.
+- **Back up saves** (Settings → Saves): the memory card saves (every region's `Card A`) and the save
+  states (not `lastState.sav`) go into one `.zip` through `ActivityResultContracts.CreateDocument`, each
+  entry dated as its file. **Import a save** recognises a `.zip` (`PK\3\4`) and imports each file in it
+  through the normal import (content-detected, so names don't matter), oldest first: imported states are
+  dated at import time, so the newest one stays the one Continue loads. Retroid: 7 card saves + 4 states
+  backed up, wiped, imported: 11 of 11, byte-identical, newest import = the 08:27 auto-save. Before this
+  there was no way for a player to keep saves through an uninstall (app storage is closed to file
+  managers, and Dolphin's Export User Data is hidden in the Skies build).
+- Restoring app data by hand: `adb pull -a` / `adb push -a`, which keep file times (Continue picks the
+  newest file). The release build isn't debuggable, so its internal storage (`run-as`) can't be backed
+  up; it only holds touch-overlay positions and first-run flags.
+- Building Android in the shared checkout picks up other sessions' working-tree changes (2026-10-17: the
+  DC-music session's audio code; it broke arm64 twice, `regparm` and a hex escape, both fixed by them).
 
 ## Status (2026-10-16): background / foreground tested; three fixes (`recompcore-android-lifecycle.patch`)
 

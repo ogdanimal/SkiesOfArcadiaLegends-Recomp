@@ -33,7 +33,7 @@ anti-aliasing, battle speed, options. On Android, also Renderer (Vulkan / OpenGL
 
 **Your system**
 - Platform: [Windows / Linux / Android]
-- Version: [e.g. v0.9.0-beta — from the file name or Settings → About]
+- Version: [e.g. v0.9.1-beta — from the file name or Settings → About]
 - **Android:** paste **Settings → About → Copy device info** here (device, chip, GPU driver)
 - **Windows / Linux:** OS version, CPU, GPU and driver version
 - Controller: [e.g. built-in, Xbox, DualSense, keyboard]
