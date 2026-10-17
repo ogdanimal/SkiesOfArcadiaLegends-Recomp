@@ -65,51 +65,33 @@ cmake -G Ninja -S $V/module-template -B $A/module-$NAME \
 ninja -C $A/module-$NAME > $A/module-$NAME.log 2>&1
 mkdir -p $A/jniLibs-$NAME/arm64-v8a
 $NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip --strip-debug -o $A/jniLibs-$NAME/arm64-v8a/libgGEAE8P_recomp.so $A/module-$NAME/gGEAE8P_recomp.so
-# RELEASE=1 (with BRAND=1): a minified release APK signed with the release key
-# (tools/make-release-key.sh; SKIES_KEYSTORE overrides the path, the password is asked for and passed
-# to Gradle through ORG_GRADLE_PROJECT_* variables, never on a command line); VERSION names it
-# (e.g. 0.9.0-beta).
+# RELEASE=1 (with BRAND=1): a minified release APK, built unsigned by Gradle and then signed with the
+# release key by tools/sign-apk.sh (SKIES_KEYSTORE etc. there; the password is asked for or comes
+# from SKIES_STORE_PASS, never a command line). SIGN=0 stops at the unsigned APK (CI signs it in a
+# job of its own, away from Gradle). VERSION names it (e.g. 0.9.0-beta).
 TASK=assembleDebug OUT=app/build/intermediates/apk/debug/app-debug.apk
 SIGN_ARGS=()
 if [ "${RELEASE:-0}" = 1 ]; then
   [ "${BRAND:-0}" = 1 ] || { echo "RELEASE=1 needs BRAND=1"; exit 1; }
-  KS=${SKIES_KEYSTORE:-$HOME/skies-release-key/release.jks}
-  [ -f "$KS" ] || { echo "no release key at $KS (tools/make-release-key.sh)"; exit 1; }
-  if [ -z "${ORG_GRADLE_PROJECT_storepass:-}" ]; then
-    printf 'Release keystore password (hidden): '; IFS= read -rs ORG_GRADLE_PROJECT_storepass; echo
-  fi
-  # The key's own password when given (CI: RELEASE_KEY_PASSWORD), else the store's (make-release-key.sh
-  # makes them the same)
-  export ORG_GRADLE_PROJECT_storepass ORG_GRADLE_PROJECT_keypass=${ORG_GRADLE_PROJECT_keypass:-$ORG_GRADLE_PROJECT_storepass}
-  export ORG_GRADLE_PROJECT_keystore=$KS ORG_GRADLE_PROJECT_keyalias=${SKIES_KEY_ALIAS:-skiesrecomp-release}
-  TASK=assembleRelease OUT=app/build/intermediates/apk/release/app-release.apk
+  TASK=assembleRelease OUT=
   APK=$A/apk/SkiesOfArcadiaLegends-v${VERSION:-$NAME}-android.apk
+  rm -rf $V/Source/Android/app/build/intermediates/apk/release
 fi
 [ -n "${VERSION:-}" ] && SIGN_ARGS+=(-PskiesVersionName=$VERSION)
 cd $V/Source/Android && ./gradlew :app:$TASK \
   -Pandroid.injected.build.abi=arm64-v8a -PrecompJniLibs=$A/jniLibs-$NAME "-PrecompNativeFlags=-mno-outline-atomics $PREFIX_MAP" "${BRAND_ARGS[@]}" "${SIGN_ARGS[@]}" > $A/apk-$NAME.log 2>&1
-mkdir -p $A/apk && cp $OUT $APK
 if [ "${RELEASE:-0}" = 1 ]; then
-  # Refuse a release APK that isn't signed with the release key (a debug-signed one can't update
-  # players' installs): apksigner must verify it, and its signer's certificate digest must be the
-  # keystore's (and, when release/android-signer.sha256 exists, that pinned one too, so a
-  # substituted keystore in the CI secrets is caught). Exit codes are checked, not just matched text.
-  APKSIGNER=$(ls -d $ANDROID_HOME/build-tools/*/apksigner | sort -V | tail -1)
-  CERTS=$($APKSIGNER verify --print-certs $APK) || { echo "apksigner can't verify $APK"; exit 1; }
-  APK_SHA=$(printf '%s\n' "$CERTS" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | tr 'A-F' 'a-f')
-  [ "$(printf '%s\n' "$CERTS" | grep -c '^Signer #[0-9]* certificate DN:')" = 1 ] && [ -n "$APK_SHA" ] ||
-    { echo "$APK doesn't have exactly one signer"; exit 1; }
-  LISTING=$(keytool -list -v -keystore "$ORG_GRADLE_PROJECT_keystore" \
-    -storepass:env ORG_GRADLE_PROJECT_storepass -alias "$ORG_GRADLE_PROJECT_keyalias") ||
-    { echo "keytool can't open the release keystore"; exit 1; }
-  KS_SHA=$(printf '%s\n' "$LISTING" | sed -n 's/^[[:space:]]*SHA256: //p' | head -1 | tr -d ':' | tr 'A-F' 'a-f')
-  [ -n "$KS_SHA" ] && [ "$APK_SHA" = "$KS_SHA" ] ||
-    { echo "$APK is not signed with the release key"; exit 1; }
-  if [ -f "$ROOT/release/android-signer.sha256" ]; then
-    [ "$APK_SHA" = "$(tr -d ' :\n' < "$ROOT/release/android-signer.sha256" | tr 'A-F' 'a-f')" ] ||
-      { echo "$APK is signed with a key other than the pinned release key"; exit 1; }
+  # No keystore property, so Gradle leaves it unsigned (app-release-unsigned.apk)
+  UNSIGNED=(app/build/intermediates/apk/release/*.apk)
+  [ ${#UNSIGNED[@]} = 1 ] && [ -f "${UNSIGNED[0]}" ] || { echo "expected one release APK, found: ${UNSIGNED[*]}"; exit 1; }
+  mkdir -p $A/apk && cp "${UNSIGNED[0]}" ${APK%.apk}-unsigned.apk
+  if [ "${SIGN:-1}" = 1 ]; then
+    "$ROOT/tools/sign-apk.sh" ${APK%.apk}-unsigned.apk $APK && rm ${APK%.apk}-unsigned.apk
+  else
+    APK=${APK%.apk}-unsigned.apk
   fi
-  echo "Signed with the release key ($APK_SHA)"
+else
+  mkdir -p $A/apk && cp $OUT $APK
 fi
 # The Gradle + Kotlin daemons keep ~2.5 GB resident for hours; on the 12 GB WSL VM that
 # starved later game runs into a global OOM (2026-10-11). Release them after each build.

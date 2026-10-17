@@ -18,7 +18,8 @@
 #       pgo/android.profdata at its root
 #   SOAL_ARTIFACT_KEY          -> any long random string (encrypts the codegen artifact)
 #   RELEASE_KEYSTORE_BASE64, RELEASE_STORE_PASSWORD, RELEASE_KEY_PASSWORD, RELEASE_KEY_ALIAS
-#       -> release signing (tools/make-release-key.sh); release mode only
+#       -> release signing (tools/make-release-key.sh); release mode only, and only in the
+#          android-sign job (the android job builds the APK unsigned)
 #
 # Fork PRs cannot run this: push + workflow_dispatch only, so the secrets are never in scope for
 # unmerged code.
@@ -35,6 +36,10 @@ on:
         type: string
         default: ''
   workflow_dispatch:
+    inputs:
+      unsigned_release:   # try the release APK build (unsigned, no signing secrets) without a tag
+        type: boolean
+        default: false
   # main is only ever fast-forwarded to a dev commit this already passed (tools/release.sh), and the
   # tag's release run builds it again, so a push to main isn't validated a second time
   push:
@@ -213,15 +218,9 @@ jobs:
           openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:SOAL_ARTIFACT_KEY -in codegen.tar.gz.enc | tar xzf -
           rm codegen.tar.gz.enc
 
-      - name: Cache LLVM
-        id: llvm-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: C:\llvm
-          key: llvm-${{ env.LLVM_VERSION }}-windows-msvc
-
+      # Not cached: the download, checksum and extract take under a minute, and saving the
+      # extracted tree to the cache took three (2026-10-17 run)
       - name: Download LLVM ${{ env.LLVM_VERSION }}
-        if: steps.llvm-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           curl -sSfL -o "$RUNNER_TEMP/llvm.tar.xz" \
@@ -372,37 +371,79 @@ jobs:
           sdkmanager --install "ndk;29.0.14206865"
           sudo apt-get install -y ninja-build
 
-      # Release mode only: the APK must be signed with the release key, and the build script
-      # verifies the signer before it hands the APK over.
+      # Release mode builds the APK unsigned: Gradle, its plugins and the build's dependencies run
+      # here, so the signing secrets don't. The android-sign job signs it.
+      - name: Build the APK
+        env:
+          RELEASE: ${{ (inputs.release || inputs.unsigned_release) && '1' || '0' }}
+          VERSION: ${{ inputs.vname }}
+        run: |
+          BRAND=1 SIGN=0 NAME=ci PREGEN=codegen/android NDK=$ANDROID_HOME/ndk/29.0.14206865 tools/android-ws-build.sh
+          ls -la build/android/apk/
+
+      - name: Upload APK
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: android-${{ (inputs.release || inputs.unsigned_release) && 'unsigned' || 'debug' }}-${{ github.sha }}
+          path: build/android/apk/*.apk
+          if-no-files-found: error
+          retention-days: ${{ inputs.release && 1 || 7 }}
+
+  # ---------------------------------------------------------------------------
+  # Release mode only: sign the APK with the release key. Nothing runs here but the runner image's
+  # Android SDK (zipalign, apksigner) and JDK (keytool), through tools/sign-apk.sh, which refuses an
+  # APK not signed by exactly the release key (and the pinned one, release/android-signer.sha256).
+  android-sign:
+    name: android-sign
+    if: ${{ inputs.release }}
+    needs: android
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout the signing script
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          sparse-checkout: |
+            tools/sign-apk.sh
+            release/android-signer.sha256
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Download the unsigned APK
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: android-unsigned-${{ github.sha }}
+          path: unsigned
+
       - name: Decode keystore
-        if: ${{ inputs.release }}
         env:
           KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
         run: |
           test -n "$KEYSTORE_B64" || { echo "::error::RELEASE_KEYSTORE_BASE64 is not set -- cannot sign a release."; exit 1; }
           echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
 
-      - name: Build the APK
+      - name: Sign
         env:
-          RELEASE: ${{ inputs.release && '1' || '0' }}
-          VERSION: ${{ inputs.vname }}
           SKIES_KEYSTORE: ${{ runner.temp }}/release.jks
-          # Signing secrets reach this step only in release mode
-          SKIES_KEY_ALIAS: ${{ inputs.release && secrets.RELEASE_KEY_ALIAS || '' }}
-          ORG_GRADLE_PROJECT_storepass: ${{ inputs.release && secrets.RELEASE_STORE_PASSWORD || '' }}
-          ORG_GRADLE_PROJECT_keypass: ${{ inputs.release && secrets.RELEASE_KEY_PASSWORD || '' }}
+          SKIES_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          SKIES_STORE_PASS: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          SKIES_KEY_PASS: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: |
-          BRAND=1 NAME=ci PREGEN=codegen/android NDK=$ANDROID_HOME/ndk/29.0.14206865 tools/android-ws-build.sh
-          ls -la build/android/apk/
+          shopt -s nullglob
+          IN=(unsigned/*-android-unsigned.apk)
+          [ ${#IN[@]} = 1 ] || { echo "::error::expected one unsigned APK, found ${#IN[@]}"; exit 1; }
+          mkdir signed
+          OUT="signed/$(basename "${IN[0]}" -unsigned.apk).apk"
+          tools/sign-apk.sh "${IN[0]}" "$OUT"
+          ls -la signed
 
       - name: Clean up signing material
-        if: ${{ always() && inputs.release }}
+        if: always()
         run: rm -f "$RUNNER_TEMP/release.jks"
 
       - name: Upload APK
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: android-${{ inputs.release && 'release' || 'debug' }}-${{ github.sha }}
-          path: build/android/apk/*.apk
+          name: android-release-${{ github.sha }}
+          path: signed/*.apk
           if-no-files-found: error
           retention-days: 7

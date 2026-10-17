@@ -5,20 +5,23 @@
 # PUBLIC repos, so this runs once the repo is public. Idempotent: run it again to re-assert.
 #   tools/setup-github-protection.sh OWNER/REPO
 # Creates:
-#   environment ci       deployments from the branches dev and main only
-#   environment release  deployments from v* tags only, approved by the repo owner
+#   environment ci       deployments from the branches dev and main and v* tags (the build jobs:
+#                        the secrets repo's token, the artifact key)
+#   environment release  deployments from v* tags only, approved by the repo owner (the android-sign
+#                        job alone: the release signing key)
 #   ruleset "release tags"  only admins create, move or delete v* tags
 #   ruleset "main"          main can't be deleted or force-pushed
 # Then: tools/set-release-secrets.sh --environments (moves the secrets into the environments and
-# deletes the repo-level copies), then the environment: lines in validate.yml.
+# deletes the repo-level copies), then the environment: lines in validate.yml: `environment: ci` on
+# codegen, windows, linux and android, `environment: release` on android-sign.
 set -euo pipefail
 REPO=${1:?usage: tools/setup-github-protection.sh OWNER/REPO}
 [ "$(gh api "repos/$REPO" --jq .visibility)" = public ] ||
   { echo "$REPO isn't public: Environments and rulesets need a public repo on the Free plan."; exit 1; }
 OWNER_ID=$(gh api "users/${REPO%%/*}" --jq .id)
 
-env_with() {  # env_with NAME TYPE PATTERN... [reviewer JSON]
-  local name=$1 type=$2; shift 2
+env_with() {  # env_with NAME TYPE:PATTERN...  (TYPE branch or tag)
+  local name=$1; shift
   local body='{"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}'
   [ "$name" = release ] && body+=",\"reviewers\":[{\"type\":\"User\",\"id\":$OWNER_ID}],\"prevent_self_review\":false"
   body+='}'
@@ -29,12 +32,12 @@ env_with() {  # env_with NAME TYPE PATTERN... [reviewer JSON]
   done
   for p in "$@"; do
     gh api -X POST "repos/$REPO/environments/$name/deployment-branch-policies" \
-      -f name="$p" -f type="$type" >/dev/null
+      -f name="${p#*:}" -f type="${p%%:*}" >/dev/null
   done
-  echo "environment $name: $type $*"
+  echo "environment $name: $*"
 }
-env_with ci branch dev main
-env_with release tag 'v*'
+env_with ci branch:dev branch:main 'tag:v*'
+env_with release 'tag:v*'
 
 ruleset() {  # ruleset NAME JSON
   local id

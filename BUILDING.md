@@ -127,8 +127,10 @@ BRAND=1 NAME=dev PREGEN=codegen/android NDK=$ANDROID_HOME/ndk/29.0.14206865 tool
 ```
 
 This makes a debug-signed branded APK in `build/android/apk/`. `RELEASE=1 VERSION=x.y.z` builds a
-minified APK signed with the release key instead (`tools/make-release-key.sh`; the script refuses an
-APK not signed with it).
+minified APK, built unsigned by Gradle and then signed with the release key by `tools/sign-apk.sh`
+(`tools/make-release-key.sh`; it refuses an APK not signed with that key). `SIGN=0` stops at the
+unsigned APK, as CI does: there a separate `android-sign` job signs it, so Gradle and the build's
+dependencies never run alongside the signing secrets.
 
 ### Development builds
 

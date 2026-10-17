@@ -312,10 +312,12 @@ through the ws18 commit (release + dev builds rebuilt, `build\game\GEAE8P-ws18`,
   only gets on GitHub Pro / Team (Free has them for public repos), plus a tag ruleset (same rule).
   Today the threat isn't there: you are the repo's only collaborator (admin) and nothing is pushed
   yet. When the repo goes public, or on a paid plan: create environments `ci` (deployment branches
-  `main`, `dev`) and `release` (required reviewer: you; deployment tags `v*`), move
-  `SOAL_SECRETS_REPO_WITH_PAT` and `SOAL_ARTIFACT_KEY` into both and the four `RELEASE_*` into
-  `release` only, delete the repo-level copies, then add `environment: ${{ inputs.release &&
-  'release' || 'ci' }}` to validate.yml's codegen / windows / android jobs, and a ruleset that
+  `main`, `dev` and tags `v*`) and `release` (required reviewer: you; deployment tags `v*`), move
+  `SOAL_SECRETS_REPO_WITH_PAT` and `SOAL_ARTIFACT_KEY` into `ci` and the four `RELEASE_*` into
+  `release` (2026-10-17: signing is its own `android-sign` job, so a release waits for one approval,
+  right before signing; `tools/setup-github-protection.sh` + `tools/set-release-secrets.sh
+  --environments` do all of this), delete the repo-level copies, then add `environment: ci` to validate.yml's
+  codegen / windows / linux / android jobs and `environment: release` to `android-sign`, and a ruleset that
   restricts creating `v*` tags to admins. Do the workflow line first only on a plan that has
   environments.
 

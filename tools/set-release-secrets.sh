@@ -7,7 +7,8 @@
 # failure changes nothing.
 #   tools/set-release-secrets.sh [--environments] OWNER/PORT_REPO OWNER/SECRETS_REPO
 # --environments (code review B7, once tools/setup-github-protection.sh has made them): the SOAL_*
-# secrets go into the environments ci and release, the RELEASE_* ones into release only, and the
+# secrets go into the environment ci (the build jobs), the RELEASE_* ones into release (android-sign
+# alone), and the
 # repo-level copies are deleted afterwards.
 set -u
 ENVS=
@@ -69,7 +70,7 @@ if [ -n "$ENVS" ]; then
         gh api "repos/$PORT_REPO/environments/$e" >/dev/null 2>&1 ||
             { echo "No environment $e on $PORT_REPO: run tools/setup-github-protection.sh first -- nothing changed."; exit 1; }
     done
-    SOAL_ENVS=(--env ci --env release) RELEASE_ENVS=(--env release)
+    SOAL_ENVS=(--env ci) RELEASE_ENVS=(--env release)
 else
     SOAL_ENVS=("") RELEASE_ENVS=("")
 fi
