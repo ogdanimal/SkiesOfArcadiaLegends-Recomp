@@ -12,7 +12,9 @@ checkout at the same time (DC music / EU disc, release); see *Coordination*.
 - **Every button and key can be changed**: launcher **Settings → Controls** (table: GameCube input,
   controller button, keyboard key; click, then press; right-click / Delete / pad X unbinds; two
   resets) and the in-game menu **Controls → Button mapping** (same table; A changes, X clears, B back;
-  uses Dolphin's `InputDetector`, so it works on Android too).
+  uses Dolphin's `InputDetector`, so it works on Android too). The controller's A and B can be
+  changed but not cleared (both places): without them a controller, on Android often the only
+  input, can't work the menu any more (found on the Retroid).
 - **Any controller works without setup**: controller 1 moves to an SDL gamepad when its own device
   isn't connected, or when another gamepad is pressed while it has been idle 750 ms (desktop only;
   `SkiesInput::Follow`). Meant for the player report "controller doesn't work through Steam" (cause
@@ -79,12 +81,29 @@ checkout at the same time (DC music / EU disc, release); see *Coordination*.
 - D walks Vyse, A walks back; Esc opens the menu (the game no longer quits), Esc closes it; Space
   (1.5 s) doesn't fast-forward (59.9 fps); the game still running at the end.
 
+## Checked (2026-10-17, Retroid, debug test app)
+
+- `org.dolphinemu.dolphinemu.debug` only (projects-48's ws22 module in an APK built from dev:
+  `NAME=input JNILIBS=<main>/build/android/jniLibs-ws22 tools/android-ws-build.sh`), state 05;
+  the release app untouched. Afterwards 48's APK and the original `GCPadNew.ini` were put back.
+- Real controller input: `adb shell sendevent /dev/input/event8 ...` (the "Retroid Pocket
+  Controller", writable by the shell's `input` group; BTN_SOUTH 304, EAST 305, NORTH 307, WEST 308,
+  TR2 313, SELECT 314, THUMBL 317, ABS_X 0, ABS_HAT0Y 17). `drive.py` automation would bypass the
+  bindings.
+- First start: `Options/Always Connected = True`, `[SkiesHotkeys] Menu = Select`, `Invincible =
+  Button L3 | Button R3`, `Version = 0` (no keyboard). The stick walks Vyse; Select opens / closes the
+  menu; Button mapping shows the Android names as labels (`Axis 1-` = Left stick up); A → Y rebinds
+  and saves, Y then works as A; reset controller buttons (Z back to R1); B back; L3 toggles Invincible.
+- Fixed after it (rebuilt and re-checked there): the controller's A / B no longer clearable, no
+  Left / Right arrows on the Button mapping row, its description names Esc only with a keyboard,
+  "A: reset" on the reset rows (this last one built, not looked at).
+
 ## Not checked yet
 
 - Controller capture in game and in the launcher (no gamepad on WSL), the follow logic with real
   pads, Steam Input.
-- Android: build, the Select hotkey, Android keyboards, the in-game mapping page on the Retroid (ask
-  the user before using the device).
+- Android keyboards (the Retroid has none; `FindKeyboard` ignores the "Virtual" device that adb's
+  `input keyevent` uses).
 - The Android launcher's Settings → Controls has no mapping table (the in-game page covers it);
   `ensurePadProfile` (projects-ac's) untouched.
 

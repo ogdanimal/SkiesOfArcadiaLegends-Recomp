@@ -1107,10 +1107,10 @@ index 3b18d05..7998f2c 100644
    std::string netplay_address = "127.0.0.1";
 diff --git a/tools/launcher_controls.cpp b/tools/launcher_controls.cpp
 new file mode 100644
-index 0000000..78c9530
+index 0000000..39648d7
 --- /dev/null
 +++ b/tools/launcher_controls.cpp
-@@ -0,0 +1,550 @@
+@@ -0,0 +1,561 @@
 +#include "launcher_controls.hpp"
 +
 +#include <array>
@@ -1626,7 +1626,15 @@ index 0000000..78c9530
 +                            (ImGui::IsKeyPressed(ImGuiKey_Delete, false) ||
 +                             ImGui::IsKeyPressed(ImGuiKey_Backspace, false) ||
 +                             ImGui::IsKeyPressed(ImGuiKey_GamepadFaceLeft, false)));
-+        if (clear && state.capture_input < 0)
++        // The controller's A and B stay bound: the in-game menu needs them (as SkiesMenu.cpp)
++        const std::string_view key = inputs[i].key;
++        const bool keep = slot == Slot::Controller && (key == "Buttons/A" || key == "Buttons/B");
++        if (clear && state.capture_input < 0 && keep)
++        {
++          state.status = std::string(inputs[i].label) + " stays bound on the controller (the in-game "
++                                                         "menu needs it): change it instead";
++        }
++        else if (clear && state.capture_input < 0)
 +        {
 +          state.capture_input = i;
 +          state.capture_slot = slot;
@@ -1634,8 +1642,11 @@ index 0000000..78c9530
 +          state.status = std::string(inputs[i].label) + ": unbound";
 +        }
 +        if (ImGui::IsItemHovered() && !capturing)
-+          ImGui::SetTooltip("Click, then press the new %s. Right-click or Delete unbinds it.",
++        {
++          ImGui::SetTooltip(keep ? "Click, then press the new %s." :
++                                   "Click, then press the new %s. Right-click or Delete unbinds it.",
 +                            slot == Slot::Keyboard ? "key" : "button");
++        }
 +      }
 +    }
 +    ImGui::EndTable();

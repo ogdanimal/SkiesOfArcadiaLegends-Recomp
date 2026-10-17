@@ -586,10 +586,10 @@ index 0000000000..579f4a1d11
 +}  // namespace SkiesBindings
 diff --git a/Source/Core/Core/SkiesInput.cpp b/Source/Core/Core/SkiesInput.cpp
 new file mode 100644
-index 0000000000..7310c18629
+index 0000000000..96e2122785
 --- /dev/null
 +++ b/Source/Core/Core/SkiesInput.cpp
-@@ -0,0 +1,666 @@
+@@ -0,0 +1,671 @@
 +// Copyright 2026 Dolphin Emulator Project
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +
@@ -1149,6 +1149,11 @@ index 0000000000..7310c18629
 +  return s_keyboard_active > s_controller_active;
 +}
 +
++bool HasKeyboard()
++{
++  return FindKeyboard() != nullptr;
++}
++
 +bool OwnsKeyboard()
 +{
 +  return s_owns_keyboard;
@@ -1258,10 +1263,10 @@ index 0000000000..7310c18629
 +}  // namespace SkiesInput
 diff --git a/Source/Core/Core/SkiesInput.h b/Source/Core/Core/SkiesInput.h
 new file mode 100644
-index 0000000000..d2ff6bd35a
+index 0000000000..20c14278a6
 --- /dev/null
 +++ b/Source/Core/Core/SkiesInput.h
-@@ -0,0 +1,49 @@
+@@ -0,0 +1,51 @@
 +// Copyright 2026 Dolphin Emulator Project
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +
@@ -1292,6 +1297,8 @@ index 0000000000..d2ff6bd35a
 +bool InvincibleHeld();
 +// True when the keyboard was used more recently than a controller (the menu's hints)
 +bool KeyboardInUse();
++// A keyboard is there (always on desktop; on Android only with one plugged in)
++bool HasKeyboard();
 +// True when the game should have the keyboard to itself: the host window's own keys (fast-forward,
 +// save states, quitting on Escape) stay out of the way (DolphinNoGUI's platforms)
 +bool OwnsKeyboard();
@@ -1363,7 +1370,7 @@ index 8d0ae0c342..a8cb6ffbfa 100644
        {
          RequestShutdown();
 diff --git a/Source/Core/VideoCommon/SkiesMenu.cpp b/Source/Core/VideoCommon/SkiesMenu.cpp
-index 69226d43cd..c20cd7c038 100644
+index 69226d43cd..83f063a945 100644
 --- a/Source/Core/VideoCommon/SkiesMenu.cpp
 +++ b/Source/Core/VideoCommon/SkiesMenu.cpp
 @@ -46,6 +46,8 @@
@@ -1392,7 +1399,7 @@ index 69226d43cd..c20cd7c038 100644
  struct Tab
  {
    const char* name;
-@@ -222,6 +225,24 @@ u16 s_previous = 0;
+@@ -222,6 +225,25 @@ u16 s_previous = 0;
  u16 s_repeat_button = 0;
  Clock::time_point s_repeat_next;
  
@@ -1407,6 +1414,7 @@ index 69226d43cd..c20cd7c038 100644
 +std::vector<std::array<std::string, 2>> s_map_labels;
 +// The hints name keyboard keys while the keyboard is the one in use: these, read when the menu opens
 +bool s_keyboard_hints = false;
++bool s_has_keyboard = false;
 +struct HintKeys
 +{
 +  std::string a = "A", b = "B", x = "X", l = "L", r = "R";
@@ -1417,7 +1425,7 @@ index 69226d43cd..c20cd7c038 100644
  bool IsEurope()
  {
    return SConfig::GetInstance().GetGameID() == "GEAP8P";
-@@ -549,6 +570,8 @@ void Change(Option option, int direction, bool wrap)
+@@ -549,6 +571,8 @@ void Change(Option option, int direction, bool wrap)
    case Option::Rumble:
      v.rumble = v.rumble ? 0 : 1;
      break;
@@ -1426,13 +1434,14 @@ index 69226d43cd..c20cd7c038 100644
    case Option::Encounters:
      v.encounters = Step(ENCOUNTER_RATES, v.encounters, direction, wrap);
      break;
-@@ -656,6 +679,23 @@ void Open()
+@@ -656,6 +680,24 @@ void Open()
    s_repeat_button = 0;
    s_load_confirm = false;
    s_slow_note = false;
 +  s_mapping = false;
 +  s_capturing = false;
 +  s_keyboard_hints = SkiesInput::KeyboardInUse();
++  s_has_keyboard = SkiesInput::HasKeyboard();
 +  const auto key = [](const char* input, const char* fallback) {
 +    const auto inputs = SkiesBindings::Inputs();
 +    for (int i = 0; i < static_cast<int>(inputs.size()); ++i)
@@ -1450,7 +1459,7 @@ index 69226d43cd..c20cd7c038 100644
    ReadSlotTimes();
    NOTICE_LOG_FMT(CORE, "[skies] menu open");
  }
-@@ -923,40 +963,12 @@ void ApplyOverclock(float factor)
+@@ -923,40 +965,12 @@ void ApplyOverclock(float factor)
    }
  }
  
@@ -1495,11 +1504,22 @@ index 69226d43cd..c20cd7c038 100644
    if (down && !s_stick_click)
    {
      const int now_on =
-@@ -1220,8 +1232,90 @@ GCPadStatus FilterClosed(const GCPadStatus& raw)
+@@ -1220,8 +1234,101 @@ GCPadStatus FilterClosed(const GCPadStatus& raw)
    return out;
  }
  
 +// The mapping page's rows: the inputs, then the two resets
++// A binding X may clear: not the controller's A and B, without which a controller (on Android
++// often the only input) could no longer work this page
++bool Clearable(int row, int column)
++{
++  const auto inputs = SkiesBindings::Inputs();
++  if (row < 0 || row >= static_cast<int>(inputs.size()))
++    return false;
++  const std::string_view key = inputs[row].key;
++  return column != 0 || (key != "Buttons/A" && key != "Buttons/B");
++}
++
 +int MappingRows()
 +{
 +  return static_cast<int>(SkiesBindings::Inputs().size()) + 2;
@@ -1566,7 +1586,7 @@ index 69226d43cd..c20cd7c038 100644
 +      OSD::AddMessage(s_map_row == count ? "Controller buttons reset" : "Keyboard keys reset", 2000);
 +    }
 +  }
-+  else if ((pressed & PAD_BUTTON_X) && s_map_row < count)
++  else if ((pressed & PAD_BUTTON_X) && Clearable(s_map_row, s_map_column))
 +  {
 +    SkiesInput::Clear(s_map_row, slot);
 +    ReadMapping();
@@ -1586,7 +1606,7 @@ index 69226d43cd..c20cd7c038 100644
    const std::span<const Option> rows = TABS[s_tab].rows;
    const bool on_tabs = s_selected == TAB_BAR;
    const u16 pressed = Pressed(MenuButtons(raw), !on_tabs && rows[s_selected] == Option::Volume);
-@@ -1275,6 +1369,10 @@ GCPadStatus FilterOpen(const GCPadStatus& raw)
+@@ -1275,6 +1382,10 @@ GCPadStatus FilterOpen(const GCPadStatus& raw)
        s_state_path = SlotPath(s_save_slot);
        Close();
      }
@@ -1597,7 +1617,7 @@ index 69226d43cd..c20cd7c038 100644
      else if (option == Option::LoadState)
      {
        // Loading throws away the play since that state, so it takes a second A.
-@@ -1359,16 +1457,32 @@ GCPadStatus FilterPad(int pad_num, const GCPadStatus& raw)
+@@ -1359,16 +1470,32 @@ GCPadStatus FilterPad(int pad_num, const GCPadStatus& raw)
  #ifdef HAVE_DCMUSIC
    SkiesMusic::Poll(Core::System::GetInstance().GetMemory());
  #endif
@@ -1630,18 +1650,18 @@ index 69226d43cd..c20cd7c038 100644
      out = FilterOpen(raw);
      break;
    case Mode::Closing:
-@@ -1500,6 +1614,10 @@ void Draw(float scale)
+@@ -1500,6 +1627,10 @@ void Draw(float scale)
    bool load_confirm, slow_note;
    int opened_language;
    std::string save_time, load_time;
-+  bool mapping, capturing, keyboard_hints;
++  bool mapping, capturing, keyboard_hints, has_keyboard;
 +  int map_row, map_column;
 +  std::vector<std::array<std::string, 2>> map_labels;
 +  HintKeys keys;
    {
      std::lock_guard lock(s_mutex);
      // The direct load's request goes in as early as the first frame (controller polls start later,
-@@ -1519,6 +1637,13 @@ void Draw(float scale)
+@@ -1519,6 +1650,14 @@ void Draw(float scale)
      slow_note = s_slow_note;
      save_time = SlotTime(s_save_slot);
      load_time = SlotTime(s_load_slot);
@@ -1651,23 +1671,25 @@ index 69226d43cd..c20cd7c038 100644
 +    map_column = s_map_column;
 +    map_labels = s_map_labels;
 +    keyboard_hints = s_keyboard_hints;
++    has_keyboard = s_has_keyboard;
 +    keys = keyboard_hints ? s_hint_keys : HintKeys{};
    }
  
    struct Row
-@@ -1590,6 +1715,11 @@ void Draw(float scale)
+@@ -1590,6 +1729,12 @@ void Draw(float scale)
                "Ignores small stick movements. Raise it if a stick drifts."};
      case Option::Rumble:
        return {"Rumble", OnOff(v.rumble != 0), "Controller vibration."};
 +    case Option::Mapping:
 +      return {"Button mapping", "Change...",
-+              keyboard_hints ? "The controller button and keyboard key for each GameCube button." :
-+                               "The controller button and keyboard key for each GameCube button. "
-+                               "The keyboard plays too: Esc opens this menu."};
++              keyboard_hints || !has_keyboard ?
++                  "The controller button and keyboard key for each GameCube button." :
++                  "The controller button and keyboard key for each GameCube button. "
++                  "The keyboard plays too: Esc opens this menu."};
      case Option::Music:
      {
  #ifdef HAVE_DCMUSIC
-@@ -1623,11 +1753,22 @@ void Draw(float scale)
+@@ -1623,11 +1768,25 @@ void Draw(float scale)
    const std::span<const Option> options = TABS[tab].rows;
    const bool on_tabs = selected == TAB_BAR;
    const Option current = on_tabs ? options[0] : options[selected];
@@ -1682,7 +1704,10 @@ index 69226d43cd..c20cd7c038 100644
 +  const std::string hint =
 +      mapping   ? (capturing ? std::string("Press the new button or key (wait to keep the old one)") :
 +                               "Up / Down: choose    Left / Right: column    " + keys.a +
-+                                   ": change    " + keys.x + ": clear    " + keys.b + ": back") :
++                                   (map_row < static_cast<int>(map_labels.size()) ? ": change    " :
++                                                                                     ": reset    ") +
++                                   (Clearable(map_row, map_column) ? keys.x + ": clear    " : "") +
++                                   keys.b + ": back") :
 +      on_tabs   ? "Left / Right or " + keys.l + " / " + keys.r + ": tab    Down or " + keys.a +
 +                    ": settings" + close :
 +      current == Option::SaveState ? tabs + "Up / Down: choose    Left / Right: slot    " + keys.a +
@@ -1695,7 +1720,7 @@ index 69226d43cd..c20cd7c038 100644
  
    // The layout is in units of the picture (a 480-line picture = 1 unit per pixel), times the
    // launchers' text size, shrunk to fit the screen. Every length comes from these constants, not
-@@ -1690,8 +1831,75 @@ void Draw(float scale)
+@@ -1690,8 +1849,75 @@ void Draw(float scale)
                  14.0f * u, 0, std::max(1.0f, 1.5f * u));
  
    float y = PAD;
@@ -1772,7 +1797,19 @@ index 69226d43cd..c20cd7c038 100644
  
    // Tabs: the current one blue with a gold line on top
    float x = PAD;
-@@ -1745,9 +1953,8 @@ void Draw(float scale)
+@@ -1728,8 +1954,10 @@ void Draw(float scale)
+                         is_selected ? IM_COL32(41, 66, 118, 255) : IM_COL32(26, 41, 77, 255),
+                         6.0f * u);
+     if (is_selected)
+-    {
+       draw->AddRect(box_a, box_b, gold, 6.0f * u, 0, std::max(1.0f, 2.0f * u));
++    // Arrows where Left / Right change the value
++    if (is_selected && options[i] != Option::Mapping)
++    {
+       const float mid = y + BOX_H * 0.5f, s = 5.0f;
+       const float lx = PAD + LABEL_W + 10.0f, rx = PAD + LABEL_W + VALUE_W - 10.0f;
+       draw->AddTriangleFilled(at(lx, mid), at(lx + s, mid - s), at(lx + s, mid + s), gold);
+@@ -1745,9 +1973,8 @@ void Draw(float scale)
    }
  
    // Footer: the controls for the selected row
