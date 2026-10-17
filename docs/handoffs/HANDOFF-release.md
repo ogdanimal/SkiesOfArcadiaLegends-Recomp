@@ -64,6 +64,11 @@ then. What it will carry (on `dev` or being committed):
 - The USA game patch moves from ws20 to **ws22** (the Dreamcast music hooks; inert unless the option is
   on and a disc is imported).
 
+Committed for it (2026-10-17, local `dev`, **not pushed**: the user keeps it local until they say so):
+`c131c82` DC music + European disc + the DolRecomp fix (ws22), `9e32e7f` keyboard + remapping (the
+`input` patch last in the series). A release build folder configured before `c131c82` still points at
+ws20: configure again (`REGIONS="us eu" tools/build-release-linux.sh configure`).
+
 Blocking the release:
 - The Retroid at full speed, 60 fps, on ws22 with the current `android.profdata` (ask the user first).
 - A USA regression pass: Continue / card autoload, a battle at a QOL speed, and **0.9.1 save states
