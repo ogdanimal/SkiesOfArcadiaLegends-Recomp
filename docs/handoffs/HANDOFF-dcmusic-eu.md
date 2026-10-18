@@ -16,7 +16,7 @@ file: HANDOFF-release.md *Released*). Committed as `c131c82` (the work), then `1
 |---|---|
 | `patches/game/` | ws22: `dcmusic.c` (paused song, channel-volume table), `fullwidth.S` (European widescreen fix: `ws_ortho_m00`), `widescreen.json`, `qol.c` (`dcm_frame`), `GEAP8P.addresses.json`, README |
 | `tools/` | `gamepatch.py` (European DOL, refuses 16-bit address halves), `dolmatch.py`, `dcmusic/`, `ci-codegen.sh`, `build-release-linux.sh`, `build-release-win.bat`, `android-ws-build.sh`, `module-win.bat`, `module-llvm-win.sh` (GAME_ID) |
-| `release/` | `skies-widescreen.dolpatch` (USA, now ws22, output `e58354e5`), `skies-widescreen-eu.dolpatch` (ws22, `30904d88`), `GEAP8P.ini`, `THIRD-PARTY.md` |
+| `release/` | `skies-widescreen.dolpatch` (USA, ws22 at the release, output `e58354e5`; ws23 `018a9ffb` since `b1493b4`), `skies-widescreen-eu.dolpatch` (ws22 `30904d88`; ws23 `8b556a56`), `GEAP8P.ini`, `THIRD-PARTY.md` |
 | `patches/` | `recompcore-skies-dcmusic-eu.patch` (new; in `recompcore.series` before `recompcore-input.patch`), `dolrecomp-halfword-byterev.patch` (new; in `tools/apply-patches.sh` / `check-patches.sh`), `moderngekko-local.patch` (regenerated), README |
 | `lib/HighlyTheoretical`, `lib/libchdr` | submodules (already on dev since `177be84`) |
 | docs | `development-notes.md`, the decomp's `docs/sound.md` (separate repo, untracked) |
@@ -59,14 +59,18 @@ synced 2026-10-17: the branded release (`lib\ModernGekko\build-release`, `REGION
 
 1. **European speed on the Retroid:** measured 2026-10-17 evening, **0.93 (55 fps)** in the
    European ship battle against 1.003 for the USA one on the same APK (HANDOFF-android.md, top), so a
-   European Android profile is needed. `build/android/apk/skies-ws22eu-2026-10-17.apk` (debug test app, both modules)
-   is built for it, or the release APK once the user updates the Retroid. Ask before using the
-   device. If it misses 60 fps: a European Android profile (`pgo/android-eu.profdata` in the secrets
-   repo, trained on the device), and a desktop one with `tools/pgo-wsl.sh` on the European DOL.
+   European Android profile is needed: train it on ws23 (the game patch changed after the
+   measurement; the plan: HANDOFF-android.md *European PGO profile*). Three
+   more European states exist (`eu-05-pirate-base`, `eu-07-red-alarm`, `eu-10-worldmap`, made under
+   ws22 from card saves; ws23 repairs their empty resident table on load). A desktop European profile
+   (`tools/pgo-wsl.sh` on the European DOL) is open too. Ask before using the device.
 2. **Android Dreamcast import** (Settings → Sound, CHD) and an Android European disc import: in the
    release APK, not tried on a device by this session.
 3. **Streamed music** (`m01`-`m04`) stays GameCube: different recordings of different lengths, and
    the staff roll and ending are timed to them.
+4. **Continue crash (found while making those states, fixed in ws23 `b1493b4`):** the first battle
+   after a Continue from a card save read `0x00000004`, both games (development-notes *Memory card
+   auto-load*). Release patches are ws23: USA output `018a9ffb`, European `8b556a56`.
 
 ## Done (history of the open list before the release)
 

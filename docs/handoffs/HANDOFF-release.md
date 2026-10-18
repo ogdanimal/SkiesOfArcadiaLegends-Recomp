@@ -92,10 +92,20 @@ For the next release, on `dev` (local commits, not pushed on 10-17 night):
   through the launcher's home menu, and a profile with no controller buttons gets the default layout
   (HANDOFF-input *Steam Controller*). Release-note wording: the controller works in the launcher's
   menu; Steam Controller names; fullscreen fixes.
+- `b1493b4` Game patch **ws23**: Continue from a memory card save crashed the first battle ("Invalid
+  read from 0x00000004", black screen; ws20-ws22, so 0.9.0 to 0.10.0, both games, every platform),
+  and save states made after such a Continue carried it. Checked on the Retroid in both games; desktop
+  not run yet (HANDOFF-desktop). Release patches ws23 (USA output `018a9ffb`, European `8b556a56`);
+  players' imports get repatched on update as for 0.10.0. Release-note wording: "Fixed: the first
+  battle after Continue from a memory card save could crash (black screen)". Workaround for 0.10.0
+  players until then: Continue from a save state, or start the game and load from the title menu.
+  Draft notes for these: `build/notes-next.md` (local).
 
 - Held by the user: the **nightly prerelease** (latest green `dev` on a fixed `nightly` tag, Android
   under its own app ID such as `com.skiesofarcadia.recomp.nightly`, no signing approval).
-- European speed on the Retroid (ask before using the device); a European PGO profile if it misses 60.
+- European Android PGO profile: the European game runs 0.93x (55 fps) on the Retroid against 1.003 for
+  the USA one (HANDOFF-android top); train `pgo/android-eu.profdata` on ws23, add it to the secrets
+  repo (ask before using the device).
 - The Retroid still runs the 0.9.1 release app with the user's data; 0.10.0-beta installs over it
   (same key). Ask before updating it.
 

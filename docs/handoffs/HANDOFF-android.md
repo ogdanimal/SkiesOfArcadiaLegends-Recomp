@@ -1,5 +1,59 @@
 # Handoff: Android build of the Skies recomp (2026-10-05, updated 2026-10-17)
 
+## European PGO profile (plan, 2026-10-17 night; not started)
+
+Why: the European game runs 0.930 (55 fps, two runs) in `eu-17-ship-battle-baltor` against 1.003 for
+the USA one on the same APK (status below). The USA module has the device profile; the European one
+has none (profiles are keyed by fixed address chunks, so the USA one can't be reused). Train on
+**ws23** (`b1493b4`); a later game patch change costs only the changed functions (`hash mismatch`).
+
+Setup already on the Retroid's debug test app (`org.dolphinemu.dolphinemu.debug`): ws23 APK, ws23
+DOLs in `files/Games/SkiesOfArcadiaLegends` and `files/Games/GEAP8P` (`ISOPath1`; the app's game list
+must have been opened once after adding it), the European card saves (`8P-GEAP-SA_LEGENDS.000-002`
+in `GC/USA/Card A`). Boot it with `GAME=GEAP8P tools/android-boot.sh` (`SERIAL=<the device's serial>`,
+`ADB_AUTO=/sdcard/Android/data/org.dolphinemu.dolphinemu.debug/files/Automation` for drive.py).
+European addresses for peeks: game mode `0x8034ACEC` (6 field, 7 battle), battle state `0x8034AA94`
+(4+ running), resident loader state `0x8034AF50` (5 = loaded).
+
+1. **States, on ws23.** Load `eu-05-pirate-base`, `eu-07-red-alarm`, `eu-10-worldmap` (ws22-made: wait
+   ~3 s for the resident files, then save them again as `eu-*-ws23.sav` so training doesn't start with
+   the repair). Add a battle: from `eu-10-worldmap` hold `main_y=1` in 120-frame steps until the mode
+   is 7 and the battle state 4+ (2-4 steps), wait 3 s, save `eu-02-worldmap-battle.sav`. Optional: an
+   opening state (no card save: title, New Game, into the opening cutscene). Keep
+   `eu-17-ship-battle-baltor`. Five or six states, like the USA set (01-04 + red alert + world map).
+2. **Baseline** with the current APK (no European profile): `tools/bench-android.sh ws23eu-base
+   eu-...` with `GAME=GEAP8P` exported (bench boots fresh per state). Two rounds (device noise: never
+   one run).
+3. **Instrumented European module.** As *Retraining* further down this file, with
+   `GAME_ID=GEAP8P` and the ws23 European DOL: `dolrecomp ... --profile-generate 'skies-%m.profraw'`
+   into `build/android/llvm-gen-ws23pgo-GEAP8P` (copy `main.dol` into `generated/`), cmake with
+   `-DGAME_ID=GEAP8P -DCMAKE_SHARED_LINKER_FLAGS="-fprofile-generate -Wl,-z,max-page-size=16384"`,
+   ninja, strip to `libgGEAP8P_recomp.so`. Put it beside the ws23 USA module in a new folder
+   (`build/android/jniLibs-ws23pgo-gen/arm64-v8a/`, copy `libgGEAE8P_recomp.so` from
+   `jniLibs-ws23-mods`) and build the APK with `NAME=ws23pgo-gen JNILIBS=build/android/jniLibs-ws23pgo-gen`
+   (`JNILIBS` must not be the script's own `jniLibs-NAME`: it deletes that first). Install with
+   `adb install -r -t`.
+4. **Train.** Move old `files/PGO/*.profraw` aside. Per state: `GAME=GEAP8P tools/android-boot.sh`,
+   `drive.py load:... wait:16`, then `speed:30` (cutscene, battles) or walking for the field states
+   (`hold:main_y=1:150 hold:main_x=1:150 hold:main_y=-1:150 hold:main_x=-1:150 speed:20`; world map:
+   fly), then `stop` (writes one `.profraw` per state). Pull `files/PGO/`, then
+   `llvm-profdata-20 merge -o build/android/pgo/skies-android-eu.profdata <profraws>`.
+5. **Profiled build.** `NAME=ws23 tools/android-ws-build.sh` picks up `build/android/pgo/skies-android-eu.profdata`
+   for the European module by itself (USA keeps `skies-android-gp.profdata`). Check
+   `build/android/llvm-gen-ws23-GEAP8P.log` for `hash mismatch` (should be few). Install, then bench
+   the same states two rounds: the target is >= 1.00 everywhere, like the USA set.
+6. **Ship it.** Copy the profile to the private secrets repo as `pgo/android-eu.profdata` (the user's
+   call; `tools/ci-codegen.sh` uses it when present, else no PGO), then a validate run. A desktop
+   European profile (`tools/pgo-wsl.sh` on the European DOL -> `pgo/windows-eu.profdata`) is separate.
+
+Gotchas: WSL's `/tmp` is a RAM tmpfs that other sessions fill; Gradle then fails with "No space left
+on device": build with `JAVA_TOOL_OPTIONS=-Djava.io.tmpdir=$HOME/.cache/gradle-tmp
+GRADLE_OPTS=-Dorg.gradle.daemon=false`. The Retroid's swipe lock screen stops boots: set
+`settings put global stay_on_while_plugged_in 2` for the session and back to `0` after
+(`android-boot.sh` dismisses the keyguard). `[Skies] AutoLoadCard = N` in `Config/Dolphin.ini` loads
+card file N at boot once (the runtime clears it). Only Windows' `adb.exe`, never WSL's `adb`. The user
+plays on the Retroid: ask before using it.
+
 ## Status (2026-10-17, late): v0.10.0-beta
 
 - **Release APK** (HANDOFF-release *Released*): both games' modules (`libgGEAE8P_recomp.so`,

@@ -36,8 +36,10 @@ default. A module linked before the gather-pipe patches (late 2026-10-06), inclu
 rebuilt.
 
 The game with the recomp's features (widescreen, camera, options; *The player build*) runs from the
-patched DOL with a module built from that same DOL. Current (2026-10-17, game patch **ws22**, shipped in
-**v0.10.0-beta**): on Windows `build\game\GEAE8P-ws22` with `build\modules-llvm-pgo-ws22b\gGEAE8P_recomp.dll`
+patched DOL with a module built from that same DOL. Released (game patch **ws22**, in **v0.10.0-beta**);
+on `dev` since 2026-10-17 night **ws23** (the Continue fix, *Memory card auto-load*), built so far only
+for Android (`build/game/GEAE8P-ws23` / `GEAP8P-ws23`, `build/android/apk/skies-ws23-2026-10-17.apk`
+on the debug test app); the desktop trees below are still ws22. On Windows `build\game\GEAE8P-ws22` with `build\modules-llvm-pgo-ws22b\gGEAE8P_recomp.dll`
 (European: `build\modules-llvm-eu-ws22b`, no PGO; dev runner `lib\ModernGekko\build\moderngekko-run.exe`)
 or the branded release (`Skies of Arcadia Legends.exe`, *Launcher and release*); on WSL
 `build/game/GEAE8P-ws22` / `GEAP8P-ws22` with `build/us-gen22/module-linux` / `build/eu-gen22/module-linux`
@@ -46,9 +48,9 @@ or the branded release (`Skies of Arcadia Legends.exe`, *Launcher and release*);
 configured with `REGIONS="us eu"` (`lib/ModernGekko/build-release-linux`). A release build refuses any
 DOL but its pinned ws22 output. On Android the branded app imports the player's disc: the Retroid runs
 the **0.9.1 release app** (`com.skiesofarcadia.recomp`, the user's data; 0.10.0-beta installs over it,
-ask first) and the debug test app (`org.dolphinemu.dolphinemu.debug`) for dev APKs (ws22:
-`build/android/apk/skies-ws22-2026-10-17.apk`; with the European module
-`skies-ws22eu-2026-10-17.apk`, not run yet); handoffs/HANDOFF-android.md.
+ask first) and the debug test app (`org.dolphinemu.dolphinemu.debug`) for dev APKs (now ws23, both
+games: `build/android/apk/skies-ws23-2026-10-17.apk`; ws22 `skies-ws22-2026-10-17.apk` and with the
+European module `skies-ws22eu-2026-10-17.apk`); handoffs/HANDOFF-android.md.
 
 ### Controller and keyboard (2026-10-17)
 

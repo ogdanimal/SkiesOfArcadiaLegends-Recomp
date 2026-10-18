@@ -25,7 +25,9 @@ works is in NOTES *The player build* (controls, settings keys, menu, camera, opt
   from the user's state: two battles to the end, then on the Retroid by the user). Continue from a card
   save now loads it in the game patch itself (`autoload.c`), no logos / intro / title / load screen:
   ~6 s from launch on Windows, RAM identical to a menu load; Retroid ws20 APK checked by the user ("all
-  good on retroid"). Files 1-99 (the old button-driving refused files past 3), and the launchers fall back to the
+  good on retroid"). **Correction (2026-10-17):** it wasn't identical: skipping the logos also skipped
+  the resident files' load, and the first battle after such a Continue crashed (ws20-ws22, all
+  platforms); fixed in ws23 (`b1493b4`, development-notes *Memory card auto-load*). Files 1-99 (the old button-driving refused files past 3), and the launchers fall back to the
   newest state when the newest card save can't be auto-loaded.
 
 - **Import a save (2026-10-12, user request: "same behavior as goemon and hybrid heaven", card saves

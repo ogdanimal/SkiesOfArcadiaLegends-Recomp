@@ -6,14 +6,16 @@ set -euo pipefail
 ADB=${ADB:-adb.exe}
 SERIAL=${SERIAL:-}
 PKG=${PKG:-org.dolphinemu.dolphinemu.debug}
+GAME=${GAME:-GEAE8P}  # GEAP8P: the European game (its folder in the app's ISOPath list)
 AUTO=/sdcard/Android/data/$PKG/files/Automation
 adb() { "$ADB" ${SERIAL:+-s "$SERIAL"} "$@"; }
 # Wake the screen first: launching the activity while the device sleeps never reaches state=running.
 adb shell input keyevent KEYCODE_WAKEUP
+adb shell wm dismiss-keyguard
 adb shell "am force-stop $PKG; mkdir -p $AUTO; rm -f $AUTO/status.txt $AUTO/commands/*"
 adb logcat -c
 adb shell am start -n "$PKG/org.dolphinemu.dolphinemu.activities.AppLinkActivity" \
-  -d dolphinemu://app/play/0/GEAE8P >/dev/null
+  -d dolphinemu://app/play/0/$GAME >/dev/null
 for _ in $(seq 120); do
   adb shell "grep -q state=running $AUTO/status.txt 2>/dev/null" && exit 0
   sleep 1

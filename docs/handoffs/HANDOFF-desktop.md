@@ -21,6 +21,11 @@ Two local commits on `dev` for the next release (players' reports on 0.10.0-beta
 - `0e3a0cf`, controllers (HANDOFF-input *Steam Controller*): launcher names pads as the game does,
   pad navigation on the home menu, profiles without controller bindings filled.
 
+Game patch **ws23** since `b1493b4` (the Continue fix, development-notes *Memory card auto-load*):
+checked on the Retroid only; no desktop module or release build has it yet. Before the next release,
+a Windows check: Continue from a card save, then a battle (a release build configured after the
+commit pins ws23 through the dolpatch's `output-sha256`).
+
 Test tree: `C:\dev\SkiesInput` (`lib\ModernGekko\build-release`, ws22 pins) has both; build only
 `moderngekko-run` / `moderngekko-launcher` there from a `.bat` that calls `vcvars64.bat` (a quoted path
 in `cmd.exe /c` from WSL fails). Scripts in its `build\`: `fs-test.ps1` (fullscreen at boot + Alt+Enter,
