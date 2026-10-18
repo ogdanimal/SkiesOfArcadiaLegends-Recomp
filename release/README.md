@@ -35,7 +35,12 @@ the app updates the imported disc by itself.
 
 Your saves and settings are kept in `%LOCALAPPDATA%\Skies of Arcadia Legends` (Windows),
 `~/.local/share/Skies of Arcadia Legends` (Linux) or in the app's own storage (Android). Uninstalling the Android app deletes them, so make a backup first
-(**Settings → Saves → Back up saves**).
+(**Settings → Saves → Back up saves**), or move them out of the app's storage.
+
+**Settings → Disc → Data folder → Change...** moves them to a folder or drive of your choice; the
+launcher starts again on it. On Android (11 or later) it asks for All files access first (the game reads its files
+by name there), and the data then stays when the app is uninstalled. On Windows and Linux, an empty
+`portable.txt` beside the program keeps everything in a `User` folder beside it instead.
 
 ### Bringing your saves
 

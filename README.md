@@ -197,7 +197,20 @@ Your imported game, saves and settings are kept in:
 |---|---|
 | **Windows** | `%LOCALAPPDATA%\Skies of Arcadia Legends` |
 | **Linux** | `~/.local/share/Skies of Arcadia Legends` |
-| **Android** | The app's own storage. Uninstalling deletes it: back up first (**Settings → Saves → Back up saves**). |
+| **Android** | The app's own storage. Uninstalling deletes it: back up first (**Settings → Saves → Back up saves**), or move it out. |
+
+To keep them somewhere else, open **Settings → Disc → Data folder → Change...** and pick a folder or
+drive: everything moves there (into a folder named *Skies of Arcadia Legends*) and the launcher starts
+again on it. **Move Back to the Default** returns it. Picking a folder that already holds this port's
+data (from another install, or after reinstalling) uses it as it is. If the folder isn't there at
+start (a drive not connected), the launcher asks: try again or use the default folder.
+
+- **Portable (Windows and Linux):** an empty file named `portable.txt` beside the program keeps
+  everything in a `User` folder beside it, for example on a USB drive. Copy that folder along when you
+  update to a new version.
+- **Android (11 or later):** Change offers internal storage, an SD card or another folder, and asks for **All files
+  access** first (the game reads its files by name, which Android allows outside the app's own storage
+  only with it). Moved out, the data stays when the app is uninstalled and a file manager can reach it.
 
 Nothing from the game is in this repository or in any build: the launcher reads your disc, and the
 port's changes to the game are applied to your copy as a patch.

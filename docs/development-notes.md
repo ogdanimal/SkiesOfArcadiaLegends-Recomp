@@ -575,6 +575,76 @@ itself (59.9 fps); an imported state started from Continue; pad A on the prompt 
 Downloads view lists files from the media index, which doesn't see files pushed with adb: browse from
 the device's root ("Retroid Pocket 5" -> Download) instead.
 
+### Data folder (2026-10-17)
+
+User request: the data folder somewhere other than `%LOCALAPPDATA%`, on every platform if possible.
+User decisions: on desktop a **Settings row that moves the data** plus a **portable mode**; on Android
+an **opt-in move with All files access**.
+
+One implementation, `lib/ModernGekko/tools/user_directory.{hpp,cpp}` (`moderngekko-local.patch`,
+standard library only, unit test `tests/user_directory_test.cpp`), used by the launcher, the runner and,
+through `jni/SkiesImport.cpp` (`recompcore-data-folder.patch`), the Android app:
+
+- **Which folder:** `portable.txt` beside the programs → `<exe dir>/User`; else `data-folder.txt` in
+  the default folder (one UTF-8 line, an absolute path) → that folder; else the default
+  (`%LOCALAPPDATA%` through `_wgetenv`, `$XDG_DATA_HOME` if absolute, `~/.local/share`). A pointer whose
+  folder is gone (a drive not connected) is reported, not used: the launcher asks (Try Again / Use
+  Default / Quit; short lines, as Windows' message box doesn't wrap) before anything reads the folder, the runner started by itself says so and
+  stops (it would otherwise create an empty folder there). The launcher still passes `--user-dir`.
+- **Moving** (`MoveUserDirectory`): into `<picked>/Skies of Arcadia Legends` (or the picked folder if
+  it has that name). Refused into itself, its own parent chain or a folder that holds data; such a
+  folder can be **used as it is** instead (`PointUserDirectory`: reinstalling, another PC's copy). Same
+  drive: one rename. Otherwise a copy into `<target>.moving` with file times kept (Continue picks the
+  newest card save / state by time), renamed into place, then the pointer, then the old files are
+  removed (the pointer file itself stays when the old folder is the default). A failed or cancelled
+  copy removes `.moving` and changes nothing. `default-game.txt` holds an absolute path into the folder:
+  rewritten into the new one, and `ResolveDefaultGame` falls back to `games/<name>` in the data folder
+  when the stored path is gone (a folder copied by hand, a USB drive with a new letter).
+- **Desktop launcher:** Settings → Disc → Data folder (path, Change..., Move Back to the Default when
+  moved, Open). Change opens `SDL_ShowOpenFolderDialog` (Documents, or beside a moved folder), then an
+  ImGui modal says from where to where (Cancel focused); the move runs on a thread with a byte progress
+  bar and Cancel; when it's done the launcher **starts again in-process** (`main` loops over
+  `RunLauncher`; the launcher keeps no Dolphin globals: every reader takes `user_directory`). Disabled
+  while a disc or Dreamcast-music import runs. `--move-data-folder DIR` does the same without the window
+  (tests). Portable shows the folder with Change disabled.
+- **Android:** the pointer lives in app storage (`getExternalFilesDir`), the desktop format;
+  `DirectoryInitialization` takes `SkiesDataFolder.userDirectory`: the moved folder when it can be used
+  (All files access granted and the folder there), app storage when nothing was moved, and for a moved
+  folder that can't be reached a throwaway `cache/data-folder-unreachable` (falling back to app storage
+  filled it with Dolphin's default configs and `Wii/`, which then made app storage "hold data" and
+  refused the move back). `SkiesLauncherActivity` asks before showing the home screen (Allow Access /
+  Try Again, Use App Storage, Quit); each answer starts the process again on the right folder. Change asks for All files access first (`ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION`, back
+  in `onResume`), then lists internal storage and each mounted SD card / USB volume
+  (`StorageManager.storageVolumes`) plus app storage when moved and "Another folder..."
+  (`OpenDocumentTree`, a tree URI turned into a path: `primary:` → `/storage/emulated/0`, else
+  `/storage/<volume>`); the folder in use isn't listed. A folder in shared storage gets an empty
+  `.nomedia` (else the gallery indexes screenshots and HD texture PNGs). The move is the native one on a thread (`moveDataFolder`, progress from
+  `dataMoveProgress`, Cancel), then `Intent.makeRestartActivityTask` + `exitProcess(0)` so Dolphin takes
+  the new user directory from the start. **Android 11 or later only:** the branded app drops the old
+  storage permission (`src/skies/AndroidManifest.xml`) and Android 10's scoped storage allows it no raw
+  paths; older Android says so. `MANAGE_EXTERNAL_STORAGE` is declared in `src/main` (fine for a
+  sideloaded APK; Google Play would restrict it).
+- **Copy speed:** on Linux / Android files are copied with `read` / `write` in 4 MiB pieces (progress
+  per piece, Cancel within a piece); `std::filesystem::copy_file` managed ~4.5 MB/s from app storage to
+  shared storage on the Retroid (1.36 GB, 5,573 files: ~7.5 min). With the buffered copy, shared storage
+  back to app storage took 72 s including deleting the old files and the restart. Windows keeps
+  `copy_file` (`CopyFileW`): C: → D: 1.36 GB in a few seconds.
+- **Tested 2026-10-17:** unit test (control: a copy without the file times fails it). Linux release
+  build: `--move-data-folder` tmpfs → disk (copy), disk → disk (rename), into itself (refused), back to
+  the default, a folder with data (used), runner with a moved and a missing folder; Settings rows by
+  screenshot. Windows release build (scratch `LOCALAPPDATA`, scripts in `C:\dev\SkiesDataDir\build`):
+  picker → `D:\...` → prompt → copy with progress → in-process restart → Start Game ran from D:
+  (29.7 fps, logs there); Open; Cancel mid-copy (nothing moved); Move Back (6 s); missing folder box
+  (Use Default, Escape = Quit); portable. Retroid (`com.skiesofarcadia.recomp.test`, uninstalled
+  after): disc import, All files access screen and back, Internal storage move, game boots from
+  `/storage/emulated/0/Skies of Arcadia Legends`, access revoked → prompt → Allow Access → restart,
+  move back to app storage, missing folder → app storage untouched → Use App Storage. Card save times
+  kept on all three. No SD card was in the Retroid: SD card folders are untested.
+- **Test build beside the release app:** `tools/android-ws-build.sh BRAND=1 TEST_ID=1` (gradle
+  `-PskiesAppIdSuffix=.test`) builds `com.skiesofarcadia.recomp.test`, "Skies of Arcadia Legends
+  (test)", so a device's release app and its data are never touched (the branded debug build is
+  otherwise `com.skiesofarcadia.recomp`, the release app's ID, with another signature).
+
 ### The European release (GEAP8P; 2026-10-17)
 
 Requested by a player: the European disc, for its languages (English, German, French, Spanish). It

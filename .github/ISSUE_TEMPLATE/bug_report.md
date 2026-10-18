@@ -41,8 +41,9 @@ mapping. On Android, also Renderer (Vulkan / OpenGL ES) and GPU driver.
 - Controller: [e.g. built-in, Xbox, DualSense, keyboard]
 
 **Log (if it crashes)**
-- Windows / Linux: attach the log from the `Logs` folder in your user folder
-  (`%LOCALAPPDATA%\Skies of Arcadia Legends` / `~/.local/share/Skies of Arcadia Legends`).
+- Windows / Linux: attach the log from the `Logs` folder in your data folder
+  (`%LOCALAPPDATA%\Skies of Arcadia Legends` / `~/.local/share/Skies of Arcadia Legends`, or the one
+  in **Settings → Disc → Data folder** if you moved it).
 - Android: if you can, attach `adb logcat` output from around the crash.
 
 **Additional context**
