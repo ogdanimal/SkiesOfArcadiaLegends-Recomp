@@ -63,13 +63,15 @@ and on Windows. Slower Android devices may not keep 60 fps (see [Slower devices]
 | Battle freezes after changing the battle speed | A known issue: change the speed while you choose commands, not while a round plays out. |
 | You want saves from Dolphin, a GameCube or another device | **Settings → Saves → Import a save**; see [Importing a save](#importing-a-save). |
 | **Android:** installing an update fails or asks you to uninstall first | It was signed with a different key (a self-built APK). Uninstalling **deletes your saves**; back them up first with **Settings → Saves → Back up saves**. |
+| **SteamOS / Linux through Steam:** the Steam Controller works in menus but not in the game | Steam may have it on its desktop (mouse and keyboard) layout. Hold Start, or pick a gamepad layout in the game's controller settings in Steam. |
 | Still stuck | [Open an issue](../../issues/new/choose) with your platform, device and what happened. |
 
 ## Controls
 
 On Windows and Linux the keyboard and a controller both work, together or on their own. The game
 uses whichever controller you press, so a controller plugged in later or a second one needs no setup
-(Steam Input should work the same way; tell us if it doesn't). On Android the built-in controller, or
+(started from Steam with Steam Input, Steam's controller works the same way; the Steam Controller
+shows as "Steam Controller"). On Android the built-in controller, or
 the first one you connect, is set up for you; without one, the game shows touch controls (the in-game
 **Back** menu turns them on and off).
 

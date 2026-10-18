@@ -6,6 +6,28 @@ frame limiter off, and record it in the development-notes.md *Platforms* table. 
 [HANDOFF-android.md](HANDOFF-android.md). The top *Status* and *State of the tree* were checked against
 both trees late on 2026-10-06; older sections are kept as history and say so where they're superseded.
 
+## Status (2026-10-17, night): fullscreen, display scaling and the Steam Controller (after 0.10.0-beta)
+
+Two local commits on `dev` for the next release (players' reports on 0.10.0-beta):
+- `b9f0157`, `patches/recompcore-win32-fullscreen.patch` (`DolphinNoGUI/PlatformWin32.cpp`): the
+  launcher's Screen = Fullscreen is applied when the window is made (upstream left a TODO, so the game
+  always opened windowed until Alt+Enter); fullscreen drops `WS_EX_CLIENTEDGE` (it drew a light
+  3-pixel frame: client 3834x2154 on a 3840x2160 monitor); the class brush is black; the runner is
+  per-monitor DPI aware (at 150% scaling Windows had rendered a 3840x2160 monitor as 2560x1440 and
+  stretched it), with the configured window size scaled by the window's DPI, `WM_DPICHANGED` handled
+  and `render_surface_scale` = DPI / 96 for on-screen messages. Checked at 3840x2160 / 150% against
+  the 0.10.0 package: boots fullscreen, client 3840x2160, window DPI 144 (was 96), sharp menu text at
+  the same size, windowed outer size unchanged (2334x1401). `WM_DPICHANGED` untested (one monitor).
+- `0e3a0cf`, controllers (HANDOFF-input *Steam Controller*): launcher names pads as the game does,
+  pad navigation on the home menu, profiles without controller bindings filled.
+
+Test tree: `C:\dev\SkiesInput` (`lib\ModernGekko\build-release`, ws22 pins) has both; build only
+`moderngekko-run` / `moderngekko-launcher` there from a `.bat` that calls `vcvars64.bat` (a quoted path
+in `cmd.exe /c` from WSL fails). Scripts in its `build\`: `fs-test.ps1` (fullscreen at boot + Alt+Enter,
+window and client rects, edge pixels), `dpi-test.ps1` (window DPI, fullscreen, menu screenshots,
+`-ToggleFirst` for a build that boots windowed), the released package for comparison in
+`build\rel0100`. `C:\dev\SkiesRecomp` hasn't been synced with these patches.
+
 ## Status (2026-10-17): keyboard and remapping (0.10.0-beta)
 
 The keyboard plays in both release builds, every button and key can be changed (launcher Settings →

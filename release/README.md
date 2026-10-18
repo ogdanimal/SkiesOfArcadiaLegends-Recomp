@@ -89,7 +89,8 @@ staff roll, the ending and two story scenes) stay GameCube. **Remove** deletes t
 
 On Windows and Linux the keyboard and a controller both work, together or on their own. The game
 uses whichever controller you press, so a controller plugged in later or a second one needs no setup
-(Steam Input should work the same way; tell us if it doesn't). On Android the built-in controller, or
+(started from Steam with Steam Input, Steam's controller works the same way; the Steam Controller
+shows as "Steam Controller"). On Android the built-in controller, or
 the first one you connect, is set up for you; without one, the game shows touch controls (the in-game
 **Back** menu turns them on and off).
 

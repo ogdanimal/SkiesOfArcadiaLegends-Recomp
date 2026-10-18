@@ -6,6 +6,9 @@ keyboard + remapping and `e1fdaf5` the Retroid fixes). Worked on in the worktree
 disc, release), see *Coordination*. Player text: README / release/README *Controls*; developer
 summary: NOTES *Keyboard and button mapping* (running and testing: *Controller and keyboard*). Open: only checks that need hardware (*Not checked yet*).
 
+**After 0.10.0-beta (2026-10-17, night): Steam Controller fixes, `0e3a0cf`** (main checkout, `dev`,
+for the next release); see *Steam Controller (issue #1)* below.
+
 ## What it does
 
 - **The keyboard plays** on Windows and Linux, alongside a controller or on its own. Default layout
@@ -61,6 +64,51 @@ summary: NOTES *Keyboard and button mapping* (running and testing: *Controller a
   and Android name, all checked against Dolphin's tables (`NamedKeys.h`, X11 keysyms, Android
   `KEYCODE_NAMES`, `SDLGamepad.h`); Android's forward delete is "Delete".
 
+## Steam Controller (issue #1, 2026-10-17 night, `0e3a0cf`)
+
+The reporter (SteamOS, Linux and Windows builds, Steam Input on) first had no controls in game; on
+0.10.0-beta the game used the pad but the launcher showed **"#SettingsController_SteamController
+(not connected)"**, and the pad couldn't move through the launcher's home menu.
+
+- **Names.** SDL names a Steam virtual gamepad two ways: an opened one (`SDL_GetGamepadName`, what the
+  game's InputCommon SDL backend uses) after the controller Steam says it stands for, read from the
+  file in `SteamVirtualGamepadInfo` (on SteamOS an untranslated key such as
+  `#SettingsController_SteamController`); an unopened one (`SDL_GetGamepadNameForID`, what the
+  launcher used) after its mapping. The game saved one name, the launcher listed another. Now
+  `EnumerateControllers` opens each gamepad for its name; `SkiesBindings::DeviceLabel` shows a `#...`
+  key as words ("Steam Controller") in the launcher list, "(not connected)" and the game's
+  "Controller: ..." message; `FindController` takes a connected pad with the same label when the
+  saved device string doesn't match (the same pad started from Steam or not).
+- **Home menu.** Its items are `InvisibleButton`s, which Dear ImGui 1.92 leaves out of pad and keyboard
+  navigation unless given `ImGuiButtonFlags_EnableNav` (the Settings window's ordinary widgets
+  worked). Every controller was affected.
+- **No controller bindings.** A profile with only the keyboard's bindings (here: a 0-byte
+  `GCPadNew.ini` from an old dev build, which the 0.10.0 launcher's `Upgrade` filled with keys only)
+  left the pad with nothing bound once the game moved controller 1 to it: plausibly the original
+  "controls do not work at all". The game's `ControllerLayoutIfNone` (first poll) and the launcher's
+  `Upgrade` add the controller's layout when no input has a controller binding (a player's cleared
+  buttons stay cleared; A and B can't be cleared). An empty file reached the game unchanged before
+  (Dolphin then gave the keyboard its own layout, A on X): `launcher_controls::PrepareProfile` runs
+  before every launch and `Load` treats a profile without `Buttons/A` as new (keeping its `Device`).
+- **Checked on Windows** with a Steam Controller (2026, wireless puck `28de:1304`; SDL 3.4.4's HIDAPI
+  `steam_triton` driver names it "Steam Controller"): launcher lists it connected (started directly
+  and as a Steam non-Steam game with Steam Input); a saved `SDL/0/#SettingsController_SteamController`
+  shows as the connected "Steam Controller"; the user moved through the home menu with the pad and
+  confirmed both through Steam; the game on a copy of the keyboard-only profile added the controller
+  layout and moved controller 1 to the Steam Controller; Start Game on an empty profile wrote the
+  default layout (Space, the pad's buttons, rumble, Always Connected).
+- **Not checked:** SteamOS itself. Steam on Windows named the pad "Steam Controller", so the `#...`
+  name never came up; that part rests on SDL's source (`SDL_gamepad.c` `SDL_GetGamepadName` /
+  `SDL_UpdateGamepadNameForID`, `SDL_steam_virtual_gamepad.c`).
+- **Other GameCube ports** (surveyed 10-17): none has Steam-specific code. Aurora (Dusklight, the
+  aurora-based ports) remembers a pad by GUID + serial with a VID/PID fallback and only shows names;
+  Eternal Darkness takes the first gamepad, Wind Waker all of them; ModernGekko upstream has our old
+  name mismatch. Dusklight issues #854 / #1961: on Linux through Steam the new Steam Controller can stay
+  on Steam's desktop (mouse) layout or switch between the pad and a "Steam Virtual Gamepad", so menus
+  work and gameplay doesn't; players there hold Start to switch to the gamepad layout or use
+  `gamescope -f -- %command%`. Persisting GUID + serial instead of a name would be the thorough fix
+  (profile format change; not done).
+
 ## Checked
 
 **WSL** (release build `lib/ModernGekko/build-release-linux`; ws20 before the merge, ws22 after):
@@ -100,10 +148,10 @@ passed on Windows, Linux and Android; the release run 39070491053 published v0.1
 ## Not checked yet (needs hardware)
 
 - A physical gamepad on desktop: button capture in the launcher and in game, controller 1 moving to
-  the pad pressed (two pads), the "Controller: <name>" message. WSL can't see USB pads; on Windows any
-  Xbox / PlayStation pad will do.
-- Steam Input (the original report): the game started from Steam with a controller through Steam's
-  virtual pad.
+  the pad pressed (two pads), the "Controller: <name>" message. WSL can't see USB pads. (A Steam
+  Controller on Windows was seen by the launcher and the game, 10-17 night; not driven through play.)
+- Steam Input on SteamOS (the original report): the game started from Steam with the Steam
+  Controller through Steam's virtual pad (Windows through Steam checked, see *Steam Controller*).
 - An Android keyboard (USB / Bluetooth): it should get the keyboard layout on connect (`FindKeyboard`
   takes an Android device with letter keys, not "Virtual"). The Retroid has none.
 - Known limit, not a bug: the Android launcher's Settings → Controls has no mapping table (the in-game
@@ -137,6 +185,13 @@ passed on Windows, Linux and Android; the release run 39070491053 published v0.1
   `sanitizers-cmake`, `googletest`) are git worktrees of the main checkout's; symlinks break
   `git status` and Android's CMake.
 - `pkill -f PATTERN` must not have PATTERN elsewhere in the same command line (it kills the shell).
+- Windows launcher tests (10-17 night, scripts in `C:\dev\SkiesInput\build`): `LOCALAPPDATA` set to a
+  scratch folder (`build\la`) points the release launcher at its own user folder (`la-shot.ps1`);
+  `la-click.ps1` clicks window coordinates (it presses Alt before `SetForegroundWindow`, or Windows'
+  foreground lock refuses the focus); `la-print.ps1` captures a covered window with `PrintWindow`
+  (flag 2). Posted mouse messages don't reach ImGui, and Steam's overlay swallows synthetic clicks in a
+  Steam-started launcher: ask the user to click there. `sc-probe.ps1` / `game-probe.ps1` run the
+  game 25 s on a user folder and the profile shows what it picked.
 
 ## Coordination (history, 2026-10-17)
 

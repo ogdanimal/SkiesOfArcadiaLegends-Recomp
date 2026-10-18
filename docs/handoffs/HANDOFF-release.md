@@ -83,6 +83,16 @@ Since 0.9.1, before 0.10 (all in 0.10.0-beta):
 
 ## Next
 
+For the next release, on `dev` (local commits, not pushed on 10-17 night):
+- `b9f0157` Windows: the Fullscreen setting works at start (it needed Alt+Enter), no white border in
+  fullscreen, sharp on high-DPI (4K at 150%) screens. Issue #2 / a Reddit report (HANDOFF-desktop
+  *Status 2026-10-17, night*).
+- `0e3a0cf` Controllers: the launcher finds the Steam Controller the game uses (it showed
+  "#SettingsController_SteamController (not connected)" on SteamOS, issue #1), a controller moves
+  through the launcher's home menu, and a profile with no controller buttons gets the default layout
+  (HANDOFF-input *Steam Controller*). Release-note wording: the controller works in the launcher's
+  menu; Steam Controller names; fullscreen fixes.
+
 - Held by the user: the **nightly prerelease** (latest green `dev` on a fixed `nightly` tag, Android
   under its own app ID such as `com.skiesofarcadia.recomp.nightly`, no signing approval).
 - European speed on the Retroid (ask before using the device); a European PGO profile if it misses 60.
