@@ -1,4 +1,15 @@
-# Handoff: Android build of the Skies recomp (2026-10-05, updated 2026-10-17)
+# Handoff: Android build of the Skies recomp (2026-10-05, updated 2026-10-18)
+
+## Status (2026-10-18): romhacks and Hold B (ws25, merged into `dev`)
+
+HANDOFF-romhacks: checked on the Retroid with the **test app** only (`BRAND=1 TEST_ID=1 NAME=ws25`
+`tools/android-ws-build.sh`; `JNILIBS=` must not be the script's own `build/android/jniLibs-NAME`,
+which it deletes first): Hold B, the repatch and the picker import of Maeson, a code-modified disc
+refused, a romhack's states in `StateSaves/romhack-<tag>` with Continue, "[GEAE8P, modified]" under
+Start Game. Each time the device was put back; at the end the test app was reinstalled with the
+language session's APK (`skies-recomp-lang-2026-10-18-test.apk`), because its European game was pushed
+by hand (a ws24 `main.dol`, no `main.dol.orig`), which a ws25 build can't repatch. The user's release
+app wasn't touched. A ws25 release APK needs CI's modules (the release patches changed).
 
 ## European PGO profile (2026-10-17 night: in progress, paused by the user after step 1)
 

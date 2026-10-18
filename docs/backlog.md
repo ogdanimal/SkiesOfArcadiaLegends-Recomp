@@ -37,3 +37,17 @@ picture. Only after changing Picture while the world map's own menu (Start) is o
 previous picture's shape, until that menu closes (they're replayed from display lists recorded before
 the change). Cosmetic and transient; low priority.
 
+## Romhacks that change the game's code — 2026-10-18
+
+The release takes romhacks that change only data (HANDOFF-romhacks, development notes *Romhacks*);
+one that changes code is refused at import, because the module runs the code it was compiled from (a
+changed instruction in a chunk reached by a native call silently runs as the old code). Ways in, if
+a wanted romhack needs it:
+
+- **Known changes:** add its code change to `patches/game/<disc ID>.known` (`tools/dolknown.py`) and
+  give the release an option of its own for what it does, as for hold-B.
+- **A module per romhack:** build one from the romhacked DOL (about 8 minutes and 150 MB per platform,
+  its own PGO run); modules are found by disc ID only today, so they'd need a key like the code hash.
+- **The runtime:** check every chunk against the loaded DOL at boot and send calls into changed ones
+  through the dispatcher (needs DolRecomp's direct calls to check a per-chunk flag); unknown cost.
+

@@ -54,24 +54,25 @@ tools/gamepatch.py patches/game/widescreen.json --out-root build/game/GEAE8P-ws2
 DOL=build/game/GEAE8P-ws25/sys/main.dol tools/module-llvm-win.sh llvm-pgo-ws25 \
   --profile-use build/modules-llvm-pgo-gp/GEAE8P/pgo/merged.profdata      # Windows module
 NAME=ws25 tools/android-ws-build.sh                                       # Android module + APK
-python3 tools/mkdolpatch.py extracted/SkiesOfArcadiaLegends/sys/main.dol \
-  build/game/GEAE8P-ws25/sys/main.dol release/skies-widescreen.dolpatch \
-  patches/game/GEAE8P.known                                               # release patch
-python3 tools/mkdolpatch.py <european disc>/sys/main.dol \
+python3 tools/mkdolpatch.py --fst extracted/SkiesOfArcadiaLegends/sys/fst.bin \
+  extracted/SkiesOfArcadiaLegends/sys/main.dol build/game/GEAE8P-ws25/sys/main.dol \
+  release/skies-widescreen.dolpatch patches/game/GEAE8P.known             # release patch
+python3 tools/mkdolpatch.py --fst <european disc>/sys/fst.bin <european disc>/sys/main.dol \
   build/game/GEAP8P-ws25/sys/main.dol release/skies-widescreen-eu.dolpatch   # European release patch
 ```
 
 The Android build picks up the European game from `DOL_EU` (default `build/game/GEAP8P-NAME/sys/main.dol`).
 
-`mkdolpatch.py` also writes both DOLs' code hashes (header and text sections) and the original bytes
-of any game data the patch changes (`data-original`; ws25: the battle action table's first entry), so
+`mkdolpatch.py` also writes both DOLs' code hashes (header and text sections), the original's data
+hash and (with `--fst`) its file table's hash (a romhack's save states get a folder of their own:
+`RomhackTag`), and the original bytes of any game data the patch changes (`data-original`; ws25: the battle action table's first entry), so
 the frontend can take a romhack that changes only the game's data (development notes, *Romhacks*);
 `patches/game/GEAE8P.known` lists romhacks' code changes the import undoes (`tools/dolknown.py`
 makes the lines from a romhacked `main.dol`).
 
 The release builds take the DOL's SHA-256 from the patch's `output-sha256` line
 (`tools/build-release-win.bat` and `build-release-linux.sh` since ws17, the Android app through
-`tools/android-ws-build.sh`), so after `mkdolpatch.py` run `configure` and `build` there again. The release runner refuses any other DOL, so test a new build
+`tools/android-ws-build.sh`), so after `mkdolpatch.py` run `configure` and `build` there again. The release runner refuses any other DOL (a data romhack of the original aside), so test a new build
 with the dev runner (`lib\ModernGekko\build\moderngekko-run.exe`).
 
 `gamepatch.py` checks that the input is the USA Rev 0 `main.dol` (or, with `--dol`, the European one), compiles the sources with clang for

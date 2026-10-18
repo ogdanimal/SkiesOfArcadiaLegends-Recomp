@@ -1,9 +1,13 @@
 # Romhack support (2026-10-18)
 
-## Status: options 1 + 2 implemented on branch `romhack`
+## Status: merged into `dev` (local, not pushed); not released
 
-Worktree `~/projects/skies-romhack` (submodules are worktrees of the main checkout's, patches applied),
-branch `romhack` off `dev` (8e34d40), **uncommitted**. The user picked options 1 + 2 below
+Built in the worktree `~/projects/skies-romhack` (submodules are worktrees of the main checkout's,
+patches applied), branch `romhack` off `dev` (8e34d40): `2798449` (the feature), `0e16132` (checks),
+`bf00943` (save states per disc), `838c26a` (Android picker import), `ddeee59` (Android's "modified"
+line, the no-disc hint); each fast-forwarded into `dev`. Release: HANDOFF-release *On dev, not
+released yet* (ws25 patches, so CI regenerates every module). Open: romhacks that change code
+(`docs/backlog.md`). The user picked options 1 + 2 below
 ("this all sounds good... continue"), and said every GameCube version will be supported, so nothing
 is USA-only (the known-change table is per region; Europe has none yet). How it works: development
 notes, *Romhacks*.
@@ -15,7 +19,9 @@ notes, *Romhacks*.
 - `patches/moderngekko-local.patch`: `dol_patch.{hpp,cpp}`, runner, launcher (always extracts the
   disc picked, "[GEAE8P, modified]", Hold B in Gameplay).
 - `patches/recompcore-romhack.patch` (new, last in `recompcore.series`): `[Skies] HoldB`, the in-game
-  menu row, Android (Hold B row, `DolMatchesPin` in `PatchDol` and `SkiesNative.dolMatches`).
+  menu row, Android (Hold B row, `DolMatchesPin` in `PatchDol` and `SkiesNative.dolMatches`,
+  `useStateFolder`, the "modified" line, the no-disc hint).
+- Later: save states per disc (`RomhackTag`, `StateSaves/romhack-<tag>`; `mkdolpatch.py --fst`).
 - Docs: README, release README (*Romhacks*), development notes, `patches/README.md`,
   `patches/game/README.md` (ws25 row; the SMC note corrected).
 - `tools/check-patches.sh` passes.

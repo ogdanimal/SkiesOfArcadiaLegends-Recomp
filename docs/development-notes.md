@@ -283,7 +283,7 @@ In the menu's first three rows, on every platform (Android had no player-usable 
   doesn't hold a card transfer in progress). Never in a ground battle, a battle that was due waits
   for the field. The newest three are kept.
 
-Files, in the user directory's `StateSaves` with ModernGekko's names (`Core/SavestateLayout.h`):
+Files, in the user directory's `StateSaves` (a romhack's in `StateSaves/romhack-<tag>`, *Romhacks*) with ModernGekko's names (`Core/SavestateLayout.h`):
 `state-skies-slot1.sav` .. `slot5`, `recovery-skies-<date>-<time>.sav` (pruned with
 `PruneAutomatic`), and imported ones `state-skies-import-<date>-<time>.sav` (*Importing saves*). The launcher lists the same directory (Dolphin's `lastState.sav` undo backup is
 now left out) and has a **Continue** button that boots the newest state, whatever wrote it, or, since
@@ -408,11 +408,14 @@ build) the launcher keeps its original single panel. Checked from window capture
 clicks in the window (A- / A+, a setting written by the launcher) not yet tried by hand. The runner finds `gGEAE8P_recomp.dll` beside
 itself or in `<user>\StaticRecompModules`. Tested end to end from the USA RVZ (ws10) and from the
 original DOL (ws11, ws12, ws13: the release runner patched it and the game ran with the new features at
-1.00x). The patch applies to the original DOL or leaves its own output alone; any other DOL is refused. An
+1.00x). The patch applies to the original DOL or leaves its own output alone, and since 2026-10-18
+also to a romhack that keeps the original's code (*Romhacks*); any other DOL is refused. An
 existing game root from an earlier release (its DOL patched by that release) is updated when the
-player picks the disc again: `sys/` is taken fresh from the disc, then patched (2026-10-11: before
-that, picking the disc failed with "existing extraction patching failed"; the user hit it with their
-10-10 ws10 import). Since `61ac70e` (0.10.0-beta) the launcher also says so: with an earlier
+player picks the disc again (2026-10-11: before that, picking the disc failed with "existing
+extraction patching failed"; the user hit it with their 10-10 ws10 import). Until 2026-10-18 only
+`sys/` was taken again and an import with the same disc ID was otherwise kept ("Using existing
+extraction"); now the disc picked is always extracted in full, since a romhack and its original share
+the disc ID. Since `61ac70e` (0.10.0-beta) the launcher also says so: with an earlier
 release's import, Select Disc's line reads "This update needs your disc once more. Your saves and
 settings are kept.", and the runner started on its own shows a message box ("The game needs updating")
 and exits with code 2 instead of failing silently (checked: the Linux launcher, the Windows runner;
@@ -562,7 +565,7 @@ Behaviour, as in the N64 recomps:
   (`<name>.pre-import.2.bak` and up when an earlier import's copy is there, so importing twice keeps
   the original too), then the new file is written to `<name>.importtemp` and renamed; a same-identity file under another
   name is removed after its backup. A plain file where the folder should be is reported. States are
-  added as `StateSaves/state-skies-import-<date>-<time>.sav` (a new name each time; shown as
+  added as `StateSaves/state-skies-import-<date>-<time>.sav` (a romhack's in its own folder, *Romhacks*) (a new name each time; shown as
   "Imported" by the launchers).
 - **Continue picks it up:** everything is dated now. A card image's saves are written in the order of
   the card's own last-written times, a second apart, so Continue auto-loads the one saved last.
@@ -827,7 +830,10 @@ auto-save use it), the launcher's Continue, state list and Import a save use it
 `SkiesNative.useStateFolder` at every refresh (the process's state folder, and Continue's); Back up
 saves takes the romhack folders too. Memory card saves stay shared, as the romhack's author meant.
 Checked: Maeson's tag `4d5febec` on WSL, Windows and the Retroid (auto-save there, Continue offers it),
-the USA and European originals "" (states in `StateSaves`).
+the USA and European originals "" (states in `StateSaves`). Android's Start Game then got the
+desktop's second line, "Ready: Skies of Arcadia Legends [GEAE8P, modified]" (when the state folder is
+a `romhack-` one), and its no-disc hint names both discs; the picker import (a code-modified disc
+refused with its message, Maeson imported) was checked on the Retroid too (HANDOFF-romhacks).
 
 Not covered: romhacks of the European disc are taken the same way, but there's no known-change
 table for it (none found yet).

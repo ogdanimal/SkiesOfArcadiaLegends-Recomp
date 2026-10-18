@@ -106,6 +106,23 @@ Since 0.9.1, before 0.10 (all in 0.10.0-beta):
   `REGIONS: us eu`, both modules in every package; the publish check knows both games' DOL hashes and
   requires both modules. No European PGO profiles yet.
 
+## On `dev`, not released yet (after v0.50.0-beta)
+
+Local `dev`, **not pushed** (2026-10-18). Draft notes: `build/notes-next.md` (local).
+- **Language** (`257be96`..`8e34d40`): a Language tab in the in-game menu, the launcher and Android
+  Settings; A twice in the menu restarts the game in the new language (European disc).
+- **Romhacks** (`2798449`..`ddeee59`, HANDOFF-romhacks): a romhack that changes only the game's data
+  plays on the release's module (Maeson's rebalance, romhacking.net 2859); one that changes code is
+  refused at import with a message; **Hold B** (Settings → Gameplay) for no random battles while B is
+  held; a romhack's save states in a folder of their own; "[GEAE8P, modified]" under Start Game.
+  **Game patch ws25** (USA output `31e43962`, European `54adb1a4`): the release patches changed, so
+  CI must regenerate every module (the patches carry the new keys; `tools/ci-codegen.sh` needs no
+  change) and players' imports get repatched on update as for 0.10.0. The European Android module is
+  still without a profile.
+- Release-note wording: "Romhacks: play a romhack that changes the game's data, such as Maeson's
+  rebalance: patch your disc image with it and pick that image. Hold B (Settings → Gameplay) stops
+  random battles while you hold B. A romhack's save states are kept apart from the original game's."
+
 ## Shipped in v0.50.0-beta
 
 **Released 2026-10-18** (the user's number and go-ahead: full approval to release, including signing
