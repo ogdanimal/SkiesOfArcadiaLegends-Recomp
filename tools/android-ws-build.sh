@@ -6,7 +6,8 @@
 # this machine never needs the game's DOL.
 # BRAND=1 builds the branded app instead (Skies of Arcadia Legends, com.skiesofarcadia.recomp: first-run disc import
 # with release/skies-widescreen.dolpatch, which must turn the original DOL into this DOL; no game list):
-# build/android/apk/skies-recomp-NAME-<date>.apk.
+# build/android/apk/skies-recomp-NAME-<date>.apk (TEST_ID=1: the debug build as com.skiesofarcadia.recomp.test,
+# beside the release app: skies-recomp-NAME-<date>-test.apk).
 # The European game (GEAP8P) gets a module of its own beside the USA one when its DOL is there:
 # DOL_EU (default build/game/GEAP8P-NAME/sys/main.dol) or, in CI, PREGEN_EU=DIR; no PGO until there is
 # a European profile (build/android/pgo/skies-android-eu.profdata). BRAND=1 then also bundles
@@ -70,6 +71,11 @@ if [ "${BRAND:-0}" = 1 ]; then
   grep -q "output-sha256 $(cat $B/dol-sha256.txt)" $B/assets/skies-widescreen.dolpatch ||
     { echo "release/skies-widescreen.dolpatch doesn't make $DOL"; exit 1; }
   BRAND_ARGS=(-PskiesBrand=$B)
+  # TEST_ID=1: com.skiesofarcadia.recomp.test, installed beside the release app without touching it
+  if [ "${TEST_ID:-0}" = 1 ]; then
+    BRAND_ARGS+=(-PskiesAppIdSuffix=.test)
+    APK=${APK%.apk}-test.apk
+  fi
 fi
 if [ -n "${JNILIBS:-}" ]; then
   [ -f "$JNILIBS/arm64-v8a/libgGEAE8P_recomp.so" ] || { echo "no $JNILIBS/arm64-v8a/libgGEAE8P_recomp.so"; exit 1; }

@@ -1,0 +1,731 @@
+diff --git a/Source/Android/app/build.gradle.kts b/Source/Android/app/build.gradle.kts
+index 27f39bc92e..fcf34d473b 100644
+--- a/Source/Android/app/build.gradle.kts
++++ b/Source/Android/app/build.gradle.kts
+@@ -170,8 +170,12 @@ android {
+                 ?: "dev build $skiesBuild"
+         }
+         buildTypes.getByName("debug") {
+-            applicationIdSuffix = null
+-            resValue("string", "app_name_suffixed", "Skies of Arcadia Legends")
++            // -PskiesAppIdSuffix=.test: a test build installed beside the release app, whose data
++            // (and signature) it never touches
++            val testSuffix = providers.gradleProperty("skiesAppIdSuffix").orNull
++            applicationIdSuffix = testSuffix
++            resValue("string", "app_name_suffixed",
++                if (testSuffix != null) "Skies of Arcadia Legends (test)" else "Skies of Arcadia Legends")
+         }
+         buildTypes.getByName("release") {
+             resValue("string", "app_name_suffixed", "Skies of Arcadia Legends")
+diff --git a/Source/Android/app/src/main/AndroidManifest.xml b/Source/Android/app/src/main/AndroidManifest.xml
+index 8d23f5b2d9..f898de9968 100644
+--- a/Source/Android/app/src/main/AndroidManifest.xml
++++ b/Source/Android/app/src/main/AndroidManifest.xml
+@@ -25,6 +25,9 @@
+     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
+     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
++    <!-- Skies Recomp: Settings, Disc, Data folder (a folder outside app storage; SkiesDataFolder) -->
++    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
++        tools:ignore="ScopedStorage"/>
+     <uses-permission android:name="android.permission.INTERNET"/>
+     <uses-permission android:name="com.android.providers.tv.permission.READ_EPG_DATA"/>
+     <uses-permission android:name="com.android.providers.tv.permission.WRITE_EPG_DATA"/>
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesDataFolder.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesDataFolder.kt
+new file mode 100644
+index 0000000000..aafc9be731
+--- /dev/null
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesDataFolder.kt
+@@ -0,0 +1,134 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++package org.dolphinemu.dolphinemu.skies
++
++import android.app.Activity
++import android.content.Context
++import android.content.Intent
++import android.net.Uri
++import android.os.Build
++import android.os.Environment
++import android.os.storage.StorageManager
++import android.provider.DocumentsContract
++import android.provider.Settings
++import java.io.File
++import kotlin.system.exitProcess
++
++/**
++ * Settings, Disc, Data folder: where the imported game, saves and settings are, as on desktop
++ * (ModernGekko tools/user_directory.hpp). They start in app storage (getExternalFilesDir), which
++ * uninstalling deletes; a move puts them in a folder of the player's choice and leaves
++ * data-folder.txt in app storage naming it (one UTF-8 line, the desktop format). Dolphin's own code
++ * needs real file paths there, so a folder outside app storage needs All files access, which
++ * Android 11 brought (Android 10's scoped storage allows no such paths to the branded app, which
++ * also drops the old storage permission: src/skies/AndroidManifest.xml).
++ */
++object SkiesDataFolder {
++    const val POINTER = "data-folder.txt"
++    const val FOLDER_NAME = "Skies of Arcadia Legends"
++
++    /** A place the data can go: its label in the list and the data folder there. */
++    class Place(val label: String, val folder: File)
++
++    /** The folder the data was moved to, or null while it is in app storage. */
++    fun moved(appStorage: File?): File? {
++        appStorage ?: return null
++        val line = try {
++            File(appStorage, POINTER).takeIf { it.isFile }?.bufferedReader()?.use { it.readLine() }
++        } catch (e: Exception) {
++            null
++        }?.removePrefix("﻿")?.trimEnd('\r')
++        return line?.takeIf { it.startsWith("/") }?.let { File(it) }
++    }
++
++    /** The moved folder when it can be used now (the access granted, the card in), else null. */
++    fun usable(appStorage: File?): File? =
++        moved(appStorage)?.takeIf { hasAccess() && it.isDirectory }
++
++    /**
++     * Dolphin's user directory at start: the moved folder, app storage when there's none, or, for
++     * one that can't be reached, a throwaway folder in the cache while the launcher asks.
++     */
++    fun userDirectory(context: Context, appStorage: File?): File? {
++        moved(appStorage) ?: return appStorage
++        return usable(appStorage) ?: File(context.cacheDir, "data-folder-unreachable").apply { mkdirs() }
++    }
++
++    /** Whether the data can leave app storage on this Android (11 and later). */
++    val supported get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
++
++    fun hasAccess(): Boolean = supported && Environment.isExternalStorageManager()
++
++    /** Opens Android's All files access screen for this app; the player comes back to onResume. */
++    fun requestAccess(activity: Activity) {
++        if (!supported) return
++        val app = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
++            Uri.parse("package:" + activity.packageName))
++        try {
++            activity.startActivity(app)
++        } catch (e: Exception) {
++            // Some devices only have the list of all apps
++            activity.startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
++        }
++    }
++
++    /** Internal storage and each SD card or USB drive, with a data folder at its top. */
++    fun places(context: Context): List<Place> {
++        val places = mutableListOf<Place>()
++        if (!supported) return places
++        val storage = context.getSystemService(StorageManager::class.java) ?: return places
++        for (volume in storage.storageVolumes) {
++            val root = volume.directory ?: continue
++            if (volume.state != Environment.MEDIA_MOUNTED) continue
++            val label = if (volume.isPrimary) "Internal storage" else volume.getDescription(context)
++            places.add(Place(label, File(root, FOLDER_NAME)))
++        }
++        return places
++    }
++
++    /**
++     * The folder a tree picked with ACTION_OPEN_DOCUMENT_TREE is (external storage documents only:
++     * "primary:Games" is internal storage's Games, "1234-ABCD:Games" that card's), or null.
++     */
++    fun treeFolder(uri: Uri): File? {
++        if (uri.authority != "com.android.externalstorage.documents") return null
++        val id = try {
++            DocumentsContract.getTreeDocumentId(uri)
++        } catch (e: Exception) {
++            return null
++        }
++        val volume = id.substringBefore(':')
++        val path = id.substringAfter(':', "")
++        val root = if (volume == "primary") Environment.getExternalStorageDirectory()
++        else File("/storage/$volume")
++        return if (path.isEmpty()) root else File(root, path)
++    }
++
++    /**
++     * Keeps the gallery out of a data folder in shared storage (screenshots, HD texture packs'
++     * PNGs): an empty .nomedia file. App storage isn't scanned; the file is harmless there too.
++     */
++    fun hideFromGallery(folder: File) {
++        try {
++            File(folder, ".nomedia").createNewFile()
++        } catch (e: Exception) {
++            // Only cosmetic
++        }
++    }
++
++    /** The data folder for one the player picked: [FOLDER_NAME] inside it, or itself if so named. */
++    fun inside(picked: File): File =
++        if (picked.name == FOLDER_NAME) picked else File(picked, FOLDER_NAME)
++
++    /**
++     * Starts the app again (a new process, so Dolphin takes the new user directory from the start),
++     * on the launcher.
++     */
++    fun restart(activity: Activity) {
++        val launcher = activity.packageManager.getLaunchIntentForPackage(activity.packageName)
++            ?.component
++        if (launcher != null) activity.startActivity(Intent.makeRestartActivityTask(launcher))
++        activity.finishAffinity()
++        exitProcess(0)
++    }
++}
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
+index 23d8358d94..7cefb6f39c 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
+@@ -85,6 +85,14 @@ class SkiesLauncherActivity : FragmentActivity() {
+          */
+         @Volatile
+         var musicResult: Array<String>? = null
++
++        /** Settings, Disc, Data folder: true while the data moves (the native side refuses a second). */
++        @Volatile
++        var dataMoveRunning = false
++
++        /** The move's result (SkiesNative.moveDataFolder), as the imports': null while none is unseen. */
++        @Volatile
++        var dataMoveResult: Array<String>? = null
+     }
+ 
+     private lateinit var message: TextView
+@@ -121,6 +129,25 @@ class SkiesLauncherActivity : FragmentActivity() {
+             if (uri != null) startMusicImport(uri)
+         }
+ 
++    // Settings, Disc, Data folder: another folder than the ones listed (a folder of the port's name
++    // goes inside it)
++    private val pickDataFolder =
++        registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
++            if (uri == null) return@registerForActivityResult
++            val folder = SkiesDataFolder.treeFolder(uri)
++            if (folder == null) {
++                message.text = "That folder can't hold the data: pick one on internal storage or an SD card."
++                return@registerForActivityResult
++            }
++            confirmDataMove(SkiesDataFolder.inside(folder))
++        }
++    // All files access was asked for: the folder list (Change), or a start again on the moved
++    // folder (it couldn't be reached at start), once the player is back with it granted
++    private var chooseAfterAccess = false
++    private var restartAfterAccess = false
++    // A moved data folder that can't be reached: the home screen waits for the prompt's answer
++    private var dataFolderBlocked = false
++
+     // Back up saves (Settings, Saves): one .zip written where the player chooses
+     private val pickBackup =
+         registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri: Uri? ->
+@@ -184,16 +211,22 @@ class SkiesLauncherActivity : FragmentActivity() {
+         message.text = getString(R.string.skies_starting)
+         DirectoryInitialization.start(this)
+         AfterDirectoryInitializationRunner().runWithLifecycle(this) {
+-            installDefaults()
+-            showState()
+-            // A cold start after a crash lands here, not in onResume (the directories weren't ready
+-            // then): the crash safeguard has to run before Start can write a new marker
+-            checkDriver()
++            if (!dataFolderUnreachable()) startHome()
+         }
+     }
+ 
++    private fun startHome() {
++        dataFolderBlocked = false
++        installDefaults()
++        showState()
++        // A cold start after a crash lands here, not in onResume (the directories weren't ready
++        // then): the crash safeguard has to run before Start can write a new marker
++        checkDriver()
++    }
++
+     override fun onDestroy() {
+         handler.removeCallbacks(importPoll)
++        handler.removeCallbacks(movePoll)
+         handler.removeCallbacks(closePoll)
+         driverDialog?.dismiss()
+         super.onDestroy()
+@@ -222,7 +255,15 @@ class SkiesLauncherActivity : FragmentActivity() {
+ 
+     override fun onResume() {
+         super.onResume()
+-        if (DirectoryInitialization.areDolphinDirectoriesReady()) {
++        if (restartAfterAccess && SkiesDataFolder.hasAccess()) {
++            SkiesDataFolder.restart(this)
++            return
++        }
++        if (chooseAfterAccess && SkiesDataFolder.hasAccess()) {
++            chooseAfterAccess = false
++            chooseDataFolder()
++        }
++        if (DirectoryInitialization.areDolphinDirectoriesReady() && !dataFolderBlocked) {
+             showState()
+             checkDriver()
+         }
+@@ -235,6 +276,10 @@ class SkiesLauncherActivity : FragmentActivity() {
+             showImporting()
+             return
+         }
++        if (dataMoveRunning || dataMoveResult != null) {
++            showMoving()
++            return
++        }
+         refresh()
+         importResult?.let { error ->
+             importResult = null
+@@ -274,7 +319,14 @@ class SkiesLauncherActivity : FragmentActivity() {
+     private fun padDialog(builder: android.app.AlertDialog.Builder): android.app.AlertDialog =
+         builder.setOnKeyListener { dialog, keyCode, event ->
+             if (keyCode == KeyEvent.KEYCODE_BUTTON_A && event.action == KeyEvent.ACTION_UP) {
+-                (dialog as android.app.AlertDialog).currentFocus?.performClick()
++                // A button, or the item chosen in a list (the data folder's places)
++                val focus = (dialog as android.app.AlertDialog).currentFocus
++                if (focus is android.widget.ListView && focus.selectedItemPosition >= 0) {
++                    val position = focus.selectedItemPosition
++                    focus.performItemClick(focus.selectedView, position, focus.getItemIdAtPosition(position))
++                } else {
++                    focus?.performClick()
++                }
+                 true
+             } else false
+         }.show()
+@@ -729,7 +781,8 @@ class SkiesLauncherActivity : FragmentActivity() {
+             { afterGameClosed { pickDisc.launch(arrayOf("*/*")) } },
+             { pickDriver.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) },
+             { confirmImportSave() }, { startExport() },
+-            { afterGameClosed { pickDreamcastDisc.launch(arrayOf("*/*")) } }, { showLicences() }) {
++            { afterGameClosed { pickDreamcastDisc.launch(arrayOf("*/*")) } },
++            { afterGameClosed { chooseDataFolder() } }, { showLicences() }) {
+             column.descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
+             settings = null
+             buttons.getChildAt(buttons.childCount - 1)?.requestFocus()
+@@ -842,6 +895,203 @@ class SkiesLauncherActivity : FragmentActivity() {
+         }
+     }
+ 
++    /**
++     * At start: a moved data folder that can't be reached now (All files access taken back, the SD
++     * card out). Dolphin started on app storage then (DirectoryInitialization); the prompt offers to
++     * fix it and start again, or to stay on app storage. True while it is up.
++     */
++    private fun dataFolderUnreachable(): Boolean {
++        val appStorage = getExternalFilesDir(null)
++        val moved = SkiesDataFolder.moved(appStorage) ?: return false
++        if (SkiesDataFolder.usable(appStorage) != null) {
++            // Reachable now, but this process started before it was
++            if (DirectoryInitialization.getUserDirectory() != moved.absolutePath) {
++                SkiesDataFolder.restart(this)
++                return true
++            }
++            return false
++        }
++        dataFolderBlocked = true
++        message.text = ""
++        val noAccess = !SkiesDataFolder.hasAccess()
++        val why = if (noAccess) "The data is in ${moved.absolutePath}, which needs All files access, " +
++            "and the app doesn't have it now."
++        else "The data is in ${moved.absolutePath}, which isn't there now. If it is on an SD card, " +
++            "put the card in."
++        padDialog(android.app.AlertDialog.Builder(this)
++            .setTitle("Data folder not reachable")
++            .setMessage(why + "\n\nUse App Storage starts with the data in app storage instead. The " +
++                "folder isn't deleted: Settings, Disc, Data folder can pick it again.")
++            .setCancelable(false)
++            .setPositiveButton(if (noAccess) "Allow Access" else "Try Again") { _, _ ->
++                if (noAccess) {
++                    restartAfterAccess = true
++                    SkiesDataFolder.requestAccess(this)
++                } else if (SkiesDataFolder.usable(appStorage) != null) {
++                    SkiesDataFolder.restart(this)
++                } else {
++                    dataFolderUnreachable()
++                }
++            }
++            .setNeutralButton("Use App Storage") { _, _ ->
++                // Again from the start, for Dolphin to set app storage up
++                File(appStorage, SkiesDataFolder.POINTER).delete()
++                SkiesDataFolder.restart(this)
++            }
++            .setNegativeButton("Quit") { _, _ -> finishAffinity() })
++        return true
++    }
++
++    /**
++     * Settings, Disc, Data folder, Change: All files access first (asked for with what it is for),
++     * then where to: internal storage, each SD card, app storage again, or another folder.
++     */
++    private fun chooseDataFolder() {
++        if (dataMoveRunning) {
++            showMoving()
++            return
++        }
++        if (!SkiesDataFolder.supported) {
++            padDialog(android.app.AlertDialog.Builder(this)
++                .setTitle("Data folder")
++                .setMessage("Moving the data out of app storage needs Android 11 or later. Back up " +
++                    "saves (Settings, Saves) keeps your saves safe before uninstalling.")
++                .setPositiveButton("OK", null))
++            return
++        }
++        if (!SkiesDataFolder.hasAccess()) {
++            padDialog(android.app.AlertDialog.Builder(this)
++                .setTitle("Allow All files access?")
++                .setMessage("Outside app storage the game reads its files by name, which needs All " +
++                    "files access. Android's settings open next: turn it on for this app, then come " +
++                    "back.\n\nIn a folder of your choice, the data stays when the app is uninstalled, " +
++                    "and a file manager can reach it.")
++                .setPositiveButton("Open Settings") { _, _ ->
++                    chooseAfterAccess = true
++                    SkiesDataFolder.requestAccess(this)
++                }
++                .setNegativeButton("Cancel", null))
++                .getButton(android.app.AlertDialog.BUTTON_NEGATIVE)?.requestFocus()
++            return
++        }
++        val appStorage = getExternalFilesDir(null)
++        val places = SkiesDataFolder.places(this).toMutableList()
++        if (appStorage != null && SkiesDataFolder.moved(appStorage) != null) {
++            places.add(SkiesDataFolder.Place("App storage (uninstalling deletes it)", appStorage))
++        }
++        // Not the one in use
++        places.removeAll { it.folder.absolutePath == userDirectory.absolutePath }
++        val labels = places.map { it.label + "\n" + it.folder.absolutePath } + "Another folder…"
++        padDialog(android.app.AlertDialog.Builder(this)
++            .setTitle("Move the data to")
++            .setItems(labels.toTypedArray()) { _, which ->
++                if (which < places.size) confirmDataMove(places[which].folder)
++                else pickDataFolder.launch(null)
++            }
++            .setNegativeButton("Cancel", null))
++    }
++
++    /** The move's prompt, from where to where; or, for a folder that already holds data, using it. */
++    private fun confirmDataMove(target: File) {
++        val from = userDirectory
++        val appStorage = getExternalFilesDir(null) ?: return
++        val problem = SkiesNative.checkDataMove(from.absolutePath, target.absolutePath)
++        if (problem.isNotEmpty()) {
++            padDialog(android.app.AlertDialog.Builder(this)
++                .setTitle("Data folder")
++                .setMessage(problem)
++                .setPositiveButton("OK", null))
++            return
++        }
++        if (SkiesNative.holdsUserData(target.absolutePath)) {
++            padDialog(android.app.AlertDialog.Builder(this)
++                .setTitle("Use that folder?")
++                .setMessage("${target.absolutePath} already holds data.\n\nUse it as it is? The app " +
++                    "starts again with the game, saves and settings in it. The ones used now stay " +
++                    "where they are, in ${from.absolutePath}.")
++                .setPositiveButton("Use That Folder") { _, _ ->
++                    val error = SkiesNative.pointDataFolder(target.absolutePath, appStorage.absolutePath)
++                    if (error.isEmpty()) {
++                        SkiesDataFolder.hideFromGallery(target)
++                        SkiesDataFolder.restart(this)
++                    } else {
++                        message.text = error
++                    }
++                }
++                .setNegativeButton("Cancel", null))
++                .getButton(android.app.AlertDialog.BUTTON_NEGATIVE)?.requestFocus()
++            return
++        }
++        padDialog(android.app.AlertDialog.Builder(this)
++            .setTitle("Move the data?")
++            .setMessage("Your imported game, saves, save states and settings move from:\n" +
++                "${from.absolutePath}\n\nto:\n${target.absolutePath}\n\nThe app starts again " +
++                "when it's done.")
++            .setPositiveButton("Move") { _, _ ->
++                startDataMove(from.absolutePath, target.absolutePath, appStorage.absolutePath)
++            }
++            .setNegativeButton("Cancel", null))
++            .getButton(android.app.AlertDialog.BUTTON_NEGATIVE)?.requestFocus()
++    }
++
++    private fun startDataMove(from: String, to: String, appStorage: String) {
++        if (dataMoveRunning) {
++            showMoving()
++            return
++        }
++        dataMoveRunning = true
++        dataMoveResult = null
++        // Only values go to the thread, never this Activity (as the imports)
++        Thread({
++            var result = arrayOf("The move stopped.", "")
++            try {
++                result = SkiesNative.moveDataFolder(from, to, appStorage)
++                if (result.getOrNull(1) == "ok") SkiesDataFolder.hideFromGallery(File(to))
++            } finally {
++                dataMoveResult = result
++                dataMoveRunning = false
++            }
++        }, "SkiesDataMove").start()
++        showMoving()
++    }
++
++    // While the data moves: how far, with Cancel; then the app starts again, or says why not
++    private val movePoll = object : Runnable {
++        override fun run() {
++            if (dataMoveRunning) {
++                val (done, total) = SkiesNative.dataMoveProgress().let { it[0] to it[1] }
++                val mib = 1024L * 1024L
++                message.text = "Moving the data folder…" +
++                    if (total > 1) "\n${done / mib} / ${total / mib} MB" else ""
++                handler.postDelayed(this, 250)
++                return
++            }
++            val result = dataMoveResult ?: return
++            dataMoveResult = null
++            if (result.getOrNull(1) != "ok") {
++                refresh()
++                message.text = result[0]
++            } else if (result[0].isNotEmpty()) {
++                padDialog(android.app.AlertDialog.Builder(this@SkiesLauncherActivity)
++                    .setTitle("Data folder moved")
++                    .setMessage(result[0])
++                    .setCancelable(false)
++                    .setPositiveButton("OK") { _, _ -> SkiesDataFolder.restart(this@SkiesLauncherActivity) })
++            } else {
++                SkiesDataFolder.restart(this@SkiesLauncherActivity)
++            }
++        }
++    }
++
++    private fun showMoving() {
++        settings?.close()
++        buttons.removeAllViews()
++        if (dataMoveRunning) addButton("Cancel") { SkiesNative.cancelDataMove() }
++        message.text = "Moving the data folder…"
++        handler.removeCallbacks(movePoll)
++        handler.post(movePoll)
++    }
++
+     private fun showImporting() {
+         settings?.close()
+         buttons.removeAllViews()
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt
+index 562b30dfcb..945f0034d0 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt
+@@ -86,4 +86,34 @@ object SkiesNative {
+      */
+     @JvmStatic
+     external fun ensurePadProfile(): String
++
++    /**
++     * Settings, Disc, Data folder (tools/user_directory.cpp, the desktop launcher's): "" if the data
++     * in [from] can move to [to], else why not (the same folder, or one inside the other).
++     */
++    @JvmStatic
++    external fun checkDataMove(from: String, to: String): String
++
++    /** Whether [directory] already holds data (anything but the pointer file). */
++    @JvmStatic
++    external fun holdsUserData(directory: String): Boolean
++
++    /** Uses [to] from the next start, moving nothing. "" or what went wrong. */
++    @JvmStatic
++    external fun pointDataFolder(to: String, appStorage: String): String
++
++    /**
++     * Moves the data in [from] to [to] and points the next start there ([appStorage] holds the
++     * pointer): the message (a warning, or "") and "ok", or why nothing moved and "". Blocks: call
++     * it off the main thread, while the game isn't running.
++     */
++    @JvmStatic
++    external fun moveDataFolder(from: String, to: String, appStorage: String): Array<String>
++
++    /** The running move's bytes done and bytes in all. */
++    @JvmStatic
++    external fun dataMoveProgress(): LongArray
++
++    @JvmStatic
++    external fun cancelDataMove()
+ }
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+index a4e62fb66e..a24a545979 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+@@ -37,6 +37,7 @@ class SkiesSettingsPanel(
+     private val onImportSave: () -> Unit,
+     private val onExportSaves: () -> Unit,
+     private val onImportDreamcastMusic: () -> Unit,
++    private val onChangeDataFolder: () -> Unit,
+     private val onLicences: () -> Unit,
+     private val onClosed: () -> Unit
+ ) {
+@@ -278,6 +279,7 @@ class SkiesSettingsPanel(
+                 })
+                 describe(rows, "Your own copy of the game: RVZ, ISO, GCM, GCZ, WIA or CISO. It is " +
+                     "copied in once and patched; the file itself isn't changed.")
++                dataFolderRows(rows)
+             }
+             "About" -> {
+                 val info = SkiesDriverGuard.deviceInfo(activity)
+@@ -328,6 +330,26 @@ class SkiesSettingsPanel(
+         }
+     }
+ 
++    /** Disc: where the data is, and Change to move it (the activity asks where: SkiesDataFolder). */
++    private fun dataFolderRows(rows: LinearLayout) {
++        val folder = org.dolphinemu.dolphinemu.utils.DirectoryInitialization.getUserDirectory()
++        val moved = SkiesDataFolder.moved(activity.getExternalFilesDir(null)) != null
++        rowLine(rows, "Data folder").addView(text(folder, 15f, Color.WHITE),
++            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
++        rows.addView(button("Change…", BUTTON) {
++            close()
++            onChangeDataFolder()
++        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT,
++            LinearLayout.LayoutParams.WRAP_CONTENT).apply {
++            marginStart = dp(200f)
++            topMargin = dp(10f)
++        })
++        describe(rows, if (moved) "Your imported game, saves, save states and settings. Outside " +
++            "app storage, uninstalling keeps them and a file manager can reach them."
++        else "Your imported game, saves, save states and settings. In app storage, uninstalling " +
++            "deletes them: Change moves them to a folder of your choice (it asks for All files access).")
++    }
++
+     /**
+      * Sound: the Dreamcast version's music (AudioCommon/DCMusic.cpp), from the player's own Dreamcast
+      * disc, which the activity imports (the disc import's progress screen) and then reopens this tab
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/utils/DirectoryInitialization.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/utils/DirectoryInitialization.kt
+index 6d83254f83..b09e140615 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/utils/DirectoryInitialization.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/utils/DirectoryInitialization.kt
+@@ -106,7 +106,11 @@ object DirectoryInitialization {
+         return if (usingLegacyUserDirectory) {
+             getLegacyUserDirectoryPath()
+         } else {
+-            context.getExternalFilesDir(null)
++            // Skies Recomp: the folder Settings, Disc, Data folder moved the data to. One that
++            // can't be reached now gets a throwaway folder, not app storage, so nothing is set up
++            // there while the launcher asks what to do (SkiesLauncherActivity)
++            val appStorage = context.getExternalFilesDir(null)
++            org.dolphinemu.dolphinemu.skies.SkiesDataFolder.userDirectory(context, appStorage)
+         }
+     }
+ 
+diff --git a/Source/Android/app/src/skies/AndroidManifest.xml b/Source/Android/app/src/skies/AndroidManifest.xml
+index 7626aaf47a..84312eabb7 100644
+--- a/Source/Android/app/src/skies/AndroidManifest.xml
++++ b/Source/Android/app/src/skies/AndroidManifest.xml
+@@ -1,7 +1,9 @@
+ <!-- Skies Recomp, the branded app only (-PskiesBrand; merged over src/main's manifest for both build
+      types): no permissions it doesn't use. It has no netplay, online features or microphone, isn't
+      a TV channel app, and keeps its user folder in the app's own storage (without the legacy
+-     storage permission Dolphin can't pick the shared dolphin-emu folder on Android 10 and older). -->
++     storage permission Dolphin can't pick the shared dolphin-emu folder on Android 10 and older)
++     unless Settings, Disc, Data folder moves it, with All files access (MANAGE_EXTERNAL_STORAGE,
++     kept from src/main; Android 11 and later: skies/SkiesDataFolder.kt). -->
+ <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+     xmlns:tools="http://schemas.android.com/tools">
+ 
+diff --git a/Source/Android/jni/CMakeLists.txt b/Source/Android/jni/CMakeLists.txt
+index 5e1f4249fc..12cb8c5900 100644
+--- a/Source/Android/jni/CMakeLists.txt
++++ b/Source/Android/jni/CMakeLists.txt
+@@ -66,7 +66,8 @@ endif()
+ # whole-file DOL patch code and save import, the same the desktop launcher uses.
+ if(EXISTS ${MODERNGEKKO_TOOLS_DIR}/dol_patch.cpp)
+   target_sources(main PRIVATE SkiesImport.cpp ${MODERNGEKKO_TOOLS_DIR}/dol_patch.cpp
+-                 ${MODERNGEKKO_TOOLS_DIR}/disc_extract.cpp ${MODERNGEKKO_TOOLS_DIR}/save_import.cpp)
++                 ${MODERNGEKKO_TOOLS_DIR}/disc_extract.cpp ${MODERNGEKKO_TOOLS_DIR}/save_import.cpp
++                 ${MODERNGEKKO_TOOLS_DIR}/user_directory.cpp)
+   target_include_directories(main PRIVATE ${MODERNGEKKO_TOOLS_DIR} ${MODERNGEKKO_TOOLS_DIR}/../include)
+ endif()
+ 
+diff --git a/Source/Android/jni/SkiesImport.cpp b/Source/Android/jni/SkiesImport.cpp
+index d5ccbcb10e..66a1e2bc06 100644
+--- a/Source/Android/jni/SkiesImport.cpp
++++ b/Source/Android/jni/SkiesImport.cpp
+@@ -31,6 +31,7 @@
+ #include "jni/AndroidCommon/AndroidCommon.h"
+ #include "moderngekko/sha256.hpp"
+ #include "save_import.hpp"
++#include "user_directory.hpp"
+ #ifdef HAVE_DCMUSIC
+ #include "AudioCommon/DCMusicImport.h"
+ #endif
+@@ -39,6 +40,10 @@ namespace fs = std::filesystem;
+ 
+ namespace
+ {
++// Settings, Disc, Data folder: the move running now (one at a time) and its progress
++moderngekko::frontend::UserDirectoryMoveProgress s_data_move;
++std::atomic<bool> s_data_moving{false};
++
+ // The releases the app runs, each with its DOL patch among the APK's assets (the app copies them to
+ // one folder) and its module, libg<ID>_recomp.so.
+ struct Region
+@@ -487,4 +492,71 @@ JNIEXPORT jstring JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_impor
+   std::lock_guard lock(s_status_lock);
+   return ToJString(env, s_status);
+ }
++
++// Settings, Disc, Data folder: the desktop launcher's move (tools/user_directory.cpp) between app
++// storage and a folder the player picked. The app checks the game isn't running and starts again
++// afterwards, so Dolphin takes the new folder from the start.
++
++// "" if the data in `from` can move to `to`, else why not
++JNIEXPORT jstring JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_checkDataMove(
++    JNIEnv* env, jclass, jstring from, jstring to)
++{
++  return ToJString(env, moderngekko::frontend::CheckUserDirectoryMove(
++                            StringToPath(GetJString(env, from)), StringToPath(GetJString(env, to))));
++}
++
++JNIEXPORT jboolean JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_holdsUserData(
++    JNIEnv* env, jclass, jstring directory)
++{
++  return moderngekko::frontend::HoldsUserData(StringToPath(GetJString(env, directory))) ? JNI_TRUE :
++                                                                                         JNI_FALSE;
++}
++
++// Uses `to` from the next start without moving anything. "" or what went wrong.
++JNIEXPORT jstring JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_pointDataFolder(
++    JNIEnv* env, jclass, jstring to, jstring app_storage)
++{
++  std::string error;
++  moderngekko::frontend::PointUserDirectory(StringToPath(GetJString(env, to)),
++                                            StringToPath(GetJString(env, app_storage)), &error);
++  return ToJString(env, error);
++}
++
++// Blocks until it's done: {message, "ok"} on success (the message a warning or ""), {why, ""} if
++// nothing moved
++JNIEXPORT jobjectArray JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_moveDataFolder(
++    JNIEnv* env, jclass, jstring from, jstring to, jstring app_storage)
++{
++  if (s_data_moving.exchange(true))
++  {
++    const std::string busy[] = {"The data folder is already being moved.", ""};
++    return SpanToJStringArray(env, std::span<const std::string>(busy));
++  }
++  s_data_move.cancel = false;
++  const moderngekko::frontend::UserDirectoryMoveResult result =
++      moderngekko::frontend::MoveUserDirectory(StringToPath(GetJString(env, from)),
++                                               StringToPath(GetJString(env, to)),
++                                               StringToPath(GetJString(env, app_storage)),
++                                               &s_data_move);
++  s_data_moving = false;
++  const std::string answer[] = {result.ok ? result.warning : result.error, result.ok ? "ok" : ""};
++  return SpanToJStringArray(env, std::span<const std::string>(answer));
++}
++
++// {bytes done, bytes in all} of the move running now (or the last one)
++JNIEXPORT jlongArray JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_dataMoveProgress(
++    JNIEnv* env, jclass)
++{
++  const jlong values[2] = {static_cast<jlong>(s_data_move.done_bytes.load()),
++                           static_cast<jlong>(s_data_move.total_bytes.load())};
++  jlongArray array = env->NewLongArray(2);
++  env->SetLongArrayRegion(array, 0, 2, values);
++  return array;
++}
++
++JNIEXPORT void JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_cancelDataMove(JNIEnv*,
++                                                                                       jclass)
++{
++  s_data_move.cancel = true;
++}
+ }

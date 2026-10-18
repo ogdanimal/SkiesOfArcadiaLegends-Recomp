@@ -1,5 +1,5 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index c0548a0..5d68cde 100644
+index c0548a0..df296ce 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -33,9 +33,9 @@ set(MODERNGEKKO_RUNNER_OUTPUT_NAME "moderngekko-run" CACHE STRING
@@ -47,7 +47,7 @@ index c0548a0..5d68cde 100644
      set(USE_SYSTEM_SDL3 OFF CACHE BOOL "" FORCE)
      # SDL bundles its own copy of the macOS hidapi backend
      if(APPLE)
-@@ -413,6 +418,37 @@ if(MODERNGEKKO_ENABLE_DOLPHIN_RUNTIME)
+@@ -413,12 +418,44 @@ if(MODERNGEKKO_ENABLE_DOLPHIN_RUNTIME)
      else()
          message(FATAL_ERROR "No usable SDL3 target is available for the frontend")
      endif()
@@ -85,7 +85,14 @@ index c0548a0..5d68cde 100644
      add_executable(moderngekko-run
          tools/moderngekko_run.cpp
          tools/netplay_compatibility.cpp
-@@ -459,12 +495,8 @@ if(MODERNGEKKO_ENABLE_DOLPHIN_RUNTIME)
+         tools/netplay_session.cpp
+         tools/frontend_config.cpp
+         tools/dol_patch.cpp
++        tools/user_directory.cpp
+         vendor/dolphin/Externals/imgui/imgui/backends/imgui_impl_sdl3.cpp
+         vendor/dolphin/Externals/imgui/imgui/backends/imgui_impl_sdlrenderer3.cpp)
+     target_include_directories(moderngekko-run PRIVATE
+@@ -459,12 +496,8 @@ if(MODERNGEKKO_ENABLE_DOLPHIN_RUNTIME)
              MODERNGEKKO_DEFAULT_WINDOW_TITLE="${MODERNGEKKO_DEFAULT_WINDOW_TITLE}")
      endif()
      if(MODERNGEKKO_REQUIRED_DISC_ID)
@@ -100,7 +107,7 @@ index c0548a0..5d68cde 100644
      endif()
      if(MODERNGEKKO_REQUIRED_REL_SHA256)
          target_compile_definitions(moderngekko-run PRIVATE
-@@ -486,37 +518,36 @@ if(MODERNGEKKO_ENABLE_DOLPHIN_RUNTIME)
+@@ -486,37 +519,37 @@ if(MODERNGEKKO_ENABLE_DOLPHIN_RUNTIME)
          target_compile_definitions(moderngekko-run PRIVATE
              MODERNGEKKO_USER_DIRECTORY_IN_DOCUMENTS=1)
      endif()
@@ -153,10 +160,11 @@ index c0548a0..5d68cde 100644
 +        tools/disc_extract.cpp
          tools/dol_patch.cpp
 +        tools/save_import.cpp
++        tools/user_directory.cpp
          vendor/dolphin/Externals/imgui/imgui/backends/imgui_impl_sdl3.cpp
          vendor/dolphin/Externals/imgui/imgui/backends/imgui_impl_sdlrenderer3.cpp)
      target_include_directories(moderngekko-launcher PRIVATE
-@@ -547,12 +578,8 @@ if(MODERNGEKKO_ENABLE_DOLPHIN_RUNTIME)
+@@ -547,12 +580,8 @@ if(MODERNGEKKO_ENABLE_DOLPHIN_RUNTIME)
          MODERNGEKKO_USER_DIRECTORY_NAME="${MODERNGEKKO_USER_DIRECTORY_NAME}"
          MODERNGEKKO_LOG_FILENAME="${MODERNGEKKO_LOG_FILENAME}")
      if(MODERNGEKKO_REQUIRED_DISC_ID)
@@ -171,7 +179,7 @@ index c0548a0..5d68cde 100644
      endif()
      if(MODERNGEKKO_REQUIRED_REL_SHA256)
          target_compile_definitions(moderngekko-launcher PRIVATE
-@@ -574,10 +601,6 @@ if(MODERNGEKKO_ENABLE_DOLPHIN_RUNTIME)
+@@ -574,10 +603,6 @@ if(MODERNGEKKO_ENABLE_DOLPHIN_RUNTIME)
          target_compile_definitions(moderngekko-launcher PRIVATE
              MODERNGEKKO_USER_DIRECTORY_IN_DOCUMENTS=1)
      endif()
@@ -182,7 +190,7 @@ index c0548a0..5d68cde 100644
      if(MODERNGEKKO_DISC_PREPARER_OUTPUT_NAME)
          target_compile_definitions(moderngekko-launcher PRIVATE
              MODERNGEKKO_DISC_PREPARER_FILENAME="${MODERNGEKKO_DISC_PREPARER_OUTPUT_NAME}")
-@@ -599,6 +622,33 @@ if(MODERNGEKKO_ENABLE_DOLPHIN_RUNTIME)
+@@ -599,6 +624,33 @@ if(MODERNGEKKO_ENABLE_DOLPHIN_RUNTIME)
              INSTALL_RPATH "$ORIGIN/lib")
      endif()
      add_dependencies(moderngekko-launcher moderngekko-run)
@@ -216,6 +224,21 @@ index c0548a0..5d68cde 100644
  
      add_executable(moderngekko-port
          tools/moderngekko_port.cpp
+@@ -671,6 +723,14 @@ if(BUILD_TESTING)
+     target_compile_features(moderngekko_frontend_config_test PRIVATE cxx_std_23)
+     add_test(NAME moderngekko.frontend_config COMMAND moderngekko_frontend_config_test)
+ 
++    add_executable(moderngekko_user_directory_test
++        tests/user_directory_test.cpp
++        tools/user_directory.cpp)
++    target_include_directories(moderngekko_user_directory_test PRIVATE
++        "${CMAKE_CURRENT_SOURCE_DIR}/tools")
++    target_compile_features(moderngekko_user_directory_test PRIVATE cxx_std_23)
++    add_test(NAME moderngekko.user_directory COMMAND moderngekko_user_directory_test)
++
+     # Header-only, so the test needs no companion translation unit.
+     add_executable(moderngekko_launcher_savestates_test
+         tests/launcher_savestates_test.cpp)
 diff --git a/include/moderngekko/cpu_state.h b/include/moderngekko/cpu_state.h
 index 9248431..7ef9856 100644
 --- a/include/moderngekko/cpu_state.h
@@ -477,6 +500,197 @@ index 4b2345f..95b640e 100644
  }
  
  bool ModManager::HostCallContains(std::uint32_t address, void *user_data) {
+diff --git a/tests/user_directory_test.cpp b/tests/user_directory_test.cpp
+new file mode 100644
+index 0000000..c8a05c4
+--- /dev/null
++++ b/tests/user_directory_test.cpp
+@@ -0,0 +1,185 @@
++#include "user_directory.hpp"
++
++#include <chrono>
++#include <cstdlib>
++#include <filesystem>
++#include <fstream>
++#include <iostream>
++#include <string>
++
++namespace fs = std::filesystem;
++using namespace moderngekko::frontend;
++
++namespace
++{
++int failures = 0;
++
++void Check(bool condition, const char* what)
++{
++  if (!condition)
++  {
++    std::cerr << "FAIL: " << what << '\n';
++    ++failures;
++  }
++}
++
++void Write(const fs::path& file, const std::string& text)
++{
++  fs::create_directories(file.parent_path());
++  std::ofstream(file, std::ios::binary) << text;
++}
++
++std::string Read(const fs::path& file)
++{
++  std::ifstream input(file, std::ios::binary);
++  return {std::istreambuf_iterator<char>(input), {}};
++}
++
++// A data folder as the launcher leaves it: a game, a card save with an old time, a config
++void MakeUserData(const fs::path& directory)
++{
++  Write(directory / "games" / "GEAE8P" / "sys" / "main.dol", std::string(4096, 'd'));
++  Write(directory / "GC" / "USA" / "Card A" / "01-8P-GEAE.gci", "save");
++  fs::last_write_time(directory / "GC" / "USA" / "Card A" / "01-8P-GEAE.gci",
++                      fs::file_time_type::clock::now() - std::chrono::hours(48));
++  Write(directory / "Config" / "Dolphin.ini", "[Skies]\nWidescreen = 1\n");
++  Write(directory / "default-game.txt", PathUtf8(directory / "games" / "GEAE8P") + "\n");
++}
++
++void CheckUserData(const fs::path& directory, const fs::file_time_type save_time, const char* what)
++{
++  const std::string label(what);
++  Check(Read(directory / "games" / "GEAE8P" / "sys" / "main.dol").size() == 4096,
++        (label + ": game moved").c_str());
++  Check(Read(directory / "Config" / "Dolphin.ini") == "[Skies]\nWidescreen = 1\n",
++        (label + ": config moved").c_str());
++  Check(fs::last_write_time(directory / "GC" / "USA" / "Card A" / "01-8P-GEAE.gci") == save_time,
++        (label + ": save time kept").c_str());
++  Check(Read(directory / "default-game.txt") ==
++            PathUtf8(directory / "games" / "GEAE8P") + "\n",
++        (label + ": default-game.txt points into the new folder").c_str());
++}
++}  // namespace
++
++int main()
++{
++  const fs::path root =
++      fs::temp_directory_path() /
++      ("moderngekko-user-directory-" +
++       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
++  const fs::path exe = root / "release";
++  const fs::path default_directory = root / "local" / "Skies of Arcadia Legends";
++  fs::create_directories(exe);
++
++  // Where Change... puts it
++  Check(UserDirectoryIn(root / "D", "Skies") == root / "D" / "Skies", "a folder inside the pick");
++  Check(UserDirectoryIn(root / "D" / "", "Skies") == root / "D" / "Skies", "trailing separator");
++  Check(UserDirectoryIn(root / "D" / "Skies", "Skies") == root / "D" / "Skies",
++        "the pick when it has the name");
++
++  // Nothing set: the default
++  MakeUserData(default_directory);
++  const fs::file_time_type save_time =
++      fs::last_write_time(default_directory / "GC" / "USA" / "Card A" / "01-8P-GEAE.gci");
++  UserDirectoryChoice choice = FindUserDirectory(exe, default_directory);
++  Check(choice.kind == UserDirectoryKind::Default && choice.path == default_directory, "default");
++
++  // Moves that can't happen
++  Check(!CheckUserDirectoryMove(default_directory, default_directory).empty(), "same folder");
++  Check(!CheckUserDirectoryMove(default_directory, default_directory / "inner").empty(),
++        "inside the data folder");
++  Check(!CheckUserDirectoryMove(default_directory, root / "local").empty(),
++        "the data folder inside it");
++  Write(root / "full" / "Skies" / "something.txt", "x");
++  Check(HoldsUserData(root / "full" / "Skies"), "a folder with data");
++  UserDirectoryMoveProgress refused;
++  Check(!MoveUserDirectory(default_directory, root / "full" / "Skies", default_directory, &refused).ok &&
++            fs::exists(default_directory / "Config"),
++        "no move into a folder with data");
++  Check(CheckUserDirectoryMove(default_directory, root / "empty" / "Skies").empty(),
++        "a new folder");
++
++  // Same drive: a rename
++  const fs::path moved = root / "D" / "Skies";
++  UserDirectoryMoveProgress progress;
++  UserDirectoryMoveResult result =
++      MoveUserDirectory(default_directory, moved, default_directory, &progress);
++  Check(result.ok && result.error.empty(), "rename move");
++  CheckUserData(moved, save_time, "rename");
++  Check(!HoldsUserData(default_directory), "default folder only has the pointer");
++  choice = FindUserDirectory(exe, default_directory);
++  Check(choice.kind == UserDirectoryKind::Moved && choice.path == moved && !choice.missing,
++        "pointer found");
++
++  // Copy (another drive), then a cancelled one
++  const fs::path copied = root / "E" / "Skies";
++  UserDirectoryMoveProgress copy_progress;
++  copy_progress.always_copy = true;
++  result = MoveUserDirectory(moved, copied, default_directory, &copy_progress);
++  Check(result.ok && result.warning.empty(), "copy move");
++  CheckUserData(copied, save_time, "copy");
++  Check(!fs::exists(moved), "old folder removed after the copy");
++  Check(!fs::exists(root / "E" / "Skies.moving"), "no staging folder left");
++  Check(copy_progress.done_bytes == copy_progress.total_bytes, "progress complete");
++  Check(FindUserDirectory(exe, default_directory).path == copied, "pointer updated");
++
++  UserDirectoryMoveProgress cancelled;
++  cancelled.always_copy = true;
++  cancelled.cancel = true;
++  result = MoveUserDirectory(copied, root / "F" / "Skies", default_directory, &cancelled);
++  Check(!result.ok && !fs::exists(root / "F" / "Skies") && !fs::exists(root / "F" / "Skies.moving"),
++        "cancel leaves nothing");
++  Check(FindUserDirectory(exe, default_directory).path == copied && fs::exists(copied / "Config"),
++        "cancel keeps the data and the pointer");
++
++  // Back to the default, by a copy: the pointer goes
++  UserDirectoryMoveProgress back_progress;
++  back_progress.always_copy = true;
++  result = MoveUserDirectory(copied, default_directory, default_directory, &back_progress);
++  Check(result.ok, "move back");
++  CheckUserData(default_directory, save_time, "back");
++  Check(!fs::exists(default_directory / USER_DIRECTORY_POINTER), "pointer removed");
++  Check(FindUserDirectory(exe, default_directory).kind == UserDirectoryKind::Default,
++        "default again");
++
++  // A pointer to a folder that's gone (a drive not connected)
++  std::string error;
++  Check(PointUserDirectory(root / "G" / "Skies", default_directory, &error), "point");
++  choice = FindUserDirectory(exe, default_directory);
++  Check(choice.kind == UserDirectoryKind::Moved && choice.missing, "missing folder");
++  Check(PointUserDirectory(default_directory, default_directory, &error) &&
++            FindUserDirectory(exe, default_directory).kind == UserDirectoryKind::Default,
++        "point back to the default");
++
++  // Portable wins over everything
++  Write(exe / PORTABLE_MARKER, "");
++  choice = FindUserDirectory(exe, default_directory);
++  Check(choice.kind == UserDirectoryKind::Portable && choice.path == exe / "User", "portable");
++
++  // default-game.txt from a data folder copied by hand
++  const fs::path hand_copy = root / "H" / "Skies";
++  fs::create_directories(hand_copy / "games" / "GEAE8P");
++  Check(ResolveDefaultGame(PathUtf8(root / "gone" / "games" / "GEAE8P"), exe, hand_copy) ==
++            hand_copy / "games" / "GEAE8P",
++        "absolute path that's gone");
++  Check(ResolveDefaultGame("Game", exe, hand_copy) == exe / "Game", "relative path");
++  Check(ResolveDefaultGame("", exe, hand_copy).empty(), "empty");
++
++  // Default folder from the environment
++#if !defined(_WIN32)
++  setenv("XDG_DATA_HOME", "relative", 1);
++  setenv("HOME", "/home/someone", 1);
++  Check(DefaultUserDirectory("Skies", false) == fs::path("/home/someone/.local/share/Skies"),
++        "relative XDG_DATA_HOME is unset");
++  setenv("XDG_DATA_HOME", "/data", 1);
++  Check(DefaultUserDirectory("Skies", false) == fs::path("/data/Skies"), "XDG_DATA_HOME");
++  Check(DefaultUserDirectory("Skies", true) == fs::path("/home/someone/Documents/Skies"),
++        "Documents");
++#endif
++
++  std::error_code ec;
++  fs::remove_all(root, ec);
++  if (failures == 0)
++    std::cout << "user_directory: all checks passed\n";
++  return failures == 0 ? 0 : 1;
++}
 diff --git a/tools/automation_protocol.cpp b/tools/automation_protocol.cpp
 index 25f4167..7aa1b86 100644
 --- a/tools/automation_protocol.cpp
@@ -1772,10 +1986,10 @@ index 0000000..f3c3d14
 +void DrawMapping(State& state, const fs::path& user_directory, float scale);
 +}  // namespace moderngekko::launcher_controls
 diff --git a/tools/moderngekko_launcher.cpp b/tools/moderngekko_launcher.cpp
-index 7699c3d..c2d19b6 100644
+index 7699c3d..70ce9c9 100644
 --- a/tools/moderngekko_launcher.cpp
 +++ b/tools/moderngekko_launcher.cpp
-@@ -1,12 +1,22 @@
+@@ -1,12 +1,23 @@
  #include "frontend_config.hpp"
 +#include "disc_extract.hpp"
  #include "dol_patch.hpp"
@@ -1785,6 +1999,7 @@ index 7699c3d..c2d19b6 100644
  #include "netplay_session.hpp"
 +#include "release_games.hpp"
 +#include "save_import.hpp"
++#include "user_directory.hpp"
  
 +#include "Common/Image.h"
 +#include "Common/IniFile.h"
@@ -1798,7 +2013,7 @@ index 7699c3d..c2d19b6 100644
  
  #include <SDL3/SDL.h>
  #include <imgui.h>
-@@ -19,7 +29,12 @@
+@@ -19,7 +30,12 @@
  #include <cstdio>
  #include <cstdlib>
  #include <filesystem>
@@ -1811,7 +2026,7 @@ index 7699c3d..c2d19b6 100644
  #include <iostream>
  #include <mutex>
  #include <optional>
-@@ -51,7 +66,22 @@ namespace
+@@ -51,7 +67,22 @@ namespace
  #ifdef MODERNGEKKO_GAMECUBE_CONTROLLERS
  constexpr std::string_view CONTROLLER_PROFILE_NAME = "GCPadNew.ini";
  constexpr std::string_view GENERATED_PROFILE_LABEL = "GameCube profile";
@@ -1834,7 +2049,7 @@ index 7699c3d..c2d19b6 100644
  constexpr std::string_view CONTROLLER_PROFILE_NAME = "WiimoteNew.ini";
  constexpr std::string_view GENERATED_PROFILE_LABEL = "sideways profile";
  #endif
-@@ -74,22 +104,158 @@ struct DialogState
+@@ -74,22 +105,158 @@ struct DialogState
    std::string error;
  };
  
@@ -2001,7 +2216,7 @@ index 7699c3d..c2d19b6 100644
  #ifdef MODERNGEKKO_REQUIRED_REL_SHA256
    if (metadata.rel_sha256 != MODERNGEKKO_REQUIRED_REL_SHA256)
      return "_Main.rel does not match the pinned release";
-@@ -101,6 +267,18 @@ std::string RequiredGameError(const moderngekko::GameMetadata& metadata)
+@@ -101,6 +268,18 @@ std::string RequiredGameError(const moderngekko::GameMetadata& metadata)
    return {};
  }
  
@@ -2020,7 +2235,7 @@ index 7699c3d..c2d19b6 100644
  std::vector<ControllerOption> EnumerateControllers()
  {
    std::vector<ControllerOption> result;
-@@ -111,14 +289,31 @@ std::vector<ControllerOption> EnumerateControllers()
+@@ -111,14 +290,31 @@ std::vector<ControllerOption> EnumerateControllers()
    {
      const SDL_JoystickID joystick_id = joystick_ids[i];
      const bool gamepad = SDL_IsGamepad(joystick_id);
@@ -2056,7 +2271,7 @@ index 7699c3d..c2d19b6 100644
      option.device = "SDL/" + std::to_string(device_id) + "/" + name;
      result.emplace_back(std::move(option));
    }
-@@ -129,7 +324,17 @@ std::vector<ControllerOption> EnumerateControllers()
+@@ -129,28 +325,28 @@ std::vector<ControllerOption> EnumerateControllers()
  int FindController(const std::vector<ControllerOption>& controllers, std::string_view device)
  {
    const auto found = std::ranges::find(controllers, device, &ControllerOption::device);
@@ -2074,21 +2289,35 @@ index 7699c3d..c2d19b6 100644
 +  return same == controllers.end() ? -1 : static_cast<int>(same - controllers.begin());
  }
  
- fs::path DefaultUserDirectory()
-@@ -146,9 +351,10 @@ fs::path DefaultUserDirectory()
-   if (const char* local_app_data = std::getenv("LOCALAPPDATA"))
-     return fs::path(local_app_data) / MODERNGEKKO_USER_DIRECTORY_NAME;
+-fs::path DefaultUserDirectory()
++// The default data folder; FindUserDirectory says which one is used (user_directory.hpp)
++fs::path DefaultDataDirectory()
+ {
+ #ifdef MODERNGEKKO_USER_DIRECTORY_IN_DOCUMENTS
+-#if defined(_WIN32)
+-  if (const char* user_profile = std::getenv("USERPROFILE"))
+-    return fs::path(user_profile) / "Documents" / MODERNGEKKO_USER_DIRECTORY_NAME;
+-#endif
+-  if (const char* home = std::getenv("HOME"))
+-    return fs::path(home) / "Documents" / MODERNGEKKO_USER_DIRECTORY_NAME;
+-#endif
+-#if defined(_WIN32)
+-  if (const char* local_app_data = std::getenv("LOCALAPPDATA"))
+-    return fs::path(local_app_data) / MODERNGEKKO_USER_DIRECTORY_NAME;
++  constexpr bool in_documents = true;
++#else
++  constexpr bool in_documents = false;
  #endif
 -  if (const char* xdg = std::getenv("XDG_DATA_HOME"))
-+  // XDG: an empty or relative XDG_DATA_HOME counts as unset
-+  if (const char* xdg = std::getenv("XDG_DATA_HOME"); xdg && xdg[0] == '/')
-     return fs::path(xdg) / MODERNGEKKO_USER_DIRECTORY_NAME;
+-    return fs::path(xdg) / MODERNGEKKO_USER_DIRECTORY_NAME;
 -  if (const char* home = std::getenv("HOME"))
-+  if (const char* home = std::getenv("HOME"); home && home[0] != '\0')
-     return fs::path(home) / ".local/share" / MODERNGEKKO_USER_DIRECTORY_NAME;
-   return std::string(MODERNGEKKO_USER_DIRECTORY_NAME) + "-user";
+-    return fs::path(home) / ".local/share" / MODERNGEKKO_USER_DIRECTORY_NAME;
+-  return std::string(MODERNGEKKO_USER_DIRECTORY_NAME) + "-user";
++  return moderngekko::frontend::DefaultUserDirectory(MODERNGEKKO_USER_DIRECTORY_NAME, in_documents);
  }
-@@ -166,6 +372,13 @@ fs::path DocumentsDirectory()
+ 
+ fs::path DocumentsDirectory()
+@@ -166,6 +362,13 @@ fs::path DocumentsDirectory()
  
  fs::path ExecutableDirectory(const char* argv0)
  {
@@ -2102,7 +2331,7 @@ index 7699c3d..c2d19b6 100644
    std::error_code ec;
  #if defined(__linux__)
    const fs::path proc_executable = fs::read_symlink("/proc/self/exe", ec);
-@@ -182,26 +395,23 @@ fs::path SiblingExecutable(const fs::path& release_directory, std::string name)
+@@ -182,26 +385,23 @@ fs::path SiblingExecutable(const fs::path& release_directory, std::string name)
  #if defined(_WIN32)
    name += ".exe";
  #endif
@@ -2138,7 +2367,19 @@ index 7699c3d..c2d19b6 100644
  }
  
  fs::path DefaultGameFile(const fs::path& user_directory, const fs::path& release_directory)
-@@ -232,7 +442,10 @@ bool WriteDefaultGame(const fs::path& user_directory, const fs::path& release_di
+@@ -220,10 +420,7 @@ fs::path ReadDefaultGame(const fs::path& user_directory, const fs::path& release
+   std::getline(file, value);
+   if (!value.empty() && value.back() == '\r')
+     value.pop_back();
+-  fs::path game(value);
+-  if (game.is_relative())
+-    game = release_directory / game;
+-  return game;
++  return moderngekko::frontend::ResolveDefaultGame(value, release_directory, user_directory);
+ }
+ 
+ bool WriteDefaultGame(const fs::path& user_directory, const fs::path& release_directory,
+@@ -232,7 +429,10 @@ bool WriteDefaultGame(const fs::path& user_directory, const fs::path& release_di
    const fs::path destination = DefaultGameFile(user_directory, release_directory);
    std::error_code ec;
    fs::create_directories(destination.parent_path(), ec);
@@ -2150,7 +2391,7 @@ index 7699c3d..c2d19b6 100644
    if (!file)
    {
      if (error)
-@@ -246,9 +459,150 @@ bool WriteDefaultGame(const fs::path& user_directory, const fs::path& release_di
+@@ -246,9 +446,150 @@ bool WriteDefaultGame(const fs::path& user_directory, const fs::path& release_di
      stored = relative;
  #endif
    file << stored.string() << '\n';
@@ -2301,7 +2542,7 @@ index 7699c3d..c2d19b6 100644
  std::vector<fs::path> FindDiscImages()
  {
    std::vector<fs::path> images;
-@@ -259,7 +613,9 @@ std::vector<fs::path> FindDiscImages()
+@@ -259,7 +600,9 @@ std::vector<fs::path> FindDiscImages()
    fs::recursive_directory_iterator iterator(documents,
                                              fs::directory_options::skip_permission_denied, ec);
    const fs::recursive_directory_iterator end;
@@ -2312,7 +2553,7 @@ index 7699c3d..c2d19b6 100644
    {
      if (iterator.depth() > 4)
        iterator.disable_recursion_pending();
-@@ -268,7 +624,7 @@ std::vector<fs::path> FindDiscImages()
+@@ -268,7 +611,7 @@ std::vector<fs::path> FindDiscImages()
        std::string extension = iterator->path().extension().string();
        std::ranges::transform(extension, extension.begin(),
                               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
@@ -2321,7 +2562,7 @@ index 7699c3d..c2d19b6 100644
          images.push_back(iterator->path());
      }
      iterator.increment(ec);
-@@ -290,16 +646,14 @@ std::optional<fs::path> PrepareDisc(const fs::path& image, const fs::path& user_
+@@ -290,16 +633,14 @@ std::optional<fs::path> PrepareDisc(const fs::path& image, const fs::path& user_
      return std::nullopt;
    }
    const std::string source_id = source->GetGameID(source->GetGamePartition());
@@ -2342,7 +2583,7 @@ index 7699c3d..c2d19b6 100644
      return std::nullopt;
    }
    const fs::path output = user_directory / "Setup" / "SonicRidersTE-2.4.6.1.iso";
-@@ -372,13 +726,13 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+@@ -372,13 +713,13 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
      return fail("Dolphin could not read the game partition filesystem");
  
    std::string disc_id = volume->GetGameID(partition);
@@ -2362,7 +2603,7 @@ index 7699c3d..c2d19b6 100644
  #ifdef MODERNGEKKO_PORTABLE_DEFAULT_GAME
    const fs::path games_directory = release_directory;
    const fs::path output = games_directory / "Game";
-@@ -387,14 +741,47 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+@@ -387,14 +728,47 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
    const fs::path output = games_directory / disc_id;
  #endif
    std::error_code ec;
@@ -2412,7 +2653,7 @@ index 7699c3d..c2d19b6 100644
    if (existing && RequiredGameError(*existing.metadata).empty())
    {
      std::string error;
-@@ -407,8 +794,27 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+@@ -407,8 +781,27 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
      return true;
    }
  
@@ -2440,7 +2681,7 @@ index 7699c3d..c2d19b6 100644
    fs::create_directories(staging / "files", ec);
    if (ec)
      return fail("can't create extraction directory: " + ec.message());
-@@ -423,20 +829,25 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+@@ -423,20 +816,25 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
      return fail("Dolphin failed while extracting the disc system data");
    }
  
@@ -2476,7 +2717,7 @@ index 7699c3d..c2d19b6 100644
  
    bool dol_changed = false;
    std::string dol_patch_error;
-@@ -446,7 +857,7 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+@@ -446,7 +844,7 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
      return fail("extracted DOL patching failed: " + dol_patch_error);
    }
  
@@ -2485,7 +2726,7 @@ index 7699c3d..c2d19b6 100644
    if (!inspected)
    {
      fs::remove_all(staging, ec);
-@@ -459,11 +870,13 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+@@ -459,11 +857,13 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
      return fail("extracted game validation failed: " + identity_error);
    }
  
@@ -2504,7 +2745,7 @@ index 7699c3d..c2d19b6 100644
    std::string error;
    if (!WriteDefaultGame(user_directory, release_directory, output, &error))
      return fail(error);
-@@ -487,16 +900,26 @@ void SDLCALL FileDialogCallback(void* userdata, const char* const* filelist, int
+@@ -487,23 +887,91 @@ void SDLCALL FileDialogCallback(void* userdata, const char* const* filelist, int
      state->selected = filelist[0];
  }
  
@@ -2535,16 +2776,73 @@ index 7699c3d..c2d19b6 100644
  }
  } // namespace
  
-@@ -504,6 +927,8 @@ int main(int argc, char** argv)
+-int main(int argc, char** argv)
++namespace
++{
++// Set when Settings, Disc, Data folder moved the data or picked another folder: main starts the
++// launcher again, on the new folder.
++struct LauncherRestart
++{
++  bool requested = false;
++};
++
++// Asks what to do about a moved data folder that isn't there before anything reads it. False:
++// quit. The answer can also be the default folder (the pointer removed).
++bool ResolveMissingDataFolder(moderngekko::frontend::UserDirectoryChoice* choice,
++                              const fs::path& release_directory, const fs::path& default_directory)
++{
++  while (choice->missing)
++  {
++    // Short lines: Windows' box doesn't wrap them
++    const std::string message =
++        "The data folder isn't there:\n" + moderngekko::frontend::PathUtf8(choice->path) +
++        "\n\nIf it is on a drive that isn't connected, connect it and choose Try Again.\n\n"
++        "Use Default starts with the default folder instead:\n" +
++        moderngekko::frontend::PathUtf8(default_directory) +
++        "\nThe moved folder isn't deleted: Settings, Disc, Data folder can pick it again.";
++    enum
++    {
++      QUIT,
++      RETRY,
++      USE_DEFAULT,
++    };
++    const SDL_MessageBoxButtonData buttons[] = {
++        {SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, RETRY, "Try Again"},
++        {0, USE_DEFAULT, "Use Default"},
++        {SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, QUIT, "Quit"},
++    };
++    const SDL_MessageBoxData box = {SDL_MESSAGEBOX_WARNING, nullptr, "Data folder not found",
++                                    message.c_str(), static_cast<int>(std::size(buttons)),
++                                    buttons, nullptr};
++    int answer = QUIT;
++    if (!SDL_ShowMessageBox(&box, &answer) || answer == QUIT)
++      return false;
++    if (answer == USE_DEFAULT)
++    {
++      std::string error;
++      if (!moderngekko::frontend::PointUserDirectory(default_directory, default_directory, &error))
++      {
++        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Data folder", error.c_str(), nullptr);
++        return false;
++      }
++    }
++    *choice = moderngekko::frontend::FindUserDirectory(release_directory, default_directory);
++  }
++  return true;
++}
++}  // namespace
++
++int RunLauncher(int argc, char** argv, LauncherRestart* restart)
  {
    bool use_wayland = false;
    std::optional<fs::path> extract_only;
 +  std::optional<std::string> import_save_only;
 +  std::optional<std::string> import_dc_music_only;
++  std::optional<std::string> move_data_only;
    for (int i = 1; i < argc; ++i)
    {
      if (std::string_view(argv[i]) == "-X11" || std::string_view(argv[i]) == "--x11")
-@@ -512,10 +937,28 @@ int main(int argc, char** argv)
+@@ -512,10 +980,73 @@ int main(int argc, char** argv)
        use_wayland = true;
      else if (std::string_view(argv[i]) == "--extract" && i + 1 < argc)
        extract_only = argv[++i];
@@ -2552,10 +2850,56 @@ index 7699c3d..c2d19b6 100644
 +      import_save_only = argv[++i];
 +    else if (std::string_view(argv[i]) == "--import-dc-music" && i + 1 < argc)
 +      import_dc_music_only = argv[++i];
++    else if (std::string_view(argv[i]) == "--move-data-folder" && i + 1 < argc)
++      move_data_only = argv[++i];
    }
  
-   const fs::path user_directory = DefaultUserDirectory();
+-  const fs::path user_directory = DefaultUserDirectory();
    const fs::path release_directory = ExecutableDirectory(argv[0]);
++  // Where the data is: portable, moved (Settings, Disc, Data folder) or the default
++  const fs::path default_user_directory = DefaultDataDirectory();
++  moderngekko::frontend::UserDirectoryChoice user_directory_choice =
++      moderngekko::frontend::FindUserDirectory(release_directory, default_user_directory);
++  if (user_directory_choice.missing)
++  {
++    if (extract_only || import_save_only || import_dc_music_only || move_data_only)
++    {
++      std::cerr << "the data folder " << moderngekko::frontend::PathUtf8(user_directory_choice.path)
++                << " isn't there\n";
++      return 1;
++    }
++    if (!ResolveMissingDataFolder(&user_directory_choice, release_directory,
++                                  default_user_directory))
++      return 1;
++  }
++  const fs::path user_directory = user_directory_choice.path;
++  // Settings, Disc, Data folder's Change without the window and the picker (for tests): moves the
++  // data into a folder of the port's name in the one given, or uses it if it holds data
++  if (move_data_only)
++  {
++    const fs::path target = moderngekko::frontend::UserDirectoryIn(
++        moderngekko::frontend::Utf8Path(*move_data_only), MODERNGEKKO_USER_DIRECTORY_NAME);
++    std::string problem = moderngekko::frontend::CheckUserDirectoryMove(user_directory, target);
++    if (problem.empty() && moderngekko::frontend::HoldsUserData(target))
++    {
++      if (!moderngekko::frontend::PointUserDirectory(target, default_user_directory, &problem))
++        problem = "can't use it: " + problem;
++      else
++        std::cout << "using " << moderngekko::frontend::PathUtf8(target) << '\n';
++    }
++    else if (problem.empty())
++    {
++      moderngekko::frontend::UserDirectoryMoveProgress progress;
++      const auto result = moderngekko::frontend::MoveUserDirectory(user_directory, target,
++                                                                   default_user_directory, &progress);
++      problem = result.error;
++      if (result.ok)
++        std::cout << "moved to " << moderngekko::frontend::PathUtf8(target) << '\n' << result.warning;
++    }
++    if (!problem.empty())
++      std::cerr << problem << '\n';
++    return problem.empty() ? 0 : 1;
++  }
 +#ifdef HAVE_DCMUSIC
 +  // Where the game looks for the Dreamcast music (AudioCommon/DCMusic.h: the user directory's)
 +  const std::string dc_music_directory = PathToString(user_directory / "DreamcastMusic" / "");
@@ -2573,7 +2917,7 @@ index 7699c3d..c2d19b6 100644
    if (extract_only)
    {
      ExtractionState extraction;
-@@ -529,6 +972,21 @@ int main(int argc, char** argv)
+@@ -529,6 +1060,21 @@ int main(int argc, char** argv)
        std::cout << extraction.status << ": " << *extraction.finished_game << '\n';
      return success ? 0 : 1;
    }
@@ -2595,7 +2939,7 @@ index 7699c3d..c2d19b6 100644
  
    auto config = moderngekko::frontend::LoadConfig(user_directory, true);
    if (!config)
-@@ -546,9 +1004,18 @@ int main(int argc, char** argv)
+@@ -546,9 +1092,18 @@ int main(int argc, char** argv)
    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD))
      return 1;
  
@@ -2616,7 +2960,7 @@ index 7699c3d..c2d19b6 100644
                                          SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
    if (!window)
    {
-@@ -578,19 +1045,92 @@ int main(int argc, char** argv)
+@@ -578,19 +1133,92 @@ int main(int argc, char** argv)
    ImGui::GetStyle().FontScaleDpi = scale;
    ImGui_ImplSDL3_InitForSDLRenderer(window, renderer);
    ImGui_ImplSDLRenderer3_Init(renderer);
@@ -2712,7 +3056,7 @@ index 7699c3d..c2d19b6 100644
    const auto& resolutions = moderngekko::frontend::SupportedResolutions();
    const auto& graphics_backends =
        moderngekko::frontend::SupportedGraphicsBackends();
-@@ -605,6 +1145,44 @@ int main(int argc, char** argv)
+@@ -605,6 +1233,44 @@ int main(int argc, char** argv)
    int netplay_port = config.netplay_port;
    bool automatic_buffer = config.netplay_buffer == "auto";
    int manual_buffer = automatic_buffer ? 5 : std::stoi(config.netplay_buffer);
@@ -2757,7 +3101,7 @@ index 7699c3d..c2d19b6 100644
    int resolution_index = 0;
    for (std::size_t i = 0; i < resolutions.size(); ++i)
    {
-@@ -621,17 +1199,117 @@ int main(int argc, char** argv)
+@@ -621,17 +1287,133 @@ int main(int argc, char** argv)
    // StateSaves is Dolphin's own state directory, so states written in-game land
    // here without any extra configuration and show up on the next launch.
    //
@@ -2808,6 +3152,22 @@ index 7699c3d..c2d19b6 100644
 +  DcImportState& dc_import = *new DcImportState;
 +  dc_import.described = DCMusicImport::Describe(dc_music_directory);
 +#endif
++  // Settings, Disc: Data folder. The folder picked for Change... and the move into it, on a thread
++  // (never freed either, as with dc_import). A finished move or switch starts the launcher again.
++  SaveDialogState& folder_dialog = *new SaveDialogState;
++  struct DataMoveState
++  {
++    moderngekko::frontend::UserDirectoryMoveProgress progress;
++    std::mutex mutex;
++    bool running = false;
++    std::optional<moderngekko::frontend::UserDirectoryMoveResult> result;
++  };
++  DataMoveState& data_move = *new DataMoveState;
++  std::optional<fs::path> data_target;  // where the prompt would move or switch to
++  bool data_target_holds_data = false;  // switch to it instead of moving
++  bool open_data_prompt = false;        // the prompt opens in the Disc tab's frame
++  bool data_prompt_open = false;
++  std::string data_message;             // a refused pick or a failed move
 +  bool save_prompt_open = false;
 +  std::string saves_text;  // what is there now
 +  moderngekko::frontend::SaveImportResult save_import;
@@ -2882,7 +3242,7 @@ index 7699c3d..c2d19b6 100644
    std::vector<ControllerOption> controllers = EnumerateControllers();
    bool controller_profile_exists = moderngekko::frontend::ControllerConfigExists(user_directory);
    std::vector<std::string> configured_controllers =
-@@ -640,11 +1318,22 @@ int main(int argc, char** argv)
+@@ -640,11 +1422,22 @@ int main(int argc, char** argv)
        configured_controllers.empty() ? config.controller : configured_controllers.front();
    int controller_index = FindController(controllers, selected_controller);
    std::string controller_status;
@@ -2907,7 +3267,7 @@ index 7699c3d..c2d19b6 100644
      {
        std::lock_guard lock(dialog.mutex);
        dialog.error = std::move(message);
-@@ -652,13 +1341,13 @@ int main(int argc, char** argv)
+@@ -652,13 +1445,13 @@ int main(int argc, char** argv)
      }
      std::string error;
      if (!moderngekko::frontend::SaveConfig(user_directory, resolutions[resolution_index].text,
@@ -2923,7 +3283,7 @@ index 7699c3d..c2d19b6 100644
      configured_controllers = {selected_controller};
      config.controller = selected_controller;
      config.controllers = configured_controllers;
-@@ -673,7 +1362,28 @@ int main(int argc, char** argv)
+@@ -673,7 +1466,28 @@ int main(int argc, char** argv)
      if (moderngekko::frontend::ControllerConfigExists(user_directory))
      {
        controller_profile_exists = true;
@@ -2952,7 +3312,7 @@ index 7699c3d..c2d19b6 100644
        if (configured_controllers.empty())
        {
          std::lock_guard lock(dialog.mutex);
-@@ -686,12 +1396,14 @@ int main(int argc, char** argv)
+@@ -686,12 +1500,14 @@ int main(int argc, char** argv)
        controller_status = "Using existing " + std::string(CONTROLLER_PROFILE_NAME);
        return true;
      }
@@ -2967,7 +3327,7 @@ index 7699c3d..c2d19b6 100644
      return select_controller(controller_index);
    };
    const auto refresh_controllers = [&]
-@@ -726,13 +1438,22 @@ int main(int argc, char** argv)
+@@ -726,13 +1542,22 @@ int main(int argc, char** argv)
      Join,
    };
    bool done = false;
@@ -2990,7 +3350,7 @@ index 7699c3d..c2d19b6 100644
        ImGui_ImplSDL3_ProcessEvent(&event);
        if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED)
          done = true;
-@@ -744,6 +1465,7 @@ int main(int argc, char** argv)
+@@ -744,6 +1569,7 @@ int main(int argc, char** argv)
      }
      if (controllers_changed)
        refresh_controllers();
@@ -2998,7 +3358,7 @@ index 7699c3d..c2d19b6 100644
  
      {
        std::lock_guard lock(dialog.mutex);
-@@ -751,14 +1473,34 @@ int main(int argc, char** argv)
+@@ -751,15 +1577,80 @@ int main(int argc, char** argv)
        {
          selected_image = std::move(dialog.selected);
          dialog.selected.reset();
@@ -3007,7 +3367,9 @@ index 7699c3d..c2d19b6 100644
      }
 +    // A save file picked in Settings, Saves (or the picker closed without one)
 +    std::optional<std::string> picked_save;
-+    {
+     {
+-      std::lock_guard lock(extraction.mutex);
+-      if (extraction.finished_game)
 +      std::lock_guard lock(save_dialog.mutex);
 +      picked_save = std::move(save_dialog.selected);
 +      save_dialog.selected.reset();
@@ -3024,17 +3386,65 @@ index 7699c3d..c2d19b6 100644
 +          moderngekko::frontend::ImportSave(StringToPath(*picked_save), user_directory, save_game);
 +      refresh_saves();
 +    }
-     {
-       std::lock_guard lock(extraction.mutex);
-       if (extraction.finished_game)
++    // A folder picked for Settings, Disc, Data folder: the data goes into a folder of the port's
++    // name inside it, after the prompt
++    {
++      std::lock_guard lock(folder_dialog.mutex);
++      if (folder_dialog.selected)
        {
-         current_game = *extraction.finished_game;
+-        current_game = *extraction.finished_game;
 -        current_metadata = moderngekko::InspectGame(current_game);
+-        if (current_metadata && !RequiredGameError(*current_metadata.metadata).empty())
++        const fs::path target = moderngekko::frontend::UserDirectoryIn(
++            moderngekko::frontend::Utf8Path(*folder_dialog.selected),
++            MODERNGEKKO_USER_DIRECTORY_NAME);
++        data_message = moderngekko::frontend::CheckUserDirectoryMove(user_directory, target);
++        if (data_message.empty())
++        {
++          data_target = target;
++          data_target_holds_data = moderngekko::frontend::HoldsUserData(target);
++          open_data_prompt = true;
++        }
++      }
++      if (!folder_dialog.error.empty())
++        data_message = "The folder picker couldn't open: " + folder_dialog.error;
++      folder_dialog.selected.reset();
++      folder_dialog.cancelled = false;
++      folder_dialog.error.clear();
++    }
++    // A finished move: start again on the new folder, or say why it didn't happen
++    {
++      std::lock_guard lock(data_move.mutex);
++      if (data_move.result)
++      {
++        if (data_move.result->ok)
++        {
++          if (!data_move.result->warning.empty())
++            SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING, "Data folder moved",
++                                     data_move.result->warning.c_str(), window);
++          restart->requested = true;
++          done = true;
++        }
++        else
++        {
++          data_message = data_move.result->error;
++        }
++        data_move.result.reset();
++        data_move.running = false;
++        data_target.reset();
++      }
++    }
++    {
++      std::lock_guard lock(extraction.mutex);
++      if (extraction.finished_game)
++      {
++        current_game = *extraction.finished_game;
 +        current_metadata = InspectForLauncher(current_game);
-         if (current_metadata && !RequiredGameError(*current_metadata.metadata).empty())
++        if (current_metadata && !RequiredGameError(*current_metadata.metadata).empty())
            current_metadata = {{}, RequiredGameError(*current_metadata.metadata)};
          extraction.finished_game.reset();
-@@ -774,18 +1516,79 @@ int main(int argc, char** argv)
+         if (ensure_controller())
+@@ -774,18 +1665,79 @@ int main(int argc, char** argv)
      ImGui_ImplSDL3_NewFrame();
      ImGui::NewFrame();
      const ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -3125,7 +3535,7 @@ index 7699c3d..c2d19b6 100644
        if (!launcher_savestates.empty())
        {
          ImGui::TextUnformatted("Start from savestate");
-@@ -820,6 +1623,24 @@ int main(int argc, char** argv)
+@@ -820,6 +1772,24 @@ int main(int argc, char** argv)
          ImGui::TextDisabled("Solo play only.");
          ImGui::Spacing();
        }
@@ -3150,7 +3560,7 @@ index 7699c3d..c2d19b6 100644
        if (ImGui::Button("Play", ImVec2(180 * scale, 42 * scale)))
        {
          if (ensure_controller())
-@@ -828,7 +1649,9 @@ int main(int argc, char** argv)
+@@ -828,7 +1798,9 @@ int main(int argc, char** argv)
            done = true;
          }
        }
@@ -3161,7 +3571,7 @@ index 7699c3d..c2d19b6 100644
        if (ImGui::Button("Host Netplay", ImVec2(180 * scale, 42 * scale)))
        {
          if (ensure_controller())
-@@ -884,213 +1707,1076 @@ int main(int argc, char** argv)
+@@ -884,213 +1856,1262 @@ int main(int argc, char** argv)
            }
          }
        }
@@ -3226,22 +3636,13 @@ index 7699c3d..c2d19b6 100644
 -        const bool selected = graphics_backend_index == static_cast<int>(i);
 -        if (ImGui::Selectable(graphics_backends[i].text, selected))
 +        for (const bool choice : {false, true})
-         {
--          const std::string previous = config.graphics_backend;
--          config.graphics_backend = graphics_backends[i].value;
--          config.resolution = resolutions[resolution_index].text;
--          config.show_fps_in_title = show_fps_in_title;
--          config.controller = selected_controller;
--          std::string error;
--          if (moderngekko::frontend::SaveConfig(user_directory, config, &error))
++        {
 +          const bool selected = *value == choice;
 +          if (ImGui::Selectable(choice ? on_text : off_text, selected) && !selected)
-           {
--            graphics_backend_index = static_cast<int>(i);
++          {
 +            *value = choice;
 +            changed = true;
-           }
--          else
++          }
 +          if (selected)
 +            ImGui::SetItemDefaultFocus();
 +        }
@@ -3281,10 +3682,7 @@ index 7699c3d..c2d19b6 100644
 +        {
 +          const bool selected = resolution_index == static_cast<int>(i);
 +          if (ImGui::Selectable(resolutions[i].text, selected))
-           {
--            config.graphics_backend = previous;
--            std::lock_guard lock(dialog.mutex);
--            dialog.error = std::move(error);
++          {
 +            std::string error;
 +            if (moderngekko::frontend::SaveConfig(user_directory, resolutions[i].text,
 +                                                  show_fps_in_title, selected_controller, &error))
@@ -3297,32 +3695,14 @@ index 7699c3d..c2d19b6 100644
 +              std::lock_guard lock(dialog.mutex);
 +              dialog.error = std::move(error);
 +            }
-           }
-         }
--        if (selected)
--          ImGui::SetItemDefaultFocus();
++          }
++        }
 +        ImGui::EndCombo();
-       }
--      ImGui::EndCombo();
--    }
--    ImGui::Spacing();
--    const bool previous_fullscreen = fullscreen;
--    if (ImGui::Checkbox("Start in fullscreen", &fullscreen))
++      }
 +      describe("Higher is sharper but needs a faster graphics card.");
 +    };
 +    const auto title_fps_row = [&]
-     {
--      config.fullscreen = fullscreen;
--      config.resolution = resolutions[resolution_index].text;
--      config.show_fps_in_title = show_fps_in_title;
--      config.controller = selected_controller;
--      std::string error;
--      if (!moderngekko::frontend::SaveConfig(user_directory, config, &error))
--      {
--        fullscreen = previous_fullscreen;
--        config.fullscreen = previous_fullscreen;
--        std::lock_guard lock(dialog.mutex);
--        dialog.error = std::move(error);
++    {
 +      const bool previous_show_fps_in_title = show_fps_in_title;
 +      if (toggle_row("FPS in title bar", "##title_fps", &show_fps_in_title, "Off", "On",
 +                     "Show FPS in window title"))
@@ -3336,29 +3716,25 @@ index 7699c3d..c2d19b6 100644
 +          dialog.error = std::move(error);
 +        }
 +        else
-+        {
-+          config.show_fps_in_title = show_fps_in_title;
+         {
+-          const std::string previous = config.graphics_backend;
+-          config.graphics_backend = graphics_backends[i].value;
+-          config.resolution = resolutions[resolution_index].text;
+           config.show_fps_in_title = show_fps_in_title;
+-          config.controller = selected_controller;
+-          std::string error;
+-          if (moderngekko::frontend::SaveConfig(user_directory, config, &error))
 +        }
-       }
--    }
--    ImGui::Spacing();
--    ImGui::TextUnformatted("Internal resolution (Dolphin EFB upscale)");
--    if (ImGui::BeginCombo("##resolution", resolutions[resolution_index].text))
++      }
 +      describe("Show the frame rate in the game window's title bar (windowed only).");
 +    };
 +    // The Skies rows (Picture, HUD, Frame rate, Anti-aliasing), or a subset by row index
 +    const auto skies_video_rows = [&](int first, int last)
-     {
--      for (std::size_t i = 0; i < resolutions.size(); ++i)
++    {
 +      if (background || (current_metadata && IsSkies(current_metadata.metadata->disc_id)))
-       {
--        const bool selected = resolution_index == static_cast<int>(i);
--        if (ImGui::Selectable(resolutions[i].text, selected))
++      {
 +        struct Choice
-         {
--          std::string error;
--          if (moderngekko::frontend::SaveConfig(user_directory, resolutions[i].text,
--                                                show_fps_in_title, selected_controller, &error))
++        {
 +          int value;
 +          const char* text;
 +        };
@@ -3378,8 +3754,7 @@ index 7699c3d..c2d19b6 100644
 +          const char* preview = choices[0].text;
 +          for (const Choice& choice : choices)
            {
--            resolution_index = static_cast<int>(i);
--            config.resolution = resolutions[i].text;
+-            graphics_backend_index = static_cast<int>(i);
 +            if (choice.value == shown)
 +              preview = choice.text;
            }
@@ -3387,6 +3762,7 @@ index 7699c3d..c2d19b6 100644
 +          row_label(label);
 +          if (ImGui::BeginCombo(id, preview))
            {
+-            config.graphics_backend = previous;
 -            std::lock_guard lock(dialog.mutex);
 -            dialog.error = std::move(error);
 +            for (const Choice& choice : choices)
@@ -3407,7 +3783,7 @@ index 7699c3d..c2d19b6 100644
 +                ImGui::SetItemDefaultFocus();
 +            }
 +            ImGui::EndCombo();
-           }
++          }
 +          describe(description);
 +        };
 +        if (first <= 0 && last >= 0)
@@ -3463,16 +3839,19 @@ index 7699c3d..c2d19b6 100644
 +          {
 +            controller_index = static_cast<int>(i);
 +            select_controller(controller_index);
-+          }
+           }
 +          if (selected)
 +            ImGui::SetItemDefaultFocus();
          }
+-        if (selected)
+-          ImGui::SetItemDefaultFocus();
 +        ImGui::EndCombo();
        }
 -      ImGui::EndCombo();
 -    }
--    const bool previous_show_fps_in_title = show_fps_in_title;
--    if (ImGui::Checkbox("Show FPS in window title", &show_fps_in_title))
+-    ImGui::Spacing();
+-    const bool previous_fullscreen = fullscreen;
+-    if (ImGui::Checkbox("Start in fullscreen", &fullscreen))
 +      describe("Player 1's controller. The keyboard plays too, and in game any controller you press "
 +               "takes over. Esc or a controller's Back button opens the in-game menu.");
 +      ImGui::Spacing();
@@ -3482,9 +3861,12 @@ index 7699c3d..c2d19b6 100644
 +#else
 +    const auto controller_section = [&]
      {
+-      config.fullscreen = fullscreen;
+-      config.resolution = resolutions[resolution_index].text;
+-      config.show_fps_in_title = show_fps_in_title;
+-      config.controller = selected_controller;
 -      std::string error;
--      if (!moderngekko::frontend::SaveConfig(user_directory, resolutions[resolution_index].text,
--                                             show_fps_in_title, selected_controller, &error))
+-      if (!moderngekko::frontend::SaveConfig(user_directory, config, &error))
 +      row_label("Controller profile");
 +      const char* controller_preview = controller_index >= 0
 +                                           ? controllers[controller_index].label.c_str()
@@ -3492,7 +3874,8 @@ index 7699c3d..c2d19b6 100644
 +                                                                     : selected_controller.c_str();
 +      if (ImGui::BeginCombo("##controller", controller_preview))
        {
--        show_fps_in_title = previous_show_fps_in_title;
+-        fullscreen = previous_fullscreen;
+-        config.fullscreen = previous_fullscreen;
 -        std::lock_guard lock(dialog.mutex);
 -        dialog.error = std::move(error);
 +        for (std::size_t i = 0; i < controllers.size(); ++i)
@@ -3511,7 +3894,11 @@ index 7699c3d..c2d19b6 100644
 +            ImGui::SetItemDefaultFocus();
 +        }
 +        ImGui::EndCombo();
-+      }
+       }
+-    }
+-    ImGui::Spacing();
+-    ImGui::TextUnformatted("Internal resolution (Dolphin EFB upscale)");
+-    if (ImGui::BeginCombo("##resolution", resolutions[resolution_index].text))
 +      ImGui::BeginDisabled(controller_index < 0);
 +      const std::string replace_profile =
 +          "Replace with generated " + std::string(GENERATED_PROFILE_LABEL);
@@ -3538,12 +3925,15 @@ index 7699c3d..c2d19b6 100644
 +      {
 +        ImGui::SetNextItemWidth(180 * scale);
 +        ImGui::SliderInt("Buffer frames", &manual_buffer, 1, 20);
-       }
++      }
 +    };
 +    const auto disc_section = [&]
-+    {
+     {
+-      for (std::size_t i = 0; i < resolutions.size(); ++i)
 +      if (background)
-+      {
+       {
+-        const bool selected = resolution_index == static_cast<int>(i);
+-        if (ImGui::Selectable(resolutions[i].text, selected))
 +        // The branded window: the game already imported, and Change Disc to import another copy
 +        // (picking it imports and starts it, like Select Disc on the home screen).
 +        row_label("Game");
@@ -3553,7 +3943,10 @@ index 7699c3d..c2d19b6 100644
 +        else
 +          ImGui::TextUnformatted("No disc imported yet");
 +        if (current_metadata)
-+        {
+         {
+-          std::string error;
+-          if (moderngekko::frontend::SaveConfig(user_directory, resolutions[i].text,
+-                                                show_fps_in_title, selected_controller, &error))
 +          control_column();
 +          ImGui::TextDisabled("%s", current_game.string().c_str());
 +        }
@@ -3582,12 +3975,11 @@ index 7699c3d..c2d19b6 100644
 +      ImGui::TextUnformatted("Game disc image");
 +      if (selected_image)
 +        ImGui::TextWrapped("%s", selected_image->string().c_str());
-       else
++      else
 +        ImGui::TextDisabled("No %s selected", DISC_FORMATS_TEXT);
 +
 +      if (!extraction.running)
-       {
--        config.show_fps_in_title = show_fps_in_title;
++      {
 +        if (ImGui::Button("Browse for a disc image"))
 +        {
 +          browse_disc();
@@ -3600,15 +3992,7 @@ index 7699c3d..c2d19b6 100644
 +            start_extraction();
 +          }
 +        }
-       }
--    }
--    ImGui::Spacing();
--    ImGui::TextUnformatted("Controller profile");
--    const char* controller_preview = controller_index >= 0
--                                         ? controllers[controller_index].label.c_str()
--                                     : selected_controller.empty() ? "No SDL gamepad detected"
--                                                                   : selected_controller.c_str();
--    if (ImGui::BeginCombo("##controller", controller_preview))
++      }
 +      else
 +      {
 +        const float progress =
@@ -3620,8 +4004,7 @@ index 7699c3d..c2d19b6 100644
 +    // Settings, Saves: Import, like the N64 recomps' (Goemon 64, Hybrid Heaven): the prompt says what
 +    // will be replaced before the picker opens, and Cancel has the focus.
 +    const auto saves_import_section = [&]
-     {
--      for (std::size_t i = 0; i < controllers.size(); ++i)
++    {
 +      if (save_game_id.empty())
 +        return;
 +      ImGui::Spacing();
@@ -3649,9 +4032,7 @@ index 7699c3d..c2d19b6 100644
 +      ImGui::PushTextWrapPos(ImGui::GetContentRegionMax().x);
 +      ImGui::TextDisabled("%s", card_folder.c_str());
 +      if (!save_import.message.empty())
-       {
--        const bool selected = controller_index == static_cast<int>(i);
--        if (ImGui::Selectable(controllers[i].label.c_str(), selected))
++      {
 +        ImGui::Spacing();
 +        control_column();
 +        ImGui::TextColored(save_import.ok ? LAUNCHER_ACCENT : ImVec4(1.0f, 0.45f, 0.4f, 1.0f), "%s",
@@ -3702,6 +4083,282 @@ index 7699c3d..c2d19b6 100644
 +        if (ImGui::Button("Cancel") || (!ImGui::IsAnyItemActive() &&
 +                                        (ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
 +                                         ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false))))
++        {
++          close = true;
++        }
++        if (close)
++        {
++          save_prompt_open = false;
++          ImGui::CloseCurrentPopup();
++        }
++        ImGui::EndPopup();
++      }
++      else
++      {
++        save_prompt_open = false;
++      }
++    };
++    // Settings, Disc: where the imported game, saves and settings are, and Change... to move them
++    // (user_directory.hpp). The prompt says from where to where; Cancel has the focus.
++    const auto data_folder_section = [&]
++    {
++      using moderngekko::frontend::UserDirectoryKind;
++      const UserDirectoryKind kind = user_directory_choice.kind;
++      bool busy = extraction.running || data_move.running;
++#ifdef HAVE_DCMUSIC
++      {
++        std::lock_guard lock(dc_import.mutex);
++        busy = busy || dc_import.running;
++      }
++#endif
++      ImGui::Spacing();
++      row_label("Data folder");
++      const std::string folder = moderngekko::frontend::PathUtf8(user_directory);
++      ImGui::PushTextWrapPos(ImGui::GetContentRegionMax().x);
++      ImGui::TextUnformatted(folder.c_str());
++      ImGui::PopTextWrapPos();
++      control_column();
++      ImGui::BeginDisabled(busy || kind == UserDirectoryKind::Portable);
++      if (ImGui::Button("Change..."))
++      {
++        data_message.clear();
++        // Beside a moved folder; Documents rather than the hidden default's AppData
++        const std::string start = moderngekko::frontend::PathUtf8(
++            kind == UserDirectoryKind::Moved ? user_directory.parent_path() : DocumentsDirectory());
++        SDL_ShowOpenFolderDialog(SaveDialogCallback, &folder_dialog, window, start.c_str(), false);
++      }
++      if (kind == UserDirectoryKind::Moved)
++      {
++        ImGui::SameLine();
++        if (ImGui::Button("Move Back to the Default"))
++        {
++          data_message.clear();
++          data_target = default_user_directory;
++          data_target_holds_data = false;
++          open_data_prompt = true;
++        }
++      }
++      ImGui::EndDisabled();
++      ImGui::SameLine();
++      if (ImGui::Button("Open"))
++      {
++        std::error_code ec;
++        fs::create_directories(user_directory, ec);
++        if (!SDL_OpenURL(folder.c_str()))
++          data_message = std::string("Couldn't open the folder: ") + SDL_GetError();
++      }
++      if (kind == UserDirectoryKind::Portable)
++      {
++        describe("Portable: portable.txt beside the program keeps the data in this folder. Remove "
++                 "that file to keep it in your user folder instead.");
++      }
++      else
++      {
++        describe("Your imported game, saves, save states and settings. Change moves them to another "
++                 "folder or drive; the launcher starts again when it's done.");
++      }
++      if (!data_message.empty())
++      {
++        control_column();
++        ImGui::PushTextWrapPos(ImGui::GetContentRegionMax().x);
++        ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f), "%s", data_message.c_str());
++        ImGui::PopTextWrapPos();
++      }
++
++      if (open_data_prompt)
++      {
++        open_data_prompt = false;
++        ImGui::OpenPopup("Data folder?");
++        data_prompt_open = true;
++      }
++      ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
++      ImGui::SetNextWindowSize(ImVec2(std::min(viewport->WorkSize.x - 160.0f * ui_scale,
++                                               760.0f * ui_scale), 0));
++      if (!ImGui::BeginPopupModal("Data folder?", nullptr,
++                                  ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
++                                      ImGuiWindowFlags_NoSavedSettings))
++      {
++        data_prompt_open = false;
++        return;
++      }
++      // A move that ended without a restart (its reason is under the folder) closes it
++      bool close = !data_target;
++      const std::string target =
++          data_target ? moderngekko::frontend::PathUtf8(*data_target) : std::string();
++      ImGui::PushTextWrapPos(ImGui::GetContentRegionMax().x);
++      if (data_target_holds_data)
++      {
++        ImGui::TextUnformatted("That folder already holds data:");
++        ImGui::TextColored(LAUNCHER_ACCENT, "%s", target.c_str());
++        ImGui::Spacing();
++        ImGui::TextUnformatted(
++            "Use it as it is? The launcher starts again with the game, saves and settings in it. "
++            "The ones in the folder used now stay where they are:");
++        ImGui::TextColored(LAUNCHER_ACCENT, "%s", folder.c_str());
++      }
++      else
++      {
++        ImGui::TextUnformatted("Move your imported game, saves, save states and settings from:");
++        ImGui::TextColored(LAUNCHER_ACCENT, "%s", folder.c_str());
++        ImGui::TextUnformatted("to:");
++        ImGui::TextColored(LAUNCHER_ACCENT, "%s", target.c_str());
++        ImGui::Spacing();
++        ImGui::TextUnformatted("The launcher starts again when it's done.");
++      }
++      ImGui::PopTextWrapPos();
++      ImGui::Spacing();
++      ImGui::Spacing();
++      if (data_move.running)
++      {
++        const auto& progress = data_move.progress;
++        const float done_part = std::min(
++            1.0f, static_cast<float>(progress.done_bytes.load()) / progress.total_bytes.load());
++        constexpr double MIB = 1024.0 * 1024.0;
++        const std::string overlay = std::to_string(static_cast<int>(progress.done_bytes / MIB)) +
++                                    " / " +
++                                    std::to_string(static_cast<int>(progress.total_bytes / MIB)) +
++                                    " MB";
++        ImGui::ProgressBar(done_part, ImVec2(-1, 0), overlay.c_str());
++        ImGui::Spacing();
++        ImGui::BeginDisabled(data_move.progress.cancel);
++        if (ImGui::Button("Cancel"))
++          data_move.progress.cancel = true;
++        ImGui::EndDisabled();
++      }
++      else
++      {
++        if (ImGui::Button(data_target_holds_data ? "Use That Folder" : "Move") && data_target)
++        {
++          if (data_target_holds_data)
+           {
+-            resolution_index = static_cast<int>(i);
+-            config.resolution = resolutions[i].text;
++            std::string error;
++            if (moderngekko::frontend::PointUserDirectory(*data_target, default_user_directory,
++                                                          &error))
++            {
++              restart->requested = true;
++              done = true;
++            }
++            else
++            {
++              data_message = error;
++            }
++            close = true;
+           }
+           else
+           {
+-            std::lock_guard lock(dialog.mutex);
+-            dialog.error = std::move(error);
++            data_move.progress.cancel = false;
++            data_move.progress.done_bytes = 0;
++            data_move.running = true;
++            std::thread(
++                [&data_move, from = user_directory, to = *data_target,
++                 default_directory = default_user_directory]
++                {
++                  auto result = moderngekko::frontend::MoveUserDirectory(
++                      from, to, default_directory, &data_move.progress);
++                  std::lock_guard lock(data_move.mutex);
++                  data_move.result = std::move(result);
++                })
++                .detach();
+           }
+         }
++        ImGui::SameLine();
++        if (ImGui::IsWindowAppearing())
++          ImGui::SetKeyboardFocusHere();
++        if (ImGui::Button("Cancel") || (!ImGui::IsAnyItemActive() &&
++                                        (ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
++                                         ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false))))
++        {
++          close = true;
++          data_target.reset();
++        }
+       }
+-      ImGui::EndCombo();
+-    }
+-    const bool previous_show_fps_in_title = show_fps_in_title;
+-    if (ImGui::Checkbox("Show FPS in window title", &show_fps_in_title))
++      if (close)
++      {
++        data_prompt_open = false;
++        ImGui::CloseCurrentPopup();
++      }
++      ImGui::EndPopup();
++    };
++    const auto status_section = [&]
+     {
+-      std::string error;
+-      if (!moderngekko::frontend::SaveConfig(user_directory, resolutions[resolution_index].text,
+-                                             show_fps_in_title, selected_controller, &error))
+       {
+-        show_fps_in_title = previous_show_fps_in_title;
++        std::lock_guard lock(extraction.mutex);
++        if (!extraction.status.empty())
++          ImGui::TextWrapped("%s", extraction.status.c_str());
++        if (!extraction.error.empty())
++          ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.3f, 1.0f), "%s", extraction.error.c_str());
++      }
++      {
+         std::lock_guard lock(dialog.mutex);
+-        dialog.error = std::move(error);
++        if (!dialog.error.empty())
++          ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.3f, 1.0f), "%s", dialog.error.c_str());
+       }
+-      else
++    };
++
++    // A row of the branded Settings window: label, then a dropdown of the in-game menu's choices.
++    // Returns the picked value (nullopt if unchanged).
++    const auto choice_row = [&](const char* label, const char* id, int shown,
++                                const auto& choices, const char* description) -> std::optional<int>
++    {
++      std::optional<int> picked;
++      const char* preview = choices[0].text;
++      for (const LauncherChoice& choice : choices)
+       {
+-        config.show_fps_in_title = show_fps_in_title;
++        if (choice.value == shown)
++          preview = choice.text;
+       }
+-    }
+-    ImGui::Spacing();
+-    ImGui::TextUnformatted("Controller profile");
+-    const char* controller_preview = controller_index >= 0
+-                                         ? controllers[controller_index].label.c_str()
+-                                     : selected_controller.empty() ? "No SDL gamepad detected"
+-                                                                   : selected_controller.c_str();
+-    if (ImGui::BeginCombo("##controller", controller_preview))
++      row_label(label);
++      if (ImGui::BeginCombo(id, preview))
++      {
++        for (const LauncherChoice& choice : choices)
++        {
++          const bool selected = choice.value == shown;
++          if (ImGui::Selectable(choice.text, selected) && !selected)
++            picked = choice.value;
++          if (selected)
++            ImGui::SetItemDefaultFocus();
++        }
++        ImGui::EndCombo();
++      }
++      describe(description);
++      return picked;
++    };
++    const auto setting_row = [&](const char* label, const char* id, SettingValue& value,
++                                 const auto& choices, const char* description)
+     {
+-      for (std::size_t i = 0; i < controllers.size(); ++i)
++      const int shown = value.value < 0 ? value.fallback : value.value;
++      if (const auto picked = choice_row(label, id, shown, choices, description))
+       {
+-        const bool selected = controller_index == static_cast<int>(i);
+-        if (ImGui::Selectable(controllers[i].label.c_str(), selected))
++        std::string error;
++        if (WriteDolphinOption(user_directory, value.key, *picked, &error))
++          value.value = *picked;
++        else
          {
 -          controller_index = static_cast<int>(i);
 -          selected_controller = controllers[i].device;
@@ -3709,16 +4366,11 @@ index 7699c3d..c2d19b6 100644
 -              controller_profile_exists
 -                  ? "Existing " + std::string(CONTROLLER_PROFILE_NAME) + " unchanged"
 -                  : "Ready to generate controller profile";
-+          close = true;
++          std::lock_guard lock(dialog.mutex);
++          dialog.error = std::move(error);
          }
 -        if (selected)
 -          ImGui::SetItemDefaultFocus();
-+        if (close)
-+        {
-+          save_prompt_open = false;
-+          ImGui::CloseCurrentPopup();
-+        }
-+        ImGui::EndPopup();
        }
 -      ImGui::EndCombo();
 -    }
@@ -3739,12 +4391,10 @@ index 7699c3d..c2d19b6 100644
 -    netplay_port = std::clamp(netplay_port, 1, 65535);
 -    ImGui::Checkbox("Automatic input buffer", &automatic_buffer);
 -    if (!automatic_buffer)
-+      else
-+      {
-+        save_prompt_open = false;
-+      }
 +    };
-+    const auto status_section = [&]
++    const auto pad_row = [&](const char* label, const char* id, int* value, const auto& choices,
++                             std::initializer_list<const char*> keys, int scale_to_ini,
++                             const char* description)
      {
 -      ImGui::SetNextItemWidth(180 * scale);
 -      ImGui::SliderInt("Buffer frames", &manual_buffer, 1, 20);
@@ -3755,30 +4405,24 @@ index 7699c3d..c2d19b6 100644
 -      ImGui::TextWrapped("%s", selected_image->string().c_str());
 -    else
 -      ImGui::TextDisabled("No ISO, WBFS, or RVZ selected");
++      if (const auto picked = choice_row(label, id, *value, choices, description))
 +      {
-+        std::lock_guard lock(extraction.mutex);
-+        if (!extraction.status.empty())
-+          ImGui::TextWrapped("%s", extraction.status.c_str());
-+        if (!extraction.error.empty())
-+          ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.3f, 1.0f), "%s", extraction.error.c_str());
-+      }
-+      {
-+        std::lock_guard lock(dialog.mutex);
-+        if (!dialog.error.empty())
-+          ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.3f, 1.0f), "%s", dialog.error.c_str());
++        std::string error;
++        if (WritePadOptions(user_directory, keys, *picked * scale_to_ini, &error))
++          *value = *picked;
++        else
++        {
++          std::lock_guard lock(dialog.mutex);
++          dialog.error = std::move(error);
++        }
 +      }
 +    };
  
 -    if (!extraction.running)
-+    // A row of the branded Settings window: label, then a dropdown of the in-game menu's choices.
-+    // Returns the picked value (nullopt if unchanged).
-+    const auto choice_row = [&](const char* label, const char* id, int shown,
-+                                const auto& choices, const char* description) -> std::optional<int>
++#ifdef HAVE_DCMUSIC
++    const auto dc_music_section = [&]
      {
 -      if (ImGui::Button("Browse for ISO / WBFS / RVZ"))
-+      std::optional<int> picked;
-+      const char* preview = choices[0].text;
-+      for (const LauncherChoice& choice : choices)
        {
 -        static constexpr SDL_DialogFileFilter filters[] = {
 -            {"Disc images", "iso;wbfs;rvz"},
@@ -3788,68 +4432,6 @@ index 7699c3d..c2d19b6 100644
 -        const std::string documents = DocumentsDirectory().string();
 -        SDL_ShowOpenFileDialog(FileDialogCallback, &dialog, window, filters,
 -                               static_cast<int>(std::size(filters)), documents.c_str(), false);
-+        if (choice.value == shown)
-+          preview = choice.text;
-       }
--      if (selected_image)
-+      row_label(label);
-+      if (ImGui::BeginCombo(id, preview))
-       {
--        ImGui::SameLine();
--        if (ImGui::Button("Extract and Play"))
-+        for (const LauncherChoice& choice : choices)
-+        {
-+          const bool selected = choice.value == shown;
-+          if (ImGui::Selectable(choice.text, selected) && !selected)
-+            picked = choice.value;
-+          if (selected)
-+            ImGui::SetItemDefaultFocus();
-+        }
-+        ImGui::EndCombo();
-+      }
-+      describe(description);
-+      return picked;
-+    };
-+    const auto setting_row = [&](const char* label, const char* id, SettingValue& value,
-+                                 const auto& choices, const char* description)
-+    {
-+      const int shown = value.value < 0 ? value.fallback : value.value;
-+      if (const auto picked = choice_row(label, id, shown, choices, description))
-+      {
-+        std::string error;
-+        if (WriteDolphinOption(user_directory, value.key, *picked, &error))
-+          value.value = *picked;
-+        else
-+        {
-+          std::lock_guard lock(dialog.mutex);
-+          dialog.error = std::move(error);
-+        }
-+      }
-+    };
-+    const auto pad_row = [&](const char* label, const char* id, int* value, const auto& choices,
-+                             std::initializer_list<const char*> keys, int scale_to_ini,
-+                             const char* description)
-+    {
-+      if (const auto picked = choice_row(label, id, *value, choices, description))
-+      {
-+        std::string error;
-+        if (WritePadOptions(user_directory, keys, *picked * scale_to_ini, &error))
-+          *value = *picked;
-+        else
-         {
--          extraction.completed = 0;
--          extraction.total = 1;
--          extraction.running = true;
-+          std::lock_guard lock(dialog.mutex);
-+          dialog.error = std::move(error);
-+        }
-+      }
-+    };
-+
-+#ifdef HAVE_DCMUSIC
-+    const auto dc_music_section = [&]
-+    {
-+      {
 +        std::lock_guard lock(dc_dialog.mutex);
 +        if (dc_dialog.selected)
 +        {
@@ -3886,11 +4468,14 @@ index 7699c3d..c2d19b6 100644
 +          dc_dialog.error.clear();
 +        }
 +        dc_dialog.cancelled = false;
-+      }
+       }
+-      if (selected_image)
 +      bool running;
 +      std::string status, message, described;
 +      bool ok;
-+      {
+       {
+-        ImGui::SameLine();
+-        if (ImGui::Button("Extract and Play"))
 +        std::lock_guard lock(dc_import.mutex);
 +        running = dc_import.running;
 +        status = dc_import.status;
@@ -3928,7 +4513,10 @@ index 7699c3d..c2d19b6 100644
 +                                 static_cast<int>(std::size(DC_FILTERS)), documents.c_str(), false);
 +        }
 +        if (!described.empty())
-+        {
+         {
+-          extraction.completed = 0;
+-          extraction.total = 1;
+-          extraction.running = true;
 +          ImGui::SameLine();
 +          if (ImGui::Button("Remove"))
            {
@@ -4011,6 +4599,7 @@ index 7699c3d..c2d19b6 100644
 +      controller_section();
 +      netplay_section();
 +      disc_section();
++      data_folder_section();
 +      status_section();
 +      ImGui::Spacing();
 +      ImGui::Separator();
@@ -4283,7 +4872,7 @@ index 7699c3d..c2d19b6 100644
 +        ImGui::SameLine(ImGui::GetContentRegionMax().x - close_width);
 +        // Escape / B close the import prompt when it is open, not the window under it
 +        if (ImGui::Button("Close", ImVec2(close_width, 0)) ||
-+            (!ImGui::IsAnyItemActive() && !save_prompt_open &&
++            (!ImGui::IsAnyItemActive() && !save_prompt_open && !data_prompt_open &&
 +             (ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
 +              ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false))))
 +        {
@@ -4373,7 +4962,11 @@ index 7699c3d..c2d19b6 100644
 +                }
 +                saves_import_section();
 +              });
-+          tab("Disc", disc_section);
++          tab("Disc", [&]
++              {
++                disc_section();
++                data_folder_section();
++              });
 +          ImGui::PopItemWidth();
 +          ImGui::EndTabBar();
 +        }
@@ -4395,7 +4988,7 @@ index 7699c3d..c2d19b6 100644
  
      ImGui::Render();
      SDL_SetRenderScale(renderer, io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y);
-@@ -1107,8 +2793,17 @@ int main(int argc, char** argv)
+@@ -1107,8 +3128,17 @@ int main(int argc, char** argv)
    if (launch_mode != LaunchMode::None)
    {
      std::string launch_error;
@@ -4415,7 +5008,7 @@ index 7699c3d..c2d19b6 100644
      {
        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Launch failed", launch_error.c_str(), window);
        result = 1;
-@@ -1163,6 +2858,15 @@ int main(int argc, char** argv)
+@@ -1163,6 +3193,15 @@ int main(int argc, char** argv)
            user_directory / "Logs" / MODERNGEKKO_LOG_FILENAME;
        std::error_code log_error;
        std::filesystem::create_directories(log_path.parent_path(), log_error);
@@ -4431,7 +5024,7 @@ index 7699c3d..c2d19b6 100644
        SDL_IOStream* log_stream =
            log_error ? nullptr : SDL_IOFromFile(log_path.string().c_str(), "w");
        SDL_Process* process = nullptr;
-@@ -1205,7 +2909,12 @@ int main(int argc, char** argv)
+@@ -1205,7 +3244,12 @@ int main(int argc, char** argv)
          int exit_code = 1;
          const bool waited = SDL_WaitProcess(process, true, &exit_code);
          SDL_DestroyProcess(process);
@@ -4445,7 +5038,7 @@ index 7699c3d..c2d19b6 100644
          {
            SDL_ShowWindow(window);
            if (!waited)
-@@ -1263,6 +2972,8 @@ int main(int argc, char** argv)
+@@ -1263,6 +3307,8 @@ int main(int argc, char** argv)
      }
    }
  
@@ -4454,6 +5047,22 @@ index 7699c3d..c2d19b6 100644
    ImGui_ImplSDLRenderer3_Shutdown();
    ImGui_ImplSDL3_Shutdown();
    ImGui::DestroyContext();
+@@ -1271,3 +3317,15 @@ int main(int argc, char** argv)
+   SDL_Quit();
+   return result;
+ }
++
++int main(int argc, char** argv)
++{
++  LauncherRestart restart;
++  for (;;)
++  {
++    restart.requested = false;
++    const int result = RunLauncher(argc, argv, &restart);
++    if (!restart.requested)
++      return result;
++  }
++}
 diff --git a/tools/moderngekko_port.cpp b/tools/moderngekko_port.cpp
 index af1c2a5..1a61395 100644
 --- a/tools/moderngekko_port.cpp
@@ -4499,21 +5108,22 @@ index af1c2a5..1a61395 100644
                 "       moderngekko-port pgo-run <game-root> [--backend c|llvm] [--toolchain auto|clang] [--opt-level 0-3]\n"
                 "               [--output path] [--profile-dir path] [--llvm-profdata path] [--keep-work]\n"
 diff --git a/tools/moderngekko_run.cpp b/tools/moderngekko_run.cpp
-index d6b3569..338c761 100644
+index d6b3569..f41bc7a 100644
 --- a/tools/moderngekko_run.cpp
 +++ b/tools/moderngekko_run.cpp
-@@ -4,8 +4,10 @@
+@@ -4,8 +4,11 @@
  #include "moderngekko/game.hpp"
  #include "moderngekko/runtime.hpp"
  #include "netplay_session.hpp"
 +#include "release_games.hpp"
++#include "user_directory.hpp"
  
  #include "Common/StringUtil.h"
 +#include <SDL3/SDL.h>
  
  #include <charconv>
  #include <chrono>
-@@ -26,6 +28,10 @@
+@@ -26,6 +29,10 @@
  #define WIN32_LEAN_AND_MEAN
  #define NOMINMAX
  #include <windows.h>
@@ -4524,20 +5134,55 @@ index d6b3569..338c761 100644
  #endif
  
  namespace {
-@@ -93,9 +99,10 @@ std::filesystem::path DefaultUserDirectory() {
-     return std::filesystem::path(local_app_data) /
-            MODERNGEKKO_USER_DIRECTORY_NAME;
+@@ -71,34 +78,23 @@ ReadDefaultGame(const std::filesystem::path &user_directory,
+   std::getline(file, path);
+   if (!path.empty() && path.back() == '\r')
+     path.pop_back();
+-  std::filesystem::path result(path);
+-  if (result.is_relative())
+-    result = executable_directory / result;
+-  return result;
++  return moderngekko::frontend::ResolveDefaultGame(path, executable_directory,
++                                                   user_directory);
+ }
+ 
+-std::filesystem::path DefaultUserDirectory() {
++// Where the data is (portable, moved by the launcher's Settings, or the default):
++// user_directory.hpp, the same as the launcher's
++moderngekko::frontend::UserDirectoryChoice
++FindUserDirectory(const std::filesystem::path &executable_directory) {
+ #ifdef MODERNGEKKO_USER_DIRECTORY_IN_DOCUMENTS
+-#if defined(_WIN32)
+-  if (const char *user_profile = std::getenv("USERPROFILE"))
+-    return std::filesystem::path(user_profile) / "Documents" /
+-           MODERNGEKKO_USER_DIRECTORY_NAME;
+-#endif
+-  if (const char *home = std::getenv("HOME"))
+-    return std::filesystem::path(home) / "Documents" /
+-           MODERNGEKKO_USER_DIRECTORY_NAME;
+-#endif
+-#if defined(_WIN32)
+-  if (const char *local_app_data = std::getenv("LOCALAPPDATA"))
+-    return std::filesystem::path(local_app_data) /
+-           MODERNGEKKO_USER_DIRECTORY_NAME;
++  constexpr bool in_documents = true;
++#else
++  constexpr bool in_documents = false;
  #endif
 -  if (const char *xdg = std::getenv("XDG_DATA_HOME"))
-+  // XDG: an empty or relative XDG_DATA_HOME counts as unset
-+  if (const char *xdg = std::getenv("XDG_DATA_HOME"); xdg && xdg[0] == '/')
-     return std::filesystem::path(xdg) / MODERNGEKKO_USER_DIRECTORY_NAME;
+-    return std::filesystem::path(xdg) / MODERNGEKKO_USER_DIRECTORY_NAME;
 -  if (const char *home = std::getenv("HOME"))
-+  if (const char *home = std::getenv("HOME"); home && home[0] != '\0')
-     return std::filesystem::path(home) / ".local" / "share" /
-            MODERNGEKKO_USER_DIRECTORY_NAME;
-   return std::string(MODERNGEKKO_USER_DIRECTORY_NAME) + "-user";
-@@ -126,6 +133,63 @@ std::filesystem::path ExecutableDirectory(const char *argv0) {
+-    return std::filesystem::path(home) / ".local" / "share" /
+-           MODERNGEKKO_USER_DIRECTORY_NAME;
+-  return std::string(MODERNGEKKO_USER_DIRECTORY_NAME) + "-user";
++  return moderngekko::frontend::FindUserDirectory(
++      executable_directory,
++      moderngekko::frontend::DefaultUserDirectory(
++          MODERNGEKKO_USER_DIRECTORY_NAME, in_documents));
+ }
+ 
+ std::string LibrarySuffix() {
+@@ -126,6 +122,63 @@ std::filesystem::path ExecutableDirectory(const char *argv0) {
  }
  } // namespace
  
@@ -4601,7 +5246,53 @@ index d6b3569..338c761 100644
  int RunMain(int argc, char **argv) {
  #if defined(_WIN32)
    if (!std::getenv("SDL_GAMECONTROLLER_ALLOW_STEAM_VIRTUAL_GAMEPAD"))
-@@ -246,10 +310,40 @@ int RunMain(int argc, char **argv) {
+@@ -134,9 +187,12 @@ int RunMain(int argc, char **argv) {
+   setenv("SDL_GAMECONTROLLER_ALLOW_STEAM_VIRTUAL_GAMEPAD", "1", 0);
+ #endif
+   moderngekko::RuntimeConfig config;
+-  config.user_directory = DefaultUserDirectory();
+   const std::filesystem::path executable_directory =
+       ExecutableDirectory(argv[0]);
++  const moderngekko::frontend::UserDirectoryChoice user_directory_choice =
++      FindUserDirectory(executable_directory);
++  config.user_directory = user_directory_choice.path;
++  bool user_directory_given = false;
+ #ifdef MODERNGEKKO_DEFAULT_WINDOW_TITLE
+   config.window_title = MODERNGEKKO_DEFAULT_WINDOW_TITLE;
+ #endif
+@@ -161,8 +217,10 @@ int RunMain(int argc, char **argv) {
+       config.game_root = value("--game");
+     else if (arg == "--module")
+       module_path = value("--module");
+-    else if (arg == "--user-dir")
++    else if (arg == "--user-dir") {
+       config.user_directory = value("--user-dir");
++      user_directory_given = true;
++    }
+     else if (arg == "--title")
+       config.window_title = value("--title");
+     else if (arg == "--load-state")
+@@ -229,6 +287,19 @@ int RunMain(int argc, char **argv) {
+       return 2;
+     }
+   }
++  // Started by itself (not by the launcher) with the data moved to a folder
++  // that isn't there: starting would make a new, empty one
++  if (!user_directory_given && user_directory_choice.missing) {
++    const std::string message =
++        "The data folder isn't there:\n" +
++        moderngekko::frontend::PathUtf8(config.user_directory) +
++        "\n\nConnect the drive it is on, or open the launcher to choose "
++        "another.";
++    std::cerr << message << '\n';
++    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Data folder not found",
++                             message.c_str(), nullptr);
++    return 1;
++  }
+   if (config.game_root.empty())
+     config.game_root =
+         ReadDefaultGame(config.user_directory, executable_directory);
+@@ -246,10 +317,40 @@ int RunMain(int argc, char **argv) {
      return 2;
    }
    config.graphics.internal_resolution_scale = frontend_config.dolphin_scale;
@@ -4642,7 +5333,7 @@ index d6b3569..338c761 100644
    if (use_default_mods) {
      config.mod_directories.push_back(executable_directory / "Mods");
      config.mod_directories.push_back(config.user_directory / "Mods");
-@@ -266,39 +360,58 @@ int RunMain(int argc, char **argv) {
+@@ -266,39 +367,58 @@ int RunMain(int argc, char **argv) {
      std::cout << "controller configuration: " << controller_message << '\n';
    }
  
@@ -4726,7 +5417,7 @@ index d6b3569..338c761 100644
  #ifdef MODERNGEKKO_REQUIRED_REL_SHA256
    if (inspected.metadata->rel_sha256 != MODERNGEKKO_REQUIRED_REL_SHA256) {
      std::cerr << "unsupported _Main.rel: this release requires its pinned game build\n";
-@@ -314,12 +427,12 @@ int RunMain(int argc, char **argv) {
+@@ -314,12 +434,12 @@ int RunMain(int argc, char **argv) {
  #endif
  
    // Compatibility discovery belongs to the runner, never the runtime library.
@@ -4741,7 +5432,7 @@ index d6b3569..338c761 100644
        const auto bundled = executable_directory / module_name;
        const auto user_module =
            config.user_directory / "StaticRecompModules" / module_name;
-@@ -329,6 +442,20 @@ int RunMain(int argc, char **argv) {
+@@ -329,6 +449,20 @@ int RunMain(int argc, char **argv) {
          module_path = user_module;
      }
    }
@@ -4762,7 +5453,7 @@ index d6b3569..338c761 100644
    if (!module_path.empty())
      config.module =
          moderngekko::ModuleSource::DynamicPath(std::move(module_path));
-@@ -385,6 +512,8 @@ int RunMain(int argc, char **argv) {
+@@ -385,6 +519,8 @@ int RunMain(int argc, char **argv) {
          std::move(config), std::move(frontend_config), std::move(options));
    }
  
@@ -4771,7 +5462,7 @@ index d6b3569..338c761 100644
    auto created = moderngekko::Runtime::Create(std::move(config));
    if (!created) {
      std::cerr << "initialization failed: " << created.error->message << '\n';
-@@ -409,6 +538,29 @@ int RunMain(int argc, char **argv) {
+@@ -409,6 +545,29 @@ int RunMain(int argc, char **argv) {
    signal_watcher.request_stop();
    if (result.error) {
      std::cerr << "runtime failed: " << result.error->message << '\n';
@@ -5551,6 +6242,618 @@ index 0000000..29c292c
 +// What is there now, one line each: "Memory card: files 1 and 2" and "Save states: 4".
 +std::string DescribeSaves(const std::filesystem::path& user_directory,
 +                          const SaveImportGame& game);
++}  // namespace moderngekko::frontend
+diff --git a/tools/user_directory.cpp b/tools/user_directory.cpp
+new file mode 100644
+index 0000000..e08f290
+--- /dev/null
++++ b/tools/user_directory.cpp
+@@ -0,0 +1,499 @@
++#include "user_directory.hpp"
++
++#include <algorithm>
++#include <cstdlib>
++#include <fstream>
++#include <system_error>
++#include <vector>
++
++#if !defined(_WIN32)
++#include <cerrno>
++#include <fcntl.h>
++#include <unistd.h>
++#endif
++
++namespace fs = std::filesystem;
++
++namespace moderngekko::frontend
++{
++namespace
++{
++// An environment variable as a path ("" when unset). Windows: the wide one, so a user name such as
++// "José" survives whatever the code page is.
++fs::path EnvironmentPath(const char* name)
++{
++#if defined(_WIN32)
++  const std::wstring wide(name, name + std::char_traits<char>::length(name));
++  const wchar_t* value = _wgetenv(wide.c_str());
++  return value ? fs::path(value) : fs::path();
++#else
++  const char* value = std::getenv(name);
++  return value ? fs::path(value) : fs::path();
++#endif
++}
++
++std::string ReadLine(const fs::path& file)
++{
++  std::ifstream input(file, std::ios::binary);
++  std::string line;
++  std::getline(input, line);
++  if (!line.empty() && line.back() == '\r')
++    line.pop_back();
++  if (line.starts_with("\xEF\xBB\xBF"))  // a byte order mark, from Notepad
++    line.erase(0, 3);
++  return line;
++}
++
++// Written beside it and renamed over it, so a kill mid-write leaves the old one whole
++bool WriteLine(const fs::path& file, std::string_view line, std::string* error)
++{
++  std::error_code ec;
++  fs::create_directories(file.parent_path(), ec);
++  fs::path staged = file;
++  staged += ".tmp";
++  {
++    std::ofstream output(staged, std::ios::binary | std::ios::trunc);
++    output << line << '\n';
++    if (!output.flush())
++    {
++      *error = "can't write " + PathUtf8(staged);
++      return false;
++    }
++  }
++  fs::rename(staged, file, ec);
++  if (ec)
++  {
++    *error = "can't write " + PathUtf8(file) + ": " + ec.message();
++    fs::remove(staged, ec);
++    return false;
++  }
++  return true;
++}
++
++// The same folder, also when one name has a link or a different case on Windows
++bool SameFolder(const fs::path& a, const fs::path& b)
++{
++  std::error_code ec;
++  if (fs::exists(a, ec) && fs::exists(b, ec))
++    return fs::equivalent(a, b, ec);
++  return fs::weakly_canonical(a, ec) == fs::weakly_canonical(b, ec);
++}
++
++// Whether `inner` is `outer` or inside it
++bool IsWithin(const fs::path& inner, const fs::path& outer)
++{
++  std::error_code ec;
++  const fs::path relative =
++      fs::weakly_canonical(inner, ec).lexically_relative(fs::weakly_canonical(outer, ec));
++  return !relative.empty() && *relative.begin() != "..";
++}
++
++std::uint64_t FolderBytes(const fs::path& directory)
++{
++  std::uint64_t bytes = 0;
++  std::error_code ec;
++  for (fs::recursive_directory_iterator it(directory, ec), end; !ec && it != end;
++       it.increment(ec))
++  {
++    std::error_code size_ec;
++    if (it->is_regular_file(size_ec))
++      bytes += it->file_size(size_ec);
++  }
++  return bytes;
++}
++
++#if !defined(_WIN32)
++// One file in 4 MiB pieces, counted as they go. std::filesystem::copy_file managed ~4.5 MB/s from
++// Android's app storage to shared storage (both behind its FUSE layer) and counted only whole files.
++// (Windows: copy_file is CopyFileW.)
++bool CopyFileData(const fs::path& from, const fs::path& to, std::vector<char>& buffer,
++                  UserDirectoryMoveProgress* progress, std::error_code& ec)
++{
++  const int in = ::open(from.c_str(), O_RDONLY | O_CLOEXEC);
++  if (in < 0)
++  {
++    ec.assign(errno, std::generic_category());
++    return false;
++  }
++  const int out = ::open(to.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0666);
++  if (out < 0)
++  {
++    ec.assign(errno, std::generic_category());
++    ::close(in);
++    return false;
++  }
++  bool ok = true;
++  while (ok)
++  {
++    if (progress->cancel)
++    {
++      ec = std::make_error_code(std::errc::operation_canceled);
++      ok = false;
++      break;
++    }
++    const ssize_t got = ::read(in, buffer.data(), buffer.size());
++    if (got == 0)
++      break;
++    if (got < 0)
++    {
++      if (errno == EINTR)
++        continue;
++      ec.assign(errno, std::generic_category());
++      ok = false;
++      break;
++    }
++    for (ssize_t written = 0; written < got;)
++    {
++      const ssize_t put = ::write(out, buffer.data() + written, got - written);
++      if (put < 0 && errno == EINTR)
++        continue;
++      if (put <= 0)
++      {
++        ec.assign(put < 0 ? errno : EIO, std::generic_category());
++        ok = false;
++        break;
++      }
++      written += put;
++    }
++    if (ok)
++      progress->done_bytes += static_cast<std::uint64_t>(got);
++  }
++  ::close(in);
++  if (::close(out) != 0 && ok)
++  {
++    ec.assign(errno, std::generic_category());
++    ok = false;
++  }
++  return ok;
++}
++#endif
++
++// Copies every folder and file in `from` into the new folder `to`, file times kept
++bool CopyFolder(const fs::path& from, const fs::path& to, UserDirectoryMoveProgress* progress,
++                std::string* error)
++{
++  std::error_code ec;
++  fs::create_directories(to, ec);
++  if (ec)
++  {
++    *error = "can't create " + PathUtf8(to) + ": " + ec.message();
++    return false;
++  }
++#if !defined(_WIN32)
++  std::vector<char> buffer(4 << 20);
++#endif
++  fs::recursive_directory_iterator it(from, ec);
++  for (const fs::recursive_directory_iterator end; !ec && it != end; it.increment(ec))
++  {
++    if (progress->cancel)
++    {
++      *error = "cancelled";
++      return false;
++    }
++    const fs::path target = to / it->path().lexically_relative(from);
++    std::error_code entry_ec;
++    if (it->is_directory(entry_ec))
++    {
++      fs::create_directories(target, entry_ec);
++    }
++    else if (it->is_regular_file(entry_ec))
++    {
++#if defined(_WIN32)
++      fs::copy_file(it->path(), target, fs::copy_options::overwrite_existing, entry_ec);
++      if (!entry_ec)
++        progress->done_bytes += it->file_size(entry_ec);
++#else
++      CopyFileData(it->path(), target, buffer, progress, entry_ec);
++#endif
++      if (!entry_ec)
++        fs::last_write_time(target, it->last_write_time(entry_ec), entry_ec);
++    }
++    if (entry_ec == std::errc::operation_canceled)
++    {
++      *error = "cancelled";
++      return false;
++    }
++    if (entry_ec)
++    {
++      *error = "can't copy " + PathUtf8(it->path()) + ": " + entry_ec.message();
++      return false;
++    }
++  }
++  if (ec)
++  {
++    *error = "can't read " + PathUtf8(from) + ": " + ec.message();
++    return false;
++  }
++  return true;
++}
++
++// Removes everything in `directory` but the pointer file; the folder itself too when that leaves
++// it empty. False if something stayed.
++bool RemoveUserData(const fs::path& directory)
++{
++  std::error_code ec;
++  bool all = true;
++  std::vector<fs::path> entries;
++  for (fs::directory_iterator it(directory, ec), end; !ec && it != end; it.increment(ec))
++    entries.push_back(it->path());
++  for (const fs::path& entry : entries)
++  {
++    if (entry.filename() == USER_DIRECTORY_POINTER)
++      continue;
++    std::error_code remove_ec;
++    fs::remove_all(entry, remove_ec);
++    all = all && !remove_ec;
++  }
++  if (!HoldsUserData(directory) && !fs::exists(directory / USER_DIRECTORY_POINTER, ec))
++    fs::remove(directory, ec);
++  return all;
++}
++
++// default-game.txt: a path into `from` now points into `to`
++void RebaseDefaultGame(const fs::path& from, const fs::path& to)
++{
++  const fs::path file = to / "default-game.txt";
++  const std::string line = ReadLine(file);
++  if (line.empty())
++    return;
++  const fs::path game = Utf8Path(line);
++  if (!game.is_absolute() || !IsWithin(game, from))
++    return;
++  std::error_code ec;
++  const fs::path moved = to / fs::weakly_canonical(game, ec).lexically_relative(
++                                  fs::weakly_canonical(from, ec));
++  std::string error;
++  WriteLine(file, PathUtf8(moved), &error);
++}
++}  // namespace
++
++std::string PathUtf8(const fs::path& path)
++{
++  const std::u8string text = path.u8string();
++  return {text.begin(), text.end()};
++}
++
++fs::path Utf8Path(std::string_view text)
++{
++  return fs::path(std::u8string(text.begin(), text.end()));
++}
++
++fs::path DefaultUserDirectory(std::string_view name, bool in_documents)
++{
++  const fs::path folder = Utf8Path(name);
++  if (in_documents)
++  {
++#if defined(_WIN32)
++    if (const fs::path profile = EnvironmentPath("USERPROFILE"); !profile.empty())
++      return profile / "Documents" / folder;
++#endif
++    if (const fs::path home = EnvironmentPath("HOME"); !home.empty())
++      return home / "Documents" / folder;
++  }
++#if defined(_WIN32)
++  if (const fs::path local_app_data = EnvironmentPath("LOCALAPPDATA"); !local_app_data.empty())
++    return local_app_data / folder;
++#endif
++  // XDG: an empty or relative XDG_DATA_HOME counts as unset
++  if (const fs::path xdg = EnvironmentPath("XDG_DATA_HOME"); xdg.is_absolute())
++    return xdg / folder;
++  if (const fs::path home = EnvironmentPath("HOME"); !home.empty())
++    return home / ".local" / "share" / folder;
++  fs::path fallback = folder;
++  fallback += "-user";
++  return fallback;
++}
++
++UserDirectoryChoice FindUserDirectory(const fs::path& executable_directory,
++                                      const fs::path& default_directory)
++{
++  std::error_code ec;
++  // Native separators throughout: shown in Settings, and a pointer written by hand may mix them
++  if (fs::exists(executable_directory / PORTABLE_MARKER, ec))
++    return {(executable_directory / "User").make_preferred(), UserDirectoryKind::Portable, false};
++  const std::string line = ReadLine(default_directory / USER_DIRECTORY_POINTER);
++  if (!line.empty())
++  {
++    const fs::path moved = Utf8Path(line).make_preferred();
++    // Only an absolute one: a relative path would depend on the working directory
++    if (moved.is_absolute())
++      return {moved, UserDirectoryKind::Moved, !fs::is_directory(moved, ec)};
++  }
++  return {fs::path(default_directory).make_preferred(), UserDirectoryKind::Default, false};
++}
++
++fs::path UserDirectoryIn(const fs::path& picked, std::string_view name)
++{
++  const fs::path folder = Utf8Path(name);
++  fs::path clean = picked.lexically_normal();
++  if (!clean.has_filename() && clean.has_parent_path() && clean != clean.root_path())
++    clean = clean.parent_path();
++  return (clean.filename() == folder ? clean : clean / folder).make_preferred();
++}
++
++bool HoldsUserData(const fs::path& directory)
++{
++  std::error_code ec;
++  for (fs::directory_iterator it(directory, ec), end; !ec && it != end; it.increment(ec))
++  {
++    // The pointer, and its copy from a write that was killed
++    const fs::path name = it->path().filename();
++    fs::path staged_pointer = USER_DIRECTORY_POINTER;
++    staged_pointer += ".tmp";
++    if (name != USER_DIRECTORY_POINTER && name != staged_pointer)
++      return true;
++  }
++  return false;
++}
++
++std::string CheckUserDirectoryMove(const fs::path& from, const fs::path& to)
++{
++  if (SameFolder(from, to))
++    return "That is already the data folder.";
++  if (IsWithin(to, from))
++    return "That folder is inside the data folder. Pick one outside it.";
++  if (IsWithin(from, to))
++    return "The data folder is inside that folder. Pick another one.";
++  return "";
++}
++
++bool PointUserDirectory(const fs::path& to, const fs::path& default_directory, std::string* error)
++{
++  const fs::path pointer = default_directory / USER_DIRECTORY_POINTER;
++  std::error_code ec;
++  if (SameFolder(to, default_directory))
++  {
++    fs::remove(pointer, ec);
++    if (ec)
++    {
++      *error = "can't remove " + PathUtf8(pointer) + ": " + ec.message();
++      return false;
++    }
++    return true;
++  }
++  return WriteLine(pointer, PathUtf8(fs::absolute(to, ec)), error);
++}
++
++UserDirectoryMoveResult MoveUserDirectory(const fs::path& from, const fs::path& to,
++                                          const fs::path& default_directory,
++                                          UserDirectoryMoveProgress* progress)
++{
++  UserDirectoryMoveResult result;
++  if (std::string problem = CheckUserDirectoryMove(from, to); !problem.empty())
++  {
++    result.error = std::move(problem);
++    return result;
++  }
++  if (HoldsUserData(to))
++  {
++    result.error = "That folder already holds data.";
++    return result;
++  }
++  std::error_code ec;
++  fs::path staging = to;
++  staging += ".moving";
++  fs::remove_all(staging, ec);  // a copy an earlier try didn't finish
++  ec.clear();
++  fs::create_directories(staging.parent_path(), ec);
++  if (ec)
++  {
++    result.error = "can't create " + PathUtf8(staging.parent_path()) + ": " + ec.message();
++    return result;
++  }
++  progress->total_bytes = std::max<std::uint64_t>(1, FolderBytes(from));
++  progress->done_bytes = 0;
++
++  // The same drive: one rename, nothing copied. It fails across drives (and on Windows while a
++  // file in it is open): then a copy.
++  bool copied = false;
++  if (progress->always_copy)
++    ec = std::make_error_code(std::errc::cross_device_link);
++  else
++    fs::rename(from, staging, ec);
++  if (ec)
++  {
++    ec.clear();
++    const fs::space_info space = fs::space(staging.parent_path(), ec);
++    if (!ec && space.available < progress->total_bytes)
++    {
++      constexpr std::uint64_t MIB = 1024 * 1024;
++      result.error = "Not enough free space there: the data needs " +
++                     std::to_string(progress->total_bytes / MIB) + " MB, " +
++                     std::to_string(space.available / MIB) + " MB are free.";
++      return result;
++    }
++    std::string copy_error;
++    if (!CopyFolder(from, staging, progress, &copy_error))
++    {
++      fs::remove_all(staging, ec);
++      result.error = copy_error == "cancelled" ? "Cancelled; nothing was moved." :
++                                                 "Nothing was moved: " + copy_error;
++      return result;
++    }
++    copied = true;
++  }
++  progress->done_bytes = progress->total_bytes.load();
++
++  // `to` may be there, empty, or the default folder with only the pointer in it (a move back)
++  bool removed_pointer = false;
++  if (fs::exists(to, ec))
++  {
++    removed_pointer = fs::remove(to / USER_DIRECTORY_POINTER, ec);
++    fs::remove(to, ec);
++  }
++  fs::rename(staging, to, ec);
++  if (ec)
++  {
++    const std::string reason = ec.message();
++    if (copied)
++      fs::remove_all(staging, ec);
++    else
++      fs::rename(staging, from, ec);  // put it back
++    std::string ignored;
++    if (removed_pointer)
++      PointUserDirectory(from, default_directory, &ignored);
++    result.error = "Nothing was moved: can't create " + PathUtf8(to) + ": " + reason;
++    return result;
++  }
++  RebaseDefaultGame(from, to);
++  std::string point_error;
++  if (!PointUserDirectory(to, default_directory, &point_error))
++  {
++    // The data is in the new place but the next start wouldn't find it: put it back
++    if (!copied)
++    {
++      fs::rename(to, from, ec);
++      RebaseDefaultGame(to, from);
++    }
++    else
++    {
++      fs::remove_all(to, ec);
++    }
++    result.error = "Nothing was moved: " + point_error;
++    return result;
++  }
++  result.ok = true;
++  if (copied && !RemoveUserData(from))
++    result.warning = "Some of the old files couldn't be removed from " + PathUtf8(from) +
++                     ". The data is in the new folder; you can delete them by hand.";
++  return result;
++}
++
++fs::path ResolveDefaultGame(std::string_view line, const fs::path& base,
++                            const fs::path& user_directory)
++{
++  if (line.empty())
++    return {};
++  fs::path game = Utf8Path(line);
++  if (game.is_relative())
++    return base / game;
++  std::error_code ec;
++  if (!fs::exists(game, ec) && game.has_filename())
++  {
++    const fs::path copied = user_directory / "games" / game.filename();
++    if (fs::is_directory(copied, ec))
++      return copied;
++  }
++  return game;
++}
++}  // namespace moderngekko::frontend
+diff --git a/tools/user_directory.hpp b/tools/user_directory.hpp
+new file mode 100644
+index 0000000..67abad1
+--- /dev/null
++++ b/tools/user_directory.hpp
+@@ -0,0 +1,101 @@
++#pragma once
++
++// Where the launcher and the runner keep the imported game, saves, settings and logs (the user
++// directory, Dolphin's User folder). Both use these, so they always agree:
++//  1. Portable: a file named portable.txt beside the programs puts it in a User folder there.
++//  2. Moved: Settings, Disc, Data folder moves it anywhere and leaves data-folder.txt in the
++//     default folder, one UTF-8 line naming the new place.
++//  3. The default: %LOCALAPPDATA%\<name> on Windows, $XDG_DATA_HOME/<name> or
++//     ~/.local/share/<name> elsewhere (Documents/<name> in a build that asks for it).
++// Standard library only (the unit test builds it alone).
++
++#include <atomic>
++#include <cstdint>
++#include <filesystem>
++#include <string>
++#include <string_view>
++
++namespace moderngekko::frontend
++{
++enum class UserDirectoryKind
++{
++  Default,
++  Moved,
++  Portable,
++};
++
++struct UserDirectoryChoice
++{
++  std::filesystem::path path;
++  UserDirectoryKind kind = UserDirectoryKind::Default;
++  // Moved, but the folder data-folder.txt names isn't there (a drive not connected, a folder
++  // deleted): the caller asks before using it, as it would start empty
++  bool missing = false;
++};
++
++// The pointer file a move leaves in the default folder
++inline constexpr std::string_view USER_DIRECTORY_POINTER = "data-folder.txt";
++// Beside the programs: keep the data in a User folder there
++inline constexpr std::string_view PORTABLE_MARKER = "portable.txt";
++
++// The default folder named `name`, from the environment. `in_documents`: Documents/<name>.
++std::filesystem::path DefaultUserDirectory(std::string_view name, bool in_documents);
++
++// Which folder to use (portable, moved or the default, as above).
++UserDirectoryChoice FindUserDirectory(const std::filesystem::path& executable_directory,
++                                      const std::filesystem::path& default_directory);
++
++// UTF-8 text of a path and back (std::filesystem's narrow strings are the ANSI code page on
++// Windows)
++std::string PathUtf8(const std::filesystem::path& path);
++std::filesystem::path Utf8Path(std::string_view text);
++
++// The folder Change... uses for one the player picked: a folder named `name` inside it, or the
++// picked folder itself when it already has that name (picking the data folder's old place).
++std::filesystem::path UserDirectoryIn(const std::filesystem::path& picked, std::string_view name);
++
++// Whether `directory` holds anything but the pointer file (data that a move would mix into).
++bool HoldsUserData(const std::filesystem::path& directory);
++
++// "" if the data in `from` can move to `to`, else why not, in a sentence for the player: the same
++// folder, or one inside the other. A `to` that holds data (HoldsUserData) can't take it either,
++// but can be used as it is (PointUserDirectory).
++std::string CheckUserDirectoryMove(const std::filesystem::path& from,
++                                   const std::filesystem::path& to);
++
++// Makes `to` the folder used from the next start, without moving anything: writes the pointer in
++// `default_directory`, or removes it when `to` is the default.
++bool PointUserDirectory(const std::filesystem::path& to,
++                        const std::filesystem::path& default_directory, std::string* error);
++
++struct UserDirectoryMoveProgress
++{
++  std::atomic<std::uint64_t> done_bytes{0};
++  std::atomic<std::uint64_t> total_bytes{1};
++  std::atomic<bool> cancel{false};
++  bool always_copy = false;  // tests: copy even where a rename would do
++};
++
++struct UserDirectoryMoveResult
++{
++  bool ok = false;
++  std::string error;    // why it didn't move; the data is still where it was
++  std::string warning;  // moved, but some old files couldn't be removed
++};
++
++// Moves the data in `from` to `to` (refused as CheckUserDirectoryMove says, or if `to` holds
++// data) and points the next start there. On the same drive a rename; otherwise a copy into
++// `to`.moving (file times kept: Continue picks the newest save by them), renamed into place, then
++// the pointer, then the old files are removed. A failed or cancelled copy removes its folder and
++// leaves everything as it was. default-game.txt paths into `from` are rewritten into `to`.
++UserDirectoryMoveResult MoveUserDirectory(const std::filesystem::path& from,
++                                          const std::filesystem::path& to,
++                                          const std::filesystem::path& default_directory,
++                                          UserDirectoryMoveProgress* progress);
++
++// The game a default-game.txt line names: relative lines are in `base`; an absolute one that is
++// gone but whose folder name is in `user_directory`/games is that (a data folder copied by hand
++// to another drive or folder).
++std::filesystem::path ResolveDefaultGame(std::string_view line, const std::filesystem::path& base,
++                                         const std::filesystem::path& user_directory);
 +}  // namespace moderngekko::frontend
 diff --git a/tools/utf8.manifest b/tools/utf8.manifest
 new file mode 100644
