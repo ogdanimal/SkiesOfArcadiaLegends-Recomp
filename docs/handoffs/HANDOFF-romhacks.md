@@ -65,8 +65,11 @@ renamed aside first (an import removes the other region's folder). Select Disc â
 change only the game's data.", nothing left in `Games`; â†’ `maeson.iso`: imported (DOL `82a9fca1`,
 `main.dol.orig` the romhack's own), Start Game, `StateSaves/romhack-4d5febec` made, boots at 1.00x.
 Put back after: the ISOs, the import and the empty folder removed, the European import restored.
-Android's home screen doesn't say "modified" (the desktop launcher does), and its no-disc hint still
-names only the USA disc.
+Since then Android's Start Game carries "Ready: Skies of Arcadia Legends [GEAE8P, modified]" for a
+romhack (its state folder is a `romhack-` one), and the no-disc hint names the USA and European discs;
+both seen on the Retroid. The test app was put back on the language session's APK afterwards: its
+European game was pushed by hand there (a ws24 `main.dol`, no `main.dol.orig`), which a ws25 build
+can't repatch ("imported by an older version").
 
 **Not done yet:** ws25 European modules for Windows and Android with PGO (the Android EU module is built without
 a profile, as before); release modules through CI (`tools/ci-codegen.sh` needs nothing new: the

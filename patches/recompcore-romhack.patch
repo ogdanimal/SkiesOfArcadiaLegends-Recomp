@@ -1,5 +1,5 @@
 diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
-index aa8dfe262c..3559474be9 100644
+index aa8dfe262c..7508ac7518 100644
 --- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
 +++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
 @@ -45,7 +45,6 @@ import org.dolphinemu.dolphinemu.fragments.EmulationFragment
@@ -61,7 +61,7 @@ index aa8dfe262c..3559474be9 100644
              file.isFile && file.name.endsWith(".sav") &&
                  (file.name.startsWith("state-skies-") || file.name.startsWith("recovery-skies-"))
          }?.maxByOrNull { it.lastModified() }
-@@ -737,6 +730,12 @@ class SkiesLauncherActivity : FragmentActivity() {
+@@ -737,6 +730,15 @@ class SkiesLauncherActivity : FragmentActivity() {
                  dolSha256(id)
              )
          }
@@ -71,9 +71,30 @@ index aa8dfe262c..3559474be9 100644
 +            stateDirectory = File(SkiesNative.useStateFolder(gameRoot.absolutePath,
 +                File(bundledPatches(), SkiesNative.patchName(gameId)).absolutePath))
 +        }
++        // A romhack (its own state folder): said under Start Game, as the desktop launcher does
++        val modifiedDetail = if (stateDirectory?.name?.startsWith("romhack-") == true)
++            "Ready: Skies of Arcadia Legends [$gameId, modified]" else null
          if (gameReady() && org.dolphinemu.dolphinemu.NativeLibrary.IsRunning()) {
              // The game still runs (paused) without its screen: a frontend relaunched the app with
              // its task cleared. Continue brings it back; what boots or changes files closes it first.
+@@ -744,7 +746,7 @@ class SkiesLauncherActivity : FragmentActivity() {
+             addButton(getString(R.string.skies_continue), "Game in progress") {
+                 EmulationActivity.resumeSession(this, mainDol.absolutePath)
+             }
+-            addButton(getString(R.string.skies_play)) {
++            addButton(getString(R.string.skies_play), modifiedDetail) {
+                 afterGameClosed {
+                     setAutoLoadCard(0)
+                     launch(null)
+@@ -780,7 +782,7 @@ class SkiesLauncherActivity : FragmentActivity() {
+                     launch(null)
+                 }
+             }
+-            addButton(getString(R.string.skies_play)) {
++            addButton(getString(R.string.skies_play), modifiedDetail) {
+                 setAutoLoadCard(0)
+                 launch(null)
+             }
 diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt
 index 9ea980293d..319ca5ff94 100644
 --- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt
@@ -120,6 +141,19 @@ index bf228e0b69..0dcc8fda74 100644
                  configRow(rows, "EXP", REWARDS, dolphin, "Skies", "Exp", 100,
                      "Experience from battles, for levelling up.")
                  configRow(rows, "Gold", REWARDS, dolphin, "Skies", "Gold", 100,
+diff --git a/Source/Android/app/src/main/res/values/skies_strings.xml b/Source/Android/app/src/main/res/values/skies_strings.xml
+index f3e17ce993..8310139575 100644
+--- a/Source/Android/app/src/main/res/values/skies_strings.xml
++++ b/Source/Android/app/src/main/res/values/skies_strings.xml
+@@ -5,7 +5,7 @@
+     <string name="skies_subtitle" translatable="false">Skies of Arcadia Legends: Recompiled</string>
+     <string name="skies_title" translatable="false">Skies of Arcadia Legends</string>
+     <string name="skies_starting" translatable="false">Starting…</string>
+-    <string name="skies_need_disc" translatable="false">To play, choose your own copy of Skies of Arcadia Legends for the GameCube (USA). ISO, GCM, RVZ, WIA, GCZ and CISO disc images work. It is copied into the app once and patched; the image itself isn\'t changed.</string>
++    <string name="skies_need_disc" translatable="false">To play, choose your own copy of Skies of Arcadia Legends for the GameCube (USA or Europe). ISO, GCM, RVZ, WIA, GCZ and CISO disc images work. It is copied into the app once and patched; the image itself isn\'t changed.</string>
+     <string name="skies_importing" translatable="false">Importing your disc. This takes a minute or two.</string>
+     <string name="skies_ready" translatable="false">Settings are here and in the game (hold Z, press Start).</string>
+     <string name="skies_play" translatable="false">Start Game</string>
 diff --git a/Source/Android/jni/SkiesImport.cpp b/Source/Android/jni/SkiesImport.cpp
 index 97c1d1c0d7..3158db2717 100644
 --- a/Source/Android/jni/SkiesImport.cpp
