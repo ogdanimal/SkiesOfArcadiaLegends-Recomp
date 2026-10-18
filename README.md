@@ -125,6 +125,8 @@ press Start**), or in the launcher's **Settings** window.
   button or key (see [Controls](#controls)). On desktop, any controller you press is picked up without setup.
 - **Dreamcast music** (optional): the Dreamcast version's soundtrack, from your own Dreamcast disc
   (see [Dreamcast music](#dreamcast-music)).
+- **HD textures** (optional): a texture pack you downloaded, imported in Settings (see
+  [HD textures](#hd-textures)).
 - **Save states:** five slots, plus an auto-save every 10 minutes on the field (the newest three are
   kept). Your memory card saves are never touched by a state.
 - **Continue** in the launcher starts from your newest save state or memory card save, whichever is
@@ -163,6 +165,22 @@ disc, in place of the GameCube music. The few streamed tracks (the staff roll, t
 story scenes) stay GameCube: the Dreamcast recordings differ in length, and those scenes are timed to
 the GameCube ones. **Remove** deletes the imported music. Only the sound driver and
 the music are copied from the disc.
+
+### HD textures
+
+Texture packs made for Dolphin work here, for example **Skies of Arcadia HD** by Bighead and
+frozenwings (on the Dolphin forums; it redoes the three leads' faces and costumes, the skies, the
+menus, text and some effects). None is included: download one yourself, then:
+
+1. In the launcher, **Settings → Graphics → Import a texture pack...** and pick the `.7z` or `.zip`
+   you downloaded (on desktop, **Import a folder...** takes one you already unpacked).
+2. **HD textures** turns on by itself. Switch it in the launcher or in game from the settings menu's
+   Graphics tab.
+
+Only the pack's textures for this game (its `GEA` folder, used by both discs) are copied; its optional
+extras (French text, the other flight meter) are left out. On Android, take the pack's **PNG** download: phones can't load its DDS (BC7) textures, and
+the app shows how many of them stay as they were. Importing another pack replaces it; **Remove**
+deletes it.
 
 ### GPU driver (Android)
 
@@ -231,6 +249,8 @@ See [BUILDING.md](BUILDING.md). How the port works, with measurements and histor
   [Highly Theoretical](https://github.com/kode54/Highly_Theoretical) (the Dreamcast sound chip,
   maintained by kode54) and reads CHD images with Romain Tisserand's
   [libchdr](https://github.com/rtissera/libchdr).
+- HD texture packs in `.7z` files are read with Igor Pavlov's
+  [LZMA SDK](https://www.7-zip.org/sdk.html).
 - Started from [ModernGekko-Template](https://github.com/ExpansionPak/ModernGekko-Template).
 
 Skies of Arcadia Legends is © SEGA. This project isn't affiliated with or endorsed by SEGA.

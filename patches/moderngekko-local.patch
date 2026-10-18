@@ -1986,10 +1986,10 @@ index 0000000..f3c3d14
 +void DrawMapping(State& state, const fs::path& user_directory, float scale);
 +}  // namespace moderngekko::launcher_controls
 diff --git a/tools/moderngekko_launcher.cpp b/tools/moderngekko_launcher.cpp
-index 7699c3d..70ce9c9 100644
+index 7699c3d..32ba52b 100644
 --- a/tools/moderngekko_launcher.cpp
 +++ b/tools/moderngekko_launcher.cpp
-@@ -1,12 +1,23 @@
+@@ -1,12 +1,24 @@
  #include "frontend_config.hpp"
 +#include "disc_extract.hpp"
  #include "dol_patch.hpp"
@@ -2007,13 +2007,14 @@ index 7699c3d..70ce9c9 100644
  #include "DiscIO/DiscExtractor.h"
  #include "DiscIO/Filesystem.h"
  #include "DiscIO/Volume.h"
++#include "VideoCommon/TexturePackImport.h"
 +#ifdef HAVE_DCMUSIC
 +#include "AudioCommon/DCMusicImport.h"
 +#endif
  
  #include <SDL3/SDL.h>
  #include <imgui.h>
-@@ -19,7 +30,12 @@
+@@ -19,7 +31,12 @@
  #include <cstdio>
  #include <cstdlib>
  #include <filesystem>
@@ -2026,7 +2027,7 @@ index 7699c3d..70ce9c9 100644
  #include <iostream>
  #include <mutex>
  #include <optional>
-@@ -51,7 +67,22 @@ namespace
+@@ -51,7 +68,22 @@ namespace
  #ifdef MODERNGEKKO_GAMECUBE_CONTROLLERS
  constexpr std::string_view CONTROLLER_PROFILE_NAME = "GCPadNew.ini";
  constexpr std::string_view GENERATED_PROFILE_LABEL = "GameCube profile";
@@ -2049,7 +2050,7 @@ index 7699c3d..70ce9c9 100644
  constexpr std::string_view CONTROLLER_PROFILE_NAME = "WiimoteNew.ini";
  constexpr std::string_view GENERATED_PROFILE_LABEL = "sideways profile";
  #endif
-@@ -74,22 +105,158 @@ struct DialogState
+@@ -74,22 +106,158 @@ struct DialogState
    std::string error;
  };
  
@@ -2216,7 +2217,7 @@ index 7699c3d..70ce9c9 100644
  #ifdef MODERNGEKKO_REQUIRED_REL_SHA256
    if (metadata.rel_sha256 != MODERNGEKKO_REQUIRED_REL_SHA256)
      return "_Main.rel does not match the pinned release";
-@@ -101,6 +268,18 @@ std::string RequiredGameError(const moderngekko::GameMetadata& metadata)
+@@ -101,6 +269,18 @@ std::string RequiredGameError(const moderngekko::GameMetadata& metadata)
    return {};
  }
  
@@ -2235,7 +2236,7 @@ index 7699c3d..70ce9c9 100644
  std::vector<ControllerOption> EnumerateControllers()
  {
    std::vector<ControllerOption> result;
-@@ -111,14 +290,31 @@ std::vector<ControllerOption> EnumerateControllers()
+@@ -111,14 +291,31 @@ std::vector<ControllerOption> EnumerateControllers()
    {
      const SDL_JoystickID joystick_id = joystick_ids[i];
      const bool gamepad = SDL_IsGamepad(joystick_id);
@@ -2271,7 +2272,7 @@ index 7699c3d..70ce9c9 100644
      option.device = "SDL/" + std::to_string(device_id) + "/" + name;
      result.emplace_back(std::move(option));
    }
-@@ -129,28 +325,28 @@ std::vector<ControllerOption> EnumerateControllers()
+@@ -129,28 +326,28 @@ std::vector<ControllerOption> EnumerateControllers()
  int FindController(const std::vector<ControllerOption>& controllers, std::string_view device)
  {
    const auto found = std::ranges::find(controllers, device, &ControllerOption::device);
@@ -2317,7 +2318,7 @@ index 7699c3d..70ce9c9 100644
  }
  
  fs::path DocumentsDirectory()
-@@ -166,6 +362,13 @@ fs::path DocumentsDirectory()
+@@ -166,6 +363,13 @@ fs::path DocumentsDirectory()
  
  fs::path ExecutableDirectory(const char* argv0)
  {
@@ -2331,7 +2332,7 @@ index 7699c3d..70ce9c9 100644
    std::error_code ec;
  #if defined(__linux__)
    const fs::path proc_executable = fs::read_symlink("/proc/self/exe", ec);
-@@ -182,26 +385,23 @@ fs::path SiblingExecutable(const fs::path& release_directory, std::string name)
+@@ -182,26 +386,23 @@ fs::path SiblingExecutable(const fs::path& release_directory, std::string name)
  #if defined(_WIN32)
    name += ".exe";
  #endif
@@ -2367,7 +2368,7 @@ index 7699c3d..70ce9c9 100644
  }
  
  fs::path DefaultGameFile(const fs::path& user_directory, const fs::path& release_directory)
-@@ -220,10 +420,7 @@ fs::path ReadDefaultGame(const fs::path& user_directory, const fs::path& release
+@@ -220,10 +421,7 @@ fs::path ReadDefaultGame(const fs::path& user_directory, const fs::path& release
    std::getline(file, value);
    if (!value.empty() && value.back() == '\r')
      value.pop_back();
@@ -2379,7 +2380,7 @@ index 7699c3d..70ce9c9 100644
  }
  
  bool WriteDefaultGame(const fs::path& user_directory, const fs::path& release_directory,
-@@ -232,7 +429,10 @@ bool WriteDefaultGame(const fs::path& user_directory, const fs::path& release_di
+@@ -232,7 +430,10 @@ bool WriteDefaultGame(const fs::path& user_directory, const fs::path& release_di
    const fs::path destination = DefaultGameFile(user_directory, release_directory);
    std::error_code ec;
    fs::create_directories(destination.parent_path(), ec);
@@ -2391,7 +2392,7 @@ index 7699c3d..70ce9c9 100644
    if (!file)
    {
      if (error)
-@@ -246,9 +446,150 @@ bool WriteDefaultGame(const fs::path& user_directory, const fs::path& release_di
+@@ -246,9 +447,150 @@ bool WriteDefaultGame(const fs::path& user_directory, const fs::path& release_di
      stored = relative;
  #endif
    file << stored.string() << '\n';
@@ -2542,7 +2543,7 @@ index 7699c3d..70ce9c9 100644
  std::vector<fs::path> FindDiscImages()
  {
    std::vector<fs::path> images;
-@@ -259,7 +600,9 @@ std::vector<fs::path> FindDiscImages()
+@@ -259,7 +601,9 @@ std::vector<fs::path> FindDiscImages()
    fs::recursive_directory_iterator iterator(documents,
                                              fs::directory_options::skip_permission_denied, ec);
    const fs::recursive_directory_iterator end;
@@ -2553,7 +2554,7 @@ index 7699c3d..70ce9c9 100644
    {
      if (iterator.depth() > 4)
        iterator.disable_recursion_pending();
-@@ -268,7 +611,7 @@ std::vector<fs::path> FindDiscImages()
+@@ -268,7 +612,7 @@ std::vector<fs::path> FindDiscImages()
        std::string extension = iterator->path().extension().string();
        std::ranges::transform(extension, extension.begin(),
                               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
@@ -2562,7 +2563,7 @@ index 7699c3d..70ce9c9 100644
          images.push_back(iterator->path());
      }
      iterator.increment(ec);
-@@ -290,16 +633,14 @@ std::optional<fs::path> PrepareDisc(const fs::path& image, const fs::path& user_
+@@ -290,16 +634,14 @@ std::optional<fs::path> PrepareDisc(const fs::path& image, const fs::path& user_
      return std::nullopt;
    }
    const std::string source_id = source->GetGameID(source->GetGamePartition());
@@ -2583,7 +2584,7 @@ index 7699c3d..70ce9c9 100644
      return std::nullopt;
    }
    const fs::path output = user_directory / "Setup" / "SonicRidersTE-2.4.6.1.iso";
-@@ -372,13 +713,13 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+@@ -372,13 +714,13 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
      return fail("Dolphin could not read the game partition filesystem");
  
    std::string disc_id = volume->GetGameID(partition);
@@ -2603,7 +2604,7 @@ index 7699c3d..70ce9c9 100644
  #ifdef MODERNGEKKO_PORTABLE_DEFAULT_GAME
    const fs::path games_directory = release_directory;
    const fs::path output = games_directory / "Game";
-@@ -387,14 +728,47 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+@@ -387,14 +729,47 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
    const fs::path output = games_directory / disc_id;
  #endif
    std::error_code ec;
@@ -2653,7 +2654,7 @@ index 7699c3d..70ce9c9 100644
    if (existing && RequiredGameError(*existing.metadata).empty())
    {
      std::string error;
-@@ -407,8 +781,27 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+@@ -407,8 +782,27 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
      return true;
    }
  
@@ -2681,7 +2682,7 @@ index 7699c3d..70ce9c9 100644
    fs::create_directories(staging / "files", ec);
    if (ec)
      return fail("can't create extraction directory: " + ec.message());
-@@ -423,20 +816,25 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+@@ -423,20 +817,25 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
      return fail("Dolphin failed while extracting the disc system data");
    }
  
@@ -2717,7 +2718,7 @@ index 7699c3d..70ce9c9 100644
  
    bool dol_changed = false;
    std::string dol_patch_error;
-@@ -446,7 +844,7 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+@@ -446,7 +845,7 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
      return fail("extracted DOL patching failed: " + dol_patch_error);
    }
  
@@ -2726,7 +2727,7 @@ index 7699c3d..70ce9c9 100644
    if (!inspected)
    {
      fs::remove_all(staging, ec);
-@@ -459,11 +857,13 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+@@ -459,11 +858,13 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
      return fail("extracted game validation failed: " + identity_error);
    }
  
@@ -2745,7 +2746,7 @@ index 7699c3d..70ce9c9 100644
    std::string error;
    if (!WriteDefaultGame(user_directory, release_directory, output, &error))
      return fail(error);
-@@ -487,23 +887,91 @@ void SDLCALL FileDialogCallback(void* userdata, const char* const* filelist, int
+@@ -487,23 +888,92 @@ void SDLCALL FileDialogCallback(void* userdata, const char* const* filelist, int
      state->selected = filelist[0];
  }
  
@@ -2838,11 +2839,12 @@ index 7699c3d..70ce9c9 100644
    std::optional<fs::path> extract_only;
 +  std::optional<std::string> import_save_only;
 +  std::optional<std::string> import_dc_music_only;
++  std::optional<std::string> import_texture_pack_only;
 +  std::optional<std::string> move_data_only;
    for (int i = 1; i < argc; ++i)
    {
      if (std::string_view(argv[i]) == "-X11" || std::string_view(argv[i]) == "--x11")
-@@ -512,10 +980,73 @@ int main(int argc, char** argv)
+@@ -512,10 +982,92 @@ int main(int argc, char** argv)
        use_wayland = true;
      else if (std::string_view(argv[i]) == "--extract" && i + 1 < argc)
        extract_only = argv[++i];
@@ -2850,6 +2852,8 @@ index 7699c3d..70ce9c9 100644
 +      import_save_only = argv[++i];
 +    else if (std::string_view(argv[i]) == "--import-dc-music" && i + 1 < argc)
 +      import_dc_music_only = argv[++i];
++    else if (std::string_view(argv[i]) == "--import-texture-pack" && i + 1 < argc)
++      import_texture_pack_only = argv[++i];
 +    else if (std::string_view(argv[i]) == "--move-data-folder" && i + 1 < argc)
 +      move_data_only = argv[++i];
    }
@@ -2914,10 +2918,27 @@ index 7699c3d..70ce9c9 100644
 +    return error.empty() ? 0 : 1;
 +  }
 +#endif
++  // Where Dolphin looks for custom textures (Load/Textures/; the pack goes in its GEA folder)
++  const std::string textures_directory = PathToString(user_directory / "Load" / "Textures" / "");
++  // HD textures: Dolphin's Load Custom Textures, switched in game too (the in-game menu)
++  constexpr DolphinOption GFX_HIRES_TEXTURES{"GFX.ini", "Settings", "HiresTextures"};
++  // Settings, Graphics' texture pack import without the window and the picker (for tests)
++  if (import_texture_pack_only)
++  {
++    std::string summary;
++    const std::string error = TexturePackImport::Import(
++        *import_texture_pack_only, textures_directory, &summary,
++        [](const std::string& status) { std::cout << status << '\n'; });
++    std::string write_error;
++    if (error.empty())
++      WriteDolphinOption(user_directory, GFX_HIRES_TEXTURES, 1, &write_error);
++    (error.empty() ? std::cout : std::cerr) << (error.empty() ? summary : error) << '\n';
++    return error.empty() ? 0 : 1;
++  }
    if (extract_only)
    {
      ExtractionState extraction;
-@@ -529,6 +1060,21 @@ int main(int argc, char** argv)
+@@ -529,6 +1081,21 @@ int main(int argc, char** argv)
        std::cout << extraction.status << ": " << *extraction.finished_game << '\n';
      return success ? 0 : 1;
    }
@@ -2939,7 +2960,7 @@ index 7699c3d..70ce9c9 100644
  
    auto config = moderngekko::frontend::LoadConfig(user_directory, true);
    if (!config)
-@@ -546,9 +1092,18 @@ int main(int argc, char** argv)
+@@ -546,9 +1113,18 @@ int main(int argc, char** argv)
    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD))
      return 1;
  
@@ -2960,7 +2981,7 @@ index 7699c3d..70ce9c9 100644
                                          SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
    if (!window)
    {
-@@ -578,19 +1133,92 @@ int main(int argc, char** argv)
+@@ -578,19 +1154,92 @@ int main(int argc, char** argv)
    ImGui::GetStyle().FontScaleDpi = scale;
    ImGui_ImplSDL3_InitForSDLRenderer(window, renderer);
    ImGui_ImplSDLRenderer3_Init(renderer);
@@ -3056,7 +3077,7 @@ index 7699c3d..70ce9c9 100644
    const auto& resolutions = moderngekko::frontend::SupportedResolutions();
    const auto& graphics_backends =
        moderngekko::frontend::SupportedGraphicsBackends();
-@@ -605,6 +1233,44 @@ int main(int argc, char** argv)
+@@ -605,6 +1254,44 @@ int main(int argc, char** argv)
    int netplay_port = config.netplay_port;
    bool automatic_buffer = config.netplay_buffer == "auto";
    int manual_buffer = automatic_buffer ? 5 : std::stoi(config.netplay_buffer);
@@ -3101,7 +3122,7 @@ index 7699c3d..70ce9c9 100644
    int resolution_index = 0;
    for (std::size_t i = 0; i < resolutions.size(); ++i)
    {
-@@ -621,17 +1287,133 @@ int main(int argc, char** argv)
+@@ -621,17 +1308,150 @@ int main(int argc, char** argv)
    // StateSaves is Dolphin's own state directory, so states written in-game land
    // here without any extra configuration and show up on the next launch.
    //
@@ -3152,6 +3173,23 @@ index 7699c3d..70ce9c9 100644
 +  DcImportState& dc_import = *new DcImportState;
 +  dc_import.described = DCMusicImport::Describe(dc_music_directory);
 +#endif
++  // Settings, Graphics: the texture pack picked (a .7z / .zip, or a folder), and its import (on a
++  // thread, never freed for the same reasons)
++  SaveDialogState& pack_dialog = *new SaveDialogState;
++  struct PackImportState
++  {
++    std::mutex mutex;
++    bool running = false;
++    std::string status;     // while it runs
++    std::string message;    // how the last one went
++    bool ok = true;
++    std::string described;  // what's imported (TexturePackImport::Describe), "" = nothing
++  };
++  PackImportState& pack_import = *new PackImportState;
++  pack_import.described = TexturePackImport::Describe(textures_directory);
++  SettingValue hires_textures{GFX_HIRES_TEXTURES,
++                              ReadDolphinOption(user_directory, GFX_HIRES_TEXTURES), 0};
++
 +  // Settings, Disc: Data folder. The folder picked for Change... and the move into it, on a thread
 +  // (never freed either, as with dc_import). A finished move or switch starts the launcher again.
 +  SaveDialogState& folder_dialog = *new SaveDialogState;
@@ -3242,7 +3280,7 @@ index 7699c3d..70ce9c9 100644
    std::vector<ControllerOption> controllers = EnumerateControllers();
    bool controller_profile_exists = moderngekko::frontend::ControllerConfigExists(user_directory);
    std::vector<std::string> configured_controllers =
-@@ -640,11 +1422,22 @@ int main(int argc, char** argv)
+@@ -640,11 +1460,22 @@ int main(int argc, char** argv)
        configured_controllers.empty() ? config.controller : configured_controllers.front();
    int controller_index = FindController(controllers, selected_controller);
    std::string controller_status;
@@ -3267,7 +3305,7 @@ index 7699c3d..70ce9c9 100644
      {
        std::lock_guard lock(dialog.mutex);
        dialog.error = std::move(message);
-@@ -652,13 +1445,13 @@ int main(int argc, char** argv)
+@@ -652,13 +1483,13 @@ int main(int argc, char** argv)
      }
      std::string error;
      if (!moderngekko::frontend::SaveConfig(user_directory, resolutions[resolution_index].text,
@@ -3283,7 +3321,7 @@ index 7699c3d..70ce9c9 100644
      configured_controllers = {selected_controller};
      config.controller = selected_controller;
      config.controllers = configured_controllers;
-@@ -673,7 +1466,28 @@ int main(int argc, char** argv)
+@@ -673,7 +1504,28 @@ int main(int argc, char** argv)
      if (moderngekko::frontend::ControllerConfigExists(user_directory))
      {
        controller_profile_exists = true;
@@ -3312,7 +3350,7 @@ index 7699c3d..70ce9c9 100644
        if (configured_controllers.empty())
        {
          std::lock_guard lock(dialog.mutex);
-@@ -686,12 +1500,14 @@ int main(int argc, char** argv)
+@@ -686,12 +1538,14 @@ int main(int argc, char** argv)
        controller_status = "Using existing " + std::string(CONTROLLER_PROFILE_NAME);
        return true;
      }
@@ -3327,7 +3365,7 @@ index 7699c3d..70ce9c9 100644
      return select_controller(controller_index);
    };
    const auto refresh_controllers = [&]
-@@ -726,13 +1542,22 @@ int main(int argc, char** argv)
+@@ -726,13 +1580,22 @@ int main(int argc, char** argv)
      Join,
    };
    bool done = false;
@@ -3350,7 +3388,7 @@ index 7699c3d..70ce9c9 100644
        ImGui_ImplSDL3_ProcessEvent(&event);
        if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED)
          done = true;
-@@ -744,6 +1569,7 @@ int main(int argc, char** argv)
+@@ -744,6 +1607,7 @@ int main(int argc, char** argv)
      }
      if (controllers_changed)
        refresh_controllers();
@@ -3358,7 +3396,7 @@ index 7699c3d..70ce9c9 100644
  
      {
        std::lock_guard lock(dialog.mutex);
-@@ -751,15 +1577,80 @@ int main(int argc, char** argv)
+@@ -751,14 +1615,79 @@ int main(int argc, char** argv)
        {
          selected_image = std::move(dialog.selected);
          dialog.selected.reset();
@@ -3370,6 +3408,7 @@ index 7699c3d..70ce9c9 100644
      {
 -      std::lock_guard lock(extraction.mutex);
 -      if (extraction.finished_game)
+-      {
 +      std::lock_guard lock(save_dialog.mutex);
 +      picked_save = std::move(save_dialog.selected);
 +      save_dialog.selected.reset();
@@ -3391,10 +3430,7 @@ index 7699c3d..70ce9c9 100644
 +    {
 +      std::lock_guard lock(folder_dialog.mutex);
 +      if (folder_dialog.selected)
-       {
--        current_game = *extraction.finished_game;
--        current_metadata = moderngekko::InspectGame(current_game);
--        if (current_metadata && !RequiredGameError(*current_metadata.metadata).empty())
++      {
 +        const fs::path target = moderngekko::frontend::UserDirectoryIn(
 +            moderngekko::frontend::Utf8Path(*folder_dialog.selected),
 +            MODERNGEKKO_USER_DIRECTORY_NAME);
@@ -3438,13 +3474,13 @@ index 7699c3d..70ce9c9 100644
 +      std::lock_guard lock(extraction.mutex);
 +      if (extraction.finished_game)
 +      {
-+        current_game = *extraction.finished_game;
+         current_game = *extraction.finished_game;
+-        current_metadata = moderngekko::InspectGame(current_game);
 +        current_metadata = InspectForLauncher(current_game);
-+        if (current_metadata && !RequiredGameError(*current_metadata.metadata).empty())
+         if (current_metadata && !RequiredGameError(*current_metadata.metadata).empty())
            current_metadata = {{}, RequiredGameError(*current_metadata.metadata)};
          extraction.finished_game.reset();
-         if (ensure_controller())
-@@ -774,18 +1665,79 @@ int main(int argc, char** argv)
+@@ -774,18 +1703,79 @@ int main(int argc, char** argv)
      ImGui_ImplSDL3_NewFrame();
      ImGui::NewFrame();
      const ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -3457,6 +3493,9 @@ index 7699c3d..70ce9c9 100644
 -    ImGui::Separator();
 -
 -    if (current_metadata)
+-    {
+-      ImGui::Text("Ready: %s [%s]", current_metadata.metadata->game_name.c_str(),
+-                  current_metadata.metadata->disc_id.c_str());
 +    // Layout lengths of the branded screens, which grow with the text size
 +    const float ui_scale = background ? scale * static_cast<float>(text_size) / 100.0f : scale;
 +    if (background)
@@ -3529,13 +3568,11 @@ index 7699c3d..70ce9c9 100644
 +      ImGui::Dummy(ImVec2(0, 2.0f * ui_scale));
 +    };
 +    const auto savestate_section = [&]
-     {
--      ImGui::Text("Ready: %s [%s]", current_metadata.metadata->game_name.c_str(),
--                  current_metadata.metadata->disc_id.c_str());
++    {
        if (!launcher_savestates.empty())
        {
          ImGui::TextUnformatted("Start from savestate");
-@@ -820,6 +1772,24 @@ int main(int argc, char** argv)
+@@ -820,6 +1810,24 @@ int main(int argc, char** argv)
          ImGui::TextDisabled("Solo play only.");
          ImGui::Spacing();
        }
@@ -3560,7 +3597,7 @@ index 7699c3d..70ce9c9 100644
        if (ImGui::Button("Play", ImVec2(180 * scale, 42 * scale)))
        {
          if (ensure_controller())
-@@ -828,7 +1798,9 @@ int main(int argc, char** argv)
+@@ -828,7 +1836,9 @@ int main(int argc, char** argv)
            done = true;
          }
        }
@@ -3571,7 +3608,7 @@ index 7699c3d..70ce9c9 100644
        if (ImGui::Button("Host Netplay", ImVec2(180 * scale, 42 * scale)))
        {
          if (ensure_controller())
-@@ -884,213 +1856,1262 @@ int main(int argc, char** argv)
+@@ -884,213 +1894,1399 @@ int main(int argc, char** argv)
            }
          }
        }
@@ -3783,7 +3820,7 @@ index 7699c3d..70ce9c9 100644
 +                ImGui::SetItemDefaultFocus();
 +            }
 +            ImGui::EndCombo();
-+          }
+           }
 +          describe(description);
 +        };
 +        if (first <= 0 && last >= 0)
@@ -3839,7 +3876,7 @@ index 7699c3d..70ce9c9 100644
 +          {
 +            controller_index = static_cast<int>(i);
 +            select_controller(controller_index);
-           }
++          }
 +          if (selected)
 +            ImGui::SetItemDefaultFocus();
          }
@@ -3852,6 +3889,13 @@ index 7699c3d..70ce9c9 100644
 -    ImGui::Spacing();
 -    const bool previous_fullscreen = fullscreen;
 -    if (ImGui::Checkbox("Start in fullscreen", &fullscreen))
+-    {
+-      config.fullscreen = fullscreen;
+-      config.resolution = resolutions[resolution_index].text;
+-      config.show_fps_in_title = show_fps_in_title;
+-      config.controller = selected_controller;
+-      std::string error;
+-      if (!moderngekko::frontend::SaveConfig(user_directory, config, &error))
 +      describe("Player 1's controller. The keyboard plays too, and in game any controller you press "
 +               "takes over. Esc or a controller's Back button opens the in-game menu.");
 +      ImGui::Spacing();
@@ -3860,13 +3904,7 @@ index 7699c3d..70ce9c9 100644
 +    };
 +#else
 +    const auto controller_section = [&]
-     {
--      config.fullscreen = fullscreen;
--      config.resolution = resolutions[resolution_index].text;
--      config.show_fps_in_title = show_fps_in_title;
--      config.controller = selected_controller;
--      std::string error;
--      if (!moderngekko::frontend::SaveConfig(user_directory, config, &error))
++    {
 +      row_label("Controller profile");
 +      const char* controller_preview = controller_index >= 0
 +                                           ? controllers[controller_index].label.c_str()
@@ -3910,7 +3948,8 @@ index 7699c3d..70ce9c9 100644
 +    };
 +#endif
 +    const auto netplay_section = [&]
-+    {
+     {
+-      for (std::size_t i = 0; i < resolutions.size(); ++i)
 +      ImGui::Spacing();
 +      ImGui::TextUnformatted("Netplay");
 +      ImGui::SetNextItemWidth(220 * scale);
@@ -3922,18 +3961,17 @@ index 7699c3d..70ce9c9 100644
 +      netplay_port = std::clamp(netplay_port, 1, 65535);
 +      ImGui::Checkbox("Automatic input buffer", &automatic_buffer);
 +      if (!automatic_buffer)
-+      {
+       {
+-        const bool selected = resolution_index == static_cast<int>(i);
+-        if (ImGui::Selectable(resolutions[i].text, selected))
 +        ImGui::SetNextItemWidth(180 * scale);
 +        ImGui::SliderInt("Buffer frames", &manual_buffer, 1, 20);
 +      }
 +    };
 +    const auto disc_section = [&]
-     {
--      for (std::size_t i = 0; i < resolutions.size(); ++i)
++    {
 +      if (background)
-       {
--        const bool selected = resolution_index == static_cast<int>(i);
--        if (ImGui::Selectable(resolutions[i].text, selected))
++      {
 +        // The branded window: the game already imported, and Change Disc to import another copy
 +        // (picking it imports and starts it, like Select Disc on the home screen).
 +        row_label("Game");
@@ -3988,7 +4026,9 @@ index 7699c3d..70ce9c9 100644
 +        {
 +          ImGui::SameLine();
 +          if (ImGui::Button("Extract and Play"))
-+          {
+           {
+-            resolution_index = static_cast<int>(i);
+-            config.resolution = resolutions[i].text;
 +            start_extraction();
 +          }
 +        }
@@ -4230,9 +4270,7 @@ index 7699c3d..70ce9c9 100644
 +        if (ImGui::Button(data_target_holds_data ? "Use That Folder" : "Move") && data_target)
 +        {
 +          if (data_target_holds_data)
-           {
--            resolution_index = static_cast<int>(i);
--            config.resolution = resolutions[i].text;
++          {
 +            std::string error;
 +            if (moderngekko::frontend::PointUserDirectory(*data_target, default_user_directory,
 +                                                          &error))
@@ -4330,35 +4368,15 @@ index 7699c3d..70ce9c9 100644
 -                                     : selected_controller.empty() ? "No SDL gamepad detected"
 -                                                                   : selected_controller.c_str();
 -    if (ImGui::BeginCombo("##controller", controller_preview))
+-    {
+-      for (std::size_t i = 0; i < controllers.size(); ++i)
+-      {
+-        const bool selected = controller_index == static_cast<int>(i);
+-        if (ImGui::Selectable(controllers[i].label.c_str(), selected))
 +      row_label(label);
 +      if (ImGui::BeginCombo(id, preview))
 +      {
 +        for (const LauncherChoice& choice : choices)
-+        {
-+          const bool selected = choice.value == shown;
-+          if (ImGui::Selectable(choice.text, selected) && !selected)
-+            picked = choice.value;
-+          if (selected)
-+            ImGui::SetItemDefaultFocus();
-+        }
-+        ImGui::EndCombo();
-+      }
-+      describe(description);
-+      return picked;
-+    };
-+    const auto setting_row = [&](const char* label, const char* id, SettingValue& value,
-+                                 const auto& choices, const char* description)
-     {
--      for (std::size_t i = 0; i < controllers.size(); ++i)
-+      const int shown = value.value < 0 ? value.fallback : value.value;
-+      if (const auto picked = choice_row(label, id, shown, choices, description))
-       {
--        const bool selected = controller_index == static_cast<int>(i);
--        if (ImGui::Selectable(controllers[i].label.c_str(), selected))
-+        std::string error;
-+        if (WriteDolphinOption(user_directory, value.key, *picked, &error))
-+          value.value = *picked;
-+        else
          {
 -          controller_index = static_cast<int>(i);
 -          selected_controller = controllers[i].device;
@@ -4366,11 +4384,15 @@ index 7699c3d..70ce9c9 100644
 -              controller_profile_exists
 -                  ? "Existing " + std::string(CONTROLLER_PROFILE_NAME) + " unchanged"
 -                  : "Ready to generate controller profile";
-+          std::lock_guard lock(dialog.mutex);
-+          dialog.error = std::move(error);
++          const bool selected = choice.value == shown;
++          if (ImGui::Selectable(choice.text, selected) && !selected)
++            picked = choice.value;
++          if (selected)
++            ImGui::SetItemDefaultFocus();
          }
 -        if (selected)
 -          ImGui::SetItemDefaultFocus();
++        ImGui::EndCombo();
        }
 -      ImGui::EndCombo();
 -    }
@@ -4391,11 +4413,7 @@ index 7699c3d..70ce9c9 100644
 -    netplay_port = std::clamp(netplay_port, 1, 65535);
 -    ImGui::Checkbox("Automatic input buffer", &automatic_buffer);
 -    if (!automatic_buffer)
-+    };
-+    const auto pad_row = [&](const char* label, const char* id, int* value, const auto& choices,
-+                             std::initializer_list<const char*> keys, int scale_to_ini,
-+                             const char* description)
-     {
+-    {
 -      ImGui::SetNextItemWidth(180 * scale);
 -      ImGui::SliderInt("Buffer frames", &manual_buffer, 1, 20);
 -    }
@@ -4405,6 +4423,29 @@ index 7699c3d..70ce9c9 100644
 -      ImGui::TextWrapped("%s", selected_image->string().c_str());
 -    else
 -      ImGui::TextDisabled("No ISO, WBFS, or RVZ selected");
++      describe(description);
++      return picked;
++    };
++    const auto setting_row = [&](const char* label, const char* id, SettingValue& value,
++                                 const auto& choices, const char* description)
++    {
++      const int shown = value.value < 0 ? value.fallback : value.value;
++      if (const auto picked = choice_row(label, id, shown, choices, description))
++      {
++        std::string error;
++        if (WriteDolphinOption(user_directory, value.key, *picked, &error))
++          value.value = *picked;
++        else
++        {
++          std::lock_guard lock(dialog.mutex);
++          dialog.error = std::move(error);
++        }
++      }
++    };
++    const auto pad_row = [&](const char* label, const char* id, int* value, const auto& choices,
++                             std::initializer_list<const char*> keys, int scale_to_ini,
++                             const char* description)
++    {
 +      if (const auto picked = choice_row(label, id, *value, choices, description))
 +      {
 +        std::string error;
@@ -4419,8 +4460,9 @@ index 7699c3d..70ce9c9 100644
 +    };
  
 -    if (!extraction.running)
-+#ifdef HAVE_DCMUSIC
-+    const auto dc_music_section = [&]
++    // Settings, Graphics: HD textures from a texture pack the player downloaded
++    // (VideoCommon/TexturePackImport.h); never part of the release
++    const auto texture_pack_section = [&]
      {
 -      if (ImGui::Button("Browse for ISO / WBFS / RVZ"))
        {
@@ -4432,6 +4474,159 @@ index 7699c3d..70ce9c9 100644
 -        const std::string documents = DocumentsDirectory().string();
 -        SDL_ShowOpenFileDialog(FileDialogCallback, &dialog, window, filters,
 -                               static_cast<int>(std::size(filters)), documents.c_str(), false);
++        std::lock_guard lock(pack_dialog.mutex);
++        if (pack_dialog.selected)
++        {
++          const std::string pack = *pack_dialog.selected;
++          pack_dialog.selected.reset();
++          std::lock_guard import_lock(pack_import.mutex);
++          pack_import.running = true;
++          pack_import.status = "Reading the texture pack...";
++          pack_import.message.clear();
++          std::thread(
++              [&pack_import, &hires_textures, pack, directory = textures_directory, user_directory]
++              {
++                std::string summary;
++                const std::string error = TexturePackImport::Import(
++                    pack, directory, &summary, [&pack_import](const std::string& status)
++                    {
++                      std::lock_guard lock(pack_import.mutex);
++                      pack_import.status = status;
++                    });
++                std::string write_error;
++                // A new pack is on at once (the row below switches it off)
++                const bool on = error.empty() && WriteDolphinOption(user_directory,
++                                                                    hires_textures.key, 1,
++                                                                    &write_error);
++                const std::string described = TexturePackImport::Describe(directory);
++                std::lock_guard lock(pack_import.mutex);
++                if (on)
++                  hires_textures.value = 1;
++                pack_import.running = false;
++                pack_import.ok = error.empty();
++                pack_import.message = error.empty() ? "Imported: " + summary : error;
++                pack_import.described = described;
++              })
++              .detach();
++        }
++        else if (!pack_dialog.error.empty())
++        {
++          std::lock_guard import_lock(pack_import.mutex);
++          pack_import.ok = false;
++          pack_import.message = "Couldn't open the file picker: " + pack_dialog.error;
++          pack_dialog.error.clear();
++        }
++        pack_dialog.cancelled = false;
+       }
+-      if (selected_image)
++      bool running;
++      std::string status, message, described;
++      bool ok;
++      {
++        std::lock_guard lock(pack_import.mutex);
++        running = pack_import.running;
++        status = pack_import.status;
++        message = pack_import.message;
++        described = pack_import.described;
++        ok = pack_import.ok;
++      }
++      ImGui::Spacing();
++      if (!described.empty() && !running)
++      {
++        setting_row("HD textures", "##hires_textures", hires_textures, ON_OFF,
++                    "Replaces the game's textures with the imported pack's. Switches in game too.");
++      }
++      else
+       {
++        row_label("HD textures");
++        ImGui::TextDisabled("Off");
++        describe("Import a texture pack below to play with HD textures.");
++      }
++      ImGui::Spacing();
++      row_label("Texture pack");
++      if (running)
++      {
++        ImGui::TextUnformatted(status.c_str());
++      }
++      else
++      {
++        if (ImGui::Button("Import a texture pack..."))
++        {
++          static constexpr SDL_DialogFileFilter PACK_FILTERS[] = {
++              {"Texture packs", "7z;zip"}, {"All files", "*"}};
++          // Packs are downloads: start there (SDL knows the platform's folder)
++          const char* downloads_folder = SDL_GetUserFolder(SDL_FOLDER_DOWNLOADS);
++          const std::string downloads = downloads_folder ? std::string(downloads_folder) :
++                                                           PathToString(DocumentsDirectory());
++          SDL_ShowOpenFileDialog(SaveDialogCallback, &pack_dialog, window, PACK_FILTERS,
++                                 static_cast<int>(std::size(PACK_FILTERS)), downloads.c_str(),
++                                 false);
++        }
+         ImGui::SameLine();
+-        if (ImGui::Button("Extract and Play"))
++        if (ImGui::Button("Import a folder..."))
++        {
++          const char* downloads_folder = SDL_GetUserFolder(SDL_FOLDER_DOWNLOADS);
++          const std::string downloads = downloads_folder ? std::string(downloads_folder) :
++                                                           PathToString(DocumentsDirectory());
++          SDL_ShowOpenFolderDialog(SaveDialogCallback, &pack_dialog, window, downloads.c_str(),
++                                   false);
++        }
++        if (!described.empty())
+         {
+-          extraction.completed = 0;
+-          extraction.total = 1;
+-          extraction.running = true;
++          ImGui::SameLine();
++          if (ImGui::Button("Remove##texture_pack"))
+           {
+-            std::lock_guard lock(extraction.mutex);
+-            extraction.error.clear();
+-            extraction.finished_game.reset();
++            const bool removed = TexturePackImport::Remove(textures_directory);
++            std::string error;
++            if (hires_textures.value > 0 &&
++                WriteDolphinOption(user_directory, hires_textures.key, 0, &error))
++            {
++              hires_textures.value = 0;
++            }
++            std::lock_guard lock(pack_import.mutex);
++            pack_import.described = TexturePackImport::Describe(textures_directory);
++            pack_import.ok = removed;
++            pack_import.message = removed ? "The texture pack was removed." :
++                                            "Couldn't remove " + textures_directory + "GEA";
+           }
+-          const fs::path image = *selected_image;
+-          extraction_thread = std::jthread([image, user_directory, release_directory, &extraction]
+-                                           {
+-                                             ExtractDisc(image, user_directory,
+-                                                         release_directory, &extraction);
+-                                           });
+         }
+       }
+-    }
+-    else
++      describe("A Skies of Arcadia texture pack you downloaded, as its .7z or .zip file or its "
++               "unpacked folder (the one with a GEA folder in it). Importing another replaces it.");
++      control_column();
++      ImGui::PushTextWrapPos(ImGui::GetContentRegionMax().x);
++      ImGui::TextDisabled("%s", described.empty() ? "Nothing imported yet." : described.c_str());
++      if (!message.empty())
++      {
++        control_column();
++        ImGui::TextColored(ok ? LAUNCHER_ACCENT : ImVec4(1.0f, 0.45f, 0.4f, 1.0f), "%s",
++                           message.c_str());
++      }
++      ImGui::PopTextWrapPos();
++    };
++
++#ifdef HAVE_DCMUSIC
++    const auto dc_music_section = [&]
+     {
+-      const float progress =
+-          std::min(1.0f, static_cast<float>(extraction.completed.load()) / extraction.total.load());
+-      ImGui::ProgressBar(progress, ImVec2(-1, 0));
++      {
 +        std::lock_guard lock(dc_dialog.mutex);
 +        if (dc_dialog.selected)
 +        {
@@ -4468,14 +4663,11 @@ index 7699c3d..70ce9c9 100644
 +          dc_dialog.error.clear();
 +        }
 +        dc_dialog.cancelled = false;
-       }
--      if (selected_image)
++      }
 +      bool running;
 +      std::string status, message, described;
 +      bool ok;
-       {
--        ImGui::SameLine();
--        if (ImGui::Button("Extract and Play"))
++      {
 +        std::lock_guard lock(dc_import.mutex);
 +        running = dc_import.running;
 +        status = dc_import.status;
@@ -4513,16 +4705,10 @@ index 7699c3d..70ce9c9 100644
 +                                 static_cast<int>(std::size(DC_FILTERS)), documents.c_str(), false);
 +        }
 +        if (!described.empty())
-         {
--          extraction.completed = 0;
--          extraction.total = 1;
--          extraction.running = true;
++        {
 +          ImGui::SameLine();
 +          if (ImGui::Button("Remove"))
-           {
--            std::lock_guard lock(extraction.mutex);
--            extraction.error.clear();
--            extraction.finished_game.reset();
++          {
 +            const bool removed = DCMusicImport::Remove(dc_music_directory);
 +            std::string error;
 +            if (dc_music.value > 0 && WriteDolphinOption(user_directory, dc_music.key, 0, &error))
@@ -4532,17 +4718,9 @@ index 7699c3d..70ce9c9 100644
 +            dc_import.ok = removed;
 +            dc_import.message = removed ? "The Dreamcast music was removed." :
 +                                          "Couldn't remove " + dc_music_directory;
-           }
--          const fs::path image = *selected_image;
--          extraction_thread = std::jthread([image, user_directory, release_directory, &extraction]
--                                           {
--                                             ExtractDisc(image, user_directory,
--                                                         release_directory, &extraction);
--                                           });
-         }
-       }
--    }
--    else
++          }
++        }
++      }
 +      describe("Your own Skies of Arcadia Dreamcast disc, as a GDI (with its track files beside it) "
 +               "or a CHD. Either disc has most of the music; import both for all of it.");
 +      control_column();
@@ -4560,10 +4738,7 @@ index 7699c3d..70ce9c9 100644
 +
 +    // A disc picked from the home screen's Select Disc is extracted (and played) right away.
 +    if (picked_disc && extract_after_pick && !extraction.running)
-     {
--      const float progress =
--          std::min(1.0f, static_cast<float>(extraction.completed.load()) / extraction.total.load());
--      ImGui::ProgressBar(progress, ImVec2(-1, 0));
++    {
 +      extract_after_pick = false;
 +      start_extraction();
      }
@@ -4899,6 +5074,8 @@ index 7699c3d..70ce9c9 100644
 +                skies_video_rows(0, 3);
 +                setting_row("V-Sync", "##vsync", vsync, ON_OFF,
 +                            "Stops screen tearing. Can add a little input delay.");
++                if (background || (current_metadata && IsSkies(current_metadata.metadata->disc_id)))
++                  texture_pack_section();
 +              });
 +          tab("Display", [&]
 +              {
@@ -4988,7 +5165,7 @@ index 7699c3d..70ce9c9 100644
  
      ImGui::Render();
      SDL_SetRenderScale(renderer, io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y);
-@@ -1107,8 +3128,17 @@ int main(int argc, char** argv)
+@@ -1107,8 +3303,17 @@ int main(int argc, char** argv)
    if (launch_mode != LaunchMode::None)
    {
      std::string launch_error;
@@ -5008,7 +5185,7 @@ index 7699c3d..70ce9c9 100644
      {
        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Launch failed", launch_error.c_str(), window);
        result = 1;
-@@ -1163,6 +3193,15 @@ int main(int argc, char** argv)
+@@ -1163,6 +3368,15 @@ int main(int argc, char** argv)
            user_directory / "Logs" / MODERNGEKKO_LOG_FILENAME;
        std::error_code log_error;
        std::filesystem::create_directories(log_path.parent_path(), log_error);
@@ -5024,7 +5201,7 @@ index 7699c3d..70ce9c9 100644
        SDL_IOStream* log_stream =
            log_error ? nullptr : SDL_IOFromFile(log_path.string().c_str(), "w");
        SDL_Process* process = nullptr;
-@@ -1205,7 +3244,12 @@ int main(int argc, char** argv)
+@@ -1205,7 +3419,12 @@ int main(int argc, char** argv)
          int exit_code = 1;
          const bool waited = SDL_WaitProcess(process, true, &exit_code);
          SDL_DestroyProcess(process);
@@ -5038,7 +5215,7 @@ index 7699c3d..70ce9c9 100644
          {
            SDL_ShowWindow(window);
            if (!waited)
-@@ -1263,6 +3307,8 @@ int main(int argc, char** argv)
+@@ -1263,6 +3482,8 @@ int main(int argc, char** argv)
      }
    }
  
@@ -5047,7 +5224,7 @@ index 7699c3d..70ce9c9 100644
    ImGui_ImplSDLRenderer3_Shutdown();
    ImGui_ImplSDL3_Shutdown();
    ImGui::DestroyContext();
-@@ -1271,3 +3317,15 @@ int main(int argc, char** argv)
+@@ -1271,3 +3492,15 @@ int main(int argc, char** argv)
    SDL_Quit();
    return result;
  }

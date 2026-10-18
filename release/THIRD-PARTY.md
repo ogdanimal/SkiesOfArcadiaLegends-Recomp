@@ -15,6 +15,8 @@ Skies of Arcadia Legends: Recompiled is distributed under the GNU General Public
   Dreamcast music import):
   BSD-3-Clause (`licenses/libchdr-LICENSE.txt`), with its bundled LZMA SDK (public domain), miniz (MIT)
   and Zstandard decoder (BSD-3-Clause)
+- The [LZMA SDK](https://www.7-zip.org/sdk.html) by Igor Pavlov, version 23.01 (its 7z decoder, which
+  reads `.7z` texture packs for the HD textures import): public domain
 
 Dolphin's own third-party components (SDL, Dear ImGui, zlib-ng, Zstandard, cubeb, mbed TLS and others)
 are listed with their licences in `THIRD-PARTY-DOLPHIN.md`, a copy of Dolphin's `Externals/licenses.md`.

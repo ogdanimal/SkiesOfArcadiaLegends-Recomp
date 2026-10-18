@@ -83,6 +83,7 @@ saves from the Japanese version can't be used.
 - **Import a save** from Dolphin, a GameCube memory card or another device (see *Bringing your
   saves*).
 - **Dreamcast music** (optional), from your own Dreamcast disc: see below.
+- **HD textures** (optional), from a texture pack you downloaded: see below.
 
 ### Dreamcast music
 
@@ -92,6 +93,14 @@ disc has most of the music; import both for all of it. Then set **Music** to **D
 (there, or in the settings menu's Sound tab in game). The Dreamcast's sound driver plays the songs
 from your disc on an emulated sound chip, in place of the GameCube music. The streamed tracks (the
 staff roll, the ending and two story scenes) stay GameCube. **Remove** deletes the imported music.
+
+### HD textures
+
+Texture packs made for Dolphin work, for example **Skies of Arcadia HD** by Bighead and frozenwings
+(Dolphin forums). None is included. **Settings → Graphics → Import a texture pack...** takes the
+`.7z` or `.zip` you downloaded (on desktop, **Import a folder...** an unpacked one) and turns **HD
+textures** on; switch it there or in game. Only the pack's `GEA` textures are copied, without its
+optional extras. On Android, take the **PNG** download: phones can't load the DDS (BC7) one. **Remove** deletes the pack.
 
 ## Controls
 
@@ -172,6 +181,8 @@ once by itself on Frame rate, so you can switch to 30 fps. Nothing changes unles
   [Highly Theoretical](https://github.com/kode54/Highly_Theoretical) (the Dreamcast sound chip,
   maintained by kode54) and reads CHD images with Romain Tisserand's
   [libchdr](https://github.com/rtissera/libchdr).
+- HD texture packs in `.7z` files are read with Igor Pavlov's
+  [LZMA SDK](https://www.7-zip.org/sdk.html).
 
 Skies of Arcadia Legends is (c) SEGA. This project isn't affiliated with or endorsed by SEGA.
 

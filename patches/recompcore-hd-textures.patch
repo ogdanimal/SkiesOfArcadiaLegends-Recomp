@@ -1,0 +1,1441 @@
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
+index 7cefb6f39c..07f9d4e699 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
+@@ -93,6 +93,10 @@ class SkiesLauncherActivity : FragmentActivity() {
+         /** The move's result (SkiesNative.moveDataFolder), as the imports': null while none is unseen. */
+         @Volatile
+         var dataMoveResult: Array<String>? = null
++
++        /** The texture pack import's result (Settings, Graphics), as the music import's. */
++        @Volatile
++        var textureResult: Array<String>? = null
+     }
+ 
+     private lateinit var message: TextView
+@@ -148,6 +152,13 @@ class SkiesLauncherActivity : FragmentActivity() {
+     // A moved data folder that can't be reached: the home screen waits for the prompt's answer
+     private var dataFolderBlocked = false
+ 
++    // The texture pack for HD textures (Settings, Graphics): imported with the disc import's
++    // progress screen, and the Settings window comes back on Graphics with what happened
++    private val pickTexturePack =
++        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
++            if (uri != null) startTexturePackImport(uri)
++        }
++
+     // Back up saves (Settings, Saves): one .zip written where the player chooses
+     private val pickBackup =
+         registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri: Uri? ->
+@@ -289,6 +300,10 @@ class SkiesLauncherActivity : FragmentActivity() {
+             musicResult = null
+             openSettings(mainDol.isFile, "Sound", result)
+         }
++        textureResult?.let { result ->
++            textureResult = null
++            openSettings(mainDol.isFile, "Graphics", result)
++        }
+     }
+ 
+     /** After a game session: a custom GPU driver that crashed is undone; a new one, kept or not.
+@@ -782,7 +797,8 @@ class SkiesLauncherActivity : FragmentActivity() {
+             { pickDriver.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) },
+             { confirmImportSave() }, { startExport() },
+             { afterGameClosed { pickDreamcastDisc.launch(arrayOf("*/*")) } },
+-            { afterGameClosed { chooseDataFolder() } }, { showLicences() }) {
++            { afterGameClosed { chooseDataFolder() } },
++            { afterGameClosed { pickTexturePack.launch(arrayOf("*/*")) } }, { showLicences() }) {
+             column.descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
+             settings = null
+             buttons.getChildAt(buttons.childCount - 1)?.requestFocus()
+@@ -1123,6 +1139,33 @@ class SkiesLauncherActivity : FragmentActivity() {
+         showImporting()
+     }
+ 
++    private fun startTexturePackImport(uri: Uri) {
++        if (importRunning) {
++            showImporting()
++            return
++        }
++        importRunning = true
++        textureResult = null
++        val pack = uri.toString()
++        Thread({
++            var result = arrayOf("The import stopped.", "")
++            try {
++                val error = SkiesNative.importTexturePack(pack)
++                result = if (error.isEmpty()) {
++                    // A new pack is on at once (Settings, Graphics switches it off)
++                    NativeConfig.setBoolean(NativeConfig.LAYER_BASE, Settings.FILE_GFX, "Settings",
++                        "HiresTextures", true)
++                    NativeConfig.save(NativeConfig.LAYER_BASE)
++                    arrayOf("Imported: " + SkiesNative.describeTexturePack(), "ok")
++                } else arrayOf(error, "")
++            } finally {
++                textureResult = result
++                importRunning = false
++            }
++        }, "SkiesTextureImport").start()
++        showImporting()
++    }
++
+     private fun startImport(uri: Uri) {
+         if (importRunning) {
+             showImporting()
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt
+index 945f0034d0..7764d05e04 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt
+@@ -45,6 +45,27 @@ object SkiesNative {
+     @JvmStatic
+     external fun removeDreamcastMusic(): Boolean
+ 
++    /**
++     * Settings, Graphics: unpacks an HD texture pack the player downloaded ([pack], a .7z or .zip
++     * path or content URI) into the user directory's Load/Textures/GEA, replacing the previous one.
++     * Returns "" on success, else a message; progress in [importStatus]. Blocks: call it off the
++     * main thread.
++     */
++    @JvmStatic
++    external fun importTexturePack(pack: String): String
++
++    /** What texture pack is imported ("SoA_HD_v0.06_PNG: 745 textures"), "" if none. */
++    @JvmStatic
++    external fun describeTexturePack(): String
++
++    /** How many of the imported textures are BC7 DDS files (most phone GPUs can't load those). */
++    @JvmStatic
++    external fun texturePackBc7(): Int
++
++    /** Removes the imported texture pack. */
++    @JvmStatic
++    external fun removeTexturePack(): Boolean
++
+     /**
+      * A game imported by an earlier version of the app: patches the original main.dol kept at import
+      * (sys/main.dol.orig) into this version's build. Returns "" on success, else a message.
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+index a24a545979..f398064c75 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+@@ -38,6 +38,7 @@ class SkiesSettingsPanel(
+     private val onExportSaves: () -> Unit,
+     private val onImportDreamcastMusic: () -> Unit,
+     private val onChangeDataFolder: () -> Unit,
++    private val onImportTexturePack: () -> Unit,
+     private val onLicences: () -> Unit,
+     private val onClosed: () -> Unit
+ ) {
+@@ -224,6 +225,7 @@ class SkiesSettingsPanel(
+                     "Higher is sharper but needs more power. 3x matches a 1080p screen.")
+                 configRow(rows, "Anti-aliasing", MSAA, gfx, "Settings", "MSAA", 1,
+                     "Smooths jagged edges. Higher settings need more power.")
++                texturePackRows(rows)
+                 boolRow(rows, "V-Sync", gfx, "Hardware", "VSync",
+                     "Stops screen tearing. Can add a little input delay.")
+                 boolRow(rows, "Show FPS", gfx, "Settings", "ShowFPS",
+@@ -350,6 +352,56 @@ class SkiesSettingsPanel(
+             "deletes them: Change moves them to a folder of your choice (it asks for All files access).")
+     }
+ 
++    /**
++     * Graphics: HD textures from a texture pack the player downloaded
++     * (VideoCommon/TexturePackImport.cpp), which the activity imports (the disc import's progress
++     * screen) and then reopens this tab with the result in [importMessage].
++     */
++    private fun texturePackRows(rows: LinearLayout) {
++        val imported = SkiesNative.describeTexturePack()
++        if (imported.isNotEmpty()) {
++            boolRow(rows, "HD textures", Settings.FILE_GFX, "Settings", "HiresTextures",
++                "Replaces the game's textures with the imported pack's. Switches in game too.")
++        } else {
++            rowLine(rows, "HD textures").addView(text("Off", 16f, Color.WHITE))
++            describe(rows, "Import a texture pack below to play with HD textures.")
++        }
++        val line = rowLine(rows, "Texture pack")
++        line.addView(button("Import a texture pack…", BUTTON) {
++            close()
++            onImportTexturePack()
++        })
++        if (imported.isNotEmpty()) {
++            line.addView(View(activity), LinearLayout.LayoutParams(dp(10f), 1))
++            line.addView(button("Remove", BUTTON) {
++                val removed = SkiesNative.removeTexturePack()
++                NativeConfig.setBoolean(NativeConfig.LAYER_BASE, Settings.FILE_GFX, "Settings",
++                    "HiresTextures", false)
++                NativeConfig.save(NativeConfig.LAYER_BASE)
++                importMessage = if (removed) "The texture pack was removed." else "Couldn't remove it."
++                importOk = removed
++                show()
++            })
++        }
++        describe(rows, "A Skies of Arcadia texture pack you downloaded, as its .7z or .zip file. " +
++            "Take its PNG download where there is one: phones can't load the DDS (BC7) one. " +
++            "Importing another replaces it.")
++        rows.addView(text(imported.ifEmpty { "Nothing imported yet." }, 15f, Color.WHITE).apply {
++            setPadding(dp(200f), dp(8f), 0, 0)
++        })
++        val bc7 = if (imported.isNotEmpty()) SkiesNative.texturePackBc7() else 0
++        if (bc7 > 0) {
++            rows.addView(text("$bc7 of these are BC7 DDS textures, which most phones can't load: " +
++                "they stay as they were. The pack's PNG download has them all.", 15f,
++                Color.rgb(255, 115, 102)).apply { setPadding(dp(200f), dp(8f), 0, 0) })
++        }
++        if (importMessage.isNotEmpty() && tabName == "Graphics") {
++            rows.addView(text(importMessage, 15f, if (importOk) ACCENT else Color.rgb(255, 115, 102)).apply {
++                setPadding(dp(200f), dp(10f), 0, 0)
++            })
++        }
++    }
++
+     /**
+      * Sound: the Dreamcast version's music (AudioCommon/DCMusic.cpp), from the player's own Dreamcast
+      * disc, which the activity imports (the disc import's progress screen) and then reopens this tab
+diff --git a/Source/Android/jni/SkiesImport.cpp b/Source/Android/jni/SkiesImport.cpp
+index 66a1e2bc06..26e0d5c728 100644
+--- a/Source/Android/jni/SkiesImport.cpp
++++ b/Source/Android/jni/SkiesImport.cpp
+@@ -31,6 +31,7 @@
+ #include "jni/AndroidCommon/AndroidCommon.h"
+ #include "moderngekko/sha256.hpp"
+ #include "save_import.hpp"
++#include "VideoCommon/TexturePackImport.h"
+ #include "user_directory.hpp"
+ #ifdef HAVE_DCMUSIC
+ #include "AudioCommon/DCMusicImport.h"
+@@ -486,6 +487,47 @@ JNIEXPORT jboolean JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_remo
+ #endif
+ }
+ 
++// Settings, Graphics: an HD texture pack the player downloaded (a .7z or .zip; the picker hands
++// over a document, so no folders here) into Load/Textures/GEA, where Dolphin loads custom textures
++// for both games (VideoCommon/TexturePackImport.h). "" or what went wrong; the progress goes to
++// importStatus.
++JNIEXPORT jstring JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_importTexturePack(
++    JNIEnv* env, jclass, jstring pack)
++{
++  if (s_importing.exchange(true))
++    return ToJString(env, "Something is already being imported.");
++  std::string summary;
++  const std::string path = GetJString(env, pack);
++  // A media URI ends in a number, not the file's name
++  const std::string file_name =
++      path.starts_with("content://") ? GetAndroidContentDisplayName(path) : "";
++  const std::string error = TexturePackImport::Import(
++      path, File::GetUserPath(D_HIRESTEXTURES_IDX), &summary,
++      [](const std::string& status) { SetStatus(status); }, file_name);
++  SetStatus("");
++  s_importing = false;
++  return ToJString(env, error);
++}
++
++// What's imported, e.g. "SoA_HD_v0.06_PNG: 745 textures"; "" if nothing.
++JNIEXPORT jstring JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_describeTexturePack(
++    JNIEnv* env, jclass)
++{
++  return ToJString(env, TexturePackImport::Describe(File::GetUserPath(D_HIRESTEXTURES_IDX)));
++}
++
++JNIEXPORT jint JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_texturePackBc7(JNIEnv*,
++                                                                                        jclass)
++{
++  return TexturePackImport::Bc7Count(File::GetUserPath(D_HIRESTEXTURES_IDX));
++}
++
++JNIEXPORT jboolean JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_removeTexturePack(
++    JNIEnv*, jclass)
++{
++  return TexturePackImport::Remove(File::GetUserPath(D_HIRESTEXTURES_IDX)) ? JNI_TRUE : JNI_FALSE;
++}
++
+ JNIEXPORT jstring JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_importStatus(JNIEnv* env,
+                                                                                          jclass)
+ {
+diff --git a/Source/Core/VideoBackends/Vulkan/VulkanContext.cpp b/Source/Core/VideoBackends/Vulkan/VulkanContext.cpp
+index 641b54216c..0d78007817 100644
+--- a/Source/Core/VideoBackends/Vulkan/VulkanContext.cpp
++++ b/Source/Core/VideoBackends/Vulkan/VulkanContext.cpp
+@@ -509,7 +509,8 @@ void VulkanContext::PopulateBackendInfoFeatures(BackendInfo* backend_info, VkPhy
+ 
+   // textureCompressionBC implies BC1 through BC7, which is a superset of DXT1/3/5, which we need.
+   backend_info->bSupportsST3CTextures = info.textureCompressionBC;
+-  backend_info->bSupportsBPTCTextures = info.textureCompressionBC;
++  backend_info->bSupportsBPTCTextures =
++      info.textureCompressionBC && !DriverDetails::HasBug(DriverDetails::BUG_BROKEN_BPTC);
+ 
+   // Some devices don't support point sizes >1 (e.g. Adreno).
+   // If we can't use a point size above our maximum IR, use triangles instead for EFB pokes.
+diff --git a/Source/Core/VideoCommon/CMakeLists.txt b/Source/Core/VideoCommon/CMakeLists.txt
+index f7066ac6f1..643e6cfd0d 100644
+--- a/Source/Core/VideoCommon/CMakeLists.txt
++++ b/Source/Core/VideoCommon/CMakeLists.txt
+@@ -190,6 +190,8 @@ add_library(videocommon
+   TextureDecoder_Common.cpp
+   TextureDecoder_Util.h
+   TextureInfo.cpp
++  TexturePackImport.cpp
++  TexturePackImport.h
+   TextureInfo.h
+   TextureUtils.cpp
+   TextureUtils.h
+@@ -254,6 +256,34 @@ PRIVATE
+   tinygltf
+ )
+ 
++# The Skies of Arcadia Legends recomp's HD texture pack import (TexturePackImport.cpp) reads .zip
++# packs with minizip-ng and .7z packs with the LZMA SDK's 7z decoder (public domain; the repo's
++# lib/lzma-sdk). Without it, .zip packs and unpacked folders only.
++target_link_libraries(videocommon PRIVATE MINIZIP::minizip-ng)
++set(SKIES_LZMA_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../lzma-sdk" CACHE PATH
++    "LZMA SDK source (its C/ directory has 7zArcIn.c)")
++if(EXISTS "${SKIES_LZMA_SDK_DIR}/C/7zArcIn.c")
++  message(STATUS "LZMA SDK found, the texture pack import reads .7z files")
++  set(_skies_7z_sources)
++  foreach(_skies_7z_file IN ITEMS 7zAlloc 7zArcIn 7zBuf 7zBuf2 7zCrc 7zCrcOpt 7zDec 7zStream Bcj2
++                                  Bra Bra86 BraIA64 CpuArch Delta Lzma2Dec LzmaDec Ppmd7 Ppmd7Dec)
++    list(APPEND _skies_7z_sources "${SKIES_LZMA_SDK_DIR}/C/${_skies_7z_file}.c")
++  endforeach()
++  add_library(skies7z STATIC ${_skies_7z_sources})
++  target_compile_definitions(skies7z PRIVATE Z7_PPMD_SUPPORT Z7_EXTRACT_ONLY)
++  target_include_directories(skies7z PUBLIC "${SKIES_LZMA_SDK_DIR}/C")
++  # Third-party code: none of Dolphin's warnings (MSVC builds them as errors). Its own symbol
++  # names: mGBA links another copy of the SDK (Skies7zPrefix.h).
++  set(_skies_7z_prefix "${CMAKE_CURRENT_SOURCE_DIR}/Skies7zPrefix.h")
++  if(MSVC)
++    target_compile_options(skies7z PRIVATE /W0 /WX- "/FI${_skies_7z_prefix}")
++  else()
++    target_compile_options(skies7z PRIVATE -w "SHELL:-include \"${_skies_7z_prefix}\"")
++  endif()
++  target_link_libraries(videocommon PRIVATE skies7z)
++  target_compile_definitions(videocommon PRIVATE HAVE_LZMA_SDK=1)
++endif()
++
+ if(_M_X86_64)
+   target_sources(videocommon PRIVATE
+     TextureDecoder_x64.cpp
+diff --git a/Source/Core/VideoCommon/DriverDetails.cpp b/Source/Core/VideoCommon/DriverDetails.cpp
+index 6e445ccc20..4cf984760b 100644
+--- a/Source/Core/VideoCommon/DriverDetails.cpp
++++ b/Source/Core/VideoCommon/DriverDetails.cpp
+@@ -125,6 +125,8 @@ constexpr BugInfo m_known_bugs[] = {
+      BUG_BROKEN_REVERSED_DEPTH_RANGE, -1.0, -1.0, true},
+     {API_VULKAN, OS_ALL, VENDOR_QUALCOMM, DRIVER_QUALCOMM, Family::UNKNOWN,
+      BUG_EFB_COPY_NEEDS_READBACK, -1.0, -1.0, true},
++    {API_VULKAN, OS_ANDROID, VENDOR_QUALCOMM, DRIVER_QUALCOMM, Family::UNKNOWN, BUG_BROKEN_BPTC,
++     -1.0, -1.0, true},
+     {API_VULKAN, OS_OSX, VENDOR_ALL, DRIVER_PORTABILITY, Family::UNKNOWN,
+      BUG_BROKEN_REVERSED_DEPTH_RANGE, -1.0, -1.0, true},
+     {API_METAL, OS_OSX, VENDOR_ALL, DRIVER_APPLE, Family::UNKNOWN, BUG_BROKEN_REVERSED_DEPTH_RANGE,
+@@ -316,6 +318,7 @@ static const char* to_string(Bug bug)
+     case BUG_SLOW_OPTIMAL_IMAGE_TO_BUFFER_COPY:          return "slow-optimal-image-to-buffer-copy";
+     case BUG_BROKEN_DEPTH_CLAMP_CONTROL:                 return "broken-depth-clamp-control";
+     case BUG_EFB_COPY_NEEDS_READBACK:      return "efb-copy-needs-readback";
++    case BUG_BROKEN_BPTC:                  return "broken-bptc";
+   }
+   return "Unknown";
+ }
+diff --git a/Source/Core/VideoCommon/DriverDetails.h b/Source/Core/VideoCommon/DriverDetails.h
+index c35a905458..79f7c98597 100644
+--- a/Source/Core/VideoCommon/DriverDetails.h
++++ b/Source/Core/VideoCommon/DriverDetails.h
+@@ -358,7 +358,16 @@ enum Bug
+   // replay copies, which went to VRAM only.
+   // Started version: -1
+   // Ended version: -1
+-  BUG_EFB_COPY_NEEDS_READBACK
++  BUG_EFB_COPY_NEEDS_READBACK,
++
++  // BUG: BC7 (BPTC) textures sample as coloured noise although textureCompressionBC is reported.
++  // Seen with a custom texture pack's BC7 DDS files on Adreno 650 (driver V@0746.0); its
++  // uncompressed and PNG textures are fine. Without BPTC the BC7 files are skipped and the game's
++  // own textures stay.
++  // Affected devices: Adreno (Qualcomm's driver on Android)
++  // Started version: -1
++  // Ended version: -1
++  BUG_BROKEN_BPTC
+ };
+ 
+ // Initializes our internal vendor, device family, and driver version
+diff --git a/Source/Core/VideoCommon/Skies7zPrefix.h b/Source/Core/VideoCommon/Skies7zPrefix.h
+new file mode 100644
+index 0000000000..4d7d433502
+--- /dev/null
++++ b/Source/Core/VideoCommon/Skies7zPrefix.h
+@@ -0,0 +1,106 @@
++// Copyright 2026 Dolphin Emulator Project
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++// The texture pack import's LZMA SDK (lib/lzma-sdk, built as skies7z) under names of its own.
++// mGBA (Externals/mGBA, on in the Android build) links an older copy of the SDK with the same
++// function names and different structs: without this, the import calls mGBA's SzArEx_Open and
++// reads garbage (a 6 GB file table, the app killed for memory). Included before the SDK's headers
++// in TexturePackImport.cpp and forced into every skies7z source (VideoCommon/CMakeLists.txt).
++
++#pragma once
++
++#define Bcj2Dec_Decode Skies7z_Bcj2Dec_Decode
++#define Bcj2Dec_Init Skies7z_Bcj2Dec_Init
++#define Buf_Create Skies7z_Buf_Create
++#define Buf_Free Skies7z_Buf_Free
++#define Buf_Init Skies7z_Buf_Init
++#define CPU_IsSupported_AES Skies7z_CPU_IsSupported_AES
++#define CPU_IsSupported_AVX Skies7z_CPU_IsSupported_AVX
++#define CPU_IsSupported_AVX2 Skies7z_CPU_IsSupported_AVX2
++#define CPU_IsSupported_CRC32 Skies7z_CPU_IsSupported_CRC32
++#define CPU_IsSupported_NEON Skies7z_CPU_IsSupported_NEON
++#define CPU_IsSupported_PageGB Skies7z_CPU_IsSupported_PageGB
++#define CPU_IsSupported_SHA Skies7z_CPU_IsSupported_SHA
++#define CPU_IsSupported_SHA1 Skies7z_CPU_IsSupported_SHA1
++#define CPU_IsSupported_SHA2 Skies7z_CPU_IsSupported_SHA2
++#define CPU_IsSupported_SSE41 Skies7z_CPU_IsSupported_SSE41
++#define CPU_IsSupported_SSSE3 Skies7z_CPU_IsSupported_SSSE3
++#define CPU_IsSupported_VAES_AVX2 Skies7z_CPU_IsSupported_VAES_AVX2
++#define CrcCalc Skies7z_CrcCalc
++#define CrcGenerateTable Skies7z_CrcGenerateTable
++#define CrcUpdate Skies7z_CrcUpdate
++#define CrcUpdateT0_32 Skies7z_CrcUpdateT0_32
++#define CrcUpdateT0_64 Skies7z_CrcUpdateT0_64
++#define CrcUpdateT4 Skies7z_CrcUpdateT4
++#define CrcUpdateT8 Skies7z_CrcUpdateT8
++#define Delta_Decode Skies7z_Delta_Decode
++#define Delta_Encode Skies7z_Delta_Encode
++#define Delta_Init Skies7z_Delta_Init
++#define DynBuf_Construct Skies7z_DynBuf_Construct
++#define DynBuf_Free Skies7z_DynBuf_Free
++#define DynBuf_SeekToBeg Skies7z_DynBuf_SeekToBeg
++#define DynBuf_Write Skies7z_DynBuf_Write
++#define LookInStream_LookRead Skies7z_LookInStream_LookRead
++#define LookInStream_Read Skies7z_LookInStream_Read
++#define LookInStream_Read2 Skies7z_LookInStream_Read2
++#define LookInStream_SeekTo Skies7z_LookInStream_SeekTo
++#define LookToRead2_CreateVTable Skies7z_LookToRead2_CreateVTable
++#define Lzma2Dec_Allocate Skies7z_Lzma2Dec_Allocate
++#define Lzma2Dec_AllocateProbs Skies7z_Lzma2Dec_AllocateProbs
++#define Lzma2Dec_DecodeToBuf Skies7z_Lzma2Dec_DecodeToBuf
++#define Lzma2Dec_DecodeToDic Skies7z_Lzma2Dec_DecodeToDic
++#define Lzma2Dec_Init Skies7z_Lzma2Dec_Init
++#define Lzma2Dec_Parse Skies7z_Lzma2Dec_Parse
++#define Lzma2Decode Skies7z_Lzma2Decode
++#define LzmaDec_Allocate Skies7z_LzmaDec_Allocate
++#define LzmaDec_AllocateProbs Skies7z_LzmaDec_AllocateProbs
++#define LzmaDec_DecodeToBuf Skies7z_LzmaDec_DecodeToBuf
++#define LzmaDec_DecodeToDic Skies7z_LzmaDec_DecodeToDic
++#define LzmaDec_Free Skies7z_LzmaDec_Free
++#define LzmaDec_FreeProbs Skies7z_LzmaDec_FreeProbs
++#define LzmaDec_Init Skies7z_LzmaDec_Init
++#define LzmaDec_InitDicAndState Skies7z_LzmaDec_InitDicAndState
++#define LzmaDecode Skies7z_LzmaDecode
++#define LzmaProps_Decode Skies7z_LzmaProps_Decode
++#define Ppmd7_Alloc Skies7z_Ppmd7_Alloc
++#define Ppmd7_Construct Skies7z_Ppmd7_Construct
++#define Ppmd7_Free Skies7z_Ppmd7_Free
++#define Ppmd7_Init Skies7z_Ppmd7_Init
++#define Ppmd7_MakeEscFreq Skies7z_Ppmd7_MakeEscFreq
++#define Ppmd7_Update1 Skies7z_Ppmd7_Update1
++#define Ppmd7_Update1_0 Skies7z_Ppmd7_Update1_0
++#define Ppmd7_Update2 Skies7z_Ppmd7_Update2
++#define Ppmd7_UpdateModel Skies7z_Ppmd7_UpdateModel
++#define Ppmd7z_DecodeSymbol Skies7z_Ppmd7z_DecodeSymbol
++#define Ppmd7z_RangeDec_Init Skies7z_Ppmd7z_RangeDec_Init
++#define SecToLook_CreateVTable Skies7z_SecToLook_CreateVTable
++#define SecToRead_CreateVTable Skies7z_SecToRead_CreateVTable
++#define SeqInStream_ReadByte Skies7z_SeqInStream_ReadByte
++#define SeqInStream_ReadMax Skies7z_SeqInStream_ReadMax
++#define SzAlloc Skies7z_SzAlloc
++#define SzAllocTemp Skies7z_SzAllocTemp
++#define SzArEx_Extract Skies7z_SzArEx_Extract
++#define SzArEx_Free Skies7z_SzArEx_Free
++#define SzArEx_GetFileNameUtf16 Skies7z_SzArEx_GetFileNameUtf16
++#define SzArEx_Init Skies7z_SzArEx_Init
++#define SzArEx_Open Skies7z_SzArEx_Open
++#define SzAr_DecodeFolder Skies7z_SzAr_DecodeFolder
++#define SzAr_GetFolderUnpackSize Skies7z_SzAr_GetFolderUnpackSize
++#define SzFree Skies7z_SzFree
++#define SzFreeTemp Skies7z_SzFreeTemp
++#define SzGetNextFolderItem Skies7z_SzGetNextFolderItem
++#define g_CrcTable Skies7z_g_CrcTable
++#define g_CrcUpdate Skies7z_g_CrcUpdate
++#define g_CrcUpdateT0_32 Skies7z_g_CrcUpdateT0_32
++#define g_CrcUpdateT0_64 Skies7z_g_CrcUpdateT0_64
++#define g_CrcUpdateT8 Skies7z_g_CrcUpdateT8
++#define k7zSignature Skies7z_k7zSignature
++#define z7_BranchConvSt_X86_Dec Skies7z_z7_BranchConvSt_X86_Dec
++#define z7_BranchConv_ARM64_Dec Skies7z_z7_BranchConv_ARM64_Dec
++#define z7_BranchConv_ARMT_Dec Skies7z_z7_BranchConv_ARMT_Dec
++#define z7_BranchConv_ARM_Dec Skies7z_z7_BranchConv_ARM_Dec
++#define z7_BranchConv_IA64_Dec Skies7z_z7_BranchConv_IA64_Dec
++#define z7_BranchConv_PPC_Dec Skies7z_z7_BranchConv_PPC_Dec
++#define z7_BranchConv_SPARC_Dec Skies7z_z7_BranchConv_SPARC_Dec
++#define z7_x86_cpuid Skies7z_z7_x86_cpuid
++#define z7_x86_cpuid_GetMaxFunc Skies7z_z7_x86_cpuid_GetMaxFunc
+diff --git a/Source/Core/VideoCommon/SkiesMenu.cpp b/Source/Core/VideoCommon/SkiesMenu.cpp
+index 54436d050d..d25ea0d4e9 100644
+--- a/Source/Core/VideoCommon/SkiesMenu.cpp
++++ b/Source/Core/VideoCommon/SkiesMenu.cpp
+@@ -61,6 +61,7 @@
+ #include "VideoCommon/FrameInterpolator.h"
+ #include "VideoCommon/OnScreenDisplay.h"
+ #include "VideoCommon/PerformanceMetrics.h"
++#include "VideoCommon/TexturePackImport.h"
+ #include "VideoCommon/VideoConfig.h"
+ 
+ namespace SkiesMenu
+@@ -102,14 +103,15 @@ enum class Option
+   Invincible,
+   Music,
+   Language,
++  HdTextures,
+ };
+ 
+ // The menu's tabs, laid out like the launchers' Settings windows (tools/moderngekko_launcher.cpp,
+ // SkiesSettingsPanel.kt), with Saves first since in game that's the one used most. L / R switch tabs.
+ constexpr std::array SAVES_ROWS{Option::SaveState, Option::LoadState, Option::AutoSave};
+ constexpr std::array GRAPHICS_ROWS{Option::Picture,    Option::Hud,          Option::FrameRate,
+-                                   Option::Resolution, Option::Antialiasing, Option::VSync,
+-                                   Option::ShowFps};
++                                   Option::Resolution, Option::Antialiasing, Option::HdTextures,
++                                   Option::VSync,      Option::ShowFps};
+ constexpr std::array GAMEPLAY_ROWS{Option::Camera, Option::BattleSpeed, Option::Encounters,
+                                    Option::Exp,    Option::Gold,        Option::MagicExp,
+                                    Option::Invincible, Option::Language};
+@@ -175,6 +177,7 @@ struct Values
+   int rumble = 1;     // controller 1's motor: on (range 100%) or off (0)
+   int music = 0;      // 1 = the Dreamcast music
+   int language = 0;   // the European disc's language: 0 English, 1 German, 2 French, 3 Spanish
++  int hd_textures = 0;  // Dolphin's Load Custom Textures: the imported texture pack
+ };
+ 
+ enum class Mode
+@@ -331,9 +334,15 @@ void Write(int dead_zone, bool rumble)
+ }
+ }  // namespace pad
+ 
++// Whether a texture pack is imported (VideoCommon/TexturePackImport.h); read when the menu opens.
++bool s_texture_pack = false;
++
+ Values ReadValues()
+ {
+   Values values;
++  s_texture_pack =
++      !TexturePackImport::Describe(File::GetUserPath(D_HIRESTEXTURES_IDX)).empty();
++  values.hd_textures = Config::Get(Config::GFX_HIRES_TEXTURES) ? 1 : 0;
+   const int widescreen = Config::Get(Config::SKIES_WIDESCREEN);
+   values.widescreen = widescreen < 0 ? 1 : widescreen;
+   const int hud = Config::Get(Config::SKIES_HUD);
+@@ -412,6 +421,12 @@ void Apply(const Values& values, const Values& before)
+   set(Config::SKIES_AUTO_SAVE, values.auto_save, before.auto_save);
+   set(Config::SKIES_DC_MUSIC, values.music, before.music);
+   set(Config::SKIES_LANGUAGE, values.language, before.language);
++  if (values.hd_textures != before.hd_textures)
++  {
++    // The texture cache reloads the pack at its next frame (TextureCacheBase::OnConfigChanged)
++    Config::SetBase(Config::GFX_HIRES_TEXTURES, values.hd_textures != 0);
++    changed = true;
++  }
+   if (values.vsync != before.vsync)
+   {
+     Config::SetBase(Config::GFX_VSYNC, values.vsync);
+@@ -623,6 +638,10 @@ void Change(Option option, int direction, bool wrap)
+       v.music = v.music ? 0 : 1;
+ #endif
+     break;
++  case Option::HdTextures:
++    if (s_texture_pack)
++      v.hd_textures = v.hd_textures ? 0 : 1;
++    break;
+   case Option::Language:
+     if (IsEurope())
+       v.language = (v.language + direction + 4) % 4;
+@@ -1780,6 +1799,15 @@ void Draw(float scale)
+       return {"Music", v.music ? "Dreamcast" : "GameCube",
+               "Dreamcast plays the original Dreamcast music, from your own disc."};
+     }
++    case Option::HdTextures:
++      if (!s_texture_pack)
++      {
++        return {"HD textures", "Off",
++                "Needs a texture pack you downloaded: import it in the launcher's Settings, "
++                "Graphics tab."};
++      }
++      return {"HD textures", OnOff(v.hd_textures != 0),
++              "Replaces the game's textures with the imported pack's."};
+     case Option::Language:
+     {
+       static constexpr std::array<const char*, 4> LANGUAGES{"English", "Deutsch", "Fran\xc3\xa7" "ais",
+diff --git a/Source/Core/VideoCommon/TexturePackImport.cpp b/Source/Core/VideoCommon/TexturePackImport.cpp
+new file mode 100644
+index 0000000000..f6fd3dbdbc
+--- /dev/null
++++ b/Source/Core/VideoCommon/TexturePackImport.cpp
+@@ -0,0 +1,832 @@
++// Copyright 2026 Dolphin Emulator Project
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++#include "VideoCommon/TexturePackImport.h"
++
++// Before Dolphin's headers: Common/CommonTypes.h defines LONG as a macro outside Windows, and the
++// SDK's 7zTypes.h declares a LONG type
++#ifdef HAVE_LZMA_SDK
++#include "VideoCommon/Skies7zPrefix.h"
++
++#include <7z.h>
++#include <7zCrc.h>
++#include <Lzma2Dec.h>
++#include <LzmaDec.h>
++#endif
++
++#include <algorithm>
++#include <array>
++#include <cstdio>
++#include <cstdlib>
++#include <cstring>
++#include <memory>
++#include <new>
++#include <optional>
++#include <set>
++#include <sstream>
++#include <string_view>
++#include <vector>
++
++#include <fmt/format.h>
++#include <mz.h>
++#include <mz_strm.h>
++#include <mz_zip.h>
++#include <mz_zip_rw.h>
++
++#include "Common/CommonPaths.h"
++#include "Common/CommonTypes.h"
++#include "Common/FileUtil.h"
++#include "Common/IOFile.h"
++#include "Common/ScopeGuard.h"
++#include "Common/StringUtil.h"
++
++namespace TexturePackImport
++{
++namespace
++{
++// Where the pack goes in Load/Textures/: Dolphin's folder for both games (GEAE8P and GEAP8P).
++constexpr char GAME_FOLDER[] = "GEA";
++// The pack's name and counts, beside its textures (Dolphin only loads .png / .dds files).
++constexpr char MARKER[] = "skies-texture-pack.txt";
++constexpr size_t CHUNK = 1 << 20;
++
++std::string Lower(std::string_view s)
++{
++  std::string out(s);
++  std::ranges::transform(out, out.begin(), [](unsigned char c) { return std::tolower(c); });
++  return out;
++}
++
++// A custom texture Dolphin loads: tex1_..., .png or .dds (HiresTextures.cpp, CustomTextureData).
++bool IsTexture(std::string_view file_name)
++{
++  const std::string lower = Lower(file_name);
++  return lower.starts_with("tex1_") && (lower.ends_with(".png") || lower.ends_with(".dds"));
++}
++
++// A smaller mipmap level of a texture, which some packs keep as its own file ("..._14_mip1.png"):
++// not a texture of its own in the counts.
++bool IsMipLevel(std::string_view file_name)
++{
++  const size_t dot = file_name.rfind('.');
++  const std::string_view stem = file_name.substr(0, dot);
++  const size_t mip = stem.rfind("_mip");
++  return mip != std::string_view::npos && mip + 4 < stem.size() &&
++         std::ranges::all_of(stem.substr(mip + 4), [](char c) { return c >= '0' && c <= '9'; });
++}
++
++// The part of a path in the pack that is inside its game folder:
++// "SoA_HD_v0.06_DDS/GEA/UI/Main/tex1_....dds" -> "UI/Main/tex1_....dds".
++std::optional<std::string> InGameFolder(std::string path)
++{
++  std::ranges::replace(path, '\\', '/');
++  size_t start = 0;
++  while (start < path.size())
++  {
++    const size_t end = path.find('/', start);
++    if (end == std::string::npos)
++      return std::nullopt;
++    const std::string part = Lower(std::string_view(path).substr(start, end - start));
++    if (part == "gea" || part == "geae8p" || part == "geap8p")
++      return path.substr(end + 1);
++    start = end + 1;
++  }
++  return std::nullopt;
++}
++
++// The pack's name for Describe: its file or folder name without the extension (percent-encoded in
++// a document URI's last segment, "primary%3ADownload%2FSoA_HD.7z").
++std::string PackName(std::string pack)
++{
++  while (!pack.empty() && (pack.back() == '/' || pack.back() == '\\'))
++    pack.pop_back();
++  std::string decoded;
++  for (size_t i = 0; i < pack.size(); ++i)
++  {
++    if (pack[i] == '%' && i + 2 < pack.size() && std::isxdigit(static_cast<u8>(pack[i + 1])) &&
++        std::isxdigit(static_cast<u8>(pack[i + 2])))
++    {
++      decoded += static_cast<char>(std::strtol(pack.substr(i + 1, 2).c_str(), nullptr, 16));
++      i += 2;
++    }
++    else
++    {
++      decoded += pack[i];
++    }
++  }
++  const size_t slash = decoded.find_last_of("/\\:");
++  std::string name = slash == std::string::npos ? decoded : decoded.substr(slash + 1);
++  const std::string lower = Lower(name);
++  for (const char* ext : {".7z", ".zip"})
++  {
++    if (lower.ends_with(ext))
++      name.resize(name.size() - std::strlen(ext));
++  }
++  return name.empty() ? "Texture pack" : name;
++}
++
++// Writes the pack's textures into Load/Textures/GEA.importing/, then swaps it in for GEA/.
++class Installer
++{
++public:
++  Installer(const std::string& textures_dir, std::function<void(const std::string&)> status)
++      : m_textures_dir(textures_dir), m_temp(textures_dir + GAME_FOLDER + ".importing" DIR_SEP),
++        m_status(std::move(status))
++  {
++  }
++
++  // Starts the import of total textures
++  bool Start(size_t total)
++  {
++    m_total = total;
++    if (File::Exists(m_temp) && !File::DeleteDirRecursively(m_temp))
++      return Fail("Can't clear " + m_temp);
++    if (!File::CreateFullPath(m_temp))
++      return Fail("Can't create " + m_temp);
++    return true;
++  }
++
++  // Where an entry of the pack goes in the game folder, or nullopt to skip it.
++  std::optional<std::string> Target(const std::string& pack_path) const
++  {
++    std::optional<std::string> inside = InGameFolder(pack_path);
++    if (!inside)
++      return std::nullopt;
++    const size_t slash = inside->rfind('/');
++    if (!IsTexture(slash == std::string::npos ? *inside : inside->substr(slash + 1)))
++      return std::nullopt;
++    return inside;
++  }
++
++  bool Begin(const std::string& relative)
++  {
++    const size_t slash = relative.rfind('/');
++    const std::string file_name = slash == std::string::npos ? relative : relative.substr(slash + 1);
++    // The same texture twice (a pack's copies in two folders): Dolphin would load one of them
++    // anyway and log the other as an error.
++    if (!m_names.insert(Lower(file_name)).second)
++    {
++      m_skip = true;
++      return true;
++    }
++    m_skip = false;
++    std::string path = m_temp + relative;
++#ifdef _WIN32
++    std::ranges::replace(path, '/', '\\');
++#endif
++    File::CreateFullPath(path);
++    m_file = File::IOFile(path, "wb");
++    if (!m_file.IsOpen())
++      return Fail("Can't write " + path);
++    m_header.clear();
++    m_dds = Lower(file_name).ends_with(".dds");
++    m_mip = IsMipLevel(file_name);
++    return true;
++  }
++
++  bool Write(const u8* data, size_t size)
++  {
++    if (m_skip)
++      return true;
++    if (m_dds && m_header.size() < 132)
++      m_header.insert(m_header.end(), data, data + std::min(size, 132 - m_header.size()));
++    if (!m_file.WriteBytes(data, size))
++      return Fail("Can't write the textures. Is the disk full?");
++    return true;
++  }
++
++  bool End()
++  {
++    if (m_skip)
++      return true;
++    if (!m_file.Close())
++      return Fail("Can't write the textures. Is the disk full?");
++    ++m_files;
++    m_textures += m_mip ? 0 : 1;
++    // DXGI_FORMAT_BC7_UNORM (98) or _SRGB (99) in a DX10 header
++    if (m_header.size() >= 132 && std::memcmp(m_header.data(), "DDS ", 4) == 0 &&
++        std::memcmp(m_header.data() + 84, "DX10", 4) == 0)
++    {
++      u32 format;
++      std::memcpy(&format, m_header.data() + 128, 4);
++      m_bc7 += (!m_mip && (format == 98 || format == 99)) ? 1 : 0;
++    }
++    if (m_status && (m_files % 20 == 0 || m_files == m_total))
++      m_status(fmt::format("Unpacking textures: {} of {} files", m_files, m_total));
++    return true;
++  }
++
++  // Replaces the imported pack with this one.
++  bool Commit(const std::string& name)
++  {
++    if (m_textures == 0)
++      return Fail("No textures were unpacked.");
++    if (!File::WriteStringToFile(m_temp + MARKER,
++                                 fmt::format("name={}\ntextures={}\nbc7={}\n", name, m_textures,
++                                             m_bc7)))
++    {
++      return Fail("Can't write " + m_temp + MARKER);
++    }
++    const std::string target = m_textures_dir + GAME_FOLDER;
++    if (File::Exists(target) && !File::DeleteDirRecursively(target))
++      return Fail("Can't remove the previous pack in " + target);
++    std::string temp = m_temp;
++    temp.pop_back();
++    if (!File::Rename(temp, target))
++      return Fail("Can't move the textures into " + target);
++    return true;
++  }
++
++  void Abort()
++  {
++    m_file.Close();
++    File::DeleteDirRecursively(m_temp);
++  }
++
++  bool Fail(std::string error)
++  {
++    if (m_error.empty())
++      m_error = std::move(error);
++    return false;
++  }
++
++  const std::string& Error() const { return m_error; }
++  int Textures() const { return m_textures; }
++  int Bc7() const { return m_bc7; }
++
++private:
++  std::string m_textures_dir;
++  std::string m_temp;
++  std::function<void(const std::string&)> m_status;
++  size_t m_total = 0;
++  std::set<std::string> m_names;
++  File::IOFile m_file;
++  bool m_skip = false;
++  bool m_dds = false;
++  bool m_mip = false;
++  size_t m_files = 0;
++  std::vector<u8> m_header;
++  int m_textures = 0;
++  int m_bc7 = 0;
++  std::string m_error;
++};
++
++// ---- An unpacked folder ----
++
++void ListFolder(const File::FSTEntry& entry, const std::string& prefix,
++                std::vector<std::pair<std::string, std::string>>* files)
++{
++  for (const File::FSTEntry& child : entry.children)
++  {
++    const std::string relative = prefix + child.virtualName;
++    if (child.isDirectory)
++      ListFolder(child, relative + "/", files);
++    else
++      files->emplace_back(relative, child.physicalName);
++  }
++}
++
++bool ImportFolder(const std::string& folder, Installer& installer, size_t* count)
++{
++  std::vector<std::pair<std::string, std::string>> files;
++  // The folder's own name counts too: the player may pick the GEA folder itself
++  std::string base = folder;
++  while (!base.empty() && (base.back() == '/' || base.back() == '\\'))
++    base.pop_back();
++  const size_t slash = base.find_last_of("/\\");
++  ListFolder(File::ScanDirectoryTree(folder, true),
++             (slash == std::string::npos ? base : base.substr(slash + 1)) + "/", &files);
++  std::vector<std::pair<std::string, std::string>> wanted;
++  for (const auto& [relative, physical] : files)
++  {
++    if (std::optional<std::string> target = installer.Target(relative))
++      wanted.emplace_back(*target, physical);
++  }
++  *count = wanted.size();
++  if (wanted.empty() || !installer.Start(wanted.size()))
++    return false;
++  std::vector<u8> buffer(CHUNK);
++  for (const auto& [target, physical] : wanted)
++  {
++    File::IOFile in(physical, "rb");
++    if (!in.IsOpen())
++      return installer.Fail("Can't read " + physical);
++    if (!installer.Begin(target))
++      return false;
++    u64 left = in.GetSize();
++    while (left > 0)
++    {
++      const size_t n = static_cast<size_t>(std::min<u64>(left, buffer.size()));
++      if (!in.ReadBytes(buffer.data(), n))
++        return installer.Fail("Can't read " + physical);
++      if (!installer.Write(buffer.data(), n))
++        return false;
++      left -= n;
++    }
++    if (!installer.End())
++      return false;
++  }
++  return true;
++}
++
++// ---- .zip ----
++
++bool ImportZip(const std::string& path, Installer& installer, size_t* count)
++{
++  void* reader = mz_zip_reader_create();
++  if (!reader)
++    return installer.Fail("Out of memory.");
++  Common::ScopeGuard guard{[&] { mz_zip_reader_delete(&reader); }};
++  if (mz_zip_reader_open_file(reader, path.c_str()) != MZ_OK)
++    return installer.Fail("Can't read that .zip file. Is it damaged?");
++  // First the textures in it, then unpack them (the reader walks the entries in order)
++  *count = 0;
++  for (int32_t err = mz_zip_reader_goto_first_entry(reader); err == MZ_OK;
++       err = mz_zip_reader_goto_next_entry(reader))
++  {
++    mz_zip_file* info;
++    if (mz_zip_reader_entry_get_info(reader, &info) == MZ_OK && info->filename &&
++        mz_zip_reader_entry_is_dir(reader) != MZ_OK && installer.Target(info->filename))
++    {
++      ++*count;
++    }
++  }
++  if (*count == 0 || !installer.Start(*count))
++    return false;
++  std::vector<u8> buffer(CHUNK);
++  for (int32_t err = mz_zip_reader_goto_first_entry(reader); err == MZ_OK;
++       err = mz_zip_reader_goto_next_entry(reader))
++  {
++    mz_zip_file* info;
++    if (mz_zip_reader_entry_get_info(reader, &info) != MZ_OK || !info->filename ||
++        mz_zip_reader_entry_is_dir(reader) == MZ_OK)
++    {
++      continue;
++    }
++    const std::optional<std::string> target = installer.Target(info->filename);
++    if (!target)
++      continue;
++    if (mz_zip_reader_entry_open(reader) != MZ_OK)
++      return installer.Fail(fmt::format("Can't read {} in the .zip file.", info->filename));
++    Common::ScopeGuard entry_guard{[&] { mz_zip_reader_entry_close(reader); }};
++    if (!installer.Begin(*target))
++      return false;
++    for (;;)
++    {
++      const int32_t n =
++          mz_zip_reader_entry_read(reader, buffer.data(), static_cast<int32_t>(buffer.size()));
++      if (n < 0)
++        return installer.Fail(fmt::format("Can't read {} in the .zip file.", info->filename));
++      if (n == 0)
++        break;
++      if (!installer.Write(buffer.data(), static_cast<size_t>(n)))
++        return false;
++    }
++    if (!installer.End())
++      return false;
++  }
++  return true;
++}
++
++// ---- .7z (the LZMA SDK's archive reader; LZMA / LZMA2 folders decoded as a stream) ----
++
++#ifdef HAVE_LZMA_SDK
++void* SzMalloc(ISzAllocPtr, size_t size)
++{
++  return size == 0 ? nullptr : std::malloc(size);
++}
++void SzRelease(ISzAllocPtr, void* address)
++{
++  std::free(address);
++}
++const ISzAlloc s_alloc = {SzMalloc, SzRelease};
++
++struct FileSeekStream
++{
++  ISeekInStream vt;  // first: the SDK's pointer is this struct's
++  File::IOFile* file;
++};
++
++SRes FileRead(ISeekInStreamPtr p, void* buf, size_t* size)
++{
++  File::IOFile* file = reinterpret_cast<const FileSeekStream*>(p)->file;
++  size_t read = 0;
++  if (*size != 0 && !file->ReadArray(static_cast<u8*>(buf), *size, &read))
++    file->ClearError();  // a short read at the end; IOFile would fail every later call
++  *size = read;
++  return SZ_OK;
++}
++
++SRes FileSeek(ISeekInStreamPtr p, Int64* pos, ESzSeek origin)
++{
++  File::IOFile* file = reinterpret_cast<const FileSeekStream*>(p)->file;
++  const File::SeekOrigin from = origin == SZ_SEEK_SET ? File::SeekOrigin::Begin :
++                                origin == SZ_SEEK_CUR ? File::SeekOrigin::Current :
++                                                        File::SeekOrigin::End;
++  if (!file->Seek(*pos, from))
++  {
++    file->ClearError();
++    return SZ_ERROR_READ;
++  }
++  *pos = static_cast<Int64>(file->Tell());
++  return SZ_OK;
++}
++
++constexpr UInt32 METHOD_COPY = 0;
++constexpr UInt32 METHOD_LZMA2 = 0x21;
++constexpr UInt32 METHOD_LZMA = 0x30101;
++
++// Decodes folder f (one compressed stream holding files back to back) and hands its bytes to out
++// in order. LZMA2, LZMA and stored folders are decoded as a stream, with a dictionary no larger
++// than the folder; other methods (filters, PPMd) through the SDK, all in memory.
++std::string DecodeFolder(File::IOFile& file, const CSzArEx& db, ILookInStreamPtr look, UInt32 f,
++                         const std::function<bool(const u8*, size_t)>& out)
++{
++  constexpr char DAMAGED[] = "The .7z file is damaged (or not completely downloaded).";
++  constexpr char MEMORY[] = "Not enough memory to unpack this .7z file.";
++  const CSzAr& ar = db.db;
++  const Byte* data = ar.CodersData + ar.FoCodersOffsets[f];
++  CSzData sd{data, ar.FoCodersOffsets[f + 1] - ar.FoCodersOffsets[f]};
++  CSzFolder folder;
++  if (SzGetNextFolderItem(&folder, &sd) != SZ_OK)
++    return DAMAGED;
++  const UInt64 unpack_size = SzAr_GetFolderUnpackSize(&ar, f);
++  const UInt32 method = folder.Coders[0].MethodID;
++  if (folder.NumCoders != 1 || folder.NumPackStreams != 1 ||
++      (method != METHOD_COPY && method != METHOD_LZMA2 && method != METHOD_LZMA))
++  {
++    if (unpack_size > (u64{1} << 30))
++      return "This .7z file uses a compression the import can't unpack. Unpack it, then import "
++             "the folder.";
++    std::unique_ptr<u8[]> buffer(new (std::nothrow) u8[std::max<size_t>(unpack_size, 1)]);
++    if (!buffer)
++      return MEMORY;
++    if (SzAr_DecodeFolder(&ar, f, look, db.dataPos, buffer.get(), unpack_size, &s_alloc) != SZ_OK)
++      return DAMAGED;
++    return out(buffer.get(), unpack_size) ? "" : "-";
++  }
++
++  const UInt32 pack_index = ar.FoStartPackStreamIndex[f];
++  UInt64 in_left = ar.PackPositions[pack_index + 1] - ar.PackPositions[pack_index];
++  if (!file.Seek(db.dataPos + ar.PackPositions[pack_index], File::SeekOrigin::Begin))
++    return DAMAGED;
++  std::vector<u8> in(CHUNK), outbuf(CHUNK);
++  size_t in_pos = 0, in_len = 0;
++  const auto refill = [&] {
++    if (in_pos < in_len || in_left == 0)
++      return true;
++    const size_t n = static_cast<size_t>(std::min<UInt64>(in.size(), in_left));
++    if (!file.ReadBytes(in.data(), n))
++      return false;
++    in_pos = 0;
++    in_len = n;
++    in_left -= n;
++    return true;
++  };
++
++  if (method == METHOD_COPY)
++  {
++    while (in_left > 0 || in_pos < in_len)
++    {
++      if (!refill())
++        return DAMAGED;
++      if (!out(in.data() + in_pos, in_len - in_pos))
++        return "-";
++      in_pos = in_len;
++    }
++    return "";
++  }
++
++  const Byte* props = data + folder.Coders[0].PropsOffset;
++  const unsigned props_size = folder.Coders[0].PropsSize;
++  const bool lzma2 = method == METHOD_LZMA2;
++  UInt64 dictionary;
++  if (lzma2)
++  {
++    if (props_size != 1 || props[0] > 40)
++      return DAMAGED;
++    dictionary = props[0] == 40 ? 0xFFFFFFFF : u64{2u | (props[0] & 1u)} << (props[0] / 2 + 11);
++  }
++  else
++  {
++    if (props_size != LZMA_PROPS_SIZE)
++      return DAMAGED;
++    dictionary = props[1] | (props[2] << 8) | (props[3] << 16) | (UInt64{props[4]} << 24);
++  }
++  // The window never needs to be larger than everything decoded
++  const size_t window = static_cast<size_t>(std::max<UInt64>(std::min(dictionary, unpack_size), 1));
++  std::unique_ptr<u8[]> dic(new (std::nothrow) u8[window]);
++  if (!dic)
++    return MEMORY;
++
++  CLzma2Dec dec2;
++  CLzmaDec dec;
++  Lzma2Dec_CONSTRUCT(&dec2);
++  LzmaDec_CONSTRUCT(&dec);
++  if (lzma2 ? Lzma2Dec_AllocateProbs(&dec2, props[0], &s_alloc) != SZ_OK :
++              LzmaDec_AllocateProbs(&dec, props, props_size, &s_alloc) != SZ_OK)
++  {
++    return MEMORY;
++  }
++  Common::ScopeGuard probs_guard{[&] {
++    if (lzma2)
++      Lzma2Dec_FreeProbs(&dec2, &s_alloc);
++    else
++      LzmaDec_FreeProbs(&dec, &s_alloc);
++  }};
++  CLzmaDec& core = lzma2 ? dec2.decoder : dec;
++  core.dic = dic.get();
++  core.dicBufSize = window;
++  if (lzma2)
++    Lzma2Dec_Init(&dec2);
++  else
++    LzmaDec_Init(&dec);
++
++  UInt64 done = 0;
++  while (done < unpack_size)
++  {
++    if (!refill())
++      return DAMAGED;
++    SizeT out_len = static_cast<SizeT>(std::min<UInt64>(outbuf.size(), unpack_size - done));
++    SizeT in_avail = in_len - in_pos;
++    ELzmaStatus status;
++    const SRes res =
++        lzma2 ? Lzma2Dec_DecodeToBuf(&dec2, outbuf.data(), &out_len, in.data() + in_pos, &in_avail,
++                                     LZMA_FINISH_ANY, &status) :
++                LzmaDec_DecodeToBuf(&dec, outbuf.data(), &out_len, in.data() + in_pos, &in_avail,
++                                    LZMA_FINISH_ANY, &status);
++    in_pos += in_avail;
++    if (res != SZ_OK)
++      return DAMAGED;
++    if (out_len == 0 && in_avail == 0 && (in_pos < in_len || in_left == 0))
++      return DAMAGED;  // stuck, or the stream ended before its size
++    done += out_len;
++    if (out_len != 0 && !out(outbuf.data(), out_len))
++      return "-";
++  }
++  return "";
++}
++
++bool Import7z(const std::string& path, Installer& installer, size_t* count)
++{
++  File::IOFile file(path, "rb");
++  if (!file.IsOpen())
++    return installer.Fail("Can't open that file.");
++  FileSeekStream stream{{FileRead, FileSeek}, &file};
++  CLookToRead2 look;
++  LookToRead2_CreateVTable(&look, False);
++  std::vector<Byte> look_buffer(1 << 18);
++  look.buf = look_buffer.data();
++  look.bufSize = look_buffer.size();
++  look.realStream = &stream.vt;
++  LookToRead2_INIT(&look);
++
++  static const bool crc_table = [] {
++    CrcGenerateTable();
++    return true;
++  }();
++  (void)crc_table;
++
++  CSzArEx db;
++  SzArEx_Init(&db);
++  Common::ScopeGuard db_guard{[&] { SzArEx_Free(&db, &s_alloc); }};
++  if (SzArEx_Open(&db, &look.vt, &s_alloc, &s_alloc) != SZ_OK)
++    return installer.Fail("Can't read that .7z file. Is it completely downloaded? Download it again.");
++
++  // Each file's place in the pack, and where it goes (nullopt: skipped)
++  std::vector<std::optional<std::string>> targets(db.NumFiles);
++  std::vector<UInt16> name16;
++  *count = 0;
++  for (UInt32 i = 0; i < db.NumFiles; ++i)
++  {
++    if (SzArEx_IsDir(&db, i))
++      continue;
++    name16.resize(SzArEx_GetFileNameUtf16(&db, i, nullptr));
++    SzArEx_GetFileNameUtf16(&db, i, name16.data());
++    const std::u16string name(name16.begin(), name16.end() - 1);
++    targets[i] = installer.Target(UTF16ToUTF8(name));
++    *count += targets[i] ? 1 : 0;
++  }
++  if (*count == 0 || !installer.Start(*count))
++    return false;
++
++  for (UInt32 f = 0; f < db.db.NumFolders; ++f)
++  {
++    // The folder's files in stream order, and whether any of them is wanted
++    std::vector<UInt32> files;
++    bool wanted = false;
++    for (UInt32 i = db.FolderToFile[f]; i < db.NumFiles; ++i)
++    {
++      if (db.FileToFolder[i] == f)
++      {
++        files.push_back(i);
++        wanted |= targets[i].has_value();
++      }
++      else if (db.FileToFolder[i] != static_cast<UInt32>(-1))
++      {
++        break;
++      }
++    }
++    if (!wanted)
++      continue;
++    size_t current = 0;  // index in files
++    UInt64 left = files.empty() ? 0 : SzArEx_GetFileSize(&db, files[0]);
++    UInt32 crc = CRC_INIT_VAL;
++    bool open = false;
++    const auto finish_files = [&]() -> bool {
++      // Ends every file that is complete (and empty ones), starting the next
++      while (current < files.size())
++      {
++        const UInt32 i = files[current];
++        if (!open && targets[i])
++        {
++          if (!installer.Begin(*targets[i]))
++            return false;
++          open = true;
++        }
++        if (left != 0)
++          return true;
++        if (SzBitWithVals_Check(&db.CRCs, i) && CRC_GET_DIGEST(crc) != db.CRCs.Vals[i])
++          return installer.Fail("The .7z file is damaged (a file's checksum doesn't match).");
++        if (open && !installer.End())
++          return false;
++        open = false;
++        crc = CRC_INIT_VAL;
++        if (++current < files.size())
++          left = SzArEx_GetFileSize(&db, files[current]);
++      }
++      return true;
++    };
++    if (!finish_files())
++      return false;
++    const std::string error = DecodeFolder(
++        file, db, &look.vt, f, [&](const u8* data, size_t size) {
++          while (size > 0 && current < files.size())
++          {
++            const size_t n = static_cast<size_t>(std::min<UInt64>(left, size));
++            crc = CrcUpdate(crc, data, n);
++            if (open && !installer.Write(data, n))
++              return false;
++            data += n;
++            size -= n;
++            left -= n;
++            if (!finish_files())
++              return false;
++          }
++          return true;
++        });
++    if (error == "-")
++      return false;  // the installer has the error
++    if (!error.empty())
++      return installer.Fail(error);
++    if (current < files.size())
++      return installer.Fail("The .7z file is damaged (it ends too early).");
++  }
++  return true;
++}
++#endif
++
++struct Marker
++{
++  std::string name;
++  int textures = 0;
++  int bc7 = 0;
++};
++
++std::optional<Marker> ReadMarker(const std::string& textures_dir)
++{
++  std::string text;
++  if (!File::ReadFileToString(textures_dir + GAME_FOLDER + DIR_SEP + MARKER, text))
++    return std::nullopt;
++  Marker marker;
++  std::istringstream in(text);
++  std::string line;
++  while (std::getline(in, line))
++  {
++    const size_t eq = line.find('=');
++    if (eq == std::string::npos)
++      continue;
++    const std::string key = line.substr(0, eq), value = line.substr(eq + 1);
++    if (key == "name")
++      marker.name = value;
++    else if (key == "textures")
++      marker.textures = std::atoi(value.c_str());
++    else if (key == "bc7")
++      marker.bc7 = std::atoi(value.c_str());
++  }
++  return marker;
++}
++}  // namespace
++
++std::string Import(const std::string& pack, const std::string& textures_dir, std::string* summary,
++                   const std::function<void(const std::string&)>& status,
++                   const std::string& file_name)
++{
++  if (status)
++    status("Reading the texture pack");
++  enum class Kind
++  {
++    Folder,
++    Zip,
++    SevenZip
++  } kind;
++  if (File::IsDirectory(pack))
++  {
++    kind = Kind::Folder;
++  }
++  else
++  {
++    File::IOFile probe(pack, "rb");
++    std::array<u8, 6> magic{};
++    if (!probe.IsOpen() || !probe.ReadArray(&magic))
++      return "Can't open that file.";
++    if (magic[0] == 'P' && magic[1] == 'K')
++      kind = Kind::Zip;
++    else if (std::memcmp(magic.data(), "7z\xBC\xAF\x27\x1C", 6) == 0)
++      kind = Kind::SevenZip;
++    else
++      return "That isn't a texture pack: pick the .7z or .zip file you downloaded.";
++  }
++
++  size_t count = 0;  // textures found in the pack
++  Installer installer(textures_dir, status);
++  const auto run = [&]() -> bool {
++    switch (kind)
++    {
++    case Kind::Folder:
++      return ImportFolder(pack, installer, &count);
++    case Kind::Zip:
++#ifdef ANDROID
++    {
++      // minizip opens files by path: a content URI's file through the process's descriptor
++      File::IOFile file(pack, "rb");
++      if (!file.IsOpen())
++        return installer.Fail("Can't open that file.");
++      return ImportZip(fmt::format("/proc/self/fd/{}", fileno(file.GetHandle())), installer,
++                       &count);
++    }
++#else
++      return ImportZip(pack, installer, &count);
++#endif
++    case Kind::SevenZip:
++#ifdef HAVE_LZMA_SDK
++      return Import7z(pack, installer, &count);
++#else
++      return installer.Fail(
++          "This build can't read .7z files: unpack the pack, then import its folder.");
++#endif
++    }
++    return false;
++  };
++  if (!run())
++  {
++    installer.Abort();
++    if (count == 0 && installer.Error().empty())
++    {
++      return "No Skies of Arcadia textures in that pack: it needs a GEA folder with tex1_ "
++             "files.";
++    }
++    return installer.Error().empty() ? "The import stopped." : installer.Error();
++  }
++  const std::string base = PackName(file_name.empty() ? pack : file_name);
++  const std::string name = kind == Kind::Folder && Lower(base) == "gea" ? "Texture pack" : base;
++  if (!installer.Commit(name))
++  {
++    installer.Abort();
++    return installer.Error();
++  }
++  if (summary)
++    *summary = Describe(textures_dir);
++  return "";
++}
++
++std::string Describe(const std::string& textures_dir)
++{
++  if (const std::optional<Marker> marker = ReadMarker(textures_dir))
++    return fmt::format("{}: {} textures", marker->name, marker->textures);
++  // A folder the player put there by hand
++  const std::string folder = textures_dir + GAME_FOLDER;
++  if (!File::IsDirectory(folder))
++    return "";
++  std::vector<std::pair<std::string, std::string>> files;
++  ListFolder(File::ScanDirectoryTree(folder, true), "", &files);
++  const auto textures = std::ranges::count_if(files, [](const auto& file) {
++    const size_t slash = file.first.rfind('/');
++    const std::string name = slash == std::string::npos ? file.first : file.first.substr(slash + 1);
++    return IsTexture(name) && !IsMipLevel(name);
++  });
++  return textures == 0 ? "" : fmt::format("{} textures", textures);
++}
++
++int Bc7Count(const std::string& textures_dir)
++{
++  const std::optional<Marker> marker = ReadMarker(textures_dir);
++  return marker ? marker->bc7 : 0;
++}
++
++bool Remove(const std::string& textures_dir)
++{
++  const std::string folder = textures_dir + GAME_FOLDER;
++  return !File::Exists(folder) || File::DeleteDirRecursively(folder);
++}
++}  // namespace TexturePackImport
+diff --git a/Source/Core/VideoCommon/TexturePackImport.h b/Source/Core/VideoCommon/TexturePackImport.h
+new file mode 100644
+index 0000000000..689dfb5379
+--- /dev/null
++++ b/Source/Core/VideoCommon/TexturePackImport.h
+@@ -0,0 +1,33 @@
++// Copyright 2026 Dolphin Emulator Project
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++#pragma once
++
++#include <functional>
++#include <string>
++
++// Imports an HD texture pack the player downloaded (Dolphin custom textures: tex1_*.png / .dds)
++// into the user directory's Load/Textures/GEA/, where Dolphin loads them for both the USA and the
++// European game (VideoCommon/HiresTextures.cpp) while GFX.ini [Settings] HiresTextures is on.
++//
++// The pack is a .7z or .zip as downloaded, or its unpacked folder (not on Android, where the
++// picker gives files). Only the game's folder in it (GEA, GEAE8P or GEAP8P) is copied, never the
++// pack's optional extras beside it; packs without one are refused. A new import replaces the
++// previous pack. Nothing of a pack is ever part of the recomp's builds: players bring their own.
++namespace TexturePackImport
++{
++// Returns "" on success, else what went wrong (shown to the player). *summary gets what was
++// imported, e.g. "SoA_HD_v0.06_DDS: 745 textures".
++// textures_dir is the user directory's Load/Textures/ and ends with a separator. file_name names
++// the pack when its path doesn't (an Android content URI: its display name).
++std::string Import(const std::string& pack, const std::string& textures_dir, std::string* summary,
++                   const std::function<void(const std::string&)>& status = {},
++                   const std::string& file_name = {});
++// What's imported, e.g. "SoA_HD_v0.06_DDS: 745 textures", or "" if nothing.
++std::string Describe(const std::string& textures_dir);
++// How many of the imported textures are BC7 DDS files, which need a GPU with BC7 (BPTC) support:
++// Dolphin skips them on others (most phones), the pack's PNG download works there.
++int Bc7Count(const std::string& textures_dir);
++// Removes the imported pack.
++bool Remove(const std::string& textures_dir);
++}  // namespace TexturePackImport
