@@ -855,9 +855,10 @@ history: [handoffs/HANDOFF-hdtextures.md](handoffs/HANDOFF-hdtextures.md); the p
   settings warn when an imported pack has BC7 textures. Turnip untried.
 - **EFB copies**: the pack's old note that a UI texture needs EFB copies to texture only doesn't
   apply: this game needs copies to RAM (Dolphin's `GEA.ini`), so that element shows what the game draws.
-- **Flight meter**: the pack's `GEA` has the 4:3 meter. The port's widescreen stretches the world map's
-  flight meter and compass (*Known issues*), so in 16:9 the HD meter is stretched like the original;
-  the pack's widescreen meter would fit 16:9 only. Left as is until the widescreen fix.
+- **Flight meter**: the pack's `GEA` has the 4:3 meter, which is right in every picture: the port's
+  widescreen keeps the meter's shape. The pack's `Optional` widescreen meter (squeezed art for cheat
+  codes that stretch the HUD) would come out too narrow. (A widescreen stretch reported 2026-10-17
+  turned out to be a Picture change made while the world map's menu was open, *Known issues*.)
 
 ### Test tools and savestates
 

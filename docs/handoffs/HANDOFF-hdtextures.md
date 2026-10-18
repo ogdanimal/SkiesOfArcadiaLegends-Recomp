@@ -67,14 +67,19 @@ Results on Windows (ws20 dev runner, PGO module, Vulkan, 3x; test user dir
       Retroid* below. Two fixes came out of it (mGBA symbol clash, BC7 on Adreno).
 - [x] Flight meter: the pack's `GEA/UI/Main/tex1_128x128_089930a5aca922cb_14` is its Standard (4:3)
       meter, byte for byte; the WideScreen one in `Optional` is the same art squeezed sideways, for
-      cheat codes that stretch the HUD. The import takes `GEA` only (Standard). **But the port's
-      widescreen stretches the world map's flight meter and compass** (Windows 2026-10-17,
+      cheat codes that stretch the HUD. The import takes `GEA` only (Standard), which is right in
+      every picture: the port's widescreen keeps the meter's shape. (First reported here as **the
+      port's widescreen stretches the world map's flight meter and compass** (Windows 2026-10-17,
       `C:\dev\SkiesHDTex\build\win-shots\worldmap`, state 10, original textures: at the same
       picture height the meter is ~1.33x as wide in 16:9 as in 4:3, the compass ~1.4x; the 4:3
       picture is 1.205:1, Dolphin's analog aspect, so 4:3 is the reference). They aren't on the HUD
       anchor path ("HUD at its original shape"). A game patch fix (ws24) would make Standard right in
       both modes; until then Standard matches the stretched original meter in 16:9. Reported to the
-      user, not changed here.
+      user, not changed here. Re-diagnosed 2026-10-18 (HUD session, development-notes on branch
+      `hud` *Known issues*): both shots had the world map's menu open right after the Picture
+      change, and while it's open the meter and compass replay the previous picture's shape; in
+      normal play they match the unpatched game in 4:3, 16:9 and 32:9. The 4:3 shot was the wrong
+      one.)
 - [x] The pack's "UI texture that needs Store EFB Copies to Texture Only" (its v0.02 GameSettings
       ini): with copies to RAM, which this game needs (Dolphin's own `GEA.ini`), the game reads its
       EFB copy back and Dolphin hashes it as a new texture each time, so a replacement can't match;
@@ -97,10 +102,10 @@ Results on Windows (ws20 dev runner, PGO module, Vulkan, 3x; test user dir
 - [x] Committed on `hdtex`: the feature, then a docs pass (development-notes
       *HD textures* + *Known issues*, BUILDING, the other handoffs, the bug template).
 - [ ] **Merge into `dev`: held by the user (2026-10-17) until the widescreen fix** for the world map's
-      flight meter and compass (game patch ws24, development-notes *Known issues*). Then: merge (fast
+      flight meter and compass. No fix is needed (re-diagnosed 2026-10-18, above; the menu-replay
+      glitch left as is by the user), so the merge waits only for the user's word. Then: merge (fast
       forward if `dev` hasn't moved), apply `recompcore-hd-textures.patch` in the main checkout,
-      `tools/check-patches.sh`, and the release-note line in HANDOFF-release *Next*. After the fix,
-      look at the HD meter in 16:9 again (the pack's `GEA` one is the 4:3 meter, which is then right).
+      `tools/check-patches.sh`, and the release-note line in HANDOFF-release *Next*.
 
 ## Android / Retroid (2026-10-17 late)
 
