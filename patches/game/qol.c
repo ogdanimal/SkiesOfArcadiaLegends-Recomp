@@ -8,7 +8,10 @@
  *             at 0x800C207C into a number in [0, 100) and starts a battle if it's below the chance.
  *             qol_encounter_rand returns the rand whose roll is roll * 100 / percent: the same as
  *             the chance times percent / 100. Off also clears the frames-since-battle counter
- *             (lbl_80346D28), so the chance stays 0.
+ *             (lbl_80346D28), so the chance stays 0. Hold B: while controller 1's B is held (the
+ *             game's PADStatus buffer, *(r13 - 0x70E4) = lbl_8034763C, which it fills with PADRead
+ *             every frame), the same as Off: cleartonic's "hold B" romhack, which the frontend
+ *             undoes on import (it loads 0 for the counter in this function, through a cave).
  * Rewards     the ground battle results (fn_8006F4B0) read EXP, gold and magic EXP from the battle
  *             data (lbl_80347390: +0x30, +0x34, +0x01) right after counting the members with
  *             fn_80078610 (0x8006F5B8); ship battles (fn_80144E60, called at 0x8015C6B4) read EXP
@@ -59,7 +62,7 @@ struct qol_input {
   int magic_exp;     /* percent of the magic EXP */
   int battle_speed;  /* 1 = normal, 2..4 = that many times faster in battle */
   int invincible;    /* party HP / MP / Spirit kept full and no damage, in battle */
-  u32 pad;
+  int hold_b;        /* no random battle while controller 1's B is held (was padding until ws25) */
 };
 
 __attribute__((section(".qol_input"), used)) struct qol_input qol_input;
@@ -100,6 +103,10 @@ extern int fn_8022A854(int *state); /* the resident files into ARAM: one step, 1
  * jumped there (ws18: "Invalid write to 0x0000001e" on the first attack). qol_frame puts it back. */
 #define ACTION_HANDLERS ((void (*volatile *)(unsigned char *, int))0x802DBB10)
 #define FRAMES_SINCE_BATTLE (*(volatile int *)0x80346D28)
+/* The game's controller state this frame (PADStatus[4], 12 bytes each; the game swaps it with a
+ * second buffer every frame): controller 1's buttons are the first halfword. */
+#define PAD_STATUS (*(const volatile unsigned short *volatile *)0x8034763C)
+#define PAD_BUTTON_B 0x0200
 #define FRAME_START_RETRACE (*(volatile u32 *)0x8034768C) /* main's mark for fn_801DC420's loop */
 #define GROUND_BATTLE_DATA (*(unsigned char *volatile *)0x80347390)
 #define SHIP_BATTLE_DATA (*(unsigned char *volatile *)0x8034727C)
@@ -131,9 +138,13 @@ TRK_CAVE int qol_encounter_rand(void) {
   const int r = fn_8025ECC4();
   if (RESIDENT_LOAD != 5)
     return 16383; /* no battle until qol_resident has the resident files in */
-  if (!qol_on() || qol_input.encounters == 100)
+  if (!qol_on())
     return r;
-  if (qol_input.encounters <= 0) {
+  const int hold_b = qol_input.hold_b && qol_ram((const void *)PAD_STATUS) &&
+                     (PAD_STATUS[0] & PAD_BUTTON_B) != 0;
+  if (qol_input.encounters == 100 && !hold_b)
+    return r;
+  if (qol_input.encounters <= 0 || hold_b) {
     FRAMES_SINCE_BATTLE = 0;
     return 16383; /* the highest roll, 99.997 */
   }

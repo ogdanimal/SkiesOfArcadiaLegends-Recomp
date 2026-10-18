@@ -120,7 +120,9 @@ press Start**), or in the launcher's **Settings** window.
 - **Camera control:** hold Z and use the C-stick to tilt, and R / L to zoom (towns, dungeons and the
   world map; on the world map Z + C-stick left / right also turns around the ship).
 - **Battle speed** up to 4x: tap Z during a battle.
-- **Options:** random encounter rate (off to 4x), EXP / gold / magic EXP (off to 4x), and Invincible.
+- **Options:** random encounter rate (off to 4x), Hold B for no random battles, EXP / gold / magic
+  EXP (off to 4x), and Invincible.
+- **Romhacks** that change the game's data, such as Maeson's rebalance (see [Romhacks](#romhacks)).
 - **Keyboard and button mapping:** play with the keyboard on Windows and Linux, and change any
   button or key (see [Controls](#controls)). On desktop, any controller you press is picked up without setup.
 - **Dreamcast music** (optional): the Dreamcast version's soundtrack, from your own Dreamcast disc
@@ -183,6 +185,23 @@ Only the pack's textures for this game (its `GEA` folder, used by both discs) ar
 extras (French text, the other flight meter) are left out. On Android, take the pack's **PNG** download: phones can't load its DDS (BC7) textures, and
 the app shows how many of them stay as they were. Importing another pack replaces it; **Remove**
 deletes it.
+
+### Romhacks
+
+A romhack of the game that changes its **data** plays like the original disc: patch your own disc
+image with the romhack's patch (DeltaPatcher for an `.xdelta`, Lunar IPS / Floating IPS for an
+`.ips`), then pick the patched image with **Select Disc** (Android: **Change Disc**). The launcher
+shows *modified* beside the game's name. Enemy and item stats, encounter tables, scripts, text,
+textures and models all count as data; so do the tables inside `main.dol`.
+
+A romhack that changes the game's **code** can't run on this port's recompiled code, and the import
+says so. One code change is recognised and replaced by an option of the port's own: the **hold B for
+no random encounters** patch (cleartonic's, also built into **Maeson's rebalance**, which therefore
+plays) becomes **Settings → Gameplay → Hold B**.
+
+A romhack keeps the disc ID, so its saves sit beside the original game's. Don't load a save state made
+with the original game into a romhack (or the other way round): a state brings back that game's item
+and magic tables. Memory card saves are fine as far as the romhack's author says so.
 
 ### GPU driver (Android)
 

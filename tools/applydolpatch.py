@@ -15,14 +15,18 @@ def main():
     lines = open(sys.argv[2]).read().splitlines()
     if lines[0] != "moderngekko-dol-file-patch 1":
         sys.exit("not a moderngekko-dol-file-patch 1 file")
-    header = dict(line.split(" ", 1) for line in lines[1:4])
+    # Named lines (hashes, sizes, known romhack changes), then the runs (a hex offset and bytes)
+    keys = ("input-sha256", "output-sha256", "output-size", "input-size", "input-code-sha256",
+            "output-code-sha256", "known-change", "data-original")
+    header = dict(line.split(" ", 1) for line in lines[1:] if line.split(" ", 1)[0] in keys)
+    runs = [line for line in lines[1:] if line and line.split(" ", 1)[0] not in keys]
     if hashlib.sha256(original).hexdigest() != header["input-sha256"]:
         sys.exit("the DOL isn't the one this patch is for (input SHA-256 differs)")
     out = bytearray(original)
     size = int(header["output-size"])
     out.extend(bytes(max(0, size - len(out))))
     del out[size:]
-    for line in lines[4:]:
+    for line in runs:
         offset, data = line.split(" ")
         offset, data = int(offset, 16), bytes.fromhex(data)
         out[offset:offset + len(data)] = data

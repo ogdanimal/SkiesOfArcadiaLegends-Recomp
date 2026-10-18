@@ -1,0 +1,7 @@
+# Romhacks' code changes the release undoes on import, so their data plays on its module (tools/mkdolpatch.py
+# KNOWN_CHANGES; made with tools/dolknown.py ORIGINAL HACKED NAME). USA main.dol file offsets.
+# hold-b-encounters: cleartonic's "hold B for no random encounters" (romhacking.net 5314), as Maeson's
+# rebalance (romhacking.net 2859) 1.51 ships it, built in and as its optional IPS: the release's
+# Settings, Gameplay, Hold B does the same (patches/game/qol.c).
+known-change hold-b-encounters befc8 48006958 806d8608
+known-change hold-b-encounters c58f0 380000007c03812e381000049003000082030000281000a8418200084bffffe43800000090030000820300004e80002080684b77280300024182000c806d860848000008386000004bff9694 90030004900300089003000c9003001090030014900300189003001c9003002090030024900300289003002c9003003090030034900300389003003c9003004090030044900300489003004c

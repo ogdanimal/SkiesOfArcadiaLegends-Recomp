@@ -74,8 +74,9 @@ saves from the Japanese version can't be used.
 - **Camera control:** hold Z and use the C-stick to tilt, and R / L to zoom out / in (towns, dungeons
   and the world map; on the world map Z + C-stick left / right also turns around the ship).
 - **Battle speed** up to 4x: tap Z during a battle.
-- **Options:** random encounter rate (off to 4x), EXP / gold / magic EXP (off to 4x), and Invincible
-  (press L3 or R3 to toggle).
+- **Options:** random encounter rate (off to 4x), Hold B for no random battles, EXP / gold / magic
+  EXP (off to 4x), and Invincible (press L3 or R3 to toggle).
+- **Romhacks** that change the game's data, such as Maeson's rebalance: see below.
 - **Keyboard and button mapping:** play with the keyboard on Windows and Linux, and change any
   button or key (see *Controls*). On desktop, any controller you press is picked up without setup.
 - **Save states:** five slots, plus an auto-save every 10 minutes on the field (the newest three are
@@ -103,6 +104,23 @@ Texture packs made for Dolphin work, for example **Skies of Arcadia HD** by Bigh
 `.7z` or `.zip` you downloaded (on desktop, **Import a folder...** an unpacked one) and turns **HD
 textures** on; switch it there or in game. Only the pack's `GEA` textures are copied, without its
 optional extras. On Android, take the **PNG** download: phones can't load the DDS (BC7) one. **Remove** deletes the pack.
+
+### Romhacks
+
+A romhack of the game that changes its **data** plays like the original disc: patch your own disc
+image with the romhack's patch (DeltaPatcher for an `.xdelta`, Lunar IPS / Floating IPS for an
+`.ips`), then pick the patched image with **Select Disc** (Android: **Change Disc**). The launcher
+shows *modified* beside the game's name. Enemy and item stats, encounter tables, scripts, text,
+textures and models all count as data; so do the tables inside `main.dol`.
+
+A romhack that changes the game's **code** can't run on this port's recompiled code, and the import
+says so. One code change is recognised and replaced by an option of the port's own: the **hold B for
+no random encounters** patch (cleartonic's, also built into **Maeson's rebalance**, which therefore
+plays) becomes **Settings → Gameplay → Hold B**.
+
+A romhack keeps the disc ID, so its saves sit beside the original game's. Don't load a save state made
+with the original game into a romhack (or the other way round): a state brings back that game's item
+and magic tables. Memory card saves are fine as far as the romhack's author says so.
 
 ## Controls
 

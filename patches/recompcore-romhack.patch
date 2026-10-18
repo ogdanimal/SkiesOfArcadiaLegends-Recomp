@@ -1,0 +1,229 @@
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
+index aa8dfe262c..fc24490bf5 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
+@@ -45,7 +45,6 @@ import org.dolphinemu.dolphinemu.fragments.EmulationFragment
+ import org.dolphinemu.dolphinemu.utils.AfterDirectoryInitializationRunner
+ import org.dolphinemu.dolphinemu.utils.DirectoryInitialization
+ import java.io.File
+-import java.security.MessageDigest
+ 
+ /**
+  * The branded app's home screen (built with -PskiesBrand, which makes it the launcher activity and
+@@ -639,25 +638,14 @@ class SkiesLauncherActivity : FragmentActivity() {
+         if (!dol.isFile) return false
+         val stamp = Triple(dol.path, dol.length(), dol.lastModified())
+         if (stamp == gameReadyFor) return gameReadyResult
+-        gameReadyResult = hashMatches(dol)
++        // This app's build, or a romhack's data on its code (the patch tells them apart)
++        gameReadyResult = SkiesNative.dolMatches(
++            dol.path, File(bundledPatches(), SkiesNative.patchName(gameId)).path, dolSha256(gameId)
++        )
+         gameReadyFor = stamp
+         return gameReadyResult
+     }
+ 
+-    private fun hashMatches(dol: File): Boolean {
+-        val digest = MessageDigest.getInstance("SHA-256")
+-        dol.inputStream().use { input ->
+-            val buffer = ByteArray(1 shl 16)
+-            while (true) {
+-                val n = input.read(buffer)
+-                if (n < 0) break
+-                digest.update(buffer, 0, n)
+-            }
+-        }
+-        val sha = digest.digest().joinToString("") { "%02x".format(it) }
+-        return sha == dolSha256(gameId)
+-    }
+-
+     /** The newest save state the in-game menu or auto-save made (Continue), or null. */
+     private fun newestState(): File? =
+         File(userDirectory, "StateSaves").listFiles { file ->
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt
+index 9ea980293d..7a8fa8a738 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt
+@@ -73,6 +73,13 @@ object SkiesNative {
+     @JvmStatic
+     external fun repatch(gameRoot: String, patch: String, dolSha256: String): String
+ 
++    /**
++     * True if [dol] is the build [dolSha256] names, or a romhack's data on that build's code that
++     * [patch] (the region's DOL patch) made (tools/dol_patch.cpp DolMatchesPin).
++     */
++    @JvmStatic
++    external fun dolMatches(dol: String, patch: String, dolSha256: String): Boolean
++
+     /**
+      * Settings, Saves: imports a save the player already has (tools/save_import.cpp, the desktop
+      * launcher's code): a memory card save, a whole memory card image or a save state, told apart by
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+index bf228e0b69..0dcc8fda74 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+@@ -77,6 +77,7 @@ class SkiesSettingsPanel(
+         val REWARDS = choices(0 to "Off", 50 to "1/2", 100 to "Normal", 200 to "2x", 300 to "3x",
+             400 to "4x")
+         val INVINCIBLE = choices(1 to "On (L3 / R3)", 0 to "Off (L3 / R3)")
++        val HOLD_B = choices(0 to "Off", 1 to "No battles while held")
+         val MUSIC = choices(0 to "GameCube", 1 to "Dreamcast")
+         val LANGUAGE = choices(0 to "English", 1 to "Deutsch", 2 to "Français", 3 to "Español")
+         val VOLUME = (0..100 step 10).map { Choice(it, if (it == 0) "0% (muted)" else "$it%") }
+@@ -245,6 +246,8 @@ class SkiesSettingsPanel(
+                     "Plays battles faster. Tap Z during a battle to switch speeds.")
+                 configRow(rows, "Encounters", ENCOUNTERS, dolphin, "Skies", "Encounters", 100,
+                     "How often random battles happen. Off means none.")
++                configRow(rows, "Hold B", HOLD_B, dolphin, "Skies", "HoldB", 0,
++                    "While you hold B, on foot or sailing, no random battle starts.")
+                 configRow(rows, "EXP", REWARDS, dolphin, "Skies", "Exp", 100,
+                     "Experience from battles, for levelling up.")
+                 configRow(rows, "Gold", REWARDS, dolphin, "Skies", "Gold", 100,
+diff --git a/Source/Android/jni/SkiesImport.cpp b/Source/Android/jni/SkiesImport.cpp
+index 97c1d1c0d7..51118adb84 100644
+--- a/Source/Android/jni/SkiesImport.cpp
++++ b/Source/Android/jni/SkiesImport.cpp
+@@ -102,15 +102,21 @@ void SetStatus(std::string status)
+   s_status = std::move(status);
+ }
+ 
+-// Patches main.dol in place and checks the result. Returns "" or what went wrong.
++// Patches main.dol in place and checks the result: the build this app was made for, or a romhack's
++// data on that build's code (DolMatchesPin). Returns "" or what went wrong.
+ std::string PatchDol(const fs::path& dol, const fs::path& patch, const std::string& expected_sha256)
+ {
+   bool changed = false;
+   std::string error;
+-  if (!moderngekko::frontend::ApplyDolPatchManifest(dol, patch, &changed, &error))
++  moderngekko::frontend::DolPatchNotes notes;
++  if (!moderngekko::frontend::ApplyDolPatchManifest(dol, patch, &changed, &error, &notes))
++  {
++    if (notes.modified_code)
++      return "This disc's game code is modified (a romhack that changes code). This port takes "
++             "romhacks that change only the game's data.";
+     return "Patching main.dol failed: " + error;
+-  const std::optional<std::string> sha = moderngekko::Sha256File(dol);
+-  if (!sha || *sha != expected_sha256)
++  }
++  if (!moderngekko::frontend::DolMatchesPin(dol, patch, expected_sha256))
+     return "The patched main.dol isn't the build this app was made for.";
+   return "";
+ }
+@@ -285,6 +291,16 @@ JNIEXPORT jstring JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_patch
+   return ToJString(env, (region ? region : &REGIONS[0])->patch);
+ }
+ 
++// The launcher's check at every resume: main.dol is this app's build (or a romhack's data on it)
++JNIEXPORT jboolean JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_dolMatches(
++    JNIEnv* env, jclass, jstring dol, jstring patch, jstring dol_sha256)
++{
++  return moderngekko::frontend::DolMatchesPin(GetJString(env, dol), GetJString(env, patch),
++                                              GetJString(env, dol_sha256)) ?
++             JNI_TRUE :
++             JNI_FALSE;
++}
++
+ JNIEXPORT jstring JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_repatch(
+     JNIEnv* env, jclass, jstring game_root, jstring patch, jstring dol_sha256)
+ {
+diff --git a/Source/Core/Core/Config/SkiesSettings.cpp b/Source/Core/Core/Config/SkiesSettings.cpp
+index 31358097da..0e18a8f241 100644
+--- a/Source/Core/Core/Config/SkiesSettings.cpp
++++ b/Source/Core/Core/Config/SkiesSettings.cpp
+@@ -15,6 +15,7 @@ const Info<int> SKIES_GOLD{{System::Main, "Skies", "Gold"}, 100};
+ const Info<int> SKIES_MAGIC_EXP{{System::Main, "Skies", "MagicExp"}, 100};
+ const Info<int> SKIES_BATTLE_SPEED{{System::Main, "Skies", "BattleSpeed"}, 1};
+ const Info<int> SKIES_INVINCIBLE{{System::Main, "Skies", "Invincible"}, 0};
++const Info<int> SKIES_HOLD_B{{System::Main, "Skies", "HoldB"}, 0};
+ const Info<int> SKIES_AUTO_SAVE{{System::Main, "Skies", "AutoSave"}, 10};
+ const Info<int> SKIES_LANGUAGE{{System::Main, "Skies", "Language"}, 0};
+ const Info<int> SKIES_DC_MUSIC{{System::Main, "Skies", "DreamcastMusic"}, 0};
+diff --git a/Source/Core/Core/Config/SkiesSettings.h b/Source/Core/Core/Config/SkiesSettings.h
+index e7e098a212..62ff13ffaa 100644
+--- a/Source/Core/Core/Config/SkiesSettings.h
++++ b/Source/Core/Core/Config/SkiesSettings.h
+@@ -34,6 +34,9 @@ extern const Info<int> SKIES_BATTLE_SPEED;
+ // 1 = in battle the party's HP, MP and Spirit stay full and the party takes no damage; L3 or R3 (the
+ // real controller's stick clicks) toggles it.
+ extern const Info<int> SKIES_INVINCIBLE;
++// 1 = no random battle starts while controller 1's B is held, on foot or sailing (patches/game/qol.c;
++// what cleartonic's "hold B" romhack does, which the release undoes on import in favour of this).
++extern const Info<int> SKIES_HOLD_B;
+ // Minutes between auto-saves (save states in slots 6-8, the oldest overwritten; only on the field or
+ // world map, VideoCommon/SkiesMenu.cpp), 0 = off.
+ extern const Info<int> SKIES_AUTO_SAVE;
+diff --git a/Source/Core/VideoCommon/SkiesMenu.cpp b/Source/Core/VideoCommon/SkiesMenu.cpp
+index 7479cda34e..fba67ece14 100644
+--- a/Source/Core/VideoCommon/SkiesMenu.cpp
++++ b/Source/Core/VideoCommon/SkiesMenu.cpp
+@@ -99,6 +99,7 @@ enum class Option
+   Volume,
+   ShowFps,
+   Encounters,
++  HoldB,
+   Exp,
+   Gold,
+   MagicExp,
+@@ -116,8 +117,8 @@ constexpr std::array GRAPHICS_ROWS{Option::Picture,    Option::Hud,          Opt
+                                    Option::Resolution, Option::Antialiasing, Option::HdTextures,
+                                    Option::VSync,      Option::ShowFps};
+ constexpr std::array GAMEPLAY_ROWS{Option::Camera, Option::BattleSpeed, Option::Encounters,
+-                                   Option::Exp,    Option::Gold,        Option::MagicExp,
+-                                   Option::Invincible};
++                                   Option::HoldB,  Option::Exp,         Option::Gold,
++                                   Option::MagicExp, Option::Invincible};
+ constexpr std::array LANGUAGE_ROWS{Option::Language};
+ constexpr std::array SOUND_ROWS{Option::Volume, Option::Music};
+ constexpr std::array CONTROLS_ROWS{Option::Mapping, Option::DeadZone, Option::Rumble};
+@@ -169,6 +170,7 @@ struct Values
+   int msaa = 1;
+   int camera = 1;
+   int encounters = 100;
++  int hold_b = 0;  // no random battles while B is held
+   int exp = 100;
+   int gold = 100;
+   int magic_exp = 100;
+@@ -371,6 +373,7 @@ Values ReadValues()
+   values.msaa = static_cast<int>(Config::Get(Config::GFX_MSAA));
+   values.camera = Config::Get(Config::SKIES_CAMERA_CONTROL) != 0 ? 1 : 0;
+   values.encounters = Config::Get(Config::SKIES_ENCOUNTERS);
++  values.hold_b = Config::Get(Config::SKIES_HOLD_B) != 0 ? 1 : 0;
+   values.exp = Config::Get(Config::SKIES_EXP);
+   values.gold = Config::Get(Config::SKIES_GOLD);
+   values.magic_exp = Config::Get(Config::SKIES_MAGIC_EXP);
+@@ -431,6 +434,7 @@ void Apply(const Values& values, const Values& before)
+     }
+   };
+   set(Config::SKIES_ENCOUNTERS, values.encounters, before.encounters);
++  set(Config::SKIES_HOLD_B, values.hold_b, before.hold_b);
+   set(Config::SKIES_EXP, values.exp, before.exp);
+   set(Config::SKIES_GOLD, values.gold, before.gold);
+   set(Config::SKIES_MAGIC_EXP, values.magic_exp, before.magic_exp);
+@@ -626,6 +630,9 @@ void Change(Option option, int direction, bool wrap)
+   case Option::Encounters:
+     v.encounters = Step(ENCOUNTER_RATES, v.encounters, direction, wrap);
+     break;
++  case Option::HoldB:
++    v.hold_b = v.hold_b ? 0 : 1;
++    break;
+   case Option::Exp:
+     v.exp = Step(REWARD_RATES, v.exp, direction, wrap);
+     break;
+@@ -991,6 +998,7 @@ void Write(Memory::MemoryManager& memory)
+   const int invincible =
+       s_invincible_pending >= 0 ? s_invincible_pending : Config::Get(Config::SKIES_INVINCIBLE);
+   memory.Write_U32(invincible ? 1 : 0, INPUT + 24);
++  memory.Write_U32(Config::Get(Config::SKIES_HOLD_B) != 0 ? 1 : 0, INPUT + 28);
+ 
+   const bool hold = InBattle(memory) && speed >= 2;
+   if (hold != s_interpolation_held)
+@@ -1810,6 +1818,9 @@ void Draw(float scale)
+     case Option::Encounters:
+       return {"Encounters", RateText(v.encounters),
+               "How often random battles happen. Off means none."};
++    case Option::HoldB:
++      return {"Hold B", v.hold_b ? "No battles while held" : "Off",
++              "While you hold B, on foot or sailing, no random battle starts."};
+     case Option::Exp:
+       return {"EXP", RateText(v.exp), "Experience from battles, for levelling up."};
+     case Option::Gold:

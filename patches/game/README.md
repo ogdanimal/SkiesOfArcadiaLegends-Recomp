@@ -2,9 +2,9 @@
 
 Changes to the game itself, written in C (and a little assembly) and built into a copy of
 `main.dol` by `tools/gamepatch.py`. The shipping spec is `widescreen.json` (widescreen, camera
-control and the QOL options together); the current build is **ws24** (`build/game/GEAE8P-ws24`, DOL
-SHA-1 `0569daa3`, SHA-256 `c9da6ee4`; the European one `GEAP8P-ws24`, SHA-1 `bb683272`, SHA-256
-`16241d84`), and `release/skies-widescreen.dolpatch` (`skies-widescreen-eu.dolpatch`) turns a player's own
+control and the QOL options together); the current build is **ws25** (`build/game/GEAE8P-ws25`, DOL
+SHA-1 `f4293d72`, SHA-256 `31e43962`; the European one `GEAP8P-ws25`, SHA-1 `409d12c1`, SHA-256
+`54adb1a4`; ws25 = ws24 + Hold B, branch `romhack`), and `release/skies-widescreen.dolpatch` (`skies-widescreen-eu.dolpatch`) turns a player's own
 `main.dol` into it (`tools/mkdolpatch.py`). Because they're part of the DOL, the recompiled module runs them
 as ordinary game code: desktop and Android alike, with no mod loader and no runtime cost beyond the
 code itself. The research behind each one is in the decomp's `docs/` (`../SkiesOfArcadiaLegends-Decomp`).
@@ -46,21 +46,28 @@ the title's state table has rewritten handlers in slots 2 and 10-13 (the same 19
 
 ```sh
 tools/gamepatch.py patches/game/widescreen.json --dol <european disc>/sys/main.dol \
-  --out-root build/game/GEAP8P-ws24
+  --out-root build/game/GEAP8P-ws25
 ```
 
 ```sh
-tools/gamepatch.py patches/game/widescreen.json --out-root build/game/GEAE8P-ws24
-DOL=build/game/GEAE8P-ws24/sys/main.dol tools/module-llvm-win.sh llvm-pgo-ws24 \
+tools/gamepatch.py patches/game/widescreen.json --out-root build/game/GEAE8P-ws25
+DOL=build/game/GEAE8P-ws25/sys/main.dol tools/module-llvm-win.sh llvm-pgo-ws25 \
   --profile-use build/modules-llvm-pgo-gp/GEAE8P/pgo/merged.profdata      # Windows module
-NAME=ws24 tools/android-ws-build.sh                                       # Android module + APK
+NAME=ws25 tools/android-ws-build.sh                                       # Android module + APK
 python3 tools/mkdolpatch.py extracted/SkiesOfArcadiaLegends/sys/main.dol \
-  build/game/GEAE8P-ws24/sys/main.dol release/skies-widescreen.dolpatch   # release patch
+  build/game/GEAE8P-ws25/sys/main.dol release/skies-widescreen.dolpatch \
+  patches/game/GEAE8P.known                                               # release patch
 python3 tools/mkdolpatch.py <european disc>/sys/main.dol \
-  build/game/GEAP8P-ws24/sys/main.dol release/skies-widescreen-eu.dolpatch   # European release patch
+  build/game/GEAP8P-ws25/sys/main.dol release/skies-widescreen-eu.dolpatch   # European release patch
 ```
 
 The Android build picks up the European game from `DOL_EU` (default `build/game/GEAP8P-NAME/sys/main.dol`).
+
+`mkdolpatch.py` also writes both DOLs' code hashes (header and text sections) and the original bytes
+of any game data the patch changes (`data-original`; ws25: the battle action table's first entry), so
+the frontend can take a romhack that changes only the game's data (development notes, *Romhacks*);
+`patches/game/GEAE8P.known` lists romhacks' code changes the import undoes (`tools/dolknown.py`
+makes the lines from a romhacked `main.dol`).
 
 The release builds take the DOL's SHA-256 from the patch's `output-sha256` line
 (`tools/build-release-win.bat` and `build-release-linux.sh` since ws17, the Android app through
@@ -95,10 +102,15 @@ and a module built from the same DOL.
 | ws21 | `49979e26` (Europe `6d2620e5`) | the Dreamcast music hooks (`dcmusic.c`, `dcm_frame` called at the end of `qol_frame`); 663 call sites (Europe 685). Built 2026-10-17, never released |
 | ws22 | `ac40e5cf` (Europe `55ab3d55`) | `dcmusic.c`: the paused song tracked (its continue and stop posted), controller 7 as a table instead of ring events (`struct dcm_box` grew to 380 bytes). `fullwidth.S`: the ortho matrix's [0][0] through the spec's symbol `ws_ortho_m00` instead of a literal `0x8034` / `0x63C0`, which gamepatch doesn't translate: the European build's full-width wrappers wrote another word, so its screen-copy effects (the red alert room's pulse, afterimages) were drawn back squeezed, a double image in widescreen (the USA DOL is unchanged). Checked in game on WSL 2026-10-17 (both games); `release/skies-widescreen.dolpatch` (output `e58354e5`) and `release/skies-widescreen-eu.dolpatch` (`30904d88`) are ws22 since 2026-10-17; released in v0.10.0-beta |
 | ws23 | `271b1ccd` (Europe `2fb3e9d9`) | the first battle after a Continue from a card save crashed ("Invalid read from 0x00000004", ws20-ws22, both games): the direct load skipped the second logo, which loads 16 resident files into ARAM and lists them in a checksummed table (`fn_8022A854`, `lbl_803165C8`) that the battle's loading reads unchecked. `dl_title` now steps that loader to the end before the card; `qol_resident` (from `qol_frame`) steps it once a frame in the field when it never ran or the table's sum is wrong, with random encounters held back meanwhile, so states made in such a session work too. Checked on the Retroid 2026-10-17 (both games). `release/skies-widescreen.dolpatch` (output `018a9ffb`) and `skies-widescreen-eu.dolpatch` (`8b556a56`) were ws23 |
-| ws24 | `0569daa3` (Europe `bb683272`) | HUD placement: `ws_hud_aspect`, a float fixed at `0x80002E9C` (`.ws_hud` in `cave.ld`, outside `ws_config` so older states' variables don't move), read by the anchor scaling in `widescreen.c`: 0 = the HUD at the picture's edges (as ws23), an aspect = the HUD in a centred area of that shape (16:9, 21:9 as 64:27), below 0 = the original layout; the frontend writes it with the picture (`recompcore-hud.patch`, `[Skies] Hud`). The European address table got `0x80002E9C` (identity, like the other fixed addresses). `release/skies-widescreen.dolpatch` (output `c9da6ee4`) and `skies-widescreen-eu.dolpatch` (`16241d84`) are ws24 |
+| ws24 | `0569daa3` (Europe `bb683272`) | HUD placement: `ws_hud_aspect`, a float fixed at `0x80002E9C` (`.ws_hud` in `cave.ld`, outside `ws_config` so older states' variables don't move), read by the anchor scaling in `widescreen.c`: 0 = the HUD at the picture's edges (as ws23), an aspect = the HUD in a centred area of that shape (16:9, 21:9 as 64:27), below 0 = the original layout; the frontend writes it with the picture (`recompcore-hud.patch`, `[Skies] Hud`). The European address table got `0x80002E9C` (identity, like the other fixed addresses). `release/skies-widescreen.dolpatch` (output `c9da6ee4`) and `skies-widescreen-eu.dolpatch` (`16241d84`) were ws24 |
+| ws25 | `f4293d72` (Europe `409d12c1`) | Hold B (2026-10-18, romhacks): `qol_input.hold_b` (`0x80002EBC`, the struct's padding word until now, so no data moved) makes `qol_encounter_rand` act as Encounters Off while controller 1's B is held, read from the game's `PADStatus` buffer (`*0x8034763C`, Europe `*0x8034AD5C`: the pointer at `r13 - 0x70E4` / `- 0x7084` that the game swaps with a second buffer every frame); the frontend writes `[Skies] HoldB`. It stands in for cleartonic's hold-B romhack, whose code the import undoes (`GEAE8P.known`). The patches now carry code hashes and `data-original` (`tools/mkdolpatch.py`). `release/skies-widescreen.dolpatch` (output `31e43962`) and `skies-widescreen-eu.dolpatch` (`54adb1a4`) are ws25 |
 
 A module only matches the DOL it was built from: an unpatched module with a patched DOL (or the
-reverse) fails verification for the patched code and runs it in the interpreter. Savestates made
+reverse) fails verification for the patched code and runs it in the interpreter, but only where the
+runtime enters a chunk through the dispatcher: a chunk reached by a native call from another chunk
+isn't checked again, so a changed instruction there silently runs as the module's old code
+(2026-10-18: a romhack's one-word branch inside the encounter function never ran; development notes,
+*Romhacks*). Savestates made
 before a patch carry the old code; `recompcore-restore-boot-dol.patch` puts the boot DOL's code back
 when such a state is loaded. Don't test a patch change with a module from an earlier patched DOL: in one such run
 the new code most likely never ran, because the module's compiled callers came from the old DOL (NOTES *Widescreen*).

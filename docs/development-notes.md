@@ -756,6 +756,64 @@ European data.
   package carries both modules (`2436886`); the publish check knows both DOL hashes.
 - **Shipped** in v0.10.0-beta (2026-10-17, `61ac70e`).
 
+### Romhacks (2026-10-18, branch `romhack`)
+
+User request: play romhacks of the game, the first being **Maeson's rebalance** ("Skies of Arcadia:
+Legends Maeson" 1.51, romhacking.net 2859: enemies, equipment, magic, ship parts, EXP curves; an
+xdelta against the USA ISO, MD5 `3e7fa503...`, plus an optional 98-byte IPS, cleartonic's "hold B for no
+random encounters", romhacking.net 5314). Research and the first tests: `docs/handoffs/HANDOFF-romhacks.md`.
+
+**What a romhack can change, and what the module runs.** Files in `files/` are read from the
+extracted folder, and nothing pins them (`MODERNGEKKO_REQUIRED_ASSETS_SHA256` is empty), so a romhack's
+data files just work. `main.dol`'s data sections are read from RAM by the compiled code, so changed
+tables work too. Changed **code** doesn't: the module runs the code it was compiled from, and the
+runtime's SMC check only catches a changed chunk where it enters it through the dispatcher. Maeson's
+disc has the hold-B code built in (a one-word branch at `0x800C1FC8` in the encounter function and a
+cave made by rewriting the unrolled zero-fill at `0x800C88E4` as a loop): with the shipped ws22 module
+the runtime flagged the cave's chunk (`smc_failed=1`) but the branch's chunk is reached by native calls,
+so the old code ran and holding B changed nothing; a module compiled from the romhacked DOL ran it
+(no battle in 60 s with B held, twice; one after 15 s without; `smc_failed=0`).
+
+**What the release takes** (the user's choice, "options 1 + 2" of the handoff): a romhack whose
+`main.dol` has the original's code (header and text sections) and any data, patched with the release's
+own `.dolpatch`, on the release's module; and a few known romhack code changes, undone on import and
+replaced by an option of the release's own (Hold B). Anything else that changes code is refused at
+import with a message.
+
+- `tools/mkdolpatch.py` writes `input-size`, `input-code-sha256` and `output-code-sha256` (SHA-256 of
+  the 0x100-byte header and every text section in order: a change of layout changes it too),
+  `data-original` lines for the original game data the patch changes (ws25: three bytes, the battle
+  action table's first entry at `0x802DBB10`, `redirect_pointers`; Europe the same table) and the
+  `known-change` lines of `patches/game/GEAE8P.known` (checked against the original). An older
+  frontend never sees the new keys: the patch ships with its programs.
+- `tools/dol_patch.cpp`: a DOL that is neither the original nor the output is checked by its code
+  hash after undoing every known change whose bytes are all there (by name); the original's code
+  means the patch applies (after cutting the file back to the original's size, so the new sections
+  start clean), and the result must have the output's code hash; a romhack that changed a
+  `data-original` byte is refused (it would lose that change or break the patch); the output's code
+  hash with every run in place means already patched. `DolMatchesPin` is the release check: the
+  pinned whole-file SHA-256, or the patch that makes that build (its `output-sha256` is the pin) and
+  the same code with its runs in place. The pins (`MODERNGEKKO_REQUIRED_DOL_SHA256`, Android's
+  `skies_dol_sha256`) and every build script stay as they were.
+- Desktop: the runner and the launcher check through `DolMatchesPin`, the runner's log says
+  "main.dol: modified game data (a romhack)", and the launcher shows "Ready: Skies of Arcadia Legends
+  [GEAE8P, modified]". The launcher used to keep an existing import with the same disc ID ("Using
+  existing extraction", or with an earlier release's import, only `sys/` taken again): a romhack and its
+  original share the disc ID and can share the file table and the DOL too, so the disc picked is now
+  always extracted (3-7 s).
+- Android: `PatchDol` and the launcher's check at every resume (`SkiesNative.dolMatches`, which
+  replaced the activity's own SHA-256 of `main.dol`) go through the same code; a romhack that changes
+  code gets "This disc's game code is modified...".
+- **Hold B** (ws25, Settings → Gameplay, the in-game menu, Android Settings; `[Skies] HoldB`): no
+  random battle while controller 1's B is held, on foot or sailing, as cleartonic's patch; it reads the
+  game's own `PADStatus` buffer, so remapped controls count (`patches/game/README.md`, ws25).
+
+Not covered: romhacks of the European disc are taken the same way, but there's no known-change
+table for it (none found yet); a romhack keeps the disc ID, so its saves and save states share the
+folders with the original game's, and **a state made with the original game restores the original's
+DOL data** (item and magic tables) when loaded into the romhack, and the other way round
+(`RestoreBootDolCode` brings back code only). The player has to keep them apart for now.
+
 ### Live language switch (research, 2026-10-18)
 
 Static analysis of the European DOL (EU addresses; V = read in the disassembly, I = inference), for
