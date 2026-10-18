@@ -60,8 +60,11 @@ DOL (`54adb1a4`); `eu-10-worldmap-ws23.sav`: HoldB=1 + B no battle in 60 s, Hold
 **Not done yet:** a picker import on Android (the import shares `PatchDol` with the repatch tested
 here); ws25 European modules for Windows and Android with PGO (the Android EU module is built without
 a profile, as before); release modules through CI (`tools/ci-codegen.sh` needs nothing new: the
-patches carry everything); save states shared between a romhack and its original (see *Other
-points*); merging into `dev` and a release.
+patches carry everything); a release. Merged into `dev` 2026-10-18 (`0e16132`, fast-forward); then **save states per disc**
+(development notes, *Romhacks*): checked on WSL (a Maeson auto-save and an imported state in
+`StateSaves/romhack-4d5febec`, the USA and European originals in `StateSaves`), Windows (Import a save
+into the same folder) and the Retroid test app (auto-save there, Continue offers it; device put back
+as before).
 
 
 

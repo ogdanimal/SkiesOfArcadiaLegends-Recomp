@@ -17,7 +17,8 @@ def main():
         sys.exit("not a moderngekko-dol-file-patch 1 file")
     # Named lines (hashes, sizes, known romhack changes), then the runs (a hex offset and bytes)
     keys = ("input-sha256", "output-sha256", "output-size", "input-size", "input-code-sha256",
-            "output-code-sha256", "known-change", "data-original")
+            "output-code-sha256", "input-data-sha256", "input-fst-sha256", "known-change",
+            "data-original")
     header = dict(line.split(" ", 1) for line in lines[1:] if line.split(" ", 1)[0] in keys)
     runs = [line for line in lines[1:] if line and line.split(" ", 1)[0] not in keys]
     if hashlib.sha256(original).hexdigest() != header["input-sha256"]:

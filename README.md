@@ -199,9 +199,10 @@ says so. One code change is recognised and replaced by an option of the port's o
 no random encounters** patch (cleartonic's, also built into **Maeson's rebalance**, which therefore
 plays) becomes **Settings → Gameplay → Hold B**.
 
-A romhack keeps the disc ID, so its saves sit beside the original game's. Don't load a save state made
-with the original game into a romhack (or the other way round): a state brings back that game's item
-and magic tables. Memory card saves are fine as far as the romhack's author says so.
+A romhack's save states are kept apart from the original game's (a state brings back the game's
+item and magic tables, so they mustn't mix): Continue, the menu's slots and the auto-saves only see
+the disc you play. Its memory card saves sit beside the original game's (the romhack keeps the disc
+ID), which the romhack's author says is fine.
 
 ### GPU driver (Android)
 

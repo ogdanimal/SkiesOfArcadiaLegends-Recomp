@@ -813,11 +813,24 @@ module) and the Retroid (the debug test app): a Maeson import plays at 1.00x on 
 Hold B stops encounters only while B is held, a disc with changed code is refused; details in the
 handoff.
 
+**Save states per disc** (2026-10-18, after the merge): a state holds the DOL's data, so one made with
+the original game brought the original's item and magic tables into the romhack (and the other way
+round; `RestoreBootDolCode` brings back code only), and a romhack keeps the disc ID, so the game-ID
+check doesn't stop it. `RomhackTag(game_root, patch)` (`tools/dol_patch.cpp`): "" for the original
+disc, else 8 hex digits of SHA-256(data sections + `sys/fst.bin`), the data sections only those inside
+the original's size (the patch adds its own past the end) with the patch's `data-original` bytes put
+back, compared with the patch's `input-data-sha256` / `input-fst-sha256` (`mkdolpatch.py --fst`). A
+romhack's states live in `StateSaves/romhack-<tag>`: the runner passes it to the runtime
+(`RuntimeConfig::state_directory`, `File::SetUserPath(D_STATESAVES_IDX)`, so the in-game menu and
+auto-save use it), the launcher's Continue, state list and Import a save use it
+(`GameStateDirectory`, `SaveImportGame::state_directory`), and on Android the launcher activity calls
+`SkiesNative.useStateFolder` at every refresh (the process's state folder, and Continue's); Back up
+saves takes the romhack folders too. Memory card saves stay shared, as the romhack's author meant.
+Checked: Maeson's tag `4d5febec` on WSL, Windows and the Retroid (auto-save there, Continue offers it),
+the USA and European originals "" (states in `StateSaves`).
+
 Not covered: romhacks of the European disc are taken the same way, but there's no known-change
-table for it (none found yet); a romhack keeps the disc ID, so its saves and save states share the
-folders with the original game's, and **a state made with the original game restores the original's
-DOL data** (item and magic tables) when loaded into the romhack, and the other way round
-(`RestoreBootDolCode` brings back code only). The player has to keep them apart for now.
+table for it (none found yet).
 
 ### Live language switch (research, 2026-10-18)
 

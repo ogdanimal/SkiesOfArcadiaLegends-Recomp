@@ -1,5 +1,5 @@
 diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
-index aa8dfe262c..fc24490bf5 100644
+index aa8dfe262c..3559474be9 100644
 --- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
 +++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
 @@ -45,7 +45,6 @@ import org.dolphinemu.dolphinemu.fragments.EmulationFragment
@@ -10,7 +10,22 @@ index aa8dfe262c..fc24490bf5 100644
  
  /**
   * The branded app's home screen (built with -PskiesBrand, which makes it the launcher activity and
-@@ -639,25 +638,14 @@ class SkiesLauncherActivity : FragmentActivity() {
+@@ -483,9 +482,11 @@ class SkiesLauncherActivity : FragmentActivity() {
+                 File(region, "Card A").listFiles { f -> f.isFile && f.name.endsWith(".gci") }.orEmpty()
+                     .map { "GC/${region.name}/Card A/${it.name}" to it }
+             }
+-            val states = File(user, "StateSaves")
+-                .listFiles { f -> f.isFile && f.name.endsWith(".sav") && f.name != "lastState.sav" }.orEmpty()
+-                .map { "StateSaves/${it.name}" to it }
++            // romhacks' own folders included (StateSaves/romhack-<tag>)
++            val stateRoot = File(user, "StateSaves")
++            val states = stateRoot.walkTopDown()
++                .filter { f -> f.isFile && f.name.endsWith(".sav") && f.name != "lastState.sav" }
++                .map { "StateSaves/${it.relativeTo(stateRoot).invariantSeparatorsPath}" to it }.toList()
+             val result = try {
+                 if (cards.isEmpty() && states.isEmpty()) throw java.io.IOException("there are no saves yet")
+                 (contentResolver.openOutputStream(uri) ?: throw java.io.IOException("that place can't be written"))
+@@ -639,28 +640,20 @@ class SkiesLauncherActivity : FragmentActivity() {
          if (!dol.isFile) return false
          val stamp = Triple(dol.path, dol.length(), dol.lastModified())
          if (stamp == gameReadyFor) return gameReadyResult
@@ -36,15 +51,34 @@ index aa8dfe262c..fc24490bf5 100644
 -        val sha = digest.digest().joinToString("") { "%02x".format(it) }
 -        return sha == dolSha256(gameId)
 -    }
--
++    /** The game's save state folder: StateSaves, or a romhack's own (refresh() sets it). */
++    private var stateDirectory: File? = null
+ 
      /** The newest save state the in-game menu or auto-save made (Continue), or null. */
      private fun newestState(): File? =
-         File(userDirectory, "StateSaves").listFiles { file ->
+-        File(userDirectory, "StateSaves").listFiles { file ->
++        (stateDirectory ?: File(userDirectory, "StateSaves")).listFiles { file ->
+             file.isFile && file.name.endsWith(".sav") &&
+                 (file.name.startsWith("state-skies-") || file.name.startsWith("recovery-skies-"))
+         }?.maxByOrNull { it.lastModified() }
+@@ -737,6 +730,12 @@ class SkiesLauncherActivity : FragmentActivity() {
+                 dolSha256(id)
+             )
+         }
++        // A romhack keeps its save states apart from the original game's (a state brings back the
++        // game's data): Continue, the in-game menu and auto-save all use this folder
++        if (gameReady()) {
++            stateDirectory = File(SkiesNative.useStateFolder(gameRoot.absolutePath,
++                File(bundledPatches(), SkiesNative.patchName(gameId)).absolutePath))
++        }
+         if (gameReady() && org.dolphinemu.dolphinemu.NativeLibrary.IsRunning()) {
+             // The game still runs (paused) without its screen: a frontend relaunched the app with
+             // its task cleared. Continue brings it back; what boots or changes files closes it first.
 diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt
-index 9ea980293d..7a8fa8a738 100644
+index 9ea980293d..319ca5ff94 100644
 --- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt
 +++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt
-@@ -73,6 +73,13 @@ object SkiesNative {
+@@ -73,6 +73,20 @@ object SkiesNative {
      @JvmStatic
      external fun repatch(gameRoot: String, patch: String, dolSha256: String): String
  
@@ -54,6 +88,13 @@ index 9ea980293d..7a8fa8a738 100644
 +     */
 +    @JvmStatic
 +    external fun dolMatches(dol: String, patch: String, dolSha256: String): Boolean
++
++    /**
++     * The save state folder for the game in [gameRoot]: StateSaves, or a romhack's own
++     * (StateSaves/romhack-<tag>), made Dolphin's state folder for this process. Returns its path.
++     */
++    @JvmStatic
++    external fun useStateFolder(gameRoot: String, patch: String): String
 +
      /**
       * Settings, Saves: imports a save the player already has (tools/save_import.cpp, the desktop
@@ -80,7 +121,7 @@ index bf228e0b69..0dcc8fda74 100644
                      "Experience from battles, for levelling up.")
                  configRow(rows, "Gold", REWARDS, dolphin, "Skies", "Gold", 100,
 diff --git a/Source/Android/jni/SkiesImport.cpp b/Source/Android/jni/SkiesImport.cpp
-index 97c1d1c0d7..51118adb84 100644
+index 97c1d1c0d7..3158db2717 100644
 --- a/Source/Android/jni/SkiesImport.cpp
 +++ b/Source/Android/jni/SkiesImport.cpp
 @@ -102,15 +102,21 @@ void SetStatus(std::string status)
@@ -109,10 +150,40 @@ index 97c1d1c0d7..51118adb84 100644
      return "The patched main.dol isn't the build this app was made for.";
    return "";
  }
-@@ -285,6 +291,16 @@ JNIEXPORT jstring JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_patch
+@@ -256,8 +262,12 @@ std::string ImportDisc(const std::string& image, const fs::path& games_directory
+ // SaveGame); for the game imported in the user directory.
+ moderngekko::frontend::SaveImportGame SkiesSaves(const fs::path& user_directory)
+ {
+-  return {InstalledRegion(user_directory).id, "Skies of Arcadia Legends", "state-skies-import-", 3,
+-          "SA_LEGENDS."};
++  moderngekko::frontend::SaveImportGame game{InstalledRegion(user_directory).id,
++                                             "Skies of Arcadia Legends", "state-skies-import-", 3,
++                                             "SA_LEGENDS."};
++  // The game's state folder, a romhack's own (SkiesNative.useStateFolder sets it)
++  game.state_directory = File::GetUserPath(D_STATESAVES_IDX);
++  return game;
+ }
+ }  // namespace
+ 
+@@ -285,6 +295,31 @@ JNIEXPORT jstring JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_patch
    return ToJString(env, (region ? region : &REGIONS[0])->patch);
  }
  
++// The game's save state folder (StateSaves, or a romhack's own: tools/dol_patch.hpp RomhackTag),
++// made Dolphin's for this process, so the in-game menu and auto-save use it; returns it.
++JNIEXPORT jstring JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_useStateFolder(
++    JNIEnv* env, jclass, jstring game_root, jstring patch)
++{
++  const fs::path folder = moderngekko::frontend::StateDirectory(
++      StringToPath(File::GetUserPath(D_USER_IDX)),
++      moderngekko::frontend::RomhackTag(StringToPath(GetJString(env, game_root)),
++                                        StringToPath(GetJString(env, patch))));
++  std::error_code ec;
++  fs::create_directories(folder, ec);
++  File::SetUserPath(D_STATESAVES_IDX, PathToString(folder));
++  return ToJString(env, PathToString(folder));
++}
++
 +// The launcher's check at every resume: main.dol is this app's build (or a romhack's data on it)
 +JNIEXPORT jboolean JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_dolMatches(
 +    JNIEnv* env, jclass, jstring dol, jstring patch, jstring dol_sha256)
