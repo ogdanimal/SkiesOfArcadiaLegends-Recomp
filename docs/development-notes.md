@@ -439,6 +439,17 @@ release: the tag's, `-PskiesVersionName`) (Dolphin's commit-count version was th
 Radikal kept the cached icon). On every start it makes sure controller 1's profile uses Android's input
 names (`SkiesNative.ensurePadProfile`).
 
+### A missing game module (2026-10-17 night)
+
+Without `g<ID>_recomp.dll` beside the runner (or in the user folder's `StaticRecompModules`) the
+runtime failed with "no native module was supplied; use allow_interpreter explicitly" and the
+launcher said only "The game process exited with code 1" (seen with a dev build folder; for players:
+a partly extracted zip or antivirus). The runner now shows "Game files missing" naming the file and
+the folder, and exits with 20 (`RUNNER_EXIT_EXPLAINED`), which the earlier-release DOL message uses
+too; the launcher shows nothing more for 20. `--headless` prints the line without a box (WSLg shows
+no SDL message box, and the box would block a script). Checked on Windows (box captured, exit 20) and
+Linux headless (exit 20).
+
 ### Slower devices and GPU drivers (2026-10-11)
 
 - **60 fps below full speed:** `slowprompt` in `SkiesMenu.cpp` (all platforms): with Frame rate at

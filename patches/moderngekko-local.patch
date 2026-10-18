@@ -1093,10 +1093,22 @@ index 03740d4..f0eea3e 100644
    config.show_fps_in_title = show_fps_in_title;
    config.controller = controller;
 diff --git a/tools/frontend_config.hpp b/tools/frontend_config.hpp
-index 3b18d05..7998f2c 100644
+index 3b18d05..8d48022 100644
 --- a/tools/frontend_config.hpp
 +++ b/tools/frontend_config.hpp
-@@ -25,6 +25,8 @@ struct ConfigResult {
+@@ -8,6 +8,11 @@
+ #include <vector>
+ 
+ namespace moderngekko::frontend {
++// The runner's exit code after it has told the player what went wrong in its own message box (a
++// missing game module, a game imported by an earlier release); the launcher then shows no second,
++// vaguer one.
++constexpr int RUNNER_EXIT_EXPLAINED = 20;
++
+ struct ResolutionOption {
+   const char *text;
+   int dolphin_scale;
+@@ -25,6 +30,8 @@ struct ConfigResult {
    std::string controller;
    std::vector<std::string> controllers;
    bool show_fps_in_title = true;
@@ -1760,7 +1772,7 @@ index 0000000..f3c3d14
 +void DrawMapping(State& state, const fs::path& user_directory, float scale);
 +}  // namespace moderngekko::launcher_controls
 diff --git a/tools/moderngekko_launcher.cpp b/tools/moderngekko_launcher.cpp
-index 7699c3d..2c56639 100644
+index 7699c3d..86df42d 100644
 --- a/tools/moderngekko_launcher.cpp
 +++ b/tools/moderngekko_launcher.cpp
 @@ -1,12 +1,22 @@
@@ -3517,7 +3529,7 @@ index 7699c3d..2c56639 100644
 +      {
 +        ImGui::SetNextItemWidth(180 * scale);
 +        ImGui::SliderInt("Buffer frames", &manual_buffer, 1, 20);
-+      }
+       }
 +    };
 +    const auto disc_section = [&]
 +    {
@@ -3556,7 +3568,7 @@ index 7699c3d..2c56639 100644
 +          ImGui::ProgressBar(progress, ImVec2(440.0f * ui_scale, 0));
 +        }
 +        return;
-       }
++      }
 +      ImGui::Spacing();
 +      ImGui::TextUnformatted("Game disc image");
 +      if (selected_image)
@@ -3615,9 +3627,7 @@ index 7699c3d..2c56639 100644
 +      row_label("Your saves");
 +      std::string_view lines = saves_text;
 +      for (bool first = true; !lines.empty(); first = false)
-       {
--        const bool selected = controller_index == static_cast<int>(i);
--        if (ImGui::Selectable(controllers[i].label.c_str(), selected))
++      {
 +        const std::size_t end = std::min(lines.find('\n'), lines.size());
 +        if (!first)
 +          control_column();
@@ -3630,7 +3640,9 @@ index 7699c3d..2c56639 100644
 +      ImGui::PushTextWrapPos(ImGui::GetContentRegionMax().x);
 +      ImGui::TextDisabled("%s", card_folder.c_str());
 +      if (!save_import.message.empty())
-+      {
+       {
+-        const bool selected = controller_index == static_cast<int>(i);
+-        if (ImGui::Selectable(controllers[i].label.c_str(), selected))
 +        ImGui::Spacing();
 +        control_column();
 +        ImGui::TextColored(save_import.ok ? LAUNCHER_ACCENT : ImVec4(1.0f, 0.45f, 0.4f, 1.0f), "%s",
@@ -3681,10 +3693,6 @@ index 7699c3d..2c56639 100644
 +        if (ImGui::Button("Cancel") || (!ImGui::IsAnyItemActive() &&
 +                                        (ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
 +                                         ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false))))
-+        {
-+          close = true;
-+        }
-+        if (close)
          {
 -          controller_index = static_cast<int>(i);
 -          selected_controller = controllers[i].device;
@@ -3692,11 +3700,15 @@ index 7699c3d..2c56639 100644
 -              controller_profile_exists
 -                  ? "Existing " + std::string(CONTROLLER_PROFILE_NAME) + " unchanged"
 -                  : "Ready to generate controller profile";
-+          save_prompt_open = false;
-+          ImGui::CloseCurrentPopup();
++          close = true;
          }
 -        if (selected)
 -          ImGui::SetItemDefaultFocus();
++        if (close)
++        {
++          save_prompt_open = false;
++          ImGui::CloseCurrentPopup();
++        }
 +        ImGui::EndPopup();
        }
 -      ImGui::EndCombo();
@@ -3815,7 +3827,10 @@ index 7699c3d..2c56639 100644
 +        if (WritePadOptions(user_directory, keys, *picked * scale_to_ini, &error))
 +          *value = *picked;
 +        else
-+        {
+         {
+-          extraction.completed = 0;
+-          extraction.total = 1;
+-          extraction.running = true;
 +          std::lock_guard lock(dialog.mutex);
 +          dialog.error = std::move(error);
 +        }
@@ -3904,10 +3919,7 @@ index 7699c3d..2c56639 100644
 +                                 static_cast<int>(std::size(DC_FILTERS)), documents.c_str(), false);
 +        }
 +        if (!described.empty())
-         {
--          extraction.completed = 0;
--          extraction.total = 1;
--          extraction.running = true;
++        {
 +          ImGui::SameLine();
 +          if (ImGui::Button("Remove"))
            {
@@ -4410,7 +4422,21 @@ index 7699c3d..2c56639 100644
        SDL_IOStream* log_stream =
            log_error ? nullptr : SDL_IOFromFile(log_path.string().c_str(), "w");
        SDL_Process* process = nullptr;
-@@ -1263,6 +2958,8 @@ int main(int argc, char** argv)
+@@ -1205,7 +2900,12 @@ int main(int argc, char** argv)
+         int exit_code = 1;
+         const bool waited = SDL_WaitProcess(process, true, &exit_code);
+         SDL_DestroyProcess(process);
+-        if (!waited || exit_code != 0)
++        if (waited && exit_code == moderngekko::frontend::RUNNER_EXIT_EXPLAINED)
++        {
++          SDL_ShowWindow(window);  // the runner already showed the player why
++          result = 1;
++        }
++        else if (!waited || exit_code != 0)
+         {
+           SDL_ShowWindow(window);
+           if (!waited)
+@@ -1263,6 +2963,8 @@ int main(int argc, char** argv)
      }
    }
  
@@ -4464,7 +4490,7 @@ index af1c2a5..1a61395 100644
                 "       moderngekko-port pgo-run <game-root> [--backend c|llvm] [--toolchain auto|clang] [--opt-level 0-3]\n"
                 "               [--output path] [--profile-dir path] [--llvm-profdata path] [--keep-work]\n"
 diff --git a/tools/moderngekko_run.cpp b/tools/moderngekko_run.cpp
-index d6b3569..370f310 100644
+index d6b3569..338c761 100644
 --- a/tools/moderngekko_run.cpp
 +++ b/tools/moderngekko_run.cpp
 @@ -4,8 +4,10 @@
@@ -4639,7 +4665,7 @@ index d6b3569..370f310 100644
 +          "This game was imported by an earlier version. Open the launcher and choose Select Disc "
 +          "with the same disc image to update it. Your saves and settings are kept.",
 +          nullptr);
-+      return 2;
++      return moderngekko::frontend::RUNNER_EXIT_EXPLAINED;
 +    }
 +    if (dol_changed)
 +      std::cout << "Applied native DOL patches\n";
@@ -4691,7 +4717,43 @@ index d6b3569..370f310 100644
  #ifdef MODERNGEKKO_REQUIRED_REL_SHA256
    if (inspected.metadata->rel_sha256 != MODERNGEKKO_REQUIRED_REL_SHA256) {
      std::cerr << "unsupported _Main.rel: this release requires its pinned game build\n";
-@@ -385,6 +498,8 @@ int RunMain(int argc, char **argv) {
+@@ -314,12 +427,12 @@ int RunMain(int argc, char **argv) {
+ #endif
+ 
+   // Compatibility discovery belongs to the runner, never the runtime library.
++  const std::string module_name =
++      "g" + inspected.metadata->disc_id + "_recomp" + LibrarySuffix();
+   if (module_path.empty()) {
+     if (const char *env = std::getenv("STATICRECOMP_MODULE"))
+       module_path = env;
+     else {
+-      const std::string module_name =
+-          "g" + inspected.metadata->disc_id + "_recomp" + LibrarySuffix();
+       const auto bundled = executable_directory / module_name;
+       const auto user_module =
+           config.user_directory / "StaticRecompModules" / module_name;
+@@ -329,6 +442,20 @@ int RunMain(int argc, char **argv) {
+         module_path = user_module;
+     }
+   }
++  if (module_path.empty() && !config.allow_interpreter) {
++    // The release ships the module beside this program; without it the runtime only says "no
++    // native module was supplied". Usually a partly extracted download, or antivirus.
++    std::cerr << "game module missing: " << module_name << " is not in "
++              << executable_directory.string() << '\n';
++    const std::string message =
++        module_name + " is missing from the game's folder:\n" + executable_directory.string() +
++        "\n\nExtract the whole download again, keeping its files together. If the file goes "
++        "missing again, your antivirus may have removed it.";
++    if (!config.headless)
++      SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Game files missing", message.c_str(),
++                               nullptr);
++    return moderngekko::frontend::RUNNER_EXIT_EXPLAINED;
++  }
+   if (!module_path.empty())
+     config.module =
+         moderngekko::ModuleSource::DynamicPath(std::move(module_path));
+@@ -385,6 +512,8 @@ int RunMain(int argc, char **argv) {
          std::move(config), std::move(frontend_config), std::move(options));
    }
  
@@ -4700,7 +4762,7 @@ index d6b3569..370f310 100644
    auto created = moderngekko::Runtime::Create(std::move(config));
    if (!created) {
      std::cerr << "initialization failed: " << created.error->message << '\n';
-@@ -409,6 +524,29 @@ int RunMain(int argc, char **argv) {
+@@ -409,6 +538,29 @@ int RunMain(int argc, char **argv) {
    signal_watcher.request_stop();
    if (result.error) {
      std::cerr << "runtime failed: " << result.error->message << '\n';
