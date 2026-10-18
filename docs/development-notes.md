@@ -1535,6 +1535,10 @@ from players at 3840x2160 on 0.10.0-beta:
   monitor) and sets `render_surface_scale` to DPI / 96 so on-screen messages keep their size. Checked
   against the 0.10.0 package at 150%: window DPI 144 instead of 96, sharp menu text at the same size,
   the same windowed size on screen.
+- **Linux has none of this.** `PlatformX11` already applied Fullscreen at start (upstream did that one),
+  and fullscreen is a `_NET_WM_STATE_FULLSCREEN` request (`UICommon/X11Utils.cpp`): the window manager
+  sizes the window, and X11 has no client-edge style to leave behind. Seen only on WSLg, not on a Linux
+  desktop or a Steam Deck.
 
 ### Status (2026-10-05): full speed at 3× with a clang-built C module
 
@@ -1926,6 +1930,9 @@ The exact commands are in [handoffs/HANDOFF-android.md](handoffs/HANDOFF-android
   from WSL with `cmd.exe` (Windows display scaling 150%) drew the game at 1536 x 871 inside a
   2304 x 1306 window, the rest black; the window reports DPI-unaware. The user's earlier window filled
   normally. Cause not looked into (window resize or maximise with a DPI-unaware window, most likely).
+  Probably gone since `b9f0157` (*The game window: fullscreen and display scaling*): 1536/2304 and
+  871/1306 are both 1/1.5, the 150% scale, and the runner is per-monitor DPI aware now. Not retried with
+  the 2026-10-07 setup.
 
 - `--headless` aborts in Dolphin's ImGui OSD ("No current context"): a ModernGekko bug, not the game.
 - `--graphics OGL` needs the EGL build and then renders wrong (see *Rendering on WSL*).

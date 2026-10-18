@@ -18,6 +18,11 @@ Two local commits on `dev` for the next release (players' reports on 0.10.0-beta
   and `render_surface_scale` = DPI / 96 for on-screen messages. Checked at 3840x2160 / 150% against
   the 0.10.0 package: boots fullscreen, client 3840x2160, window DPI 144 (was 96), sharp menu text at
   the same size, windowed outer size unchanged (2334x1401). `WM_DPICHANGED` untested (one monitor).
+  The user saw the border again late 2026-10-17 in the 0.10.0 package (expected: fix not released);
+  the build to compare against is `C:\dev\SkiesInput\lib\ModernGekko\build-release\Skies of Arcadia Legends.exe`.
+  Linux doesn't need the patch: `PlatformX11` applies Fullscreen at start already and asks the window
+  manager for `_NET_WM_STATE_FULLSCREEN`, with no edge style; seen only on WSLg (development-notes
+  *The game window*).
 - `0e3a0cf`, controllers (HANDOFF-input *Steam Controller*): launcher names pads as the game does,
   pad navigation on the home menu, profiles without controller bindings filled.
 
