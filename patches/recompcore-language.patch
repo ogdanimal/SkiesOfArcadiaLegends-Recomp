@@ -121,7 +121,7 @@ index 26e0d5c728..97c1d1c0d7 100644
 +}
  }
 diff --git a/Source/Core/VideoCommon/SkiesMenu.cpp b/Source/Core/VideoCommon/SkiesMenu.cpp
-index d25ea0d4e9..dde2380ef7 100644
+index d25ea0d4e9..7479cda34e 100644
 --- a/Source/Core/VideoCommon/SkiesMenu.cpp
 +++ b/Source/Core/VideoCommon/SkiesMenu.cpp
 @@ -6,6 +6,7 @@
@@ -293,6 +293,15 @@ index d25ea0d4e9..dde2380ef7 100644
      tab = s_tab;
      selected = s_selected;
      save_slot = s_save_slot;
+@@ -1710,7 +1762,7 @@ void Draw(float scale)
+               "Left / Right picks a slot, A saves to it."};
+     case Option::LoadState:
+       return {"Load state",
+-              load_confirm   ? std::string("Press A again to load") :
++              load_confirm   ? "Press " + keys.a + " again to load" :
+               load_slot == 0 ? fmt::format("Auto-save   {}", load_time) :
+                                fmt::format("Slot {}   {}", load_slot, load_time),
+               "Left / Right picks a slot or the newest auto-save, A twice loads it."};
 @@ -1814,10 +1866,16 @@ void Draw(float scale)
                                                              "Espa\xc3\xb1ol"};
        if (!IsEurope())
@@ -301,14 +310,14 @@ index d25ea0d4e9..dde2380ef7 100644
 +        return {"Language", LANGUAGES[v.language],
 +                "The game's text. The European disc has English, German, French and Spanish."};
 +      if (restart_confirm)
-+        return {"Language", "Press A again to restart",
++        return {"Language", "Press " + keys.a + " again to restart",
 +                "The game starts again at its title screen: play since your last save is lost."};
        return {"Language", LANGUAGES[v.language],
 -              v.language == opened_language ?
 -                  "The game's text. The European disc has English, German, French and Spanish." :
 -                  "Changes when the game next starts."};
-+              can_restart ? "A restarts the game in it now; otherwise it changes when the game "
-+                            "next starts." :
++              can_restart ? "Restart the game to use it now, or it changes when the game next "
++                            "starts." :
 +                            "Changes when the game next starts."};
      }
      }
