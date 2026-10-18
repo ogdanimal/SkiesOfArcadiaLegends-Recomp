@@ -1,0 +1,89 @@
+diff --git a/Source/Core/Core/SkiesBindings.cpp b/Source/Core/Core/SkiesBindings.cpp
+index cac8fd9512..cd0c55573d 100644
+--- a/Source/Core/Core/SkiesBindings.cpp
++++ b/Source/Core/Core/SkiesBindings.cpp
+@@ -333,6 +333,26 @@ bool IsKeyboardSource(std::string_view source)
+   return source == "DInput" || source == "XInput2" || source == "Quartz";
+ }
+ 
++std::string DeviceLabel(std::string_view name)
++{
++  if (!name.starts_with('#'))
++    return std::string(name);
++  // The key's last part, split into words where a capital follows a lower-case letter or digit
++  std::string_view key = name.substr(1);
++  if (const std::size_t underscore = key.rfind('_'); underscore != std::string_view::npos)
++    key = key.substr(underscore + 1);
++  std::string label;
++  for (std::size_t i = 0; i < key.size(); ++i)
++  {
++    const unsigned char c = static_cast<unsigned char>(key[i]);
++    const unsigned char before = i > 0 ? static_cast<unsigned char>(key[i - 1]) : 0;
++    if (std::isupper(c) && (std::islower(before) || std::isdigit(before)))
++      label += ' ';
++    label += static_cast<char>(c);
++  }
++  return label.empty() ? std::string(name) : label;
++}
++
+ std::vector<Term> SplitExpression(std::string_view expression)
+ {
+   std::vector<Term> terms;
+diff --git a/Source/Core/Core/SkiesBindings.h b/Source/Core/Core/SkiesBindings.h
+index 579f4a1d11..298752e78d 100644
+--- a/Source/Core/Core/SkiesBindings.h
++++ b/Source/Core/Core/SkiesBindings.h
+@@ -69,6 +69,9 @@ std::string PlatformKeyName(const KeyName& key);
+ std::string DefaultKeyboardDevice();
+ // Sources of keyboard devices: DInput, XInput2, Quartz (and Android keyboards, found by their keys)
+ bool IsKeyboardSource(std::string_view source);
++// How a controller's name is shown. Steam names its virtual gamepads after a translation key it
++// leaves untranslated ("#SettingsController_SteamController"): that reads "Steam Controller".
++std::string DeviceLabel(std::string_view name);
+ 
+ // One part of an expression, split at its top-level "|"
+ struct Term
+diff --git a/Source/Core/Core/SkiesInput.cpp b/Source/Core/Core/SkiesInput.cpp
+index 96e2122785..c1dcbd5a32 100644
+--- a/Source/Core/Core/SkiesInput.cpp
++++ b/Source/Core/Core/SkiesInput.cpp
+@@ -366,6 +366,22 @@ bool UpdateKeyboard()
+   return MoveKeyboardBindings(keyboard->GetQualifiedName()) || changed;
+ }
+ 
++// A profile with no controller binding at all (an empty file, or one with only the keyboard's) gets
++// the controller's layout: controller 1 moves to a controller, which would otherwise do nothing.
++// Buttons a player cleared stay cleared (the controller's A and B can't be). Under the state lock.
++bool ControllerLayoutIfNone()
++{
++  for (const SkiesBindings::Input& input : SkiesBindings::Inputs())
++  {
++    if (std::string_view(input.section) == SkiesBindings::PAD_SECTION &&
++        !SkiesBindings::SlotControl(Expression(input), Slot::Controller).empty())
++      return false;
++  }
++  AddDefaults(Slot::Controller, false, nullptr);
++  NOTICE_LOG_FMT(CORE, "[skies] controller layout added (the profile had none)");
++  return true;
++}
++
+ // Controller 1 counts as connected without its device (Dolphin's "Always Connected"): otherwise the
+ // game sees no controller at all, keyboard included, while the controller is unplugged or before
+ // one has been. Under the state lock; true if it changed.
+@@ -412,6 +428,7 @@ void Setup()
+     changed = true;
+   }
+   changed |= UpdateKeyboard();
++  changed |= ControllerLayoutIfNone();
+   changed |= AlwaysConnected();
+   if (changed)
+     Save();
+@@ -432,7 +449,7 @@ void SwitchTo(const std::shared_ptr<ciface::Core::Device>& device)
+     Save();
+   }
+   NOTICE_LOG_FMT(CORE, "[skies] controller 1 is now {}", name);
+-  OSD::AddMessage(fmt::format("Controller: {}", device->GetName()), 2500);
++  OSD::AddMessage(fmt::format("Controller: {}", SkiesBindings::DeviceLabel(device->GetName())), 2500);
+ }
+ 
+ // Controller 1 follows the controller in use, and a keyboard that turns up gets its bindings
