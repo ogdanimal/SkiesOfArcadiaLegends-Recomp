@@ -1067,8 +1067,13 @@ Checked 2026-10-17 night (USA ws22, no ultrawide monitor here):
   the world map's cloud wall edge shows, and the attract cutscene's palace has a black void past the
   right of the 21:9 area (at 3440x1440 it starts at the edge). 21:9 was clean elsewhere.
 - Sharpness: the 640-wide EFB is stretched across the width; 3440 pixels wide needs about 5x for full
-  horizontal detail (3x is soft). Untested: Android (no wide device; the Retroid is 16:9, where Match
-  screen equals 16:9).
+  horizontal detail (3x is soft).
+- Android (Retroid, debug test app `skies-ws23ms-2026-10-17.apk`, ws23 modules): Match screen at the
+  native 1920x1080 gives 1.778; `adb shell wm size 1080x2400` (a 20:9 phone) gives 2.222 live, the
+  picture fills 2400x1080 at full speed (100%, 59.8 fps), minimap at the edge; `wm size reset` back to
+  1.778. The in-game menu's Picture row shows "Match screen" and steps to the others. (Automation pad:
+  `press:z=1 wait:0.6 press:z=1,start=1` opens the menu; a `tap:start` after `press:z` doesn't.) The
+  branded app's Settings row (Kotlin) is compiled in but not looked at.
 
 ### Widescreen 4:3 setting: identical to the unpatched game (2026-10-10 night, DOL `7cb9de68`, `GEAE8P-ws10`)
 
