@@ -11,9 +11,20 @@
   `build/android/apk/skies-ws22-2026-10-17.apk`, `tools/bench-android.sh`, two rounds: red alert
   1.004 / 1.004, world map 1.007 / 1.006, first battle 1.003 / 1.003, ship field 1.004 / 1.004,
   59.8-59.9 fps; `build/android/bench/ws22-60fps-r{1,2}`).
-- **Not measured: the European game's speed** (no European PGO profile). A debug APK with both modules
-  is built, `build/android/apk/skies-ws22eu-2026-10-17.apk`, not run. Also untried on a device:
-  Settings → Sound → Import a Dreamcast disc (CHD) and a European disc import.
+- **European speed (2026-10-17 evening): misses 60 fps without a profile.** `skies-ws22eu-2026-10-17.apk`
+  on the debug test app, European game in `files/Games/GEAP8P` (ISOPath1 in `Config/Dolphin.ini`;
+  `Dolphin.ini.pre-eu` is the old one; open the app's game list once so it rescans), boot link
+  `dolphinemu://app/play/0/GEAP8P`: `eu-17-ship-battle-baltor` 0.930 / 0.930 (55.3 fps, two fresh
+  boots), the USA `17-ship-battle-baltor` on the same APK 1.003 (`build/android/bench/ws22eu-r{1,2}`).
+  Picture right. Next: a European Android profile (`pgo/android-eu.profdata`, trained on the device).
+  Only one European state exists, so training needs more European states first. Still untried on a
+  device: Settings → Sound → Import a Dreamcast disc (CHD) and a European disc import (release app).
+- **ws23 (2026-10-17 night):** the debug test app runs `skies-ws23-2026-10-17.apk` with the ws23 DOLs in
+  both game folders (`sys/main.dol.ws22` beside them). European states `eu-05-pirate-base`,
+  `eu-07-red-alarm`, `eu-10-worldmap` (card saves 3 / 1 / 2 through `[Skies] AutoLoadCard`, one shot)
+  were made under ws22 and carry the empty resident table; ws23 repairs it in ~1 s after loading
+  (development-notes *Memory card auto-load*). `tools/android-ws-build.sh` with `JNILIBS` set to its
+  own `jniLibs-NAME` deletes it before copying: use another folder.
 - **The Retroid** runs the **0.9.1 release app** with the user's data (0.10.0-beta not installed
   there yet; ask before updating it) and the debug test app with the ws22 APK.
 - **Input (0.10.0-beta; HANDOFF-input.md, NOTES *Keyboard and button mapping*):** Select opens and closes

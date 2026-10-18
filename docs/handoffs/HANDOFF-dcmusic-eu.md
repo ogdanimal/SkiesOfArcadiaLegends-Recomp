@@ -57,8 +57,9 @@ synced 2026-10-17: the branded release (`lib\ModernGekko\build-release`, `REGION
 
 ## Open (after v0.10.0-beta)
 
-1. **European speed on the Retroid:** not measured (the European module has no PGO; the device
-   dropped off adb). `build/android/apk/skies-ws22eu-2026-10-17.apk` (debug test app, both modules)
+1. **European speed on the Retroid:** measured 2026-10-17 evening, **0.93 (55 fps)** in the
+   European ship battle against 1.003 for the USA one on the same APK (HANDOFF-android.md, top), so a
+   European Android profile is needed. `build/android/apk/skies-ws22eu-2026-10-17.apk` (debug test app, both modules)
    is built for it, or the release APK once the user updates the Retroid. Ask before using the
    device. If it misses 60 fps: a European Android profile (`pgo/android-eu.profdata` in the secrets
    repo, trained on the device), and a desktop one with `tools/pgo-wsl.sh` on the European DOL.

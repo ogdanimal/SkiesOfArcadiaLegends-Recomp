@@ -471,6 +471,23 @@ map `0x65`; RAM after the direct load identical to a load through the title and 
 uptime counter `lbl_803474A4`; a missing file 7 -> status 3 error 1, intro and title. Retroid (ws20
 APK): Continue from file 5 into the field, user-confirmed.
 
+**The first battle after it crashed (ws20-ws22, fixed in ws23, 2026-10-17).** The second logo (title
+state 4) also loads 16 resident files into ARAM and lists them in a checksummed table (`fn_8022A854`,
+table `lbl_803165C8`; decomp `docs/ui.md` *The logos also load the resident files*); the battle's
+loading looks entries 0 and 3 up and reads `+4` from them unchecked. Without the logos the table
+stayed empty, so the first battle after a Continue from a card save stopped on "Invalid read from
+0x00000004" (USA PC `0x801D67F0`, European `0x801D7F20`) with a black screen, both games, every
+platform; save states made in such a session (auto-saves too) carried the empty table. The 10-12 RAM
+comparison above didn't show it. ws23: `dl_title` steps the loader until it's done before reading the
+card, as it waits for the font; `qol_frame` (`qol_resident`) steps it once a frame in the field
+whenever its state isn't 5 or the table's sum is wrong (only the loader writes the table), and
+`qol_encounter_rand` holds random encounters back until then, which repairs those states in about a
+second. A loop instead of a step a frame never ends (the reads complete on another thread). Checked on
+the Retroid (ws23 debug test app, both games): Continue from the world map save (card file 2) and fly
+into a random battle; the ws22-made `eu-10-worldmap.sav`, repaired in ~1 s, then a battle; a missing
+file 9 falls back to the intro with the loader done; a normal boot loads it once at the logo and the
+repair never runs.
+
 Before ws20 (2026-10-11 to 10-12) the runtime pressed the buttons: Start through the logos, Continue,
 slot A, the file, Yes, telling the screens apart by the game's task objects in the heap (task function
 `0x801D8DBC` New Game / Continue, `SaveLoadTask` `0x8019E248` steps 4 / 9 / 15 / 19). That took 30-40 s

@@ -37,6 +37,7 @@ extern void *fn_801E1C7C(u32 size);         /* heap alloc */
 extern void fn_801E17E0(void *p);           /* heap free */
 extern void fn_801D71BC(int on);            /* lbl_80347634: Z counts as Start */
 extern void fn_801DBE6C(int mode);          /* switch the game mode */
+extern int fn_8022A854(int *state);         /* the resident files into ARAM: one step, 1 when done */
 
 #define LOAD_MAGIC 0x4C4F4144 /* 'LOAD' */
 enum { LOAD_PENDING = 0, LOAD_RUNNING = 1, LOAD_DONE = 2, LOAD_FAILED = 3 };
@@ -55,6 +56,11 @@ __attribute__((section(".load_request"), used)) struct load_request load_request
 #define TITLE_INTRO_DONE (*(volatile int *)0x8034782C) /* state 1 skips the intro (7 / 8) */
 #define LOAD_RESULT (*(volatile int *)0x803473C4)
 #define EVENT_WORD_84 (*(volatile u32 *)(0x80310B3C + 0x84))
+/* The second logo (title state 4, fn_8022A38C) steps fn_8022A854 on this until it returns 1: 16
+ * files (lbl_802F91F8) read into ARAM and listed in a table (lbl_803165C8, with a checksum) that the
+ * battle's loading looks up (fn_8000A118 -> fn_801D67DC -> fn_801DB1A4). Without the logos the
+ * table stayed empty and the first battle read 0x00000004 (ws20-ws22). */
+#define RESIDENT_LOAD (*(int *)0x80347828)
 
 /* The task the card functions are handed (only +0x24, the work, is read) and its work. */
 __attribute__((section(".late_bss"))) static u8 dl_task[0x28];
@@ -143,14 +149,17 @@ TRK_CAVE static int dl_step(void) {
 }
 
 /* 0x801DC350: the title, once a frame. With a request, state 1 is held (nothing drawn) while the
- * font loads, which the logos (states 2-4) otherwise wait out with FontUpdate, then the load runs
- * over the next frames. A failed load lets the title go on from state 1: logos, intro, title. */
+ * font and the resident files load, which the logos (states 2-4) otherwise wait out, then the load
+ * runs over the next frames. A failed load lets the title go on from state 1: logos, intro, title
+ * (the second logo then finds the resident files loaded). */
 TRK_CAVE void dl_title(void) {
   if (load_request.magic == LOAD_MAGIC && TITLE_STATE == 1) {
     if (load_request.status == LOAD_PENDING && !FontIsReady()) {
       FontUpdate();
       return;
     }
+    if (load_request.status == LOAD_PENDING && !fn_8022A854(&RESIDENT_LOAD))
+      return;
     if ((load_request.status == LOAD_PENDING || load_request.status == LOAD_RUNNING) && dl_step())
       return;
   }

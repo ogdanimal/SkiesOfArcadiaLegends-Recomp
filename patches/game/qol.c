@@ -85,6 +85,10 @@ static struct {
 __attribute__((section(".late_bss"))) static int qol_ship_live;
 
 #define GAME_MODE (*(volatile u32 *)0x803475CC) /* 6 = field / world map, 7 = battle */
+extern int fn_8022A854(int *state); /* the resident files into ARAM: one step, 1 when done */
+#define RESIDENT_LOAD (*(int *)0x80347828) /* fn_8022A854's state, 5 when loaded (autoload.c) */
+#define RESIDENT_TABLE ((const volatile unsigned char *)0x803165C8) /* 0x204 bytes */
+#define RESIDENT_SUM (*(volatile u32 *)0x80346860) /* the table's byte sum */
 /* fn_8000A118's state: 0-3 load the battle (its units and data are allocated in 3, by
  * fn_80077428), 4-7 run it, 8-9 tear it down, 11-12 go back to 3. The game never clears the unit
  * pointers or the data pointer, so outside 4-7 they can still be the last battle's freed blocks. */
@@ -125,6 +129,8 @@ TRK_CAVE static int qol_scale(int value, int percent) {
 
 TRK_CAVE int qol_encounter_rand(void) {
   const int r = fn_8025ECC4();
+  if (RESIDENT_LOAD != 5)
+    return 16383; /* no battle until qol_resident has the resident files in */
   if (!qol_on() || qol_input.encounters == 100)
     return r;
   if (qol_input.encounters <= 0) {
@@ -278,7 +284,26 @@ TRK_CAVE static int qol_fast(void) {
 TRK_CAVE void qol_damage(unsigned char *action, int target);
 void dcm_frame(void); /* dcmusic.c: the Dreamcast music option switched mid-song */
 
+/* A save state made after a Continue from a card save in ws20-ws22 (auto-saves too) has the resident
+ * files' table empty (autoload.c), and its first battle read 0x00000004. In the field, load them the
+ * way the second logo does: a step a frame (the reads finish on another thread, so a loop here never
+ * ends), with no random encounters until they're in (qol_encounter_rand). Only the loader writes the
+ * table, so a wrong sum means it never ran. */
+TRK_CAVE static void qol_resident(void) {
+  if (RESIDENT_LOAD == 5) {
+    u32 sum = 0;
+    for (int i = 0; i < 0x204; i++)
+      sum += RESIDENT_TABLE[i];
+    if (sum == RESIDENT_SUM)
+      return;
+    RESIDENT_LOAD = 0;
+  }
+  fn_8022A854(&RESIDENT_LOAD);
+}
+
 TRK_CAVE void qol_frame(void) {
+  if (GAME_MODE == 6)
+    qol_resident();
   if (ACTION_HANDLERS[0] != qol_damage)
     ACTION_HANDLERS[0] = qol_damage;
   if (GAME_MODE != 7)
