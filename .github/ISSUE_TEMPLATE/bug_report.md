@@ -35,7 +35,7 @@ Dreamcast), Language (European disc), button mapping. On Android, also Renderer 
 **Your system**
 - Platform: [Windows / Linux / Android]
 - Disc: [USA `GEAE8P` / European `GEAP8P`]
-- Version: [e.g. v0.10.0-beta — from the file name or Settings → About]
+- Version: [e.g. v0.50.0-beta — from the file name or Settings → About]
 - **Android:** paste **Settings → About → Copy device info** here (device, chip, GPU driver)
 - **Windows / Linux:** OS version, CPU, GPU and driver version
 - Controller: [e.g. built-in, Xbox, DualSense, keyboard]

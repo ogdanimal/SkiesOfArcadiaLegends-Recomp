@@ -5,7 +5,7 @@ static recompilation: the game's PowerPC code is translated ahead of time into n
 GameCube's graphics, sound and input come from [Dolphin](https://dolphin-emu.org/)'s hardware code.
 It adds widescreen, 60 fps, camera control, save states and quality-of-life options.
 
-**This is a beta (v0.10).** Please [report](../../issues/new/choose) what you run into.
+**This is a beta (v0.50).** Please [report](../../issues/new/choose) what you run into.
 
 No build contains the game. You need your own copy of the disc.
 

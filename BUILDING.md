@@ -112,10 +112,10 @@ MODULE_TABLES_INC=codegen/linux-eu/generated/module_tables.inc GAME_ID=GEAP8P \
 REGIONS="us eu" tools/build-release-linux.sh configure
 tools/build-release-linux.sh build
 tools/build-release-linux.sh package build/module-linux/gGEAE8P_recomp.so \
-  build/module-linux-eu/gGEAP8P_recomp.so v0.10.0-beta
+  build/module-linux-eu/gGEAP8P_recomp.so v0.50.0-beta
 ```
 
-This makes `build/SkiesOfArcadiaLegends-v0.10.0-beta-linux.tar.gz`: the launcher
+This makes `build/SkiesOfArcadiaLegends-v0.50.0-beta-linux.tar.gz`: the launcher
 `SkiesOfArcadiaLegends`, the runner `skies-run`, both modules and Dolphin's `Sys` folder. Without
 `REGIONS="us eu"` at configure the release takes the USA disc alone, and `package` needs only the
 USA module.
@@ -134,10 +134,10 @@ set GAME_ID=
 set REGIONS=us eu
 tools\build-release-win.bat configure
 tools\build-release-win.bat build
-tools\build-release-win.bat package build\module\gGEAE8P_recomp.dll build\module-eu\gGEAP8P_recomp.dll v0.10.0-beta
+tools\build-release-win.bat package build\module\gGEAE8P_recomp.dll build\module-eu\gGEAP8P_recomp.dll v0.50.0-beta
 ```
 
-This makes `build\SkiesOfArcadiaLegends-v0.10.0-beta-windows.zip` (`Skies of Arcadia Legends.exe`,
+This makes `build\SkiesOfArcadiaLegends-v0.50.0-beta-windows.zip` (`Skies of Arcadia Legends.exe`,
 `skies-run.exe`, both modules, `Sys`, the app-local Visual C++ runtime). `REGIONS` works as on
 Linux.
 
@@ -201,7 +201,7 @@ GitHub Actions builds every platform the same way:
 - **`release.yml`** runs on a `v*` tag on a commit on `main`: it calls `validate.yml` in release mode
   (version from the tag, a signed Android APK), refuses any package that holds a disc image, a DOL or
   generated code, and publishes a GitHub Release with the three packages and `SHA256SUMS.txt`. A tag
-  with a suffix (`v0.10.0-beta`) is a prerelease.
+  with a suffix (`v0.50.0-beta`) is a prerelease.
 
 Neither runs on pull requests, so code from forks never reaches the secrets.
 
