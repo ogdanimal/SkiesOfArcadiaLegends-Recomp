@@ -1,5 +1,5 @@
 diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
-index 07f9d4e699..7498cfec32 100644
+index 07f9d4e699..9e7629431c 100644
 --- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
 +++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
 @@ -270,6 +270,16 @@ class SkiesLauncherActivity : FragmentActivity() {
@@ -19,6 +19,15 @@ index 07f9d4e699..7498cfec32 100644
          if (chooseAfterAccess && SkiesDataFolder.hasAccess()) {
              chooseAfterAccess = false
              chooseDataFolder()
+@@ -792,7 +802,7 @@ class SkiesLauncherActivity : FragmentActivity() {
+         settings?.close()
+         column.descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
+         val game = if (ready) getString(R.string.skies_title) + " [$gameId]" else null
+-        settings = SkiesSettingsPanel(this, screen, game,
++        settings = SkiesSettingsPanel(this, screen, game, ready && gameId == "GEAP8P",
+             { afterGameClosed { pickDisc.launch(arrayOf("*/*")) } },
+             { pickDriver.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) },
+             { confirmImportSave() }, { startExport() },
 diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt
 index 7764d05e04..9ea980293d 100644
 --- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt
@@ -37,6 +46,55 @@ index 7764d05e04..9ea980293d 100644
      /** Controller 1's [key] in Config/GCPadNew.ini [GCPad1] (percent), or [fallback] if unset. */
      @JvmStatic
      external fun getPadOption(key: String, fallback: Int): Int
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+index f398064c75..bf228e0b69 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+@@ -32,6 +32,8 @@ class SkiesSettingsPanel(
+     private val activity: FragmentActivity,
+     private val host: FrameLayout,
+     private val gameText: String?,
++    /** The European disc is imported: it has the Language tab's four languages. */
++    private val europe: Boolean,
+     private val onChangeDisc: () -> Unit,
+     private val onPickDriver: () -> Unit,
+     private val onImportSave: () -> Unit,
+@@ -52,7 +54,8 @@ class SkiesSettingsPanel(
+         val BUTTON = Color.rgb(36, 77, 158)
+         val BUTTON_FOCUS = Color.rgb(56, 107, 204)
+         const val TEXT_SIZE_KEY = "LauncherTextSize"
+-        val TABS = listOf("Graphics", "Gameplay", "Sound", "Controls", "Saves", "Disc", "About")
++        val TABS = listOf("Graphics", "Gameplay", "Language", "Sound", "Controls", "Saves", "Disc",
++            "About")
+ 
+         fun choices(vararg pairs: Pair<Int, String>) = pairs.map { Choice(it.first, it.second) }
+         val ON_OFF = choices(1 to "On", 0 to "Off")
+@@ -75,6 +78,7 @@ class SkiesSettingsPanel(
+             400 to "4x")
+         val INVINCIBLE = choices(1 to "On (L3 / R3)", 0 to "Off (L3 / R3)")
+         val MUSIC = choices(0 to "GameCube", 1 to "Dreamcast")
++        val LANGUAGE = choices(0 to "English", 1 to "Deutsch", 2 to "Français", 3 to "Español")
+         val VOLUME = (0..100 step 10).map { Choice(it, if (it == 0) "0% (muted)" else "$it%") }
+         val DEAD_ZONE = (0..30 step 5).map { Choice(it, if (it == 0) "Off" else "$it%") }
+         val AUTO_SAVE = choices(0 to "Off", 5 to "Every 5 min", 10 to "Every 10 min",
+@@ -250,6 +254,17 @@ class SkiesSettingsPanel(
+                 configRow(rows, "Invincible", INVINCIBLE, dolphin, "Skies", "Invincible", 0,
+                     "Keeps the party's HP and MP full. Press L3 or R3 in game to switch it.")
+             }
++            "Language" -> {
++                if (europe) {
++                    configRow(rows, "Language", LANGUAGE, dolphin, "Skies", "Language", 0,
++                        "The game's text. In game, the menu (hold Z, press Start) can switch it " +
++                            "and restart the game at once.")
++                } else {
++                    describe(rows, "The USA disc is in English only. The European disc has " +
++                        "English, German, French and Spanish: import it in the Disc tab to " +
++                        "choose one here.")
++                }
++            }
+             "Sound" -> {
+                 configRow(rows, "Volume", VOLUME, dolphin, "DSP", "Volume", 100,
+                     "Music and sound effects.")
 diff --git a/Source/Android/jni/SkiesImport.cpp b/Source/Android/jni/SkiesImport.cpp
 index 26e0d5c728..97c1d1c0d7 100644
 --- a/Source/Android/jni/SkiesImport.cpp
@@ -63,7 +121,7 @@ index 26e0d5c728..97c1d1c0d7 100644
 +}
  }
 diff --git a/Source/Core/VideoCommon/SkiesMenu.cpp b/Source/Core/VideoCommon/SkiesMenu.cpp
-index d25ea0d4e9..6876d44dc6 100644
+index d25ea0d4e9..dde2380ef7 100644
 --- a/Source/Core/VideoCommon/SkiesMenu.cpp
 +++ b/Source/Core/VideoCommon/SkiesMenu.cpp
 @@ -6,6 +6,7 @@
@@ -83,7 +141,27 @@ index d25ea0d4e9..6876d44dc6 100644
  #include "Core/SavestateLayout.h"
  #include "Core/SkiesBindings.h"
  #include "Core/SkiesInput.h"
-@@ -215,6 +218,12 @@ int s_z_replay_polls = 0;
+@@ -114,7 +117,8 @@ constexpr std::array GRAPHICS_ROWS{Option::Picture,    Option::Hud,          Opt
+                                    Option::VSync,      Option::ShowFps};
+ constexpr std::array GAMEPLAY_ROWS{Option::Camera, Option::BattleSpeed, Option::Encounters,
+                                    Option::Exp,    Option::Gold,        Option::MagicExp,
+-                                   Option::Invincible, Option::Language};
++                                   Option::Invincible};
++constexpr std::array LANGUAGE_ROWS{Option::Language};
+ constexpr std::array SOUND_ROWS{Option::Volume, Option::Music};
+ constexpr std::array CONTROLS_ROWS{Option::Mapping, Option::DeadZone, Option::Rumble};
+ struct Tab
+@@ -123,7 +127,8 @@ struct Tab
+   std::span<const Option> rows;
+ };
+ constexpr std::array TABS{Tab{"Saves", SAVES_ROWS}, Tab{"Graphics", GRAPHICS_ROWS},
+-                          Tab{"Gameplay", GAMEPLAY_ROWS}, Tab{"Sound", SOUND_ROWS},
++                          Tab{"Gameplay", GAMEPLAY_ROWS}, Tab{"Language", LANGUAGE_ROWS},
++                          Tab{"Sound", SOUND_ROWS},
+                           Tab{"Controls", CONTROLS_ROWS}};
+ 
+ // The launchers' text size (A- / A+), percent; the menu scales with it, within the screen.
+@@ -215,6 +220,12 @@ int s_z_replay_polls = 0;
  int s_save_slot = 1;
  int s_load_slot = 0;  // 0 = the newest auto-save
  bool s_load_confirm = false;
@@ -96,7 +174,7 @@ index d25ea0d4e9..6876d44dc6 100644
  // The menu opened by itself on Frame rate because 60 fps ran below full speed (slowprompt): the
  // row's description says why while it is open; the flag is saved once the lock is let go.
  bool s_slow_note = false;
-@@ -264,6 +273,13 @@ bool IsSkies()
+@@ -264,6 +275,13 @@ bool IsSkies()
    return SConfig::GetInstance().GetGameID() == "GEAE8P" || IsEurope();
  }
  
@@ -110,7 +188,7 @@ index d25ea0d4e9..6876d44dc6 100644
  // A game address (or an instruction word) in the USA release and the European one: the game patch
  // is the same code at other addresses there (patches/game/GEAP8P.addresses.json). The patch's own
  // blocks in the low-memory gap are at the same addresses in both.
-@@ -645,6 +661,7 @@ void Change(Option option, int direction, bool wrap)
+@@ -645,6 +663,7 @@ void Change(Option option, int direction, bool wrap)
    case Option::Language:
      if (IsEurope())
        v.language = (v.language + direction + 4) % 4;
@@ -118,7 +196,7 @@ index d25ea0d4e9..6876d44dc6 100644
      break;
    case Option::SaveState:
      s_save_slot = (s_save_slot - 1 + direction + SAVE_SLOTS) % SAVE_SLOTS + 1;
-@@ -715,6 +732,7 @@ void Open()
+@@ -715,6 +734,7 @@ void Open()
    s_previous = 0xFFFF;  // nothing counts as pressed until it's released once
    s_repeat_button = 0;
    s_load_confirm = false;
@@ -126,7 +204,7 @@ index d25ea0d4e9..6876d44dc6 100644
    s_slow_note = false;
    s_mapping = false;
    s_capturing = false;
-@@ -1372,6 +1390,7 @@ GCPadStatus FilterOpen(const GCPadStatus& raw)
+@@ -1372,6 +1392,7 @@ GCPadStatus FilterOpen(const GCPadStatus& raw)
    const auto switch_tab = [&](int direction) {
      s_tab = (s_tab + direction + tab_count) % tab_count;
      s_load_confirm = false;
@@ -134,7 +212,7 @@ index d25ea0d4e9..6876d44dc6 100644
    };
    if (pressed & (PAD_TRIGGER_L | PAD_TRIGGER_R))
    {
-@@ -1397,7 +1416,10 @@ GCPadStatus FilterOpen(const GCPadStatus& raw)
+@@ -1397,7 +1418,10 @@ GCPadStatus FilterOpen(const GCPadStatus& raw)
      return Released(raw);
    }
    if (pressed & (PAD_BUTTON_UP | PAD_BUTTON_DOWN))
@@ -145,7 +223,7 @@ index d25ea0d4e9..6876d44dc6 100644
    // Up from the first setting and Down from the last reach the tab bar
    if (pressed & PAD_BUTTON_UP)
      s_selected = s_selected == 0 ? TAB_BAR : s_selected - 1;
-@@ -1436,6 +1458,17 @@ GCPadStatus FilterOpen(const GCPadStatus& raw)
+@@ -1436,6 +1460,17 @@ GCPadStatus FilterOpen(const GCPadStatus& raw)
          s_load_confirm = true;
        }
      }
@@ -163,7 +241,7 @@ index d25ea0d4e9..6876d44dc6 100644
      else
      {
        Change(option, 1, true);
-@@ -1592,6 +1625,8 @@ GCPadStatus FilterPad(int pad_num, const GCPadStatus& raw)
+@@ -1592,6 +1627,8 @@ GCPadStatus FilterPad(int pad_num, const GCPadStatus& raw)
    const bool auto_save = autosave::s_pending;
    s_state_action = StateAction::None;
    autosave::s_pending = false;
@@ -172,7 +250,7 @@ index d25ea0d4e9..6876d44dc6 100644
    if (s_apply_pending)
    {
      s_apply_pending = false;
-@@ -1620,6 +1655,13 @@ GCPadStatus FilterPad(int pad_num, const GCPadStatus& raw)
+@@ -1620,6 +1657,13 @@ GCPadStatus FilterPad(int pad_num, const GCPadStatus& raw)
    }
    if (auto_save)
      Core::QueueHostJob([](Core::System& system) { autosave::Save(system); });
@@ -186,7 +264,7 @@ index d25ea0d4e9..6876d44dc6 100644
    return out;
  }
  
-@@ -1629,6 +1671,11 @@ bool IsOpen()
+@@ -1629,6 +1673,11 @@ bool IsOpen()
    return s_mode == Mode::Open;
  }
  
@@ -198,7 +276,7 @@ index d25ea0d4e9..6876d44dc6 100644
  // Video thread only: the menu's typefaces (LoadFonts), null = ImGui's default (the OSD font).
  ImFont* s_ui_font = nullptr;
  ImFont* s_title_font = nullptr;
-@@ -1662,6 +1709,7 @@ void Draw(float scale)
+@@ -1662,6 +1711,7 @@ void Draw(float scale)
    int save_slot, load_slot, text_percent;
    bool load_confirm, slow_note;
    int opened_language;
@@ -206,7 +284,7 @@ index d25ea0d4e9..6876d44dc6 100644
    std::string save_time, load_time;
    bool mapping, capturing, keyboard_hints, has_keyboard;
    int map_row, map_column;
-@@ -1677,6 +1725,8 @@ void Draw(float scale)
+@@ -1677,6 +1727,8 @@ void Draw(float scale)
        return;
      v = s_staged;
      opened_language = s_current.language;
@@ -215,7 +293,7 @@ index d25ea0d4e9..6876d44dc6 100644
      tab = s_tab;
      selected = s_selected;
      save_slot = s_save_slot;
-@@ -1814,10 +1864,16 @@ void Draw(float scale)
+@@ -1814,10 +1866,16 @@ void Draw(float scale)
                                                              "Espa\xc3\xb1ol"};
        if (!IsEurope())
          return {"Language", "English", "Other languages need the European disc."};
@@ -235,7 +313,7 @@ index d25ea0d4e9..6876d44dc6 100644
      }
      }
      return {"", "", ""};
-@@ -1842,6 +1898,9 @@ void Draw(float scale)
+@@ -1842,6 +1900,9 @@ void Draw(float scale)
        current == Option::LoadState ? tabs + "Up / Down: choose    Left / Right: slot    " + keys.a +
                                           ": load" + close :
        current == Option::Mapping   ? tabs + "Up / Down: choose    " + keys.a + ": open" + close :
@@ -245,7 +323,7 @@ index d25ea0d4e9..6876d44dc6 100644
                                       tabs + "Up / Down: choose    Left / Right or " + keys.a +
                                           ": change" + close;
  
-@@ -2020,7 +2079,8 @@ void Draw(float scale)
+@@ -2020,7 +2081,8 @@ void Draw(float scale)
        draw->AddTriangleFilled(at(lx, mid), at(lx + s, mid - s), at(lx + s, mid + s), gold);
        draw->AddTriangleFilled(at(rx, mid), at(rx - s, mid - s), at(rx - s, mid + s), gold);
      }

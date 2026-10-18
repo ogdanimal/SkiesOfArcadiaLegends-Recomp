@@ -38,9 +38,9 @@ Android, install the new APK over the old one; the app updates the imported disc
 
 **The disc is the USA or the European GameCube release** (game ID `GEAE8P` or `GEAP8P`, the original
 release), as RVZ, ISO, GCM, GCZ, WIA or CISO. The European disc has the text in English, German,
-French and Spanish (**Language** in the settings menu's Gameplay tab) and runs at 60 Hz like the USA
-one. The Japanese release isn't supported. One disc is installed at a time: **Change Disc** replaces
-it.
+French and Spanish (the **Language** tab in Settings and in the in-game menu, which can restart the
+game in the new language at once) and runs at 60 Hz like the USA one. The Japanese release isn't
+supported. One disc is installed at a time: **Change Disc** replaces it.
 
 **Requirements:**
 

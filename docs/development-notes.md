@@ -203,8 +203,8 @@ every boot, so a change in game is written back there too. Any key can be set fr
 (controller 1). Since 2026-10-11 (late night, user request) it looks like the launchers' Settings
 windows: a rounded navy window over the dimmed game, **tabs** Saves (Save state, Load state, Auto-save),
 Graphics (Picture, Frame rate, Resolution 1 / 2 / 3 / 4 / 6x, Anti-aliasing = the backend's MSAA modes,
-HD textures (since 2026-10-17; Off with a hint until a pack is imported), V-Sync, Show FPS), Gameplay (Camera, Battle speed, Encounters, EXP, Gold, Magic EXP, Invincible;
-Language on the European disc), Sound (Volume; Music once a Dreamcast disc is imported), Controls
+HD textures (since 2026-10-17; Off with a hint until a pack is imported), V-Sync, Show FPS), Gameplay (Camera, Battle speed, Encounters, EXP, Gold, Magic EXP, Invincible),
+Language (since 2026-10-18; the European disc's four, a second A restarts the game in a new one), Sound (Volume; Music once a Dreamcast disc is imported), Controls
 (Stick dead zone, Rumble, Button mapping since 0.10); each row a label, a value box (the selected one gold-edged
 with arrows) and the launchers' one-line description; a hint line for the selected row. **L / R** (digital,
 or the analog triggers most of the way) switch tabs from anywhere; **Up** from the first setting (or Down
@@ -392,8 +392,9 @@ state: Slot 2  Oct 11 18:00" or "Memory card save: file 1  Oct 11 17:30". Start 
 SDL's own environment is case-sensitive, Windows spells it `windir`). **Settings** opens a rounded modal
 window over the dimmed home screen, tabs **Graphics** (Picture, Frame rate, Anti-aliasing, V-Sync),
 **Display** (Screen windowed / fullscreen, Resolution, Show FPS, FPS in title bar, Graphics backend),
-**Gameplay** (Camera, Battle speed, Encounters, EXP, Gold, Magic EXP, Invincible; Language with the
-European disc), **Sound** (Volume; Music, Import a Dreamcast disc..., Remove: *Dreamcast music*),
+**Gameplay** (Camera, Battle speed, Encounters, EXP, Gold, Magic EXP, Invincible), **Language** (since
+2026-10-18: English / Deutsch / Français / Español with the European disc, else a line saying the USA disc
+is English only), **Sound** (Volume; Music, Import a Dreamcast disc..., Remove: *Dreamcast music*),
 **Controls** (Controller: picking one moves controller 1 to it and keeps the bindings; a table of
 every GameCube input with its controller button and keyboard key, click then press to change,
 right-click / Delete / pad X to unbind, two resets; Stick dead zone, Rumble), **Saves** (Auto-save, the "Start from
@@ -675,6 +676,19 @@ European data.
   `[Skies] Language` (`Config::SKIES_LANGUAGE`); `SConfig::GetLanguageAdjustedForRegion` returns it
   for GEAP8P. The in-game menu's Gameplay tab has a Language row (European disc only, "Changes when
   the game next starts").
+- **Language tab and restart (2026-10-18, user request):** Language has its own tab in the in-game
+  menu, the desktop launcher's Settings and the Android Settings (European disc only; with the USA disc
+  a line says it is English only). In the in-game menu a language other than the running one makes A
+  ask "Press A again to restart"; the second A applies and saves the menu's values and stops the
+  emulation (`Host_Message(WMUserStop)`), and the frontend starts the game again at its title screen:
+  the desktop runner restarts itself with the same arguments less `--load-state`, Android's launcher
+  activity relaunches once the session has closed (`SkiesNative.takeRestartRequest`). Not in netplay.
+  Closing the menu instead keeps the old behaviour (the next start). Up / Down, a tab switch or a new
+  value cancel the question. A save state still holds the language it was made in (the text pack is in
+  guest RAM), so loading one made in another language brings that language back until the next start.
+  Checked on WSL: English to German and French to Spanish restarts (opening text), one A then B saves
+  without a restart, the launcher's tab reads and writes `[Skies] Language`. A live switch without a
+  restart was researched the same day (*Live language switch* below).
 - **60 Hz:** the game picks its render mode from the TV format (`VIGetTvFormat`): PAL gives 50 Hz
   (5/6 speed; no PAL compensation in the code), EuRGB60 panics ("Invalid TV Format."). So
   `SConfig::SetPathsAndGameMetadata` sets the region to NTSC-U for GEAP8P (VI preset NTSC, `0xCC` =
@@ -733,6 +747,35 @@ European data.
   secrets repo has `main-eu.dol` since 2026-10-17 and `validate.yml` sets `REGIONS: us eu`, so every
   package carries both modules (`2436886`); the publish check knows both DOL hashes.
 - **Shipped** in v0.10.0-beta (2026-10-17, `61ac70e`).
+
+### Live language switch (research, 2026-10-18)
+
+Static analysis of the European DOL (EU addresses; V = read in the disassembly, I = inference), for
+switching the language without a restart. Not built.
+
+- **Boot only (V):** the game-mode dispatcher `0x801DDE9C` (mode at `r13-28916`) runs mode 0 once:
+  clamp `g_langIndex` (`r13-28744`), store gameLangId (`r13-32448`, getter `0x801DD188`), load the
+  `.SOT` (`0x801CE570`), build its directory (`0x801DD504`), then `0x801DD3EC`, which calls 63
+  initialisers that fill fixed string-pointer tables (items, magic, ship parts, shops, pause menu,
+  WmemTbl's 11 pointers via `0x801A5E54`, ...). Each of the three has one caller; nothing re-enters
+  mode 0. The initialisers allocate nothing and can be re-run. The text font byte `0x803140F3` is
+  rewritten from `g_langIndex` every frame (`0x801DE980`).
+- **Memory (V):** the `.SOT` and its 4992-byte directory come from a text heap of 0x22500 bytes
+  (created at `0x801DE4CC`, handle `r13-28708`), read synchronously, never freed. Sizes: English
+  132111, French 134921, German 135308, Spanish 134145 (104 entries, same names). A second stock load
+  can't fit: a switch must reread into the boot buffer in place, so the boot allocation has to be
+  German's size whatever the language.
+- **Follows a change:** the string tables after re-running `0x801DD3EC`, the font byte, the disc
+  error screens and per-frame draw offsets at once; language-named files (`.mll` suffix via
+  `0x8012B208`, battle command windows, shop / bounty graphics) at their next load; field scripts carry
+  all four languages (labels `MA` / `MFA` / `MGA` / `MSA`, the VM has no language branch of its own, so
+  probably a script test on the font byte, I) from the next event. A window open at the switch keeps
+  pointers it copied (I).
+- **Design, if built:** a game patch with a boot hook (allocate 135308 bytes) and a cave routine run
+  from the top of the main loop on a request word from the menu: set the language words, reread the
+  file into the same buffer, rebuild the directory without allocating, call `0x801DD3EC`, ack. Only
+  where no text window is alive (the title before its menu, field free-roam); the flag for that is not
+  known yet. Save states would need the language re-applied after a load.
 
 ### Dreamcast music (2026-10-17)
 

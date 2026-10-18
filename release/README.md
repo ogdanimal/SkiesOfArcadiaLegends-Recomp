@@ -9,8 +9,8 @@ This is a **beta** (v0.50). Please report what you run into.
 ## What you need
 
 - Your own dump of the **USA** or the **European** GameCube disc (game ID `GEAE8P` or `GEAP8P`, the
-  original release). The European disc has English, German, French and Spanish (**Language** in the
-  settings menu's Gameplay tab). The Japanese release isn't supported; the import checks the game.
+  original release). The European disc has English, German, French and Spanish (the **Language** tab
+  in Settings and in the in-game menu, which can restart the game in the new language at once). The Japanese release isn't supported; the import checks the game.
 - As RVZ, ISO, GCM, GCZ, WIA or CISO.
 - **Windows:** 64-bit Windows 10 or 11.
 - **Linux:** 64-bit (x86_64) with glibc 2.38 or newer (Ubuntu 24.04, Fedora 39, Bazzite or
