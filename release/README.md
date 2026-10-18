@@ -13,7 +13,8 @@ This is a **beta** (v0.50). Please report what you run into.
   settings menu's Gameplay tab). The Japanese release isn't supported; the import checks the game.
 - As RVZ, ISO, GCM, GCZ, WIA or CISO.
 - **Windows:** 64-bit Windows 10 or 11.
-- **Linux:** 64-bit (x86_64), with a Vulkan or OpenGL driver.
+- **Linux:** 64-bit (x86_64) with glibc 2.38 or newer (Ubuntu 24.04, Fedora 39, Bazzite or
+  later), and a Vulkan or OpenGL driver.
 - **Android:** a 64-bit (arm64) device with Android 7 or newer. Tested on a Retroid Pocket 5
   (Snapdragon 865), which runs it at full speed at 60 fps. Slower devices may not.
 
@@ -23,8 +24,9 @@ This is a **beta** (v0.50). Please report what you run into.
 launcher imports it (a few seconds), patches it and starts the game. After that, **Start Game** or
 **Continue** start it directly.
 
-**Linux:** extract, then run `./SkiesOfArcadiaLegends` from inside the folder; the rest is as on
-Windows.
+**Linux:** the `.AppImage` is one file with the libraries it needs inside: make it executable
+(`chmod +x`, or the file's Properties) and run it. Or extract the `.tar.gz` and run
+`./SkiesOfArcadiaLegends` from inside the folder. The rest is as on Windows.
 
 **Android:** install the APK, open **Skies of Arcadia Legends** and pick your disc image when asked.
 

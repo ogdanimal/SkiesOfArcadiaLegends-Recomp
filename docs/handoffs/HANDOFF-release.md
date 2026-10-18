@@ -163,6 +163,25 @@ and device checks; *Released* at the top). Everything below went in; on 2026-10-
   or portable beside the program (an empty portable.txt). On Android 11 and later the data can leave
   the app's storage, so it survives an uninstall."
 
+## On `dev` after v0.50.0-beta: Linux on other distributions
+
+The v0.50.0-beta launcher didn't start on Bazzite: it linked the build machine's `libbz2.so.1.0`
+(Debian's name; Fedora's is `libbz2.so.1`). `7f0e385` (written by the macOS session, built, checked
+and pushed from Linux): `tools/build-release-linux.sh configure` sets `-DUSE_SYSTEM_LIBS=OFF`
+(Dolphin's own bzip2, zstd, lzma, zlib and lz4 linked in; iconv stays glibc's), and
+`build-release-linux.sh appimage VERSION` makes `SkiesOfArcadiaLegends-VERSION-linux-x86_64.AppImage`
+from the packaged folder (pinned linuxdeploy `1-alpha-20251107-1`, its SHA-256 checked); validate
+uploads it beside the tar.gz, `release.yml` unpacks it for the game-data check and publishes it.
+
+Checked: validate run 39175810228 green (every job). Its artifact: the launcher and runner need no
+bz2 / zstd / lzma / lz4 from the system; the modules need only libc and libm; glibc 2.38 and
+`GLIBCXX_3.4.32` at most (built on ubuntu-24.04). The AppImage carries everything else but glibc,
+libstdc++, the graphics drivers and ALSA (the zstd / lzma / lz4 inside are libsystemd's). Locally
+(WSL), the AppImage through FUSE with a scratch HOME imported the USA RVZ, showed "Ready", booted the
+opening; the release workflow's game-data check passes on both Linux packages. Not checked on Bazzite
+or Fedora itself yet. The tar.gz still needs the system's `libbluetooth.so.3` (bluez-libs) and
+PulseAudio client library; the AppImage has its own.
+
 ## Next
 
 - Held by the user: the **nightly prerelease** (latest green `dev` on a fixed `nightly` tag, Android
