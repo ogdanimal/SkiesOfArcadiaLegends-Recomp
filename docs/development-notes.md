@@ -1064,8 +1064,8 @@ Checked 2026-10-17 night (USA ws22, no ultrawide monitor here):
 - Windows (release build, Vulkan, 3x): the window resized to 1920x1080, 2560x1080, 2580x1080,
   3440x1440, 1920x1200, 3200x900 and 1440x1080 (client sizes): the log's `[skies] picture WxH` follows
   each, and the picture fills the window.
-- Not fixed by Match screen: the world map's flight meter and compass stretch with the width (*Known
-  issues*), so on an ultrawide more than at 16:9; the ws24 fix covers every aspect.
+- The world map's flight meter and compass keep their shape at every width (the "stretch" first
+  reported was a Picture change made in the world map's menu, *Known issues*).
 - Edge scenery at 32:9 only: the red alarm room shows a white wedge of level geometry at the far left,
   the world map's cloud wall edge shows, and the attract cutscene's palace has a black void past the
   right of the 21:9 area (at 3440x1440 it starts at the edge). 21:9 was clean elsewhere.
@@ -1909,15 +1909,19 @@ The exact commands are in [handoffs/HANDOFF-android.md](handoffs/HANDOFF-android
   now (`WIN32_EXECUTABLE` when `MODERNGEKKO_REQUIRED_DISC_ID` is set): no console window beside the
   launcher or the game; dev builds stay console programs for their scripts.
 
-- **Widescreen stretches the world map's flight meter and compass (open, found 2026-10-17):** in
-  16:9 they come out wider than in 4:3 at the same picture height (meter ~1.33x, compass ~1.4x;
-  Windows, `10-worldmap-android.sav`, original textures, shots in `C:\dev\SkiesHDTex\build\win-shots\worldmap`).
-  The 4:3 picture (1.205:1, Dolphin's analog aspect) is the reference. They don't go through the HUD
-  anchor path that keeps the rest of the HUD at its shape (*Widescreen HUD at the edges*); the compass
-  is a tilted 3D object, so it may be drawn with the world map's own projection. Match screen widens
-  them further on wider shapes (in proportion to the picture's width). Needs a game patch
-  (ws24); the user chose to wait for it before merging the HD textures branch (the pack's 4:3 meter
-  is then right in both pictures).
+- **The world map's flight meter and compass keep the old shape after a Picture change made while the
+  world map's own menu is open (found 2026-10-17 as "widescreen stretches them", re-diagnosed the same
+  night):** in normal play they keep their shape in every picture: at the same picture height the
+  meter is ~36 px wide per 480 and the compass ~111x123 in 4:3, 16:9 and 32:9 alike, the same as the
+  unpatched game (WSL, `10-worldmap-android.sav`, the unpatched DOL and module beside the `hud` build).
+  The Windows shots behind the first report were both taken with the Map / To Bridge / Save menu
+  (Start) open: its 16:9 one is right, its 4:3 one has the 16:9 squeeze. Reproduced on WSL: open that
+  menu at 16:9, switch Picture to 4:3, and the meter and compass stay squeezed (the other way round:
+  stretched) until the menu closes. While it's open those two are replayed from display lists recorded
+  before the change (the projection load is baked into the list, *frame_loop.md*), while the 3D and
+  the menu panels are recorded again each frame. Transient and cosmetic; a fix would have to rewrite
+  the projection in the recorded lists or make the game record them again. The HD textures merge was
+  held for the "stretch", which normal play doesn't have.
 
 - **A battle can freeze when the battle speed changes during a round (open, 2026-10-11):** the user
   hit it on the Retroid (Antonio fight, several Z taps, the 2x step-down kicking in): the round stops

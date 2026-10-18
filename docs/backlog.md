@@ -29,11 +29,11 @@ name. Doing the same would mean our own field beside Dolphin's `Device` (the lau
 `SkiesInput::Follow` resolve it to the current `SDL/<n>/<name>`). Not needed while the game follows
 whichever pad is pressed and the launcher matches by label; worth it if more name reports come in.
 
-## Widescreen: the world map's flight meter and compass are stretched — found 2026-10-17
+## World map meter / compass keep the old shape after a Picture change in the world map menu — 2026-10-17
 
-In 16:9 the world map's flight meter comes out ~1.33x as wide as in 4:3 and the compass ~1.4x (same
-picture height; Windows, `10-worldmap-android.sav`; development-notes *Known issues*). The rest of the
-HUD keeps its shape through the widescreen patch's HUD anchors; these two don't go through them (the
-compass is a tilted 3D object). A game patch fix (ws24). The user is waiting for it before the HD
-textures branch (`hdtex`, HANDOFF-hdtextures) is merged: the texture pack's meter is the 4:3 one,
-right once 16:9 keeps the meter's shape.
+First reported as "widescreen stretches the world map's flight meter and compass"; re-diagnosed the
+same night (development-notes *Known issues*): in normal play they match the unpatched game in every
+picture. Only after changing Picture while the world map's own menu (Start) is open do they keep the
+previous picture's shape, until that menu closes (they're replayed from display lists recorded before
+the change). Cosmetic and transient; low priority.
+
