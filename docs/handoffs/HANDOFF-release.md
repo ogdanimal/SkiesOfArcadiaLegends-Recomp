@@ -100,6 +100,14 @@ For the next release, on `dev` (local commits, not pushed on 10-17 night):
   battle after Continue from a memory card save could crash (black screen)". Workaround for 0.10.0
   players until then: Continue from a save state, or start the game and load from the title menu.
   Draft notes for these: `build/notes-next.md` (local).
+- **HD textures** (branch `hdtex`, worktree `~/projects/skies-hdtex`, `d9cbcf4` on `dev` `fc65e60`,
+  not merged): import a texture pack the player downloaded (.7z / .zip / folder) in Settings,
+  Graphics, all three platforms; switch in game. Checked on Linux, the Retroid and Windows
+  (HANDOFF-hdtextures). **Held by the user (2026-10-17) until the widescreen fix** for the world map's
+  stretched flight meter and compass (a game patch, ws24; development-notes *Known issues*). Merging
+  it means applying `recompcore-hd-textures.patch` in the main checkout (`tools/apply-patches.sh`
+  order) so its submodule copies match. Release-note wording: "HD textures: import a texture pack you
+  downloaded (Settings → Graphics); none is included. On Android take a pack's PNG download."
 
 - Held by the user: the **nightly prerelease** (latest green `dev` on a fixed `nightly` tag, Android
   under its own app ID such as `com.skiesofarcadia.recomp.nightly`, no signing approval).
@@ -109,9 +117,11 @@ For the next release, on `dev` (local commits, not pushed on 10-17 night):
   instrumented build (HANDOFF-android *European PGO profile*, Progress).
 - The Retroid still runs the 0.9.1 release app with the user's data; 0.10.0-beta installs over it
   (same key). Ask before updating it.
+- Unscheduled requests (dual audio, ...): `docs/backlog.md`.
 
 Other sessions on this repo (2026-10-17): DC music + European disc (shares the main checkout; commit
-with explicit paths only) and keyboard / remapping / input (own worktree, branch `input`).
+with explicit paths only), keyboard / remapping / input (own worktree, branch `input`) and HD
+texture packs (own worktree, branch `hdtex`).
 
 Decided by the user (2026-10-11): first release **v0.9.0 beta**, **Windows + Android** (Linux later),
 source in a **private repo for now**, Android app ID **`com.skiesofarcadia.recomp`** (like the user's

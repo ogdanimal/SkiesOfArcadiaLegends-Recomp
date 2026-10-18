@@ -191,7 +191,8 @@ The bindings and the `Menu` / `Invincible` hotkeys are in `Config/GCPadNew.ini` 
 The menu also changes Dolphin's own `GFX.ini` `InternalResolution` and `MSAA`, `VSync`, `ShowFPS`, and
 `Dolphin.ini` `Volume`. On desktop the runner sets the resolution from the frontend's `config.ini` at
 every boot, so a change in game is written back there too. Any key can be set from a script:
-`tools/drive.py config:Dolphin.Skies.Encounters=0`.
+`tools/drive.py config:Dolphin.Skies.Encounters=0` (the first part is Dolphin's system name: `Dolphin`,
+`Graphics` for `GFX.ini`, `GCPad`, ...; `GFX` is refused).
 
 ### The in-game menu
 
@@ -969,6 +970,8 @@ vertical seams while the picture breaks up belong to the effect (the Windows dum
 - Three `njProjectScreen` callers are unclassified (decomp `docs/widescreen.md`).
 
 ### Widescreen HUD at the edges (2026-10-10, DOL `329c631f`, `GEAE8P-ws9`)
+
+(Not covered yet: the world map's flight meter and compass, which 16:9 stretches; *Known issues*.)
 
 The HUD pieces that sit at the sides of the 4:3 picture now sit at the sides of the 16:9 one, through the
 anchor table (`WS_HUD_ANCHORS` in `widescreen.c`, `WS_VERSION` 5). Found with a deeper `trace2d` (ten return
@@ -1828,6 +1831,15 @@ The exact commands are in [handoffs/HANDOFF-android.md](handoffs/HANDOFF-android
   neither API, so there it ends at the message box. The branded Windows release is also a GUI program
   now (`WIN32_EXECUTABLE` when `MODERNGEKKO_REQUIRED_DISC_ID` is set): no console window beside the
   launcher or the game; dev builds stay console programs for their scripts.
+
+- **Widescreen stretches the world map's flight meter and compass (open, found 2026-10-17):** in
+  16:9 they come out wider than in 4:3 at the same picture height (meter ~1.33x, compass ~1.4x;
+  Windows, `10-worldmap-android.sav`, original textures, shots in `C:\dev\SkiesHDTex\build\win-shots\worldmap`).
+  The 4:3 picture (1.205:1, Dolphin's analog aspect) is the reference. They don't go through the HUD
+  anchor path that keeps the rest of the HUD at its shape (*Widescreen HUD at the edges*); the compass
+  is a tilted 3D object, so it may be drawn with the world map's own projection. Needs a game patch
+  (ws24); the user chose to wait for it before merging the HD textures branch (the pack's 4:3 meter
+  is then right in both pictures).
 
 - **A battle can freeze when the battle speed changes during a round (open, 2026-10-11):** the user
   hit it on the Retroid (Antonio fight, several Z taps, the 2x step-down kicking in): the round stops

@@ -15,7 +15,7 @@ usage: AUTO=build/auto tools/drive.py STEP [STEP...]
   peek:ADDR:SIZE          print SIZE bytes of guest memory at ADDR (hex), with floats
   poke:ADDR:HEX           write bytes (hex string) to guest memory at ADDR
   pokef:ADDR:FLOAT[,...]  write big-endian floats to guest memory at ADDR
-  config:SYS.SECTION.KEY=V  set a Dolphin config value live (SYS = Dolphin, GFX, ...), e.g. config:Dolphin.Skies.Widescreen=0
+  config:SYS.SECTION.KEY=V  set a Dolphin config value live (SYS = Dolphin, Graphics, GCPad, ...: Dolphin's names, not the .ini files'), e.g. config:Dolphin.Skies.Widescreen=0
   stop                    shut the runtime down cleanly
   status                  print the interesting status.txt fields
   speed:SECONDS           sample status once a second; print mean/min/max speed and fps

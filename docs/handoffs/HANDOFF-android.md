@@ -10,9 +10,11 @@ state 5, game mode 6; screenshots `build/android/bench/statemake-eu-*.png`). Sti
 module, staged in `build/android/jniLibs-ws23pgo-gen-src/`; outputs `llvm-gen-ws23pgo-GEAP8P`,
 `module-ws23pgo-GEAP8P`, log `build/android/ws23pgo-gen-build.out`). The debug app still runs the
 plain ws23 APK; `files/PGO/` still holds four old USA `.profraw` files (move them aside before
-training). The Retroid was lent to the HD texture session (`hdtex`) during the pause: before going on,
-check which APK and which DOLs are installed (it may have installed a ws22eu-module APK) and that
-`stay_on_while_plugged_in` is set back to `0` at the end (left at `2`).
+training). The Retroid was lent to the HD texture session (`hdtex`) during the pause. **It installed
+`skies-hdtex-2026-10-17.apk` (plain ws23 modules from `jniLibs-ws23`, data kept) over the debug app:
+reinstall the ws23 test APK before going on.** It left the DOLs (ws23), `files/PGO/`, the card saves
+and `stay_on_while_plugged_in` (still `2`: set it back to `0` at the end) alone; its texture pack is
+removed and `GFX.ini HiresTextures = False`. The Downloads folder holds the two pack `.7z` files.
 
 Why: the European game runs 0.930 (55 fps, two runs) in `eu-17-ship-battle-baltor` against 1.003 for
 the USA one on the same APK (status below). The USA module has the device profile; the European one
