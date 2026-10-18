@@ -245,9 +245,22 @@ X11 window keys) and `moderngekko-local.patch` (`tools/launcher_controls.cpp`).
   bare keys) keeps its keys, now qualified with the keyboard, and gets the controller layout.
 - Shared code: `Core/SkiesBindings.{h,cpp}` (the inputs, defaults, each key's SDL / DirectInput / X11 /
   Android name, expression handling) is used by the runtime, the menu and the launcher.
-- Steam Input (the report this was for) and a physical pad have not been tried yet.
+- Steam Input on SteamOS (the report this was for) is still untried; a Steam Controller on Windows,
+  started directly and through Steam, works in the launcher and the game (after 0.10.0-beta, below).
 - The game window's developer keys (Space fast-forward, F-key states, Esc quit) are off in Skies;
   F11 and Alt+Enter switch fullscreen.
+- **After 0.10.0-beta (2026-10-17, `0e3a0cf`, `recompcore-controller-names.patch` + launcher):**
+  - The launcher opens each gamepad for its name, as the game's SDL backend does. An opened Steam
+    virtual gamepad is named from Steam's `SteamVirtualGamepadInfo` file (on SteamOS an untranslated
+    key, `#SettingsController_SteamController`), an unopened one after its mapping; the mismatch made
+    the launcher call the pad the game uses "(not connected)". `SkiesBindings::DeviceLabel` shows such
+    keys as words; a saved device whose label matches a connected pad counts as that pad.
+  - The launcher's home menu items need `ImGuiButtonFlags_EnableNav` (Dear ImGui 1.92 leaves
+    `InvisibleButton`s out of pad navigation).
+  - A profile without any controller binding gets the controller's layout (game `ControllerLayoutIfNone`,
+    launcher `Upgrade`), and the launcher fills an empty `GCPadNew.ini` before a launch
+    (`PrepareProfile`); before, a keyboard-only profile left the pad with nothing bound once controller
+    1 moved to it. Details: [handoffs/HANDOFF-input.md](handoffs/HANDOFF-input.md) *Steam Controller*.
 
 ### Save states and auto-save (2026-10-11)
 
@@ -1502,6 +1515,24 @@ Two separate limits showed up under WSL:
 - **The game thread** (every OS): recompiled code plus Dolphin's GPU command processing run on one
   thread, because Skies is forced single-core. Single-core CPU speed and the module's code quality
   decide this. Heavier scenes (big battles, the world map) are unmeasured.
+
+### The game window: fullscreen and display scaling (2026-10-17, after 0.10.0-beta)
+
+`patches/recompcore-win32-fullscreen.patch` (`DolphinNoGUI/PlatformWin32.cpp`, commit `b9f0157`),
+from players at 3840x2160 on 0.10.0-beta:
+- **Fullscreen at start.** Upstream's `Init` had a TODO where `[Display] Fullscreen` should apply, so
+  the window always opened windowed until Alt+Enter. It now goes fullscreen before the video backend
+  makes its swap chain.
+- **No border.** The window is made with `WS_EX_CLIENTEDGE`; fullscreen removed only the frame styles,
+  so the client edge stayed as a light 3-pixel frame (client 3834x2154). Fullscreen now drops the edge
+  styles and restores them when windowed; the class brush is black, not the system window colour.
+- **Display scaling.** The runner wasn't DPI aware: at 150% Windows rendered a 3840x2160 monitor as
+  2560x1440 and stretched the window, so the picture was soft at any internal resolution. It is now
+  per-monitor DPI aware (`SetProcessDpiAwarenessContext` PMv2 in `Init`), scales the configured window
+  size (96-DPI units) by the window's DPI, follows `WM_DPICHANGED` while windowed (untested: one
+  monitor) and sets `render_surface_scale` to DPI / 96 so on-screen messages keep their size. Checked
+  against the 0.10.0 package at 150%: window DPI 144 instead of 96, sharp menu text at the same size,
+  the same windowed size on screen.
 
 ### Status (2026-10-05): full speed at 3× with a clang-built C module
 
