@@ -1,0 +1,151 @@
+diff --git a/Source/Core/DolphinNoGUI/PlatformWin32.cpp b/Source/Core/DolphinNoGUI/PlatformWin32.cpp
+index 7dc7c81fc6..6c39c8785d 100644
+--- a/Source/Core/DolphinNoGUI/PlatformWin32.cpp
++++ b/Source/Core/DolphinNoGUI/PlatformWin32.cpp
+@@ -80,10 +80,10 @@ private:
+   std::vector<std::string> m_load_state_paths;
+   std::time_t m_last_save_time{};
+   std::size_t m_save_sequence{};
+-  bool m_fullscreen = false;
+   // Emulation speed to restore when Space (fast-forward) is released; empty when not fast-forwarding.
+   std::optional<float> m_speed_before_fast_forward;
+   LONG m_windowed_style = 0;
++  LONG m_windowed_ex_style = 0;
+   RECT m_windowed_rect{};
+ 
+   int m_window_x = Config::Get(Config::MAIN_RENDER_WINDOW_XPOS);
+@@ -124,7 +124,9 @@ bool PlatformWin32::RegisterRenderWindowClass()
+   wc.hInstance = GetModuleHandle(nullptr);
+   wc.hIcon = LoadIcon(nullptr, IDI_ICON1);
+   wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+-  wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
++  // Black, not the system window colour: anything the picture doesn't cover (the moment before
++  // the swap chain resizes) must not flash white.
++  wc.hbrBackground = static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH));
+   wc.lpszMenuName = nullptr;
+   wc.lpszClassName = WINDOW_CLASS_NAME;
+   wc.hIconSm = LoadIcon(nullptr, IDI_ICON1);
+@@ -150,6 +152,16 @@ bool PlatformWin32::CreateRenderWindow()
+     return false;
+   }
+ 
++  // The process is per-monitor DPI aware (Init), so the size is in physical pixels: scale the
++  // configured one, which is in 96-DPI units, to the monitor the window opened on.
++  const UINT dpi = GetDpiForWindow(m_hwnd);
++  if (dpi != USER_DEFAULT_SCREEN_DPI)
++  {
++    SetWindowPos(m_hwnd, nullptr, 0, 0, MulDiv(m_window_width, dpi, USER_DEFAULT_SCREEN_DPI),
++                 MulDiv(m_window_height, dpi, USER_DEFAULT_SCREEN_DPI),
++                 SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
++  }
++
+   ShowWindow(m_hwnd, SW_SHOW);
+   UpdateWindow(m_hwnd);
+   // WM_SETFOCUS / WM_KILLFOCUS keep this up to date from here; a window started from another
+@@ -200,7 +212,7 @@ void PlatformWin32::RefreshMenu(const HMENU menu)
+                   MF_BYCOMMAND |
+                       (Config::Get(Config::MAIN_AUDIO_MUTED) ? MF_CHECKED : MF_UNCHECKED));
+     CheckMenuItem(m_view_menu, ID_FULLSCREEN,
+-                  MF_BYCOMMAND | (m_fullscreen ? MF_CHECKED : MF_UNCHECKED));
++                  MF_BYCOMMAND | (m_window_fullscreen ? MF_CHECKED : MF_UNCHECKED));
+     return;
+   }
+ 
+@@ -254,10 +266,15 @@ void PlatformWin32::SaveStateToStatesDirectory()
+ 
+ void PlatformWin32::ToggleFullscreen()
+ {
+-  if (!m_fullscreen)
++  // Borderless: the frame styles go, and the extended edge styles too, or the window's client edge
++  // stays drawn as a light line around the picture.
++  constexpr LONG EDGE_EX_STYLES =
++      WS_EX_CLIENTEDGE | WS_EX_WINDOWEDGE | WS_EX_STATICEDGE | WS_EX_DLGMODALFRAME;
++  if (!m_window_fullscreen)
+   {
+     GetWindowRect(m_hwnd, &m_windowed_rect);
+     m_windowed_style = GetWindowLong(m_hwnd, GWL_STYLE);
++    m_windowed_ex_style = GetWindowLong(m_hwnd, GWL_EXSTYLE);
+ 
+     MONITORINFO monitor{};
+     monitor.cbSize = sizeof(monitor);
+@@ -266,31 +283,39 @@ void PlatformWin32::ToggleFullscreen()
+ 
+     SetMenu(m_hwnd, nullptr);
+     SetWindowLong(m_hwnd, GWL_STYLE, m_windowed_style & ~WS_OVERLAPPEDWINDOW);
++    SetWindowLong(m_hwnd, GWL_EXSTYLE, m_windowed_ex_style & ~EDGE_EX_STYLES);
+     SetWindowPos(m_hwnd, HWND_TOP, monitor.rcMonitor.left, monitor.rcMonitor.top,
+                  monitor.rcMonitor.right - monitor.rcMonitor.left,
+                  monitor.rcMonitor.bottom - monitor.rcMonitor.top,
+                  SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+-    m_fullscreen = true;
++    m_window_fullscreen = true;
+     return;
+   }
+ 
+   SetWindowLong(m_hwnd, GWL_STYLE, m_windowed_style);
++  SetWindowLong(m_hwnd, GWL_EXSTYLE, m_windowed_ex_style);
+   SetMenu(m_hwnd, m_menu);
+   SetWindowPos(m_hwnd, nullptr, m_windowed_rect.left, m_windowed_rect.top,
+                m_windowed_rect.right - m_windowed_rect.left,
+                m_windowed_rect.bottom - m_windowed_rect.top,
+                SWP_NOOWNERZORDER | SWP_FRAMECHANGED | SWP_NOZORDER);
+-  m_fullscreen = false;
++  m_window_fullscreen = false;
+ }
+ 
+ bool PlatformWin32::Init()
+ {
++  // Per-monitor DPI aware, before the first window: otherwise Windows scales the window as a
++  // bitmap, and at 150% a 3840x2160 monitor is a 2560x1440 one stretched (the picture soft, the
++  // swap chain smaller than the screen).
++  SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
++
+   if (!RegisterRenderWindowClass() || !CreateRenderWindow() || !CreateMenus())
+     return false;
+ 
+-  // TODO: Enter fullscreen if enabled.
++  // Before the video backend starts, so its swap chain is made at the monitor's size.
+   if (Config::Get(Config::MAIN_FULLSCREEN))
+   {
++    ToggleFullscreen();
+     ProcessEvents();
+   }
+ 
+@@ -326,6 +351,9 @@ WindowSystemInfo PlatformWin32::GetWindowSystemInfo() const
+   wsi.type = WindowSystemType::Windows;
+   wsi.render_window = reinterpret_cast<void*>(m_hwnd);
+   wsi.render_surface = reinterpret_cast<void*>(m_hwnd);
++  // On-screen messages keep their size on a high-DPI monitor (the menu scales with the height).
++  if (m_hwnd)
++    wsi.render_surface_scale = GetDpiForWindow(m_hwnd) / static_cast<float>(USER_DEFAULT_SCREEN_DPI);
+   return wsi;
+ }
+ 
+@@ -390,6 +418,18 @@ LRESULT PlatformWin32::WndProc(const HWND hwnd, const UINT msg, const WPARAM wPa
+   }
+   break;
+ 
++  case WM_DPICHANGED:
++    // Moved to a monitor with another scale: take the size Windows suggests for it. Fullscreen
++    // already fills its monitor.
++    if (!platform->m_window_fullscreen)
++    {
++      const RECT* suggested = reinterpret_cast<const RECT*>(lParam);
++      SetWindowPos(hwnd, nullptr, suggested->left, suggested->top,
++                   suggested->right - suggested->left, suggested->bottom - suggested->top,
++                   SWP_NOZORDER | SWP_NOACTIVATE);
++    }
++    return 0;
++
+   case WM_KEYDOWN:
+     // Skies plays on the keyboard: Space is A, Escape opens its menu (Core/SkiesInput.cpp), and the
+     // developer keys (F1 state, Space fast-forward, Escape quits) are off. F11 / Alt+Enter stay.
+@@ -414,7 +454,7 @@ LRESULT PlatformWin32::WndProc(const HWND hwnd, const UINT msg, const WPARAM wPa
+       platform->ToggleFullscreen();
+       return 0;
+     }
+-    else if (wParam == VK_ESCAPE && platform->m_fullscreen)
++    else if (wParam == VK_ESCAPE && platform->m_window_fullscreen)
+     {
+       platform->ToggleFullscreen();
+       return 0;
