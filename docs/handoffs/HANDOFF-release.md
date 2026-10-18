@@ -1,8 +1,33 @@
 # Handoff: releases (Windows, Linux, Android)
 
-## Released (2026-10-17): v0.10.0-beta
+## Released (2026-10-18): v0.50.0-beta
 
-**v0.10.0-beta is the current release** (prerelease, `61ac70e`, run 39070491053, published 22:29 UTC):
+**v0.50.0-beta is the current release** (prerelease, the user's version number; tag on `db0f23a`, run
+39104413365, published 10:49 UTC):
+https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/releases/tag/v0.50.0-beta. Notes are in
+`build/notes-0.50.0-beta.md` (local). The run published the generic fallback body; it was replaced
+with the notes file afterwards, so pass the notes file to `tools/release.sh` next time.
+
+What it carries over 0.10.0: everything listed under *Shipped in v0.50.0-beta* below (Match screen,
+HUD placement, HD textures, data folder, game patch ws23 + ws24, Windows fullscreen / DPI,
+controllers, the missing-module message). Builds took ~26 min; `android-sign` waited for the
+`release` approval until 10:48.
+
+**Version strings lag the tag:** `README.md`, `release/README.md` (shipped in every package),
+`BUILDING.md`'s examples and the bug template still said v0.10 at the tag. They were fixed after the
+release (`dc5641e`, `dev` and `main`), so the v0.50 packages' own README says "v0.10". Before the next
+tag, bump those four files first.
+
+**macOS (2026-10-18, not in this repo yet):** a separate session on the user's Apple Silicon Mac
+(Remote Control) builds the port from its own clone at `dc5641e`: Metal, Cubeb, DolRecomp LLVM to
+`arm64-apple-macosx`, `gGEAE8P_recomp.dylib`. The USA disc boots there with `fallback=0` at about full
+speed without PGO. Its work and notes live in that clone until it's merged; known gaps from this side:
+`recompcore-win32-exit` / `-win32-fullscreen` have no macOS counterpart, `user_directory.cpp` falls back
+to the XDG folder on macOS, and the default keyboard layout has no macOS key names.
+
+## Earlier release (2026-10-17): v0.10.0-beta
+
+**v0.10.0-beta** (prerelease, `61ac70e`, run 39070491053, published 22:29 UTC):
 https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/releases/tag/v0.10.0-beta. Notes are in
 `build/notes-0.10.0-beta.md` (local; `release.sh` puts them on the release).
 
@@ -81,10 +106,10 @@ Since 0.9.1, before 0.10 (all in 0.10.0-beta):
   `REGIONS: us eu`, both modules in every package; the publish check knows both games' DOL hashes and
   requires both modules. No European PGO profiles yet.
 
-## Next
+## Shipped in v0.50.0-beta
 
-**Next release: v0.50.0-beta** (the user's number and go-ahead, 2026-10-18: full approval to
-release, including signing and device checks). Everything below is on `dev`; on 2026-10-18 the
+**Released 2026-10-18** (the user's number and go-ahead: full approval to release, including signing
+and device checks; *Released* at the top). Everything below went in; on 2026-10-18 the
 `hud`, `datadir` and `hdtex` branches were merged in that order (rebased, patches regenerated,
 `tools/check-patches.sh` green, Linux release builds and the CLI import / move tests passing).
 - `b9f0157` Windows: the Fullscreen setting works at start (it needed Alt+Enter), no white border in
@@ -138,14 +163,16 @@ release, including signing and device checks). Everything below is on `dev`; on 
   or portable beside the program (an empty portable.txt). On Android 11 and later the data can leave
   the app's storage, so it survives an uninstall."
 
+## Next
+
 - Held by the user: the **nightly prerelease** (latest green `dev` on a fixed `nightly` tag, Android
   under its own app ID such as `com.skiesofarcadia.recomp.nightly`, no signing approval).
 - European Android PGO profile: the European game runs 0.93x (55 fps) on the Retroid against 1.003 for
   the USA one (HANDOFF-android top); train `pgo/android-eu.profdata` on ws23, add it to the secrets
   repo (ask before using the device). Started 2026-10-17 night, paused after the ws23 states and the
   instrumented build (HANDOFF-android *European PGO profile*, Progress).
-- The Retroid still runs the 0.9.1 release app with the user's data; 0.10.0-beta installs over it
-  (same key). Ask before updating it.
+- The Retroid's app version: check HANDOFF-android before assuming (it ran the 0.9.1 release app with
+  the user's data on 2026-10-17; release APKs install over each other, same key). Ask before updating it.
 - Unscheduled requests (dual audio, ...): `docs/backlog.md`.
 
 Other sessions on this repo (2026-10-17): DC music + European disc (shares the main checkout; commit

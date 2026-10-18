@@ -163,7 +163,9 @@ chip, and it sounds different from the GameCube version. To hear it here:
 The port runs the Dreamcast's sound driver on an emulated sound chip and plays the songs from your
 disc, in place of the GameCube music. The few streamed tracks (the staff roll, the ending and two
 story scenes) stay GameCube: the Dreamcast recordings differ in length, and those scenes are timed to
-the GameCube ones. **Remove** deletes the imported music. Only the sound driver and
+the GameCube ones. The two discs can come from different regions. Where both have a song, the USA or
+Japanese copy is kept, because the European discs play the story scenes' music slower (made for 50 Hz).
+**Remove** deletes the imported music. Only the sound driver and
 the music are copied from the disc.
 
 ### HD textures

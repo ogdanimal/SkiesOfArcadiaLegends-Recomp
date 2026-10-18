@@ -89,7 +89,7 @@ saves from the Japanese version can't be used.
 
 **Settings → Sound → Import a Dreamcast disc...** in the launcher takes your own Skies of Arcadia
 Dreamcast disc as a **GDI** (with its track files beside it) or a **CHD** (Android: CHD). Either
-disc has most of the music; import both for all of it. Then set **Music** to **Dreamcast**
+disc has most of the music; import both for all of it (they can be from different regions). Then set **Music** to **Dreamcast**
 (there, or in the settings menu's Sound tab in game). The Dreamcast's sound driver plays the songs
 from your disc on an emulated sound chip, in place of the GameCube music. The streamed tracks (the
 staff roll, the ending and two story scenes) stay GameCube. **Remove** deletes the imported music.
