@@ -100,7 +100,7 @@ For the next release, on `dev` (local commits, not pushed on 10-17 night):
   battle after Continue from a memory card save could crash (black screen)". Workaround for 0.10.0
   players until then: Continue from a save state, or start the game and load from the title menu.
   Draft notes for these: `build/notes-next.md` (local).
-- **HD textures** (branch `hdtex`, worktree `~/projects/skies-hdtex`, `d9cbcf4` on `dev` `fc65e60`,
+- **HD textures** (branch `hdtex`, worktree `~/projects/skies-hdtex`, two commits on top of `dev`,
   not merged): import a texture pack the player downloaded (.7z / .zip / folder) in Settings,
   Graphics, all three platforms; switch in game. Checked on Linux, the Retroid and Windows
   (HANDOFF-hdtextures). **Held by the user (2026-10-17) until the widescreen fix** for the world map's
