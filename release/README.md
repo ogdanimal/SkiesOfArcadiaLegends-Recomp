@@ -57,7 +57,8 @@ saves from the Japanese version can't be used.
 
 ## What it adds
 
-- **Widescreen** 16:9 with the HUD at the screen edges, or the original 4:3 (identical to the
+- **Widescreen** 16:9 with the HUD at the screen edges, **Match screen** for any other shape
+  (ultrawide 21:9 up to 32:9, 16:10, a phone's 20:9), or the original 4:3 (identical to the
   original game).
 - **60 fps** by frame interpolation, or the original 30.
 - Internal resolution and anti-aliasing.

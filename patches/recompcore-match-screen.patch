@@ -1,0 +1,256 @@
+diff --git a/Source/Core/Core/Config/SkiesSettings.h b/Source/Core/Core/Config/SkiesSettings.h
+--- a/Source/Core/Core/Config/SkiesSettings.h
++++ b/Source/Core/Core/Config/SkiesSettings.h
+@@ -11,7 +11,8 @@
+ // first boot writes the derived value so a settings screen shows a definite choice.
+ namespace Config
+ {
+-// 1 = 16:9 (the widescreen patch's target aspect), 0 = the original 4:3 picture.
++// 1 = 16:9 (the widescreen patch's target aspect), 0 = the original 4:3 picture, 2 = the shape of
++// the window or screen (21:9, 32:9, 16:10, a phone's 20:9; between 4:3 and 32:9).
+ extern const Info<int> SKIES_WIDESCREEN;
+ // 0 = 30 fps (the game's own rate), 1 = 60 fps (frame interpolation), 2 = reserved (unlocked).
+ extern const Info<int> SKIES_FRAME_MODE;
+diff --git a/Source/Core/Core/SkiesSettings.h b/Source/Core/Core/SkiesSettings.h
+--- a/Source/Core/Core/SkiesSettings.h
++++ b/Source/Core/Core/SkiesSettings.h
+@@ -8,7 +8,8 @@
+ //    (patches/game/widescreen.c, ws_config at 0x80002A00: magic 'WSCF', version, then the
+ //    target display aspect as a float, 0 = the original 4:3) and applies it every frame, so the
+ //    aspect is one memory write on the CPU thread; Dolphin's own aspect setting follows so the
+-//    window letterboxes to match.
++//    window letterboxes to match. With Widescreen = 2 the aspect is the window's own
++//    (OnScreenSize), so the picture fills any screen shape.
+ //  - frame mode: frame interpolation (VideoCommon/FrameInterpolator) switched at the next frame
+ //    boundary.
+ // Applied when the core starts running, after a savestate load (a state restores RAM and so the
+@@ -24,4 +25,7 @@
+ void OnStateLoaded(Core::System& system);
+ // True when the running DOL carries the widescreen patch (its config magic is in RAM).
+ bool HasWidescreenPatch(Core::System& system);
++// The presenter's backbuffer size (any thread; the video thread when the window or surface
++// resizes). With Widescreen = 2 a new shape is applied at the host thread's next job point.
++void OnScreenSize(int width, int height);
+ }  // namespace SkiesSettings
+diff --git a/Source/Core/Core/SkiesSettings.cpp b/Source/Core/Core/SkiesSettings.cpp
+--- a/Source/Core/Core/SkiesSettings.cpp
++++ b/Source/Core/Core/SkiesSettings.cpp
+@@ -3,8 +3,12 @@
+ 
+ #include "Core/SkiesSettings.h"
+ 
++#include <atomic>
+ #include <bit>
+ #include <cstdlib>
++#include <string>
++
++#include <fmt/format.h>
+ 
+ #include "Common/Config/Config.h"
+ #include "Common/FileUtil.h"
+@@ -27,6 +31,12 @@
+ constexpr u32 WS_CONFIG_MAGIC = 0x57534346;  // 'WSCF'
+ constexpr u32 WS_DISPLAY_ASPECT_OFFSET = 8;
+ constexpr float WIDE_ASPECT = 16.0f / 9.0f;
++// Widescreen = 2 follows the screen between these: narrower letterboxes at 4:3 (a portrait
++// phone), wider pillarboxes at 32:9 (past it the sides show scenery the game never meant to be
++// seen; 21:9 is clean in every scene checked, 32:9 shows a little at the very edges).
++constexpr int MATCH_SCREEN = 2;
++constexpr float MIN_SCREEN_ASPECT = 4.0f / 3.0f;
++constexpr float MAX_SCREEN_ASPECT = 32.0f / 9.0f;
+ 
+ bool s_initialized = false;
+ // This thread is applying, and writes settings itself (first-boot migration): its own config
+@@ -34,6 +44,33 @@
+ thread_local bool s_applying = false;
+ Common::EventHook s_state_hook;
+ Config::ConfigChangedCallbackID s_config_callback;
++Core::System* s_system = nullptr;
++// The backbuffer size from OnScreenSize, packed width << 32 | height (0 = not known yet).
++std::atomic<u64> s_screen_size{0};
++
++// The picture aspect for Match screen and Dolphin's custom ratio for it (the window's own size
++// when it's in range, so the picture fills it exactly).
++struct ScreenShape
++{
++  float aspect;
++  int width;
++  int height;
++};
++
++ScreenShape CurrentScreenShape()
++{
++  const u64 size = s_screen_size.load(std::memory_order_relaxed);
++  const int width = static_cast<int>(size >> 32);
++  const int height = static_cast<int>(size & 0xFFFFFFFF);
++  if (width <= 0 || height <= 0)
++    return {WIDE_ASPECT, 16, 9};  // no window yet: the first frames as 16:9
++  const float aspect = static_cast<float>(width) / static_cast<float>(height);
++  if (aspect < MIN_SCREEN_ASPECT)
++    return {MIN_SCREEN_ASPECT, 4, 3};
++  if (aspect > MAX_SCREEN_ASPECT)
++    return {MAX_SCREEN_ASPECT, 32, 9};
++  return {aspect, width, height};
++}
+ 
+ bool ReadMagic(Core::System& system)
+ {
+@@ -71,26 +108,42 @@
+       save = true;
+     }
+     auto& memory = system.GetMemory();
+-    const float aspect = widescreen ? WIDE_ASPECT : 0.0f;
++    const ScreenShape shape = widescreen == MATCH_SCREEN ? CurrentScreenShape() :
++                                                           ScreenShape{WIDE_ASPECT, 16, 9};
++    const float aspect = widescreen ? shape.aspect : 0.0f;
+     const u32 address = WS_CONFIG_ADDRESS + WS_DISPLAY_ASPECT_OFFSET;
+     if (memory.Read_U32(address) != std::bit_cast<u32>(aspect))
+     {
+       memory.Write_U32(std::bit_cast<u32>(aspect), address);
+-      NOTICE_LOG_FMT(CORE, "[skies] picture {}", widescreen ? "16:9" : "4:3");
++      NOTICE_LOG_FMT(CORE, "[skies] picture {}",
++                     widescreen == MATCH_SCREEN ? fmt::format("{}x{} ({:.3f})", shape.width,
++                                                              shape.height, aspect) :
++                     widescreen                 ? std::string("16:9") :
++                                                  std::string("4:3"));
+     }
+-    // Letterbox to match: a custom 16:9 picture, or Dolphin's 4:3.
++    // Letterbox to match: a custom picture of the same aspect, or Dolphin's 4:3.
+     const AspectMode want = widescreen ? AspectMode::CustomStretch : AspectMode::ForceStandard;
+     if (Config::Get(Config::GFX_ASPECT_RATIO) != want)
+     {
+       Config::SetBaseOrCurrent(Config::GFX_ASPECT_RATIO, want);
+       save = true;
+     }
+-    if (widescreen && (Config::Get(Config::GFX_CUSTOM_ASPECT_RATIO_WIDTH) != 16 ||
+-                       Config::Get(Config::GFX_CUSTOM_ASPECT_RATIO_HEIGHT) != 9))
++    if (widescreen && (Config::Get(Config::GFX_CUSTOM_ASPECT_RATIO_WIDTH) != shape.width ||
++                       Config::Get(Config::GFX_CUSTOM_ASPECT_RATIO_HEIGHT) != shape.height))
+     {
+-      Config::SetBaseOrCurrent(Config::GFX_CUSTOM_ASPECT_RATIO_WIDTH, 16);
+-      Config::SetBaseOrCurrent(Config::GFX_CUSTOM_ASPECT_RATIO_HEIGHT, 9);
+-      save = true;
++      if (widescreen == MATCH_SCREEN)
++      {
++        // Follows the window as it resizes: this run only, never written to GFX.ini (which keeps
++        // 16:9 for the other settings).
++        Config::SetCurrent(Config::GFX_CUSTOM_ASPECT_RATIO_WIDTH, shape.width);
++        Config::SetCurrent(Config::GFX_CUSTOM_ASPECT_RATIO_HEIGHT, shape.height);
++      }
++      else
++      {
++        Config::SetBaseOrCurrent(Config::GFX_CUSTOM_ASPECT_RATIO_WIDTH, 16);
++        Config::SetBaseOrCurrent(Config::GFX_CUSTOM_ASPECT_RATIO_HEIGHT, 9);
++        save = true;
++      }
+     }
+   }
+ 
+@@ -131,6 +184,7 @@
+   if (s_initialized)
+     return;
+   s_initialized = true;
++  s_system = &system;
+   s_state_hook = Core::AddOnStateChangedCallback([&system](Core::State state) {
+     if (state == Core::State::Running)
+       Apply(system);
+@@ -141,6 +195,21 @@
+   });
+ }
+ 
++void OnScreenSize(int width, int height)
++{
++  if (width <= 0 || height <= 0)
++    return;  // minimised, or a surface going away
++  const u64 size = static_cast<u64>(width) << 32 | static_cast<u32>(height);
++  if (s_screen_size.exchange(size, std::memory_order_relaxed) == size)
++    return;
++  if (s_system && Config::Get(Config::SKIES_WIDESCREEN) == MATCH_SCREEN && Core::IsRunning(*s_system))
++  {
++    // Always a host job, even on the CPU thread (single core presents there): the presenter is
++    // mid-frame, and applying changes config.
++    Core::QueueHostJob([](Core::System& sys) { ApplyNow(sys); }, false);
++  }
++}
++
+ void OnStateLoaded(Core::System& system)
+ {
+   // A load runs with the CPU thread held (on it, or paused under RunOnCPUThread from another
+diff --git a/Source/Core/VideoCommon/Present.cpp b/Source/Core/VideoCommon/Present.cpp
+--- a/Source/Core/VideoCommon/Present.cpp
++++ b/Source/Core/VideoCommon/Present.cpp
+@@ -9,6 +9,7 @@
+ #include "Core/CoreTiming.h"
+ #include "Core/HW/VideoInterface.h"
+ #include "Core/Host.h"
++#include "Core/SkiesSettings.h"
+ #include "Core/System.h"
+ 
+ #include "InputCommon/ControllerInterface/ControllerInterface.h"
+@@ -367,6 +368,8 @@
+ void Presenter::OnBackbufferSet(bool size_changed, bool is_first_set)
+ {
+   UpdateDrawRectangle();
++  // Skies' Match screen picture follows the window's shape.
++  SkiesSettings::OnScreenSize(m_backbuffer_width, m_backbuffer_height);
+ 
+   // Automatically update the resolution scale if the window size changed,
+   // or if the game XFB resolution changed.
+diff --git a/Source/Core/VideoCommon/SkiesMenu.cpp b/Source/Core/VideoCommon/SkiesMenu.cpp
+--- a/Source/Core/VideoCommon/SkiesMenu.cpp
++++ b/Source/Core/VideoCommon/SkiesMenu.cpp
+@@ -146,6 +146,8 @@
+ 
+ // Internal resolution: the EFB scales the desktop launcher offers (tools/frontend_config.cpp).
+ constexpr std::array EFB_SCALES{1, 2, 3, 4, 6};
++// [Skies] Widescreen in menu order: 16:9, Match screen, the original 4:3.
++constexpr std::array PICTURES{1, 2, 0};
+ 
+ struct Values
+ {
+@@ -548,7 +550,7 @@
+   switch (option)
+   {
+   case Option::Picture:
+-    v.widescreen = v.widescreen ? 0 : 1;
++    v.widescreen = Step(PICTURES, v.widescreen, direction, wrap);
+     break;
+   case Option::FrameRate:
+     v.frame_mode = v.frame_mode ? 0 : 1;
+@@ -1683,8 +1685,12 @@
+               v.auto_save <= 0 ? std::string("Off") : fmt::format("Every {} min", v.auto_save),
+               "Saves your place at quiet moments. Continue picks up from the newest."};
+     case Option::Picture:
+-      return {"Picture", v.widescreen ? "Widescreen 16:9" : "Original 4:3",
+-              "Widescreen fills a 16:9 screen; Original keeps the GameCube's 4:3 picture."};
++      return {"Picture",
++              v.widescreen == 2 ? "Match screen" :
++              v.widescreen      ? "Widescreen 16:9" :
++                                  "Original 4:3",
++              "Widescreen fills a 16:9 screen; Match screen fills any shape, ultrawide too; "
++              "Original keeps the GameCube's 4:3 picture."};
+     case Option::FrameRate:
+       return {"Frame rate", v.frame_mode ? "60 fps (interpolated)" : "30 fps (original)",
+               slow_note ? "This device runs the game below full speed at 60 fps. 30 fps keeps it "
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+@@ -57,7 +57,7 @@
+         // Dolphin's [Core] GFXBackend values, by index
+         val BACKEND_KEYS = listOf("Vulkan", "OGL")
+         val BACKEND = choices(0 to "Vulkan", 1 to "OpenGL ES")
+-        val PICTURE = choices(1 to "Widescreen 16:9", 0 to "Original 4:3")
++        val PICTURE = choices(1 to "Widescreen 16:9", 2 to "Match screen", 0 to "Original 4:3")
+         val FRAME_RATE = choices(0 to "30 fps (original)", 1 to "60 fps (interpolated)")
+         val RESOLUTION = choices(1 to "Native (480p)", 2 to "2x (720p)", 3 to "3x (1080p)",
+             4 to "4x (1440p)", 6 to "6x (4K)")
+@@ -210,7 +210,8 @@
+         when (TABS[tab]) {
+             "Graphics" -> {
+                 configRow(rows, "Picture", PICTURE, dolphin, "Skies", "Widescreen", 1,
+-                    "Widescreen fills a 16:9 screen; Original keeps the GameCube's 4:3 picture.")
++                    "Widescreen fills a 16:9 screen; Match screen fills any shape, phones too; " +
++                        "Original keeps the GameCube's 4:3 picture.")
+                 configRow(rows, "Frame rate", FRAME_RATE, dolphin, "Skies", "FrameMode", 0,
+                     "60 fps adds in-between frames for smoother motion. 30 fps is the original.")
+                 configRow(rows, "Resolution", RESOLUTION, gfx, "Settings", "InternalResolution", 1,

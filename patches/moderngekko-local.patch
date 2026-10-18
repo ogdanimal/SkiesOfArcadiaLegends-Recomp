@@ -1760,7 +1760,7 @@ index 0000000..f3c3d14
 +void DrawMapping(State& state, const fs::path& user_directory, float scale);
 +}  // namespace moderngekko::launcher_controls
 diff --git a/tools/moderngekko_launcher.cpp b/tools/moderngekko_launcher.cpp
-index 7699c3d..d17064c 100644
+index 7699c3d..2c56639 100644
 --- a/tools/moderngekko_launcher.cpp
 +++ b/tools/moderngekko_launcher.cpp
 @@ -1,12 +1,22 @@
@@ -3147,7 +3147,7 @@ index 7699c3d..d17064c 100644
        if (ImGui::Button("Host Netplay", ImVec2(180 * scale, 42 * scale)))
        {
          if (ensure_controller())
-@@ -884,213 +1705,1068 @@ int main(int argc, char** argv)
+@@ -884,213 +1705,1069 @@ int main(int argc, char** argv)
            }
          }
        }
@@ -3348,8 +3348,8 @@ index 7699c3d..d17064c 100644
 +          int value;
 +          const char* text;
 +        };
-+        static constexpr std::array<Choice, 2> pictures{
-+            {{1, "Widescreen 16:9"}, {0, "Original 4:3"}}};
++        static constexpr std::array<Choice, 3> pictures{
++            {{1, "Widescreen 16:9"}, {2, "Match screen"}, {0, "Original 4:3"}}};
 +        static constexpr std::array<Choice, 2> frame_rates{
 +            {{0, "30 fps (original)"}, {1, "60 fps (interpolated)"}}};
 +        static constexpr std::array<Choice, 4> msaa_modes{
@@ -3396,7 +3396,8 @@ index 7699c3d..d17064c 100644
 +        };
 +        if (first <= 0 && last >= 0)
 +          option("Picture", "##skies_picture", SKIES_WIDESCREEN, &skies_widescreen, 1, pictures,
-+                 "Widescreen fills a 16:9 screen; Original keeps the GameCube's 4:3 picture.");
++                 "Widescreen fills a 16:9 screen; Match screen fills any shape, ultrawide too; "
++                 "Original keeps the GameCube's 4:3 picture.");
 +        if (first <= 1 && last >= 1)
 +          option("Frame rate", "##skies_frame_rate", SKIES_FRAME_MODE, &skies_frame_mode,
 +                 config.frame_interpolation ? 1 : 0, frame_rates,
@@ -4373,7 +4374,7 @@ index 7699c3d..d17064c 100644
  
      ImGui::Render();
      SDL_SetRenderScale(renderer, io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y);
-@@ -1107,8 +2783,17 @@ int main(int argc, char** argv)
+@@ -1107,8 +2784,17 @@ int main(int argc, char** argv)
    if (launch_mode != LaunchMode::None)
    {
      std::string launch_error;
@@ -4393,7 +4394,7 @@ index 7699c3d..d17064c 100644
      {
        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Launch failed", launch_error.c_str(), window);
        result = 1;
-@@ -1163,6 +2848,15 @@ int main(int argc, char** argv)
+@@ -1163,6 +2849,15 @@ int main(int argc, char** argv)
            user_directory / "Logs" / MODERNGEKKO_LOG_FILENAME;
        std::error_code log_error;
        std::filesystem::create_directories(log_path.parent_path(), log_error);
@@ -4409,7 +4410,7 @@ index 7699c3d..d17064c 100644
        SDL_IOStream* log_stream =
            log_error ? nullptr : SDL_IOFromFile(log_path.string().c_str(), "w");
        SDL_Process* process = nullptr;
-@@ -1263,6 +2957,8 @@ int main(int argc, char** argv)
+@@ -1263,6 +2958,8 @@ int main(int argc, char** argv)
      }
    }
  

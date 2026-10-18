@@ -109,7 +109,8 @@ Every setting is also in the launcher's **Settings** window, with a short descri
 Most of these are set in game from the settings menu (**Esc, the controller's Back, or hold Z and
 press Start**), or in the launcher's **Settings** window.
 
-- **Widescreen** 16:9 with the HUD at the screen edges, or the original 4:3 (identical to the
+- **Widescreen** 16:9 with the HUD at the screen edges, **Match screen** for any other shape
+  (ultrawide 21:9 up to 32:9, 16:10, a phone's 20:9), or the original 4:3 (identical to the
   original game).
 - **60 fps** by frame interpolation, or the original 30.
 - Internal resolution and anti-aliasing.

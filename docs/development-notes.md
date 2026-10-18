@@ -174,7 +174,7 @@ in the decomp's `docs/camera.md`. B + X + Start held for half a second is the ga
 
 | Key | Values (default) | Applied by |
 |---|---|---|
-| `Widescreen` | 1 = 16:9, 0 = original 4:3 (first boot: the DOL's) | `Core/SkiesSettings.cpp` -> `ws_config.display_aspect` (0x80002A08) and Dolphin's aspect |
+| `Widescreen` | 1 = 16:9, 2 = Match screen (the window's shape, 4:3 to 32:9), 0 = original 4:3 (first boot: the DOL's) | `Core/SkiesSettings.cpp` -> `ws_config.display_aspect` (0x80002A08) and Dolphin's aspect |
 | `FrameMode` | 0 = 30 fps, 1 = 60 fps interpolated (first boot: the old switches) | `FrameInterpolator::RequestEnabled` |
 | `CameraControl` | 1 = hold Z to move the camera, 0 = the game's only (1) | `SkiesMenu.cpp` -> `cam_input` (0x80002EC0) |
 | `Encounters` | percent of the encounter chance: 0, 25, 50, 100, 200, 400 (100) | `SkiesMenu.cpp` -> `qol_input` (0x80002EA0) |
@@ -1027,6 +1027,37 @@ from it. The anchor entry grew a `dx` (HUD pixels beyond the edge move) for the 
 command input, Focus and attack rounds both ways (plates and their damage numbers together), the battle
 won to the results; 4:3 still identical to the unpatched game (state 02, 165 pictures). The results
 screen is a centred 4:3 page like the save menu (shared with ground battles), unchanged.
+
+### Match screen: ultrawide and any other shape (2026-10-17 night)
+
+The game patch takes any target aspect in `ws_config.display_aspect` (Hor+ 3D, HUD anchors as a
+fraction of the width gained, full-width 2D and screen copies), so ultrawide is a frontend setting:
+`[Skies] Widescreen = 2` (`recompcore-match-screen.patch`). `Presenter::OnBackbufferSet` reports the
+backbuffer size to `SkiesSettings::OnScreenSize`; with Match screen a new shape queues `ApplyNow`
+(always a host job: single core presents on the CPU thread), which writes the window's aspect to the
+game and Dolphin's custom ratio as the window's own width and height in the **current** config layer
+(this run only; `GFX.ini` keeps 16:9). Clamped to 4:3..32:9: a narrower window letterboxes at 4:3, a
+wider one pillarboxes at 32:9. No window yet: 16:9. Launcher, in-game menu (Left / Right steps 16:9,
+Match screen, 4:3) and Android Settings offer it.
+
+Checked 2026-10-17 night (USA ws22, no ultrawide monitor here):
+- WSL, `ws_config.display_aspect` poked to 16:9 / 21:9 (64:27) / 32:9 in ten states (field, the
+  opening cutscene with dialogue, both battles, Baltor ship battle with commands, save menu, red
+  alarm, world map, deck battle): 3D widens, every HUD anchor reaches the edges, menus and dialogue
+  stay centred, backgrounds full width.
+- WSL, Match screen in a 2560x720 (32:9) window: the battle-entry shatter, spell effects (dark and
+  bright full-screen overlays), the red alarm pulse, a cold boot (logos, intro text, title, the attract
+  flight) all full width. Live switching 2 -> 1 -> 0 -> 2 (`config:Dolphin.Skies.Widescreen`) and a
+  state load keep the right aspect.
+- Windows (release build, Vulkan, 3x): the window resized to 1920x1080, 2560x1080, 2580x1080,
+  3440x1440, 1920x1200, 3200x900 and 1440x1080 (client sizes): the log's `[skies] picture WxH` follows
+  each, and the picture fills the window.
+- Edge scenery at 32:9 only: the red alarm room shows a white wedge of level geometry at the far left,
+  the world map's cloud wall edge shows, and the attract cutscene's palace has a black void past the
+  right of the 21:9 area (at 3440x1440 it starts at the edge). 21:9 was clean elsewhere.
+- Sharpness: the 640-wide EFB is stretched across the width; 3440 pixels wide needs about 5x for full
+  horizontal detail (3x is soft). Untested: Android (no wide device; the Retroid is 16:9, where Match
+  screen equals 16:9).
 
 ### Widescreen 4:3 setting: identical to the unpatched game (2026-10-10 night, DOL `7cb9de68`, `GEAE8P-ws10`)
 
