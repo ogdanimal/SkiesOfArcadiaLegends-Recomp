@@ -361,7 +361,9 @@ before 2026-10-11) and `skies-run.exe`, user directory `%LOCALAPPDATA%\Skies of 
 folder: exes, module, `Sys`, `patches\skies-widescreen.dolpatch`, art, app-local Visual C++ runtime,
 README, COPYING, notices). Linux: `tools/build-release-linux.sh` does the same in
 `lib/ModernGekko/build-release-linux` (launcher `SkiesOfArcadiaLegends`, user directory
-`~/.local/share/Skies of Arcadia Legends`, a `.tar.gz`; checked on WSLg 2026-10-11). The launcher takes the player's disc image (RVZ, ISO, GCM, GCZ, WIA or CISO; see below),
+`~/.local/share/Skies of Arcadia Legends`, a `.tar.gz`; checked on WSLg 2026-10-11). Those are the
+defaults: since 2026-10-17 the player can move the folder or keep it beside the programs (*Data
+folder* below). The launcher takes the player's disc image (RVZ, ISO, GCM, GCZ, WIA or CISO; see below),
 extracts it, patches its `main.dol` with `release/skies-widescreen.dolpatch` (whole-file format
 `moderngekko-dol-file-patch 1`, made by `tools/mkdolpatch.py`: it carries only the bytes that change),
 checks the disc ID (GEAE8P, or GEAP8P with the European patch `release/skies-widescreen-eu.dolpatch`;

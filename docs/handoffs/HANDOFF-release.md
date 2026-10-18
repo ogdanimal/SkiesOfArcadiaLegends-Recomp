@@ -131,6 +131,16 @@ For the next release, on `dev` (local commits, not pushed on 10-17 night):
   the runner exits with 20 for it and for the earlier-release DOL message, and the launcher shows no
   second box (development-notes *A missing game module*). Release-note wording: "A missing game file
   now says which one and how to fix it."
+- **Data folder** (branch `datadir`, worktree `~/projects/skies-datadir`, `287d93b` + docs on top
+  of `dev` `b2bf40b`, not merged): Settings → Disc → Data folder moves the imported game, saves and
+  settings to any folder or drive (desktop: folder picker; Android 11+: internal storage, SD card or
+  another folder, with All files access), Move Back to the Default, portable `portable.txt` beside
+  the programs; a moved folder that isn't there is asked about at start. Checked on Linux, Windows
+  (C: to D: and back) and the Retroid; SD cards untested (HANDOFF-datadir). Merging: rebase after
+  `hdtex` / `aspect` if they land first and regenerate `moderngekko-local.patch`. Release-note
+  wording: "Data folder: keep your game, saves and settings anywhere (Settings → Disc → Data folder),
+  or portable beside the program (an empty portable.txt). On Android 11 and later the data can leave
+  the app's storage, so it survives an uninstall."
 
 - Held by the user: the **nightly prerelease** (latest green `dev` on a fixed `nightly` tag, Android
   under its own app ID such as `com.skiesofarcadia.recomp.nightly`, no signing approval).
@@ -144,8 +154,8 @@ For the next release, on `dev` (local commits, not pushed on 10-17 night):
 
 Other sessions on this repo (2026-10-17): DC music + European disc (shares the main checkout; commit
 with explicit paths only), keyboard / remapping / input (own worktree, branch `input`), HD
-texture packs (own worktree, branch `hdtex`) and Match screen (own worktree `~/projects/skies-aspect`,
-branch `aspect`, merged).
+texture packs (own worktree, branch `hdtex`), Match screen (own worktree `~/projects/skies-aspect`,
+branch `aspect`, merged) and the data folder (own worktree, branch `datadir`).
 
 Decided by the user (2026-10-11): first release **v0.9.0 beta**, **Windows + Android** (Linux later),
 source in a **private repo for now**, Android app ID **`com.skiesofarcadia.recomp`** (like the user's

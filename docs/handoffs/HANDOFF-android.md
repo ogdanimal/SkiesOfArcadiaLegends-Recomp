@@ -72,6 +72,21 @@ GRADLE_OPTS=-Dorg.gradle.daemon=false`. The Retroid's swipe lock screen stops bo
 card file N at boot once (the runtime clears it). Only Windows' `adb.exe`, never WSL's `adb`. The user
 plays on the Retroid: ask before using it.
 
+## Status (2026-10-17, night): data folder (branch `datadir`, not merged)
+
+Settings → Disc → Data folder (HANDOFF-datadir, development notes *Data folder*,
+`patches/recompcore-data-folder.patch`). Tested on the Retroid with a **separate test app**,
+`tools/android-ws-build.sh BRAND=1 TEST_ID=1` → `com.skiesofarcadia.recomp.test`: the plain branded
+debug build is `com.skiesofarcadia.recomp`, the release app's ID with another signature, so it must
+never be installed over the user's release app. The test app was uninstalled afterwards; the device is
+as before (0.9.1 release app untouched). Lessons: `uiautomator dump` fails on the immersive launcher
+("null root node"), so tap by coordinates from `screencap`; take All files access back with
+`appops set --uid PKG MANAGE_EXTERNAL_STORAGE default` (the package mode alone leaves the uid mode
+`allow`); writes in shared storage go through MediaProvider (warnings like "Database update failed
+while renaming"), so a moved folder is slower to copy into than app storage. Dolphin's
+`DocumentProvider` root follows the user directory, so it shows the moved folder. Untested: an SD card
+(none in the device).
+
 ## Status (2026-10-17, late): v0.10.0-beta
 
 - **Release APK** (HANDOFF-release *Released*): both games' modules (`libgGEAE8P_recomp.so`,

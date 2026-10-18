@@ -234,7 +234,9 @@ through the ws18 commit (release + dev builds rebuilt, `build\game\GEAE8P-ws18`,
   committed patch overflows the heap on the review's example; on the fix the good patch applies and the
   wrapping run, a non-last run past the end, out-of-order and overlapping runs are all refused.
 
-- [x] **B2 Medium (Windows): path encoding mixes ANSI and UTF-8.**
+- [x] **B2 Medium (Windows): path encoding mixes ANSI and UTF-8.** (2026-10-17: the user-directory
+  lookup is now `tools/user_directory.cpp`, which reads `LOCALAPPDATA` with `_wgetenv` and the
+  pointer file as UTF-8; development notes *Data folder*.)
   `MG/tools/moderngekko_launcher.cpp:2397-2406, 2420, 2476` (also 130-134, 152-160, 293-320, 585,
   791, 808, 1100, 1417) and the runner (`moderngekko_run.cpp` `config.game_root = value("--game")`,
   `DefaultUserDirectory`). `fs::path::string()` is the ANSI code page on Windows and is passed to

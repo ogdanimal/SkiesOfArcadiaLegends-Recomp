@@ -6,6 +6,18 @@ frame limiter off, and record it in the development-notes.md *Platforms* table. 
 [HANDOFF-android.md](HANDOFF-android.md). The top *Status* and *State of the tree* were checked against
 both trees late on 2026-10-06; older sections are kept as history and say so where they're superseded.
 
+## Status (2026-10-17, night): data folder (branch `datadir`, not merged)
+
+Settings → Disc → Data folder and portable mode in the launcher and runner (HANDOFF-datadir,
+development notes *Data folder*, `moderngekko-local.patch`'s `tools/user_directory.cpp`). Windows test
+tree `C:\dev\SkiesDataDir` (a tar copy of the worktree, `lib\ModernGekko\build-release`, the ws23
+`gGEAE8P_recomp.dll` from `C:\dev\SkiesInput`); scripts in its `build\`: `start.ps1` (the launcher with
+`LOCALAPPDATA=build\la`, never the player's), `click.ps1` (window-relative click + screenshot),
+`clickabs.ps1` / `keys.ps1` (screen click / keys, only while the expected window is in front). The
+Windows message box doesn't wrap text: keep box lines short. Linux: `--move-data-folder DIR` drives the
+same move without the window; WSLg has no folder picker (no portal or zenity), so the picker is
+untested on Linux.
+
 ## Status (2026-10-17, night): HUD placement (branch `hud`, not merged)
 
 Worktree `~/projects/skies-aspect`, branch `hud` from `dev` 03b83aa, uncommitted: the HUD on a wide

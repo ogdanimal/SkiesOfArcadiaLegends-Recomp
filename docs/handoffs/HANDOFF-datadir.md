@@ -1,7 +1,8 @@
 # Handoff: data folder anywhere (2026-10-17)
 
 Branch `datadir`, worktree `~/projects/skies-datadir` (submodules are worktrees of the main checkout's,
-patches applied). **Not committed, not merged, not pushed.** How it works and what was tested:
+patches applied). Committed on `datadir` (`287d93b` feature, then docs) on top of `dev` `b2bf40b`;
+**not merged into `dev`, not pushed.** How it works and what was tested:
 [development notes, *Data folder*](../development-notes.md#data-folder-2026-10-17).
 
 ## What's in it
@@ -24,8 +25,8 @@ patches applied). **Not committed, not merged, not pushed.** How it works and wh
   merged working copy, keep `data-folder` last in the series or reorder with `regen-recompcore-patch.sh`.
 - With `hdtex` merged, the Data folder section's `busy` check should also cover the texture pack
   import thread.
-- Release notes line for `build/notes-next.md`: Settings → Disc → Data folder (move anywhere; portable
-  `portable.txt`; Android 11+ with All files access).
+- Release notes: the draft line is in `build/notes-next.md` (main checkout, local), in an HTML
+  comment until the branch is merged; HANDOFF-release *Next* has the wording.
 
 ## Open
 

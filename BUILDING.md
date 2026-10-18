@@ -144,7 +144,10 @@ Linux.
 BRAND=1 NAME=dev PREGEN=codegen/android NDK=$ANDROID_HOME/ndk/29.0.14206865 tools/android-ws-build.sh
 ```
 
-This makes a debug-signed branded APK in `build/android/apk/`. `PREGEN_EU=codegen/android-eu` (or
+This makes a debug-signed branded APK in `build/android/apk/`. It has the release app's ID
+(`com.skiesofarcadia.recomp`) but another signature, so it can't update a release install; `TEST_ID=1`
+builds it as `com.skiesofarcadia.recomp.test` ("Skies of Arcadia Legends (test)"), which installs
+beside the release app and never touches its data. `PREGEN_EU=codegen/android-eu` (or
 a European patched DOL at `DOL_EU`) adds the European module and its patch; without it the APK takes
 the USA disc alone. `RELEASE=1 VERSION=x.y.z` builds a
 minified APK, built unsigned by Gradle and then signed with the release key by `tools/sign-apk.sh`
