@@ -1,6 +1,18 @@
 # Handoff: Android build of the Skies recomp (2026-10-05, updated 2026-10-17)
 
-## European PGO profile (plan, 2026-10-17 night; not started)
+## European PGO profile (2026-10-17 night: in progress, paused by the user after step 1)
+
+**Progress.** Step 1 partly done: `eu-05-pirate-base-ws23`, `eu-07-red-alarm-ws23` and
+`eu-10-worldmap-ws23` are saved in `build/savestates/` (each loaded from the ws22 state, 4 s, loader
+state 5, game mode 6; screenshots `build/android/bench/statemake-eu-*.png`). Still to make:
+`eu-02-worldmap-battle`. Step 3 is built but **not installed**:
+`build/android/apk/skies-ws23pgo-gen-2026-10-17.apk` (instrumented European module + the ws23 USA
+module, staged in `build/android/jniLibs-ws23pgo-gen-src/`; outputs `llvm-gen-ws23pgo-GEAP8P`,
+`module-ws23pgo-GEAP8P`, log `build/android/ws23pgo-gen-build.out`). The debug app still runs the
+plain ws23 APK; `files/PGO/` still holds four old USA `.profraw` files (move them aside before
+training). The Retroid was lent to the HD texture session (`hdtex`) during the pause: before going on,
+check which APK and which DOLs are installed (it may have installed a ws22eu-module APK) and that
+`stay_on_while_plugged_in` is set back to `0` at the end (left at `2`).
 
 Why: the European game runs 0.930 (55 fps, two runs) in `eu-17-ship-battle-baltor` against 1.003 for
 the USA one on the same APK (status below). The USA module has the device profile; the European one
@@ -17,7 +29,7 @@ European addresses for peeks: game mode `0x8034ACEC` (6 field, 7 battle), battle
 
 1. **States, on ws23.** Load `eu-05-pirate-base`, `eu-07-red-alarm`, `eu-10-worldmap` (ws22-made: wait
    ~3 s for the resident files, then save them again as `eu-*-ws23.sav` so training doesn't start with
-   the repair). Add a battle: from `eu-10-worldmap` hold `main_y=1` in 120-frame steps until the mode
+   the repair; **done**). Add a battle: from `eu-10-worldmap-ws23` hold `main_y=1` in 120-frame steps until the mode
    is 7 and the battle state 4+ (2-4 steps), wait 3 s, save `eu-02-worldmap-battle.sav`. Optional: an
    opening state (no card save: title, New Game, into the opening cutscene). Keep
    `eu-17-ship-battle-baltor`. Five or six states, like the USA set (01-04 + red alert + world map).
@@ -29,10 +41,10 @@ European addresses for peeks: game mode `0x8034ACEC` (6 field, 7 battle), battle
    into `build/android/llvm-gen-ws23pgo-GEAP8P` (copy `main.dol` into `generated/`), cmake with
    `-DGAME_ID=GEAP8P -DCMAKE_SHARED_LINKER_FLAGS="-fprofile-generate -Wl,-z,max-page-size=16384"`,
    ninja, strip to `libgGEAP8P_recomp.so`. Put it beside the ws23 USA module in a new folder
-   (`build/android/jniLibs-ws23pgo-gen/arm64-v8a/`, copy `libgGEAE8P_recomp.so` from
-   `jniLibs-ws23-mods`) and build the APK with `NAME=ws23pgo-gen JNILIBS=build/android/jniLibs-ws23pgo-gen`
-   (`JNILIBS` must not be the script's own `jniLibs-NAME`: it deletes that first). Install with
-   `adb install -r -t`.
+   (`build/android/jniLibs-ws23pgo-gen-src/arm64-v8a/`, copy `libgGEAE8P_recomp.so` from
+   `jniLibs-ws23-mods`) and build the APK with `NAME=ws23pgo-gen JNILIBS=build/android/jniLibs-ws23pgo-gen-src`
+   (`JNILIBS` must not be the script's own `jniLibs-NAME`, here `jniLibs-ws23pgo-gen`: it deletes that
+   first). Install with `adb install -r -t`.
 4. **Train.** Move old `files/PGO/*.profraw` aside. Per state: `GAME=GEAP8P tools/android-boot.sh`,
    `drive.py load:... wait:16`, then `speed:30` (cutscene, battles) or walking for the field states
    (`hold:main_y=1:150 hold:main_x=1:150 hold:main_y=-1:150 hold:main_x=-1:150 speed:20`; world map:

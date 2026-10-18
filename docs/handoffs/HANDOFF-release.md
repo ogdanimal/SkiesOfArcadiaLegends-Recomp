@@ -105,7 +105,8 @@ For the next release, on `dev` (local commits, not pushed on 10-17 night):
   under its own app ID such as `com.skiesofarcadia.recomp.nightly`, no signing approval).
 - European Android PGO profile: the European game runs 0.93x (55 fps) on the Retroid against 1.003 for
   the USA one (HANDOFF-android top); train `pgo/android-eu.profdata` on ws23, add it to the secrets
-  repo (ask before using the device).
+  repo (ask before using the device). Started 2026-10-17 night, paused after the ws23 states and the
+  instrumented build (HANDOFF-android *European PGO profile*, Progress).
 - The Retroid still runs the 0.9.1 release app with the user's data; 0.10.0-beta installs over it
   (same key). Ask before updating it.
 

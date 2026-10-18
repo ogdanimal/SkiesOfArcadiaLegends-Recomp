@@ -60,9 +60,11 @@ synced 2026-10-17: the branded release (`lib\ModernGekko\build-release`, `REGION
 1. **European speed on the Retroid:** measured 2026-10-17 evening, **0.93 (55 fps)** in the
    European ship battle against 1.003 for the USA one on the same APK (HANDOFF-android.md, top), so a
    European Android profile is needed: train it on ws23 (the game patch changed after the
-   measurement; the plan: HANDOFF-android.md *European PGO profile*). Three
-   more European states exist (`eu-05-pirate-base`, `eu-07-red-alarm`, `eu-10-worldmap`, made under
-   ws22 from card saves; ws23 repairs their empty resident table on load). A desktop European profile
+   measurement; the plan and progress: HANDOFF-android.md *European PGO profile*). Started
+   2026-10-17 night and paused by the user: the three European field states are resaved on ws23
+   (`eu-05-pirate-base-ws23`, `eu-07-red-alarm-ws23`, `eu-10-worldmap-ws23`) and the instrumented
+   APK is built (not installed); next a European battle state, then baseline, training and the
+   profiled build. A desktop European profile
    (`tools/pgo-wsl.sh` on the European DOL) is open too. Ask before using the device.
 2. **Android Dreamcast import** (Settings → Sound, CHD) and an Android European disc import: in the
    release APK, not tried on a device by this session.
