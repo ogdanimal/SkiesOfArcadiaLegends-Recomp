@@ -808,6 +808,11 @@ import with a message.
   random battle while controller 1's B is held, on foot or sailing, as cleartonic's patch; it reads the
   game's own `PADStatus` buffer, so remapped controls count (`patches/game/README.md`, ws25).
 
+Checked 2026-10-18 on WSL (Linux release, USA and European games), Windows (release, LLVM + PGO
+module) and the Retroid (the debug test app): a Maeson import plays at 1.00x on the release's module,
+Hold B stops encounters only while B is held, a disc with changed code is refused; details in the
+handoff.
+
 Not covered: romhacks of the European disc are taken the same way, but there's no known-change
 table for it (none found yet); a romhack keeps the disc ID, so its saves and save states share the
 folders with the original game's, and **a state made with the original game restores the original's

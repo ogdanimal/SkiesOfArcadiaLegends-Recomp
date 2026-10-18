@@ -33,10 +33,35 @@ encounters (`10-worldmap-android.sav`): HoldB=1 + B held no battle in 60 s, Hold
 battle after 20 s, HoldB=0 + B held a battle after 21 s, `smc_failed=0`. The vanilla RVZ imported over
 it replaces it (DOL `31e43962`, vanilla files) and boots.
 
-**Not done yet:** Windows build and test; Android module + APK (ws25) and a Retroid check (ask first);
-the launcher's "[GEAE8P, modified]" line only compiled, not seen; Windows/Android/EU modules for
-ws25 (and PGO); the European game with Hold B in game (its pad pointer `0x8034AD5C` is derived from
-the code, not run); save states shared between a romhack and its original (see *Other points*).
+**Windows (2026-10-18):** `C:\dev\SkiesRomhack` (a copy of `C:\dev\SkiesDataDir` with this branch synced over,
+`build-release` configured fresh, `REGIONS=us eu`), portable test app `C:\dev\SkiesRomhack\app`, ws25
+module `build\modules-llvm-pgo-ws25` (LLVM + the desktop PGO profile, `tools/module-llvm-win.sh`).
+`import.ps1`: the code-modified ISO refused with the message, Maeson imported (DOL `82a9fca1`); the
+launcher's home screen reads "Ready: Skies of Arcadia Legends [GEAE8P, modified]" (`shots\launcher.png`);
+encounters: HoldB=1 + B no battle in 60 s, HoldB=1 a battle after 17 s, HoldB=0 + B a battle after 16 s,
+1.00x. (Start the runner with `Start-Process` from a script that returns at once: a PowerShell call
+whose child keeps its redirected output blocks the WSL shell.)
+
+**Retroid (2026-10-18; the device was idle on its home screen, the user's "do what you need to do"):**
+the debug test app only (`com.skiesofarcadia.recomp.test`, `BRAND=1 TEST_ID=1 NAME=ws25`
+`tools/android-ws-build.sh`, both modules with the Android profile). Its European import was renamed
+aside, the Maeson game pushed as an earlier import (`sys/main.dol` unpatched + `main.dol.orig`): the
+launcher repatched it on resume through `PatchDol` (DOL `82a9fca1`, the same as Windows) and offered
+Start Game (`SkiesNative.dolMatches`). With `[Skies] HoldB = 1` (Android reads `Dolphin.ini` at app
+start, and its automation has no `config:`): B held no battle in 60 s, without B a battle after 16 s;
+with HoldB 0 and B held a battle after 28 s; 1.00x. Then put back: Maeson removed, the European import
+and `Dolphin.ini` restored, test app stopped, home screen. The test app keeps the ws25 APK (it
+repatches its European import to ws25 at its next start). The user's release app wasn't touched.
+
+**European game (WSL, Linux ws25 EU module `build/gen-ws25-eu`):** the import gives the ws25 European
+DOL (`54adb1a4`); `eu-10-worldmap-ws23.sav`: HoldB=1 + B no battle in 60 s, HoldB=1 a battle after
+12 s, HoldB=0 + B a battle after 22 s (the derived pad pointer `0x8034AD5C` is right).
+
+**Not done yet:** a picker import on Android (the import shares `PatchDol` with the repatch tested
+here); ws25 European modules for Windows and Android with PGO (the Android EU module is built without
+a profile, as before); release modules through CI (`tools/ci-codegen.sh` needs nothing new: the
+patches carry everything); save states shared between a romhack and its original (see *Other
+points*); merging into `dev` and a release.
 
 
 
