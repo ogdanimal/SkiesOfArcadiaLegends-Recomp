@@ -57,8 +57,18 @@ repatches its European import to ws25 at its next start). The user's release app
 DOL (`54adb1a4`); `eu-10-worldmap-ws23.sav`: HoldB=1 + B no battle in 60 s, HoldB=1 a battle after
 12 s, HoldB=0 + B a battle after 22 s (the derived pad pointer `0x8034AD5C` is right).
 
-**Not done yet:** a picker import on Android (the import shares `PatchDol` with the repatch tested
-here); ws25 European modules for Windows and Android with PGO (the Android EU module is built without
+**Android picker import (2026-10-18, the test app, device idle):** the two ISOs pushed to
+`Download/romhack-test` (the picker's Downloads view goes by the media index, which doesn't list
+files pushed by adb: browse *Retroid Pocket 5 → Download* instead); the test app's European import
+renamed aside first (an import removes the other region's folder). Select Disc → `codehack.iso`:
+"This disc's game code is modified (a romhack that changes code). This port takes romhacks that
+change only the game's data.", nothing left in `Games`; → `maeson.iso`: imported (DOL `82a9fca1`,
+`main.dol.orig` the romhack's own), Start Game, `StateSaves/romhack-4d5febec` made, boots at 1.00x.
+Put back after: the ISOs, the import and the empty folder removed, the European import restored.
+Android's home screen doesn't say "modified" (the desktop launcher does), and its no-disc hint still
+names only the USA disc.
+
+**Not done yet:** ws25 European modules for Windows and Android with PGO (the Android EU module is built without
 a profile, as before); release modules through CI (`tools/ci-codegen.sh` needs nothing new: the
 patches carry everything); a release. Merged into `dev` 2026-10-18 (`0e16132`, fast-forward); then **save states per disc**
 (development notes, *Romhacks*): checked on WSL (a Maeson auto-save and an imported state in
