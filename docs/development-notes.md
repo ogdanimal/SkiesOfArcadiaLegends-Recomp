@@ -983,7 +983,9 @@ vertical seams while the picture breaks up belong to the effect (the Windows dum
 
 ### Widescreen HUD at the edges (2026-10-10, DOL `329c631f`, `GEAE8P-ws9`)
 
-(Not covered yet: the world map's flight meter and compass, which 16:9 stretches; *Known issues*.)
+(The world map's flight meter and compass keep their shape too; a "stretch" reported 2026-10-17 was a
+Picture change made while the world map's menu was open, *Known issues*. Since 2026-10-18 the edges can
+be those of a narrower centred area, *HUD placement*.)
 
 The HUD pieces that sit at the sides of the 4:3 picture now sit at the sides of the 16:9 one, through the
 anchor table (`WS_HUD_ANCHORS` in `widescreen.c`, `WS_VERSION` 5). Found with a deeper `trace2d` (ten return

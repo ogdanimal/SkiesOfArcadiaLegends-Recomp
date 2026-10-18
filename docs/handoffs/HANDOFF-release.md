@@ -104,7 +104,9 @@ For the next release, on `dev` (local commits, not pushed on 10-17 night):
   not merged): import a texture pack the player downloaded (.7z / .zip / folder) in Settings,
   Graphics, all three platforms; switch in game. Checked on Linux, the Retroid and Windows
   (HANDOFF-hdtextures). **Held by the user (2026-10-17) until the widescreen fix** for the world map's
-  stretched flight meter and compass (a game patch, ws24; development-notes *Known issues*). Merging
+  stretched flight meter and compass. That stretch doesn't happen in normal play (re-diagnosed
+  2026-10-18: it was a Picture change made while the world map's menu was open; development-notes
+  *Known issues*, left as is by the user), so nothing blocks the merge but the user's word. Merging
   it means applying `recompcore-hd-textures.patch` in the main checkout (`tools/apply-patches.sh`
   order) so its submodule copies match. Release-note wording: "HD textures: import a texture pack you
   downloaded (Settings → Graphics); none is included. On Android take a pack's PNG download."
@@ -114,9 +116,16 @@ For the next release, on `dev` (local commits, not pushed on 10-17 night):
   (`patches/recompcore-match-screen.patch`, development-notes *Match screen*). Checked on WSL,
   Windows (window resized through every shape) and the Retroid (16:9, and 20:9 via `wm size`); not
   looked at: the launcher's dropdown and the branded Android Settings row (same lists as the menu).
-  Known: at 32:9 a few scenes show unbuilt scenery at the edges, and the world map meter / compass
-  stretch (above) grows with the width. Release-note wording: "Picture: Match screen fills any screen
+  Known: at 32:9 a few scenes show unbuilt scenery at the edges. Release-note wording: "Picture: Match screen fills any screen
   shape, ultrawide (21:9, 32:9) included; on an ultrawide raise Resolution for a sharp picture."
+- **HUD placement** (branch `hud`, worktree `~/projects/skies-aspect`, commits `a4baea1` + docs on
+  top of `dev`, not merged): Settings → Graphics → HUD puts a wide picture's HUD at the screen edges
+  (default), in a centred 21:9 or 16:9 area, or in the original 4:3 layout (`[Skies] Hud`, the game
+  patch's `ws_hud_aspect`, `patches/recompcore-hud.patch`; development-notes *HUD placement*).
+  Checked on WSL at 32:9 with a test DOL. Before it can ship: number the game patch (ws24), regenerate
+  both release `.dolpatch` files, check Windows and the Retroid, merge. Release-note wording: "HUD:
+  on a wide picture, keep the HUD at the screen edges, in a 21:9 or 16:9 area, or in the original
+  layout (Settings → Graphics → HUD)."
 - **"Game files missing"** (same merge): a missing `g<ID>_recomp.dll` (partly extracted zip,
   antivirus) now says which file and what to do instead of "The game process exited with code 1";
   the runner exits with 20 for it and for the earlier-release DOL message, and the launcher shows no

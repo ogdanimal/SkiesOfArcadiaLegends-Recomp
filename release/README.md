@@ -131,8 +131,8 @@ Every setting is also in the launcher's **Settings** window, with a short descri
   choose commands instead.
 - On Android, battles top out at about 2.5x speed on a Snapdragon 865; 3x and 4x settle at 2x.
 - An auto-save can cause a brief hitch on Android.
-- In widescreen the world map's flight meter and compass come out wider than in the original 4:3
-  picture, more so with Match screen on an ultrawide.
+- If you change Picture while the world map's menu (Start) is open, the flight meter and compass keep
+  the old shape until you close that menu.
 - At the widest shapes (32:9), a few scenes show unfinished scenery at the far edges.
 - **"Game files missing" when the game starts (Windows / Linux):** extract the whole zip again and keep
   its files together; if the file named there disappears again, your antivirus removed it.
