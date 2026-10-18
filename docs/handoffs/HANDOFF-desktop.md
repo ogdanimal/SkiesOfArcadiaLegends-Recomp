@@ -45,6 +45,16 @@ Merged into `dev` (local, not pushed) from branch `aspect` (worktree `~/projects
   (`e58354e5`), which 0.10.0-beta also accepts.
 - WSL build of the branch: `~/projects/skies-aspect/lib/ModernGekko/build-egl` (Release, EGL).
 
+## Status (2026-10-17, late night): HD textures on Windows (branch `hdtex`)
+
+Release build of the `hdtex` worktree in `C:\dev\SkiesHDTex` (a tar copy without build folders,
+extracted with Windows' `tar`, much faster than rsync over `/mnt/c`). Checked with
+`LOCALAPPDATA=C:\dev\SkiesHDTex\build\la`: `--import-texture-pack`, the launcher's Graphics rows,
+the in-game switch (HANDOFF-hdtextures). The release runner has no automation directory:
+`build\game-keys.ps1` there starts it on a state and presses keys (Esc menu, Q / W tabs) with window
+shots. Found there: 16:9 stretches the world map's flight meter and compass (development-notes
+*Known issues*; waiting for a widescreen fix).
+
 ## Status (2026-10-17, night): fullscreen, display scaling and the Steam Controller (after 0.10.0-beta)
 
 Two local commits on `dev` for the next release (players' reports on 0.10.0-beta):

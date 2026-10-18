@@ -142,7 +142,7 @@ To dump every frame instead: put `[Movie] DumpFrames = True` in `build/user/Conf
 
 ## The player build (settings, menu, save states, save import, camera, options, release; 2026-10-10 / 12)
 
-What a player gets on top of the game, and where each piece lives (save states: *Save states and auto-save* below; bringing saves in: *Importing saves*; keyboard and remapping: *Keyboard and button mapping*; the European disc and the Dreamcast music: *The European release* and *Dreamcast music*). The game side is the DOL
+What a player gets on top of the game, and where each piece lives (save states: *Save states and auto-save* below; bringing saves in: *Importing saves*; keyboard and remapping: *Keyboard and button mapping*; the European disc and the Dreamcast music: *The European release* and *Dreamcast music*; HD texture packs: *HD textures*). The game side is the DOL
 patch **ws22** (`build/game/GEAE8P-ws22`, SHA-1 `ac40e5cf`; European `GEAP8P-ws22`, `55ab3d55`; history in `patches/game/README.md`), shipped in v0.10.0-beta;
 the frontend side is `recompcore-skies-settings.patch` (`VideoCommon/SkiesMenu.cpp`,
 `Core/SkiesSettings.cpp`) and `moderngekko-local.patch` (launcher, runner). Plans and session logs:
@@ -189,8 +189,8 @@ in the decomp's `docs/camera.md`. B + X + Start held for half a second is the ga
 The bindings and the `Menu` / `Invincible` hotkeys are in `Config/GCPadNew.ini` (`[GCPad1]`,
 `[SkiesHotkeys]`; *Keyboard and button mapping*).
 
-The menu also changes Dolphin's own `GFX.ini` `InternalResolution` and `MSAA`, `VSync`, `ShowFPS`, and
-`Dolphin.ini` `Volume`. On desktop the runner sets the resolution from the frontend's `config.ini` at
+The menu also changes Dolphin's own `GFX.ini` `InternalResolution` and `MSAA`, `VSync`, `ShowFPS`,
+`HiresTextures` (HD textures, once a pack is imported), and `Dolphin.ini` `Volume`. On desktop the runner sets the resolution from the frontend's `config.ini` at
 every boot, so a change in game is written back there too. Any key can be set from a script:
 `tools/drive.py config:Dolphin.Skies.Encounters=0` (the first part is Dolphin's system name: `Dolphin`,
 `Graphics` for `GFX.ini`, `GCPad`, ...; `GFX` is refused).
@@ -201,7 +201,7 @@ every boot, so a change in game is written back there too. Any key can be set fr
 (controller 1). Since 2026-10-11 (late night, user request) it looks like the launchers' Settings
 windows: a rounded navy window over the dimmed game, **tabs** Saves (Save state, Load state, Auto-save),
 Graphics (Picture, Frame rate, Resolution 1 / 2 / 3 / 4 / 6x, Anti-aliasing = the backend's MSAA modes,
-V-Sync, Show FPS), Gameplay (Camera, Battle speed, Encounters, EXP, Gold, Magic EXP, Invincible;
+HD textures (since 2026-10-17; Off with a hint until a pack is imported), V-Sync, Show FPS), Gameplay (Camera, Battle speed, Encounters, EXP, Gold, Magic EXP, Invincible;
 Language on the European disc), Sound (Volume; Music once a Dreamcast disc is imported), Controls
 (Stick dead zone, Rumble, Button mapping since 0.10); each row a label, a value box (the selected one gold-edged
 with arrows) and the launchers' one-line description; a hint line for the selected row. **L / R** (digital,
@@ -818,6 +818,46 @@ ws22).
   `__fastcall` as x86's `regparm(3)` on every non-Windows target, so arm64 builds pass
   `-Dregparm(x)=` (a compile option: CMake drops function-style macros from compile definitions).
   Licences in `release/THIRD-PARTY.md`; packages carry `licenses/libchdr-LICENSE.txt`.
+
+### HD textures (2026-10-17)
+
+Players import an HD texture pack they downloaded; the port never ships one (the pack tested, "Skies
+of Arcadia HD v0.06" by Bighead and frozenwings, has no licence to redistribute). Status, test setup and
+history: [handoffs/HANDOFF-hdtextures.md](handoffs/HANDOFF-hdtextures.md); the patch:
+`recompcore-hd-textures.patch` (+ the launcher in `moderngekko-local.patch`).
+
+- **Loading** is Dolphin's own custom texture loader (`GFX.ini [Settings] HiresTextures`, textures in
+  the user directory's `Load/Textures/GEA/`; `GEA` covers both discs). Speed with the pack on: Windows
+  3x 1.000, Retroid first battle 1.003 (PNG pack).
+- **Import** (`VideoCommon/TexturePackImport.cpp`, shared by the launcher, `--import-texture-pack`
+  and the Android app): a `.7z`, a `.zip` or a folder; only `tex1_*.png/.dds` inside the pack's
+  `GEA` / `GEAE8P` / `GEAP8P` folder are copied (the pack's `Optional/` extras, French text and the
+  other flight meter, are left out), CRC-checked, into `Load/Textures/GEA.importing/`, then swapped in
+  for `GEA/`; duplicate names dropped. `skies-texture-pack.txt` there records the name and counts.
+  `.7z`: the LZMA SDK 23.01 (`lib/lzma-sdk`); LZMA / LZMA2 / stored folders are decoded as a stream
+  with a window no larger than the folder (the packs are one solid 256 MB-dictionary block: 732 MB out,
+  a few hundred MB of memory); other methods through the SDK in memory (refused above 1 GiB). Times:
+  Linux DDS .7z 4.2 s, PNG .7z 3.8 s, PNG .zip 0.7 s; Windows DDS .7z 6.4 s; Retroid DDS .7z 6 s
+  (441 MB peak), PNG .7z 5 s.
+- **Switching**: launcher Settings, Graphics, HD textures (a new import turns it on); in game the
+  menu's Graphics row, which the texture cache picks up at its next frame.
+- **mGBA's LZMA SDK (Android).** The Android app builds Dolphin's mGBA (desktop: `USE_MGBA OFF` in
+  ModernGekko), which links an older copy of the SDK with the same function names; the import called
+  mGBA's `SzArEx_Open` with our struct layout, read a garbage file count and built a 6 GB vector
+  (the app killed for memory, nothing written). Our copy is compiled with
+  `VideoCommon/Skies7zPrefix.h` forced in (`Skies7z_` names, the 95 the library defines on x86-64 and
+  arm64); a new SDK file needs its names added there. Found with simpleperf page-fault samples
+  (`simpleperf record --app ... -e page-faults -g`, no root for a debuggable app).
+- **BC7 on Adreno.** The stock Qualcomm driver (Adreno 650, V@0746.0) reports `textureCompressionBC`
+  but samples BC7 as coloured noise; `DriverDetails::BUG_BROKEN_BPTC` (Vulkan, Qualcomm, Android)
+  turns `bSupportsBPTCTextures` off, so Dolphin skips BC7 DDS files and the game's own textures stay.
+  The pack's DDS download is 535 BC7 + 210 uncompressed; its PNG download has everything. The Android
+  settings warn when an imported pack has BC7 textures. Turnip untried.
+- **EFB copies**: the pack's old note that a UI texture needs EFB copies to texture only doesn't
+  apply: this game needs copies to RAM (Dolphin's `GEA.ini`), so that element shows what the game draws.
+- **Flight meter**: the pack's `GEA` has the 4:3 meter. The port's widescreen stretches the world map's
+  flight meter and compass (*Known issues*), so in 16:9 the HD meter is stretched like the original;
+  the pack's widescreen meter would fit 16:9 only. Left as is until the widescreen fix.
 
 ### Test tools and savestates
 

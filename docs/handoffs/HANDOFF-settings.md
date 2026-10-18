@@ -4,7 +4,8 @@
 
 > **Since then (2026-10-17, v0.10.0-beta):** the menus gained Language (European disc), Music
 > (Dreamcast music) and Button mapping; settings keys and menu tabs are in NOTES *The player build*;
-> the work is in HANDOFF-dcmusic-eu and HANDOFF-input.
+> the work is in HANDOFF-dcmusic-eu and HANDOFF-input. Branch `hdtex` (not merged yet) adds
+> **HD textures** to the launchers' and the menu's Graphics tab (HANDOFF-hdtextures).
 
 Everything below the history line is the session log; this is the summary. What a player gets and how it
 works is in NOTES *The player build* (controls, settings keys, menu, camera, options, launcher).

@@ -87,6 +87,16 @@ while renaming"), so a moved folder is slower to copy into than app storage. Dol
 `DocumentProvider` root follows the user directory, so it shows the moved folder. Untested: an SD card
 (none in the device).
 
+## Status (2026-10-17, late night): HD textures on the Retroid (branch `hdtex`)
+
+The texture pack import checked in the debug app (HANDOFF-hdtextures *Android / Retroid*): two fixes
+came out of it, both in `recompcore-hd-textures.patch`. mGBA (built only in the Android app) links an
+older LZMA SDK with the same names, so the import's `.7z` reader called mGBA's and the app was killed
+for memory: our copy now has `Skies7z_` names. The stock Adreno driver samples BC7 as noise:
+`DriverDetails::BUG_BROKEN_BPTC` skips BC7 (Vulkan, Qualcomm, Android). PNG pack: first battle 1.003x.
+Tool note: `simpleperf record --app <pkg> -e page-faults -g` works on a debuggable app without root
+(`debuggerd -b` needs root here).
+
 ## Status (2026-10-17, late): v0.10.0-beta
 
 - **Release APK** (HANDOFF-release *Released*): both games' modules (`libgGEAE8P_recomp.so`,

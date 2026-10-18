@@ -1,7 +1,7 @@
-# Handoff: HD texture packs (2026-10-17)
+# Handoff: HD texture packs (2026-10-17; done, merge held for the widescreen fix)
 
 Players import an HD texture pack they downloaded; the recomp never ships one. Worked on in the
-worktree `~/projects/skies-hdtex` (branch `hdtex`, from `dev` 0e3a0cf, rebased on `dev` fc65e60 2026-10-17); its submodules and Dolphin
+worktree `~/projects/skies-hdtex` (branch `hdtex`, from `dev` 0e3a0cf, kept rebased on `dev`); its submodules and Dolphin
 Externals are git worktrees of the main checkout's, with `tools/apply-patches.sh` applied.
 
 ## The pack tested
@@ -93,7 +93,14 @@ Results on Windows (ws20 dev runner, PGO module, Vulkan, 3x; test user dir
       `HiresTextures = 1`. Shots `build\win-shots`, `build\la-shots`. The release runner has no
       automation directory, so `drive.py` can't drive it (use the keys script).
 - [ ] Linux launcher UI by hand: not driven (another session's game window was up on WSLg); same
-      ImGui code as Windows.
+      ImGui code as Windows. The Linux CLI import is checked.
+- [x] Committed on `hdtex`: the feature, then a docs pass (development-notes
+      *HD textures* + *Known issues*, BUILDING, the other handoffs, the bug template).
+- [ ] **Merge into `dev`: held by the user (2026-10-17) until the widescreen fix** for the world map's
+      flight meter and compass (game patch ws24, development-notes *Known issues*). Then: merge (fast
+      forward if `dev` hasn't moved), apply `recompcore-hd-textures.patch` in the main checkout,
+      `tools/check-patches.sh`, and the release-note line in HANDOFF-release *Next*. After the fix,
+      look at the HD meter in 16:9 again (the pack's `GEA` one is the 4:3 meter, which is then right).
 
 ## Android / Retroid (2026-10-17 late)
 

@@ -20,7 +20,10 @@ The pipeline, in short:
    and launcher: Dolphin's hardware code (video, audio, DSP, input, memory cards) around the module.
 
 All three come in as submodules pinned to upstream commits, and the port's changes to them live in
-[`patches/`](patches/README.md).
+[`patches/`](patches/README.md). The libraries the port adds sit beside them in `lib/`: Highly
+Theoretical and libchdr (submodules, for the Dreamcast music) and the LZMA SDK's 7z decoder
+(`lib/lzma-sdk`, copied in unchanged, for `.7z` texture packs; without it the HD textures import
+takes `.zip` packs and folders only).
 
 ## 1. Get the source
 
@@ -179,7 +182,7 @@ helpers in `tools/`:
 | [`docs/development-notes.md`](docs/development-notes.md) | how it all works, measurements, known issues; *The player build* lists every control and setting |
 | [`patches/README.md`](patches/README.md) | the patches to ModernGekko, RecompCore and DolRecomp |
 | [`patches/game/README.md`](patches/game/README.md) | the game patch built into the DOL (widescreen, camera, options) |
-| [`docs/handoffs/`](docs/handoffs/) | status and history per area: release, code review, settings, desktop, Android, input, the European disc and Dreamcast music |
+| [`docs/handoffs/`](docs/handoffs/) | status and history per area: release, code review, settings, desktop, Android, input, the European disc and Dreamcast music, HD textures |
 
 ## 5. CI and releases
 
