@@ -2,9 +2,9 @@
 
 Changes to the game itself, written in C (and a little assembly) and built into a copy of
 `main.dol` by `tools/gamepatch.py`. The shipping spec is `widescreen.json` (widescreen, camera
-control and the QOL options together); the current build is **ws23** (`build/game/GEAE8P-ws23`, DOL
-SHA-1 `271b1ccd`, SHA-256 `018a9ffb`; the European one `GEAP8P-ws23`, SHA-1 `2fb3e9d9`, SHA-256
-`8b556a56`), and `release/skies-widescreen.dolpatch` (`skies-widescreen-eu.dolpatch`) turns a player's own
+control and the QOL options together); the current build is **ws24** (`build/game/GEAE8P-ws24`, DOL
+SHA-1 `0569daa3`, SHA-256 `c9da6ee4`; the European one `GEAP8P-ws24`, SHA-1 `bb683272`, SHA-256
+`16241d84`), and `release/skies-widescreen.dolpatch` (`skies-widescreen-eu.dolpatch`) turns a player's own
 `main.dol` into it (`tools/mkdolpatch.py`). Because they're part of the DOL, the recompiled module runs them
 as ordinary game code: desktop and Android alike, with no mod loader and no runtime cost beyond the
 code itself. The research behind each one is in the decomp's `docs/` (`../SkiesOfArcadiaLegends-Decomp`).
@@ -46,18 +46,18 @@ the title's state table has rewritten handlers in slots 2 and 10-13 (the same 19
 
 ```sh
 tools/gamepatch.py patches/game/widescreen.json --dol <european disc>/sys/main.dol \
-  --out-root build/game/GEAP8P-ws23
+  --out-root build/game/GEAP8P-ws24
 ```
 
 ```sh
-tools/gamepatch.py patches/game/widescreen.json --out-root build/game/GEAE8P-ws23
-DOL=build/game/GEAE8P-ws23/sys/main.dol tools/module-llvm-win.sh llvm-pgo-ws23 \
+tools/gamepatch.py patches/game/widescreen.json --out-root build/game/GEAE8P-ws24
+DOL=build/game/GEAE8P-ws24/sys/main.dol tools/module-llvm-win.sh llvm-pgo-ws24 \
   --profile-use build/modules-llvm-pgo-gp/GEAE8P/pgo/merged.profdata      # Windows module
-NAME=ws23 tools/android-ws-build.sh                                       # Android module + APK
+NAME=ws24 tools/android-ws-build.sh                                       # Android module + APK
 python3 tools/mkdolpatch.py extracted/SkiesOfArcadiaLegends/sys/main.dol \
-  build/game/GEAE8P-ws23/sys/main.dol release/skies-widescreen.dolpatch   # release patch
+  build/game/GEAE8P-ws24/sys/main.dol release/skies-widescreen.dolpatch   # release patch
 python3 tools/mkdolpatch.py <european disc>/sys/main.dol \
-  build/game/GEAP8P-ws23/sys/main.dol release/skies-widescreen-eu.dolpatch   # European release patch
+  build/game/GEAP8P-ws24/sys/main.dol release/skies-widescreen-eu.dolpatch   # European release patch
 ```
 
 The Android build picks up the European game from `DOL_EU` (default `build/game/GEAP8P-NAME/sys/main.dol`).
@@ -72,9 +72,9 @@ the Gekko (`-mcpu=750`, `-Os`, no small-data), links them into the low-memory ga
 (`cave.ld`: code and constants up to `0x80002A00`, data from there to `0x80002F00`, with
 `ws_hud_aspect` fixed at `0x80002E9C`, `qol_input` at `0x80002EA0`, `cam_input` at `0x80002EC0` and `load_request` at `0x80002EF0` for the frontend), rewrites the listed call sites and adds the code and data as new DOL sections. That gap is nearly full (ws13: code 0xFD0 of 0x1100 bytes, data 0x4E4 of 0x500), so there's a second code area: functions marked `section(".trkcave")` go to `0x802548E8`-`0x80257074` (10 KB), over MetroTRK's message handlers, which only run with a debugger attached (`__start` starts MetroTRK only when `0x800030E8` is 2 or 3; the handlers are reached only through its dispatch table). `gamepatch.py` writes that code into the DOL's text in place; it's code only (data still goes in the gap). It
 writes a game root: `sys/` with the patched DOL, `files/` linked to the original (on Windows, make
-it a junction: `mklink /J build\game\GEAE8P-ws23\files extracted\SkiesOfArcadiaLegends\files`), plus
+it a junction: `mklink /J build\game\GEAE8P-ws24\files extracted\SkiesOfArcadiaLegends\files`), plus
 `patches.txt` (symbols and patched sites) and `patch.elf` (for disassembly). Run it with
-`GAME=build/game/GEAE8P-ws23` (`tools/play.sh`) or `GAME=build\game\GEAE8P-ws23` (`tools\run-win.bat`)
+`GAME=build/game/GEAE8P-ws24` (`tools/play.sh`) or `GAME=build\game\GEAE8P-ws24` (`tools\run-win.bat`)
 and a module built from the same DOL.
 
 | Build | DOL SHA-1 | What it added |
@@ -94,7 +94,8 @@ and a module built from the same DOL.
 | ws20 | `e78a04d9` | Continue from a card save loads it directly (`autoload.c`, `load_request` at `0x80002EF0`, `dl_title` at the title's call `0x801DC350`): ~6 s from launch to the field on Windows, RAM identical to a load through the menus but for the uptime counter; a missing file falls back to the intro and title. Replaces the frontend's button-driving (30-40 s). Released in v0.9.0-beta and v0.9.1-beta |
 | ws21 | `49979e26` (Europe `6d2620e5`) | the Dreamcast music hooks (`dcmusic.c`, `dcm_frame` called at the end of `qol_frame`); 663 call sites (Europe 685). Built 2026-10-17, never released |
 | ws22 | `ac40e5cf` (Europe `55ab3d55`) | `dcmusic.c`: the paused song tracked (its continue and stop posted), controller 7 as a table instead of ring events (`struct dcm_box` grew to 380 bytes). `fullwidth.S`: the ortho matrix's [0][0] through the spec's symbol `ws_ortho_m00` instead of a literal `0x8034` / `0x63C0`, which gamepatch doesn't translate: the European build's full-width wrappers wrote another word, so its screen-copy effects (the red alert room's pulse, afterimages) were drawn back squeezed, a double image in widescreen (the USA DOL is unchanged). Checked in game on WSL 2026-10-17 (both games); `release/skies-widescreen.dolpatch` (output `e58354e5`) and `release/skies-widescreen-eu.dolpatch` (`30904d88`) are ws22 since 2026-10-17; released in v0.10.0-beta |
-| ws23 | `271b1ccd` (Europe `2fb3e9d9`) | the first battle after a Continue from a card save crashed ("Invalid read from 0x00000004", ws20-ws22, both games): the direct load skipped the second logo, which loads 16 resident files into ARAM and lists them in a checksummed table (`fn_8022A854`, `lbl_803165C8`) that the battle's loading reads unchecked. `dl_title` now steps that loader to the end before the card; `qol_resident` (from `qol_frame`) steps it once a frame in the field when it never ran or the table's sum is wrong, with random encounters held back meanwhile, so states made in such a session work too. Checked on the Retroid 2026-10-17 (both games). `release/skies-widescreen.dolpatch` (output `018a9ffb`) and `skies-widescreen-eu.dolpatch` (`8b556a56`) are ws23 |
+| ws23 | `271b1ccd` (Europe `2fb3e9d9`) | the first battle after a Continue from a card save crashed ("Invalid read from 0x00000004", ws20-ws22, both games): the direct load skipped the second logo, which loads 16 resident files into ARAM and lists them in a checksummed table (`fn_8022A854`, `lbl_803165C8`) that the battle's loading reads unchecked. `dl_title` now steps that loader to the end before the card; `qol_resident` (from `qol_frame`) steps it once a frame in the field when it never ran or the table's sum is wrong, with random encounters held back meanwhile, so states made in such a session work too. Checked on the Retroid 2026-10-17 (both games). `release/skies-widescreen.dolpatch` (output `018a9ffb`) and `skies-widescreen-eu.dolpatch` (`8b556a56`) were ws23 |
+| ws24 | `0569daa3` (Europe `bb683272`) | HUD placement: `ws_hud_aspect`, a float fixed at `0x80002E9C` (`.ws_hud` in `cave.ld`, outside `ws_config` so older states' variables don't move), read by the anchor scaling in `widescreen.c`: 0 = the HUD at the picture's edges (as ws23), an aspect = the HUD in a centred area of that shape (16:9, 21:9 as 64:27), below 0 = the original layout; the frontend writes it with the picture (`recompcore-hud.patch`, `[Skies] Hud`). The European address table got `0x80002E9C` (identity, like the other fixed addresses). `release/skies-widescreen.dolpatch` (output `c9da6ee4`) and `skies-widescreen-eu.dolpatch` (`16241d84`) are ws24 |
 
 A module only matches the DOL it was built from: an unpatched module with a patched DOL (or the
 reverse) fails verification for the patched code and runs it in the interpreter. Savestates made

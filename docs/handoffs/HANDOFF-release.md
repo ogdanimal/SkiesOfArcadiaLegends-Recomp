@@ -83,7 +83,10 @@ Since 0.9.1, before 0.10 (all in 0.10.0-beta):
 
 ## Next
 
-For the next release, on `dev` (local commits, not pushed on 10-17 night):
+**Next release: v0.50.0-beta** (the user's number and go-ahead, 2026-10-18: full approval to
+release, including signing and device checks). Everything below is on `dev`; on 2026-10-18 the
+`hud`, `datadir` and `hdtex` branches were merged in that order (rebased, patches regenerated,
+`tools/check-patches.sh` green, Linux release builds and the CLI import / move tests passing).
 - `b9f0157` Windows: the Fullscreen setting works at start (it needed Alt+Enter), no white border in
   fullscreen, sharp on high-DPI (4K at 150%) screens. Issue #2 / a Reddit report (HANDOFF-desktop
   *Status 2026-10-17, night*).
@@ -100,15 +103,11 @@ For the next release, on `dev` (local commits, not pushed on 10-17 night):
   battle after Continue from a memory card save could crash (black screen)". Workaround for 0.10.0
   players until then: Continue from a save state, or start the game and load from the title menu.
   Draft notes for these: `build/notes-next.md` (local).
-- **HD textures** (branch `hdtex`, worktree `~/projects/skies-hdtex`, two commits on top of `dev`,
-  not merged): import a texture pack the player downloaded (.7z / .zip / folder) in Settings,
+- **HD textures** (branch `hdtex`, merged 2026-10-18; the user lifted the hold): import a texture pack the player downloaded (.7z / .zip / folder) in Settings,
   Graphics, all three platforms; switch in game. Checked on Linux, the Retroid and Windows
-  (HANDOFF-hdtextures). **Held by the user (2026-10-17) until the widescreen fix** for the world map's
-  stretched flight meter and compass. That stretch doesn't happen in normal play (re-diagnosed
-  2026-10-18: it was a Picture change made while the world map's menu was open; development-notes
-  *Known issues*, left as is by the user), so nothing blocks the merge but the user's word. Merging
-  it means applying `recompcore-hd-textures.patch` in the main checkout (`tools/apply-patches.sh`
-  order) so its submodule copies match. Release-note wording: "HD textures: import a texture pack you
+  (HANDOFF-hdtextures). It was held for the world map's flight meter / compass "stretch", which
+  turned out to be a Picture change made while the world map's menu was open (development-notes
+  *Known issues*, left as is by the user). Release-note wording: "HD textures: import a texture pack you
   downloaded (Settings → Graphics); none is included. On Android take a pack's PNG download."
 - **Match screen** (ultrawide; branch `aspect` merged into `dev` 2026-10-17 night): Picture gets a
   third choice that shapes the picture like the window or screen (4:3 to 32:9: 21:9 / 32:9
@@ -118,12 +117,11 @@ For the next release, on `dev` (local commits, not pushed on 10-17 night):
   looked at: the launcher's dropdown and the branded Android Settings row (same lists as the menu).
   Known: at 32:9 a few scenes show unbuilt scenery at the edges. Release-note wording: "Picture: Match screen fills any screen
   shape, ultrawide (21:9, 32:9) included; on an ultrawide raise Resolution for a sharp picture."
-- **HUD placement** (branch `hud`, worktree `~/projects/skies-aspect`, commits `a4baea1` + docs on
-  top of `dev`, not merged): Settings → Graphics → HUD puts a wide picture's HUD at the screen edges
+- **HUD placement** (branch `hud`, merged 2026-10-18): Settings → Graphics → HUD puts a wide picture's HUD at the screen edges
   (default), in a centred 21:9 or 16:9 area, or in the original 4:3 layout (`[Skies] Hud`, the game
   patch's `ws_hud_aspect`, `patches/recompcore-hud.patch`; development-notes *HUD placement*).
-  Checked on WSL at 32:9 with a test DOL. Before it can ship: number the game patch (ws24), regenerate
-  both release `.dolpatch` files, check Windows and the Retroid, merge. Release-note wording: "HUD:
+  Checked on WSL at 32:9 with a test DOL. The game patch is **ws24** (`patches/game/README.md`; USA
+  output `c9da6ee4`, European `16241d84`, both release `.dolpatch` files regenerated 2026-10-18). Release-note wording: "HUD:
   on a wide picture, keep the HUD at the screen edges, in a 21:9 or 16:9 area, or in the original
   layout (Settings → Graphics → HUD)."
 - **"Game files missing"** (same merge): a missing `g<ID>_recomp.dll` (partly extracted zip,
@@ -131,13 +129,11 @@ For the next release, on `dev` (local commits, not pushed on 10-17 night):
   the runner exits with 20 for it and for the earlier-release DOL message, and the launcher shows no
   second box (development-notes *A missing game module*). Release-note wording: "A missing game file
   now says which one and how to fix it."
-- **Data folder** (branch `datadir`, worktree `~/projects/skies-datadir`, `287d93b` + docs on top
-  of `dev` `b2bf40b`, not merged): Settings → Disc → Data folder moves the imported game, saves and
+- **Data folder** (branch `datadir`, merged 2026-10-18): Settings → Disc → Data folder moves the imported game, saves and
   settings to any folder or drive (desktop: folder picker; Android 11+: internal storage, SD card or
   another folder, with All files access), Move Back to the Default, portable `portable.txt` beside
   the programs; a moved folder that isn't there is asked about at start. Checked on Linux, Windows
-  (C: to D: and back) and the Retroid; SD cards untested (HANDOFF-datadir). Merging: rebase after
-  `hdtex` / `aspect` if they land first and regenerate `moderngekko-local.patch`. Release-note
+  (C: to D: and back) and the Retroid; SD cards untested (HANDOFF-datadir). Release-note
   wording: "Data folder: keep your game, saves and settings anywhere (Settings → Disc → Data folder),
   or portable beside the program (an empty portable.txt). On Android 11 and later the data can leave
   the app's storage, so it survives an uninstall."

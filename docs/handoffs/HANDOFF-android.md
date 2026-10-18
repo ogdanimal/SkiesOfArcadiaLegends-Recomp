@@ -72,7 +72,7 @@ GRADLE_OPTS=-Dorg.gradle.daemon=false`. The Retroid's swipe lock screen stops bo
 card file N at boot once (the runtime clears it). Only Windows' `adb.exe`, never WSL's `adb`. The user
 plays on the Retroid: ask before using it.
 
-## Status (2026-10-17, night): data folder (branch `datadir`, not merged)
+## Status (2026-10-17, night): data folder (branch `datadir`, merged into `dev` 2026-10-18)
 
 Settings → Disc → Data folder (HANDOFF-datadir, development notes *Data folder*,
 `patches/recompcore-data-folder.patch`). Tested on the Retroid with a **separate test app**,

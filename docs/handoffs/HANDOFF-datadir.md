@@ -1,8 +1,8 @@
 # Handoff: data folder anywhere (2026-10-17)
 
 Branch `datadir`, worktree `~/projects/skies-datadir` (submodules are worktrees of the main checkout's,
-patches applied). Committed on `datadir` (`287d93b` feature, then docs) on top of `dev` `b2bf40b`;
-**not merged into `dev`, not pushed.** How it works and what was tested:
+patches applied). Committed on `datadir` (feature, then docs); **merged into `dev` 2026-10-18** (rebased after `hud`:
+`f273541` feature, then docs). How it works and what was tested:
 [development notes, *Data folder*](../development-notes.md#data-folder-2026-10-17).
 
 ## What's in it

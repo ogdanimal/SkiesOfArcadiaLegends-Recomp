@@ -1,4 +1,4 @@
-# Handoff: HD texture packs (2026-10-17; done, merge held for the widescreen fix)
+# Handoff: HD texture packs (2026-10-17; done, merged into `dev` 2026-10-18)
 
 Players import an HD texture pack they downloaded; the recomp never ships one. Worked on in the
 worktree `~/projects/skies-hdtex` (branch `hdtex`, from `dev` 0e3a0cf, kept rebased on `dev`); its submodules and Dolphin
@@ -101,11 +101,9 @@ Results on Windows (ws20 dev runner, PGO module, Vulkan, 3x; test user dir
       ImGui code as Windows. The Linux CLI import is checked.
 - [x] Committed on `hdtex`: the feature, then a docs pass (development-notes
       *HD textures* + *Known issues*, BUILDING, the other handoffs, the bug template).
-- [ ] **Merge into `dev`: held by the user (2026-10-17) until the widescreen fix** for the world map's
-      flight meter and compass. No fix is needed (re-diagnosed 2026-10-18, above; the menu-replay
-      glitch left as is by the user), so the merge waits only for the user's word. Then: merge (fast
-      forward if `dev` hasn't moved), apply `recompcore-hd-textures.patch` in the main checkout,
-      `tools/check-patches.sh`, and the release-note line in HANDOFF-release *Next*.
+- [x] **Merged into `dev` 2026-10-18** (the user lifted the hold; no meter fix was needed, above):
+      rebased after `hud` and `datadir` (`b553b37` feature, then docs), patches regenerated,
+      `tools/check-patches.sh` green, the main checkout's submodule copies synced.
 
 ## Android / Retroid (2026-10-17 late)
 

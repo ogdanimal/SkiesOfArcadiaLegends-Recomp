@@ -6,7 +6,7 @@ frame limiter off, and record it in the development-notes.md *Platforms* table. 
 [HANDOFF-android.md](HANDOFF-android.md). The top *Status* and *State of the tree* were checked against
 both trees late on 2026-10-06; older sections are kept as history and say so where they're superseded.
 
-## Status (2026-10-17, night): data folder (branch `datadir`, not merged)
+## Status (2026-10-17, night): data folder (branch `datadir`, merged into `dev` 2026-10-18)
 
 Settings → Disc → Data folder and portable mode in the launcher and runner (HANDOFF-datadir,
 development notes *Data folder*, `moderngekko-local.patch`'s `tools/user_directory.cpp`). Windows test
@@ -18,14 +18,14 @@ Windows message box doesn't wrap text: keep box lines short. Linux: `--move-data
 same move without the window; WSLg has no folder picker (no portal or zenity), so the picker is
 untested on Linux.
 
-## Status (2026-10-17, night): HUD placement (branch `hud`, not merged)
+## Status (2026-10-17, night): HUD placement (branch `hud`, merged into `dev` 2026-10-18)
 
-Worktree `~/projects/skies-aspect`, branch `hud` from `dev` 03b83aa, uncommitted: the HUD on a wide
+Worktree `~/projects/skies-aspect`, branch `hud` from `dev` cc118be: the HUD on a wide
 picture at the edges, in a 21:9 or 16:9 area, or the original layout (`[Skies] Hud`, game patch
 `ws_hud_aspect`, `recompcore-hud.patch`, launcher row in `moderngekko-local.patch`; development-notes
-*HUD placement*). Checked on WSL only. Needs a game patch build number (ws24; the world map meter / compass
-"stretch" it was earmarked for turned out not to exist in normal play, development-notes *Known
-issues*), then release patches, Windows and Retroid.
+*HUD placement*). Checked on WSL first. The game patch is ws24 (2026-10-18, release patches regenerated; the world
+map meter / compass "stretch" ws24 was first earmarked for turned out not to exist in normal play,
+development-notes *Known issues*).
 
 ## Status (2026-10-17, late night): Match screen (ultrawide) and the missing-module message
 

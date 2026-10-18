@@ -37,9 +37,11 @@ rebuilt.
 
 The game with the recomp's features (widescreen, camera, options; *The player build*) runs from the
 patched DOL with a module built from that same DOL. Released (game patch **ws22**, in **v0.10.0-beta**);
-on `dev` since 2026-10-17 night **ws23** (the Continue fix, *Memory card auto-load*), built so far only
-for Android (`build/game/GEAE8P-ws23` / `GEAP8P-ws23`, `build/android/apk/skies-ws23-2026-10-17.apk`
-on the debug test app); the desktop trees below are still ws22. On Windows `build\game\GEAE8P-ws22` with `build\modules-llvm-pgo-ws22b\gGEAE8P_recomp.dll`
+on `dev` since 2026-10-18 **ws24** (*HUD placement*, on top of ws23's Continue fix, *Memory card
+auto-load*; `build/game/GEAE8P-ws24` / `GEAP8P-ws24`, WSL modules `../skies-aspect/build/us-genhud/module-linux`
+and `build/eu-gen24/module-linux`, no PGO); ws23 was built for Android (`build/game/GEAE8P-ws23` /
+`GEAP8P-ws23`, `build/android/apk/skies-ws23-2026-10-17.apk` on the debug test app); the desktop trees
+below are still ws22. On Windows `build\game\GEAE8P-ws22` with `build\modules-llvm-pgo-ws22b\gGEAE8P_recomp.dll`
 (European: `build\modules-llvm-eu-ws22b`, no PGO; dev runner `lib\ModernGekko\build\moderngekko-run.exe`)
 or the branded release (`Skies of Arcadia Legends.exe`, *Launcher and release*); on WSL
 `build/game/GEAE8P-ws22` / `GEAP8P-ws22` with `build/us-gen22/module-linux` / `build/eu-gen22/module-linux`
