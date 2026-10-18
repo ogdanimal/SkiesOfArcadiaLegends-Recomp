@@ -5285,10 +5285,10 @@ index af1c2a5..1a61395 100644
                 "       moderngekko-port pgo-run <game-root> [--backend c|llvm] [--toolchain auto|clang] [--opt-level 0-3]\n"
                 "               [--output path] [--profile-dir path] [--llvm-profdata path] [--keep-work]\n"
 diff --git a/tools/moderngekko_run.cpp b/tools/moderngekko_run.cpp
-index d6b3569..f41bc7a 100644
+index d6b3569..c7fac68 100644
 --- a/tools/moderngekko_run.cpp
 +++ b/tools/moderngekko_run.cpp
-@@ -4,8 +4,11 @@
+@@ -4,8 +4,12 @@
  #include "moderngekko/game.hpp"
  #include "moderngekko/runtime.hpp"
  #include "netplay_session.hpp"
@@ -5296,11 +5296,20 @@ index d6b3569..f41bc7a 100644
 +#include "user_directory.hpp"
  
  #include "Common/StringUtil.h"
++#include "VideoCommon/SkiesMenu.h"
 +#include <SDL3/SDL.h>
  
  #include <charconv>
  #include <chrono>
-@@ -26,6 +29,10 @@
+@@ -16,6 +20,7 @@
+ #include <fstream>
+ #include <iostream>
+ #include <string>
++#include <string_view>
+ #include <thread>
+ #include <vector>
+ 
+@@ -26,6 +31,10 @@
  #define WIN32_LEAN_AND_MEAN
  #define NOMINMAX
  #include <windows.h>
@@ -5311,7 +5320,7 @@ index d6b3569..f41bc7a 100644
  #endif
  
  namespace {
-@@ -71,34 +78,23 @@ ReadDefaultGame(const std::filesystem::path &user_directory,
+@@ -71,34 +80,23 @@ ReadDefaultGame(const std::filesystem::path &user_directory,
    std::getline(file, path);
    if (!path.empty() && path.back() == '\r')
      path.pop_back();
@@ -5359,7 +5368,7 @@ index d6b3569..f41bc7a 100644
  }
  
  std::string LibrarySuffix() {
-@@ -126,6 +122,63 @@ std::filesystem::path ExecutableDirectory(const char *argv0) {
+@@ -126,6 +124,63 @@ std::filesystem::path ExecutableDirectory(const char *argv0) {
  }
  } // namespace
  
@@ -5423,7 +5432,7 @@ index d6b3569..f41bc7a 100644
  int RunMain(int argc, char **argv) {
  #if defined(_WIN32)
    if (!std::getenv("SDL_GAMECONTROLLER_ALLOW_STEAM_VIRTUAL_GAMEPAD"))
-@@ -134,9 +187,12 @@ int RunMain(int argc, char **argv) {
+@@ -134,9 +189,12 @@ int RunMain(int argc, char **argv) {
    setenv("SDL_GAMECONTROLLER_ALLOW_STEAM_VIRTUAL_GAMEPAD", "1", 0);
  #endif
    moderngekko::RuntimeConfig config;
@@ -5437,7 +5446,7 @@ index d6b3569..f41bc7a 100644
  #ifdef MODERNGEKKO_DEFAULT_WINDOW_TITLE
    config.window_title = MODERNGEKKO_DEFAULT_WINDOW_TITLE;
  #endif
-@@ -161,8 +217,10 @@ int RunMain(int argc, char **argv) {
+@@ -161,8 +219,10 @@ int RunMain(int argc, char **argv) {
        config.game_root = value("--game");
      else if (arg == "--module")
        module_path = value("--module");
@@ -5449,7 +5458,7 @@ index d6b3569..f41bc7a 100644
      else if (arg == "--title")
        config.window_title = value("--title");
      else if (arg == "--load-state")
-@@ -229,6 +287,19 @@ int RunMain(int argc, char **argv) {
+@@ -229,6 +289,19 @@ int RunMain(int argc, char **argv) {
        return 2;
      }
    }
@@ -5469,7 +5478,7 @@ index d6b3569..f41bc7a 100644
    if (config.game_root.empty())
      config.game_root =
          ReadDefaultGame(config.user_directory, executable_directory);
-@@ -246,10 +317,40 @@ int RunMain(int argc, char **argv) {
+@@ -246,10 +319,40 @@ int RunMain(int argc, char **argv) {
      return 2;
    }
    config.graphics.internal_resolution_scale = frontend_config.dolphin_scale;
@@ -5510,7 +5519,7 @@ index d6b3569..f41bc7a 100644
    if (use_default_mods) {
      config.mod_directories.push_back(executable_directory / "Mods");
      config.mod_directories.push_back(config.user_directory / "Mods");
-@@ -266,39 +367,58 @@ int RunMain(int argc, char **argv) {
+@@ -266,39 +369,58 @@ int RunMain(int argc, char **argv) {
      std::cout << "controller configuration: " << controller_message << '\n';
    }
  
@@ -5594,7 +5603,7 @@ index d6b3569..f41bc7a 100644
  #ifdef MODERNGEKKO_REQUIRED_REL_SHA256
    if (inspected.metadata->rel_sha256 != MODERNGEKKO_REQUIRED_REL_SHA256) {
      std::cerr << "unsupported _Main.rel: this release requires its pinned game build\n";
-@@ -314,12 +434,12 @@ int RunMain(int argc, char **argv) {
+@@ -314,12 +436,12 @@ int RunMain(int argc, char **argv) {
  #endif
  
    // Compatibility discovery belongs to the runner, never the runtime library.
@@ -5609,7 +5618,7 @@ index d6b3569..f41bc7a 100644
        const auto bundled = executable_directory / module_name;
        const auto user_module =
            config.user_directory / "StaticRecompModules" / module_name;
-@@ -329,6 +449,20 @@ int RunMain(int argc, char **argv) {
+@@ -329,6 +451,20 @@ int RunMain(int argc, char **argv) {
          module_path = user_module;
      }
    }
@@ -5630,7 +5639,7 @@ index d6b3569..f41bc7a 100644
    if (!module_path.empty())
      config.module =
          moderngekko::ModuleSource::DynamicPath(std::move(module_path));
-@@ -385,6 +519,8 @@ int RunMain(int argc, char **argv) {
+@@ -385,6 +521,8 @@ int RunMain(int argc, char **argv) {
          std::move(config), std::move(frontend_config), std::move(options));
    }
  
@@ -5639,7 +5648,7 @@ index d6b3569..f41bc7a 100644
    auto created = moderngekko::Runtime::Create(std::move(config));
    if (!created) {
      std::cerr << "initialization failed: " << created.error->message << '\n';
-@@ -409,6 +545,29 @@ int RunMain(int argc, char **argv) {
+@@ -409,8 +547,46 @@ int RunMain(int argc, char **argv) {
    signal_watcher.request_stop();
    if (result.error) {
      std::cerr << "runtime failed: " << result.error->message << '\n';
@@ -5668,7 +5677,24 @@ index d6b3569..f41bc7a 100644
 +          nullptr);
      return 1;
    }
++  // The in-game menu stopped the game to start it again (a new language on the European disc): the
++  // same command line, less a save state to load (it would bring back the old language)
++  if (SkiesMenu::TakeRestartRequest()) {
++    std::vector<char *> args{argv[0]};
++    for (int i = 1; i < argc; ++i) {
++      if (std::string_view(argv[i]) == "--load-state" && i + 1 < argc) {
++        ++i;
++        continue;
++      }
++      args.push_back(argv[i]);
++    }
++    created.runtime.reset();
++    std::cout << "restarting the game\n";
++    return Restart(static_cast<int>(args.size()), args.data(), {});
++  }
    return 0;
+ }
+ 
 diff --git a/tools/port_command_line.hpp b/tools/port_command_line.hpp
 index f2152dc..b59e7e9 100644
 --- a/tools/port_command_line.hpp

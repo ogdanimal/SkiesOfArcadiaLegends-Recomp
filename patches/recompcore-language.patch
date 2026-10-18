@@ -1,0 +1,270 @@
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
+index 07f9d4e699..7498cfec32 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
+@@ -270,6 +270,16 @@ class SkiesLauncherActivity : FragmentActivity() {
+             SkiesDataFolder.restart(this)
+             return
+         }
++        // The in-game menu ended the game to start it again in a new language (European disc)
++        if (SkiesNative.takeRestartRequest() && DirectoryInitialization.areDolphinDirectoriesReady() &&
++            !dataFolderBlocked && gameReady()
++        ) {
++            afterGameClosed {
++                setAutoLoadCard(0)
++                launch(null)
++            }
++            return
++        }
+         if (chooseAfterAccess && SkiesDataFolder.hasAccess()) {
+             chooseAfterAccess = false
+             chooseDataFolder()
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt
+index 7764d05e04..9ea980293d 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt
+@@ -90,6 +90,13 @@ object SkiesNative {
+     @JvmStatic
+     external fun importStatus(): String
+ 
++    /**
++     * True (once) when the in-game menu ended the game session to start it again: a new language on
++     * the European disc, which the game reads only at boot.
++     */
++    @JvmStatic
++    external fun takeRestartRequest(): Boolean
++
+     /** Controller 1's [key] in Config/GCPadNew.ini [GCPad1] (percent), or [fallback] if unset. */
+     @JvmStatic
+     external fun getPadOption(key: String, fallback: Int): Int
+diff --git a/Source/Android/jni/SkiesImport.cpp b/Source/Android/jni/SkiesImport.cpp
+index 26e0d5c728..97c1d1c0d7 100644
+--- a/Source/Android/jni/SkiesImport.cpp
++++ b/Source/Android/jni/SkiesImport.cpp
+@@ -31,6 +31,7 @@
+ #include "jni/AndroidCommon/AndroidCommon.h"
+ #include "moderngekko/sha256.hpp"
+ #include "save_import.hpp"
++#include "VideoCommon/SkiesMenu.h"
+ #include "VideoCommon/TexturePackImport.h"
+ #include "user_directory.hpp"
+ #ifdef HAVE_DCMUSIC
+@@ -601,4 +602,12 @@ JNIEXPORT void JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_cancelDa
+ {
+   s_data_move.cancel = true;
+ }
++
++// The launcher, back from a game session: true (once) when the in-game menu ended it to start the
++// game again (a new language on the European disc)
++JNIEXPORT jboolean JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_takeRestartRequest(JNIEnv*,
++                                                                                            jclass)
++{
++  return SkiesMenu::TakeRestartRequest();
++}
+ }
+diff --git a/Source/Core/VideoCommon/SkiesMenu.cpp b/Source/Core/VideoCommon/SkiesMenu.cpp
+index d25ea0d4e9..6876d44dc6 100644
+--- a/Source/Core/VideoCommon/SkiesMenu.cpp
++++ b/Source/Core/VideoCommon/SkiesMenu.cpp
+@@ -6,6 +6,7 @@
+ 
+ #include <algorithm>
+ #include <array>
++#include <atomic>
+ #include <bit>
+ #include <cfloat>
+ #include <chrono>
+@@ -45,6 +46,8 @@
+ #include "Core/HW/GCPad.h"
+ #include "Core/HW/GCPadEmu.h"
+ #include "Core/HW/Memmap.h"
++#include "Core/Host.h"
++#include "Core/NetPlay/NetPlayProto.h"
+ #include "Core/SavestateLayout.h"
+ #include "Core/SkiesBindings.h"
+ #include "Core/SkiesInput.h"
+@@ -215,6 +218,12 @@ int s_z_replay_polls = 0;
+ int s_save_slot = 1;
+ int s_load_slot = 0;  // 0 = the newest auto-save
+ bool s_load_confirm = false;
++// Language (European disc): the game reads it once, at boot, so a second A on a changed language
++// restarts the game in it. FilterOpen sets the pending flag with the close; once the values are
++// applied and saved the emulation is stopped and the frontend, seeing the request, starts it again.
++bool s_restart_confirm = false;
++bool s_restart_pending = false;
++std::atomic<bool> s_restart_requested = false;
+ // The menu opened by itself on Frame rate because 60 fps ran below full speed (slowprompt): the
+ // row's description says why while it is open; the flag is saved once the lock is let go.
+ bool s_slow_note = false;
+@@ -264,6 +273,13 @@ bool IsSkies()
+   return SConfig::GetInstance().GetGameID() == "GEAE8P" || IsEurope();
+ }
+ 
++// A restart for a new language (European disc): not in a netplay session, which would lose its
++// other players.
++bool CanRestart()
++{
++  return IsEurope() && !NetPlay::IsNetPlayRunning();
++}
++
+ // A game address (or an instruction word) in the USA release and the European one: the game patch
+ // is the same code at other addresses there (patches/game/GEAP8P.addresses.json). The patch's own
+ // blocks in the low-memory gap are at the same addresses in both.
+@@ -645,6 +661,7 @@ void Change(Option option, int direction, bool wrap)
+   case Option::Language:
+     if (IsEurope())
+       v.language = (v.language + direction + 4) % 4;
++    s_restart_confirm = false;
+     break;
+   case Option::SaveState:
+     s_save_slot = (s_save_slot - 1 + direction + SAVE_SLOTS) % SAVE_SLOTS + 1;
+@@ -715,6 +732,7 @@ void Open()
+   s_previous = 0xFFFF;  // nothing counts as pressed until it's released once
+   s_repeat_button = 0;
+   s_load_confirm = false;
++  s_restart_confirm = false;
+   s_slow_note = false;
+   s_mapping = false;
+   s_capturing = false;
+@@ -1372,6 +1390,7 @@ GCPadStatus FilterOpen(const GCPadStatus& raw)
+   const auto switch_tab = [&](int direction) {
+     s_tab = (s_tab + direction + tab_count) % tab_count;
+     s_load_confirm = false;
++    s_restart_confirm = false;
+   };
+   if (pressed & (PAD_TRIGGER_L | PAD_TRIGGER_R))
+   {
+@@ -1397,7 +1416,10 @@ GCPadStatus FilterOpen(const GCPadStatus& raw)
+     return Released(raw);
+   }
+   if (pressed & (PAD_BUTTON_UP | PAD_BUTTON_DOWN))
++  {
+     s_load_confirm = false;
++    s_restart_confirm = false;
++  }
+   // Up from the first setting and Down from the last reach the tab bar
+   if (pressed & PAD_BUTTON_UP)
+     s_selected = s_selected == 0 ? TAB_BAR : s_selected - 1;
+@@ -1436,6 +1458,17 @@ GCPadStatus FilterOpen(const GCPadStatus& raw)
+         s_load_confirm = true;
+       }
+     }
++    else if (option == Option::Language && s_staged.language != s_current.language &&
++             CanRestart())
++    {
++      // Restarting throws away the play since the last save, so it takes a second A too.
++      if (s_restart_confirm)
++      {
++        s_restart_pending = true;
++        Close();
++      }
++      s_restart_confirm = true;
++    }
+     else
+     {
+       Change(option, 1, true);
+@@ -1592,6 +1625,8 @@ GCPadStatus FilterPad(int pad_num, const GCPadStatus& raw)
+   const bool auto_save = autosave::s_pending;
+   s_state_action = StateAction::None;
+   autosave::s_pending = false;
++  const bool restart = s_restart_pending;
++  s_restart_pending = false;
+   if (s_apply_pending)
+   {
+     s_apply_pending = false;
+@@ -1620,6 +1655,13 @@ GCPadStatus FilterPad(int pad_num, const GCPadStatus& raw)
+   }
+   if (auto_save)
+     Core::QueueHostJob([](Core::System& system) { autosave::Save(system); });
++  if (restart)
++  {
++    // The new language is saved (Apply): stop, and the frontend starts the game again
++    NOTICE_LOG_FMT(CORE, "[skies] restart for the language");
++    s_restart_requested = true;
++    Host_Message(HostMessageID::WMUserStop);
++  }
+   return out;
+ }
+ 
+@@ -1629,6 +1671,11 @@ bool IsOpen()
+   return s_mode == Mode::Open;
+ }
+ 
++bool TakeRestartRequest()
++{
++  return s_restart_requested.exchange(false);
++}
++
+ // Video thread only: the menu's typefaces (LoadFonts), null = ImGui's default (the OSD font).
+ ImFont* s_ui_font = nullptr;
+ ImFont* s_title_font = nullptr;
+@@ -1662,6 +1709,7 @@ void Draw(float scale)
+   int save_slot, load_slot, text_percent;
+   bool load_confirm, slow_note;
+   int opened_language;
++  bool restart_confirm, can_restart;
+   std::string save_time, load_time;
+   bool mapping, capturing, keyboard_hints, has_keyboard;
+   int map_row, map_column;
+@@ -1677,6 +1725,8 @@ void Draw(float scale)
+       return;
+     v = s_staged;
+     opened_language = s_current.language;
++    restart_confirm = s_restart_confirm;
++    can_restart = CanRestart();
+     tab = s_tab;
+     selected = s_selected;
+     save_slot = s_save_slot;
+@@ -1814,10 +1864,16 @@ void Draw(float scale)
+                                                             "Espa\xc3\xb1ol"};
+       if (!IsEurope())
+         return {"Language", "English", "Other languages need the European disc."};
++      if (v.language == opened_language)
++        return {"Language", LANGUAGES[v.language],
++                "The game's text. The European disc has English, German, French and Spanish."};
++      if (restart_confirm)
++        return {"Language", "Press A again to restart",
++                "The game starts again at its title screen: play since your last save is lost."};
+       return {"Language", LANGUAGES[v.language],
+-              v.language == opened_language ?
+-                  "The game's text. The European disc has English, German, French and Spanish." :
+-                  "Changes when the game next starts."};
++              can_restart ? "A restarts the game in it now; otherwise it changes when the game "
++                            "next starts." :
++                            "Changes when the game next starts."};
+     }
+     }
+     return {"", "", ""};
+@@ -1842,6 +1898,9 @@ void Draw(float scale)
+       current == Option::LoadState ? tabs + "Up / Down: choose    Left / Right: slot    " + keys.a +
+                                          ": load" + close :
+       current == Option::Mapping   ? tabs + "Up / Down: choose    " + keys.a + ": open" + close :
++      current == Option::Language && v.language != opened_language && can_restart ?
++                                     tabs + "Up / Down: choose    Left / Right: change    " + keys.a +
++                                         ": restart" + close :
+                                      tabs + "Up / Down: choose    Left / Right or " + keys.a +
+                                          ": change" + close;
+ 
+@@ -2020,7 +2079,8 @@ void Draw(float scale)
+       draw->AddTriangleFilled(at(lx, mid), at(lx + s, mid - s), at(lx + s, mid + s), gold);
+       draw->AddTriangleFilled(at(rx, mid), at(rx - s, mid - s), at(rx - s, mid + s), gold);
+     }
+-    const bool confirm = options[i] == Option::LoadState && load_confirm;
++    const bool confirm = (options[i] == Option::LoadState && load_confirm) ||
++                         (options[i] == Option::Language && restart_confirm);
+     draw->AddText(ui, px(TEXT), at(PAD + LABEL_W + 22.0f, text_y), confirm ? gold : white,
+                   row.value.c_str());
+     draw->AddText(ui, px(SMALL), at(PAD + LABEL_W, y + BOX_H + 3.0f),
+diff --git a/Source/Core/VideoCommon/SkiesMenu.h b/Source/Core/VideoCommon/SkiesMenu.h
+index febf243765..eb46334244 100644
+--- a/Source/Core/VideoCommon/SkiesMenu.h
++++ b/Source/Core/VideoCommon/SkiesMenu.h
+@@ -23,4 +23,8 @@ void Draw(float scale);
+ void LoadFonts();
+ 
+ bool IsOpen();
++
++// The frontend, once the emulation has ended: true (once) when the menu stopped it to start the game
++// again (a new language on the European disc); start the same game, without a save state to load.
++bool TakeRestartRequest();
+ }  // namespace SkiesMenu
