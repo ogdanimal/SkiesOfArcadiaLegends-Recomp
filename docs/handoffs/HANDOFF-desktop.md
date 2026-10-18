@@ -20,6 +20,8 @@ Two local commits on `dev` for the next release (players' reports on 0.10.0-beta
   the same size, windowed outer size unchanged (2334x1401). `WM_DPICHANGED` untested (one monitor).
   The user saw the border again late 2026-10-17 in the 0.10.0 package (expected: fix not released);
   the build to compare against is `C:\dev\SkiesInput\lib\ModernGekko\build-release\Skies of Arcadia Legends.exe`.
+  The user then checked the fixed runner fullscreen on the 4K monitor by eye: no border (window,
+  client and DWM frame all 0,0-3840,2160, style 0x14000000, no ex style).
   Linux doesn't need the patch: `PlatformX11` applies Fullscreen at start already and asks the window
   manager for `_NET_WM_STATE_FULLSCREEN`, with no edge style; seen only on WSLg (development-notes
   *The game window*).
