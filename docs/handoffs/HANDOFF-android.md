@@ -15,6 +15,10 @@ training). The Retroid was lent to the HD texture session (`hdtex`) during the p
 reinstall the ws23 test APK before going on.** It left the DOLs (ws23), `files/PGO/`, the card saves
 and `stay_on_while_plugged_in` (still `2`: set it back to `0` at the end) alone; its texture pack is
 removed and `GFX.ini HiresTextures = False`. The Downloads folder holds the two pack `.7z` files.
+**Later the same night the Match screen check installed `skies-ws23ms-2026-10-17.apk`** (the `aspect`
+branch, plain ws23 modules from `jniLibs-ws23`, data kept) over it: still reinstall the ws23 test APK
+(or any build of current `dev`) before going on. That check left the screen size reset (`wm size`
+shows no override), `[Skies] Widescreen = 1` and the app stopped (development-notes *Match screen*).
 
 Why: the European game runs 0.930 (55 fps, two runs) in `eu-17-ship-battle-baltor` against 1.003 for
 the USA one on the same APK (status below). The USA module has the device profile; the European one

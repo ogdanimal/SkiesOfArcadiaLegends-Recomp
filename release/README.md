@@ -59,7 +59,7 @@ saves from the Japanese version can't be used.
 
 - **Widescreen** 16:9 with the HUD at the screen edges, **Match screen** for any other shape
   (ultrawide 21:9 up to 32:9, 16:10, a phone's 20:9), or the original 4:3 (identical to the
-  original game).
+  original game). On an ultrawide, a higher Resolution keeps the picture sharp across the width.
 - **60 fps** by frame interpolation, or the original 30.
 - Internal resolution and anti-aliasing.
 - **Camera control:** hold Z and use the C-stick to tilt, and R / L to zoom out / in (towns, dungeons
@@ -129,6 +129,11 @@ Every setting is also in the launcher's **Settings** window, with a short descri
   choose commands instead.
 - On Android, battles top out at about 2.5x speed on a Snapdragon 865; 3x and 4x settle at 2x.
 - An auto-save can cause a brief hitch on Android.
+- In widescreen the world map's flight meter and compass come out wider than in the original 4:3
+  picture, more so with Match screen on an ultrawide.
+- At the widest shapes (32:9), a few scenes show unfinished scenery at the far edges.
+- **"Game files missing" when the game starts (Windows / Linux):** extract the whole zip again and keep
+  its files together; if the file named there disappears again, your antivirus removed it.
 
 ## Reporting a problem
 

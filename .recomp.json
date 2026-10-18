@@ -18,6 +18,6 @@
     { "label": "Releases", "url": "https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/releases" }
   ],
   "help": ["Testing on Mali and other non-Adreno GPUs", "Support for the Japanese release"],
-  "tags": ["widescreen", "60fps", "analog-camera", "save-states", "autosave", "touch-controls", "keyboard", "remapping", "dreamcast-music"],
-  "notes": "Beta. Native Windows, Linux and Android (arm64) builds with widescreen, 60 fps, camera control, save states, auto-save, save import and backup, keyboard play and button mapping, quality-of-life options and the optional Dreamcast soundtrack (from the player's own Dreamcast disc); an Adreno GPU driver loader on Android. Full speed at 60 fps on a Retroid Pocket 5. Bring your own USA or European GameCube disc; no game data ships in any build."
+  "tags": ["widescreen", "ultrawide", "60fps", "analog-camera", "save-states", "autosave", "touch-controls", "keyboard", "remapping", "dreamcast-music"],
+  "notes": "Beta. Native Windows, Linux and Android (arm64) builds with widescreen (16:9 or any screen shape, ultrawide included), 60 fps, camera control, save states, auto-save, save import and backup, keyboard play and button mapping, quality-of-life options and the optional Dreamcast soundtrack (from the player's own Dreamcast disc); an Adreno GPU driver loader on Android. Full speed at 60 fps on a Retroid Pocket 5. Bring your own USA or European GameCube disc; no game data ships in any build."
 }

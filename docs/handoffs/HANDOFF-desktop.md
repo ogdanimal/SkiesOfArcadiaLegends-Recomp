@@ -6,6 +6,24 @@ frame limiter off, and record it in the development-notes.md *Platforms* table. 
 [HANDOFF-android.md](HANDOFF-android.md). The top *Status* and *State of the tree* were checked against
 both trees late on 2026-10-06; older sections are kept as history and say so where they're superseded.
 
+## Status (2026-10-17, late night): Match screen (ultrawide) and the missing-module message
+
+Merged into `dev` (local, not pushed) from branch `aspect` (worktree `~/projects/skies-aspect`):
+- **Match screen**, `[Skies] Widescreen = 2` (`patches/recompcore-match-screen.patch` + the launcher's
+  Picture list in `moderngekko-local.patch`): the game's aspect follows the window (4:3..32:9).
+  Details and checks: development-notes *Match screen*. Windows was checked with the window resized
+  by `SetWindowPos` (script `C:\Users\Public\claude\ms-win.ps1`; capture with `PrintWindow`, not
+  `CopyFromScreen`, which caught the terminal over the game) and on WSL with `xdotool windowsize`.
+- **"Game files missing"** (`moderngekko-local.patch`, `tools/moderngekko_run.cpp`,
+  `frontend_config.hpp`, launcher): development-notes *A missing game module*. Found when the user
+  started the launcher from a build folder without the module.
+- Windows test tree `C:\dev\SkiesInput` (`build-release`) now carries both (sources replaced, the
+  originals in `build\aspect-orig`), plus `b9f0157`; `gGEAE8P_recomp.dll` (ws22b) was copied beside
+  it. The user re-imported their USA disc (`C:\dev\SkiesRecomp\build\disc\skies.rvz`) into the real
+  user folder through that launcher, so `%LOCALAPPDATA%\Skies of Arcadia Legends\games\GEAE8P` is ws22
+  (`e58354e5`), which 0.10.0-beta also accepts.
+- WSL build of the branch: `~/projects/skies-aspect/lib/ModernGekko/build-egl` (Release, EGL).
+
 ## Status (2026-10-17, night): fullscreen, display scaling and the Steam Controller (after 0.10.0-beta)
 
 Two local commits on `dev` for the next release (players' reports on 0.10.0-beta):

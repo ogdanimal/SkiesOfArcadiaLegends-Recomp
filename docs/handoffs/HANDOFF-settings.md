@@ -9,6 +9,12 @@
 Everything below the history line is the session log; this is the summary. What a player gets and how it
 works is in NOTES *The player build* (controls, settings keys, menu, camera, options, launcher).
 
+- **Match screen (2026-10-17 late night, on `dev`, not released; NOTES *Match screen*):** Picture has
+  three values, `[Skies] Widescreen` 1 = 16:9, 2 = Match screen (the window's shape, 4:3..32:9,
+  applied live as the window resizes; Dolphin's custom ratio is set in the current layer only), 0 =
+  4:3; the menu steps 16:9 / Match screen / 4:3. Entries below that say Picture is 16:9 / 4:3
+  predate this.
+
 - **Keyboard, button mapping, menu hotkey (2026-10-17, shipped in 0.10.0-beta; HANDOFF-input.md, NOTES
   *Keyboard and button mapping*):** the keyboard plays on Windows and Linux (the game adds its layout to
   controller 1's profile); every button and key can be changed in the launcher's Settings → Controls
@@ -188,7 +194,7 @@ messages (Dolphin's show file names).
 | Widescreen | which DOL + module is run (`GEAE8P-ws9` vs the original) | no, a different build |
 | 60 fps | Android: empty `FrameInterpolation.on` in the app's user dir; Windows: `frame_interpolation=true` in `build\user-ws\config.ini` -> env `RECOMP_FRAME_INTERPOLATION` | read once at boot (`FrameInterpolator::detail::ReadEnabled`) |
 | Dual core | `CPUThread = True` in `GameSettings/GEAE8P.ini` | boot only (Dolphin) |
-| Picture aspect | `AspectRatio = 5` (custom 16:9) in `GFX.ini` | live (Dolphin) |
+| Picture aspect | `AspectRatio = 5` (custom 16:9) in `GFX.ini`; with Match screen (2026-10-17) the custom width / height are the window's, current layer only | live (Dolphin) |
 
 The old switches still work as fallbacks when `FrameMode` isn't set (first boot migrates them).
 

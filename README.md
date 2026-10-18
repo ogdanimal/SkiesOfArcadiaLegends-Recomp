@@ -59,6 +59,7 @@ and on Windows. Slower Android devices may not keep 60 fps (see [Slower devices]
 |---|---|
 | **Windows / Linux:** "Failed to create Vulkan device" or a similar message at start | Your graphics driver can't run Vulkan. The game switches to OpenGL by itself and keeps it (**Settings → Display → Graphics backend**). If neither starts, install the latest driver for your graphics card. |
 | **Android:** the game crashes or draws things wrong | **Settings → Graphics → Renderer** switches between Vulkan and OpenGL ES. On Adreno devices, **Settings → Graphics → GPU driver** can load another driver (see [GPU driver](#gpu-driver-android)). |
+| **Windows / Linux:** "Game files missing" when the game starts | A file of the download (`gGEAE8P_recomp.dll` or the European `gGEAP8P_recomp.dll`; `.so` on Linux) isn't beside the game. Extract the whole zip again and keep its files together; if the file disappears again, your antivirus removed it (allow the folder). |
 | The import refuses your disc | It must be the USA (`GEAE8P`) or European (`GEAP8P`) disc, the original release. The Japanese disc isn't supported. |
 | Battle freezes after changing the battle speed | A known issue: change the speed while you choose commands, not while a round plays out. |
 | You want saves from Dolphin, a GameCube or another device | **Settings → Saves → Import a save**; see [Importing a save](#importing-a-save). |
@@ -111,7 +112,7 @@ press Start**), or in the launcher's **Settings** window.
 
 - **Widescreen** 16:9 with the HUD at the screen edges, **Match screen** for any other shape
   (ultrawide 21:9 up to 32:9, 16:10, a phone's 20:9), or the original 4:3 (identical to the
-  original game).
+  original game). On an ultrawide, a higher Resolution keeps the picture sharp across the width.
 - **60 fps** by frame interpolation, or the original 30.
 - Internal resolution and anti-aliasing.
 - **Camera control:** hold Z and use the C-stick to tilt, and R / L to zoom (towns, dungeons and the

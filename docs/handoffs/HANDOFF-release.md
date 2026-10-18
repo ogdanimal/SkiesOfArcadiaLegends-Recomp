@@ -108,6 +108,20 @@ For the next release, on `dev` (local commits, not pushed on 10-17 night):
   it means applying `recompcore-hd-textures.patch` in the main checkout (`tools/apply-patches.sh`
   order) so its submodule copies match. Release-note wording: "HD textures: import a texture pack you
   downloaded (Settings → Graphics); none is included. On Android take a pack's PNG download."
+- **Match screen** (ultrawide; branch `aspect` merged into `dev` 2026-10-17 night): Picture gets a
+  third choice that shapes the picture like the window or screen (4:3 to 32:9: 21:9 / 32:9
+  ultrawides, 16:10, phones' 20:9), in the launcher, the in-game menu and Android Settings
+  (`patches/recompcore-match-screen.patch`, development-notes *Match screen*). Checked on WSL,
+  Windows (window resized through every shape) and the Retroid (16:9, and 20:9 via `wm size`); not
+  looked at: the launcher's dropdown and the branded Android Settings row (same lists as the menu).
+  Known: at 32:9 a few scenes show unbuilt scenery at the edges, and the world map meter / compass
+  stretch (above) grows with the width. Release-note wording: "Picture: Match screen fills any screen
+  shape, ultrawide (21:9, 32:9) included; on an ultrawide raise Resolution for a sharp picture."
+- **"Game files missing"** (same merge): a missing `g<ID>_recomp.dll` (partly extracted zip,
+  antivirus) now says which file and what to do instead of "The game process exited with code 1";
+  the runner exits with 20 for it and for the earlier-release DOL message, and the launcher shows no
+  second box (development-notes *A missing game module*). Release-note wording: "A missing game file
+  now says which one and how to fix it."
 
 - Held by the user: the **nightly prerelease** (latest green `dev` on a fixed `nightly` tag, Android
   under its own app ID such as `com.skiesofarcadia.recomp.nightly`, no signing approval).
@@ -120,8 +134,9 @@ For the next release, on `dev` (local commits, not pushed on 10-17 night):
 - Unscheduled requests (dual audio, ...): `docs/backlog.md`.
 
 Other sessions on this repo (2026-10-17): DC music + European disc (shares the main checkout; commit
-with explicit paths only), keyboard / remapping / input (own worktree, branch `input`) and HD
-texture packs (own worktree, branch `hdtex`).
+with explicit paths only), keyboard / remapping / input (own worktree, branch `input`), HD
+texture packs (own worktree, branch `hdtex`) and Match screen (own worktree `~/projects/skies-aspect`,
+branch `aspect`, merged).
 
 Decided by the user (2026-10-11): first release **v0.9.0 beta**, **Windows + Android** (Linux later),
 source in a **private repo for now**, Android app ID **`com.skiesofarcadia.recomp`** (like the user's
