@@ -1,5 +1,5 @@
 # Tagged release: vMAJOR.MINOR.PATCH[-suffix] on a commit on main -> the Windows zip, the Linux
-# tar.gz and the signed Android APK on a GitHub Release (a -suffix tag is a prerelease).
+# tar.gz and AppImage and the signed Android APK on a GitHub Release (a -suffix tag is a prerelease).
 #
 # Triggers ONLY on tag pushes, so fork PRs cannot reach the game DOL or the signing key. The builds
 # are validate.yml's own steps (workflow_call), not a copy. Nothing published contains game data:
@@ -144,6 +144,11 @@ jobs:
           # Unpack every package, then any archive inside, a few levels deep
           mkdir x && for p in out/*.zip out/*.apk; do unzip -q -o "$p" -d "x/$(basename "$p")"; done
           for p in out/*.tar.gz; do mkdir "x/$(basename "$p")" && tar -xzf "$p" -C "x/$(basename "$p")"; done
+          # The AppImage's own runtime unpacks it (squashfs-root), no FUSE needed
+          for p in out/*.AppImage; do
+            mkdir "x/$(basename "$p")" && chmod +x "$p"
+            (cd "x/$(basename "$p")" && "$GITHUB_WORKSPACE/$p" --appimage-extract > /dev/null)
+          done
           for level in 1 2 3; do
             find x -type f \( -iname '*.zip' -o -iname '*.apk' -o -iname '*.jar' -o -iname '*.aar' \) -print0 > nested
             [ -s nested ] || break
@@ -163,8 +168,10 @@ jobs:
           # The allowed modules (one per game), and only where they belong
           for m in '-windows\.zip/[^/]+/gGEAE8P_recomp\.dll' '-linux\.tar\.gz/[^/]+/gGEAE8P_recomp\.so' \
                    '-android\.apk/lib/arm64-v8a/libgGEAE8P_recomp\.so' \
+                   '-x86_64\.AppImage/squashfs-root/usr/bin/gGEAE8P_recomp\.so' \
                    '-windows\.zip/[^/]+/gGEAP8P_recomp\.dll' '-linux\.tar\.gz/[^/]+/gGEAP8P_recomp\.so' \
-                   '-android\.apk/lib/arm64-v8a/libgGEAP8P_recomp\.so'; do
+                   '-android\.apk/lib/arm64-v8a/libgGEAP8P_recomp\.so' \
+                   '-x86_64\.AppImage/squashfs-root/usr/bin/gGEAP8P_recomp\.so'; do
             grep -qE -e "$m\$" list.txt || { echo "::error::A package is missing its recompiled module ($m)."; exit 1; }
           done
           rm -rf x list.txt sums.txt nested other src
@@ -174,7 +181,7 @@ jobs:
         run: |
           cd out
           rm -f *.sha256
-          sha256sum *.zip *.tar.gz *.apk > SHA256SUMS.txt
+          sha256sum *.zip *.tar.gz *.AppImage *.apk > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
       - name: Publish GitHub Release
@@ -191,8 +198,9 @@ jobs:
 
           - **Windows** (64-bit Windows 10 / 11): unzip, run `Skies of Arcadia Legends.exe`, choose
             Select Disc.
-          - **Linux** (x86_64): extract, run `./SkiesOfArcadiaLegends` from inside the folder, choose
-            Select Disc.
+          - **Linux** (x86_64): the `.AppImage` is one file with the libraries it needs inside: make
+            it executable (`chmod +x`, or the file's Properties) and run it. Or extract the `.tar.gz`
+            and run `./SkiesOfArcadiaLegends` from inside the folder. Then choose Select Disc.
           - **Android** (arm64, Android 7+): install the APK, open Skies of Arcadia Legends and pick
             your disc image.
 

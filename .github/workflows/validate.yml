@@ -385,12 +385,15 @@ jobs:
           tools/build-release-linux.sh build
           tools/build-release-linux.sh package build/module-linux/gGEAE8P_recomp.so \
             build/module-linux-eu/gGEAP8P_recomp.so "$VERSION"
+          tools/build-release-linux.sh appimage "$VERSION"
 
       - name: Upload build
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: linux-${{ github.sha }}
-          path: build/SkiesOfArcadiaLegends-*-linux.tar.gz*
+          path: |
+            build/SkiesOfArcadiaLegends-*-linux.tar.gz*
+            build/SkiesOfArcadiaLegends-*-linux-x86_64.AppImage*
           if-no-files-found: error
           retention-days: 7
 
