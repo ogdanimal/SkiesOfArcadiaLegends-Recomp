@@ -9,6 +9,10 @@
 Everything below the history line is the session log; this is the summary. What a player gets and how it
 works is in NOTES *The player build* (controls, settings keys, menu, camera, options, launcher).
 
+- **HUD placement (2026-10-17 night, branch `hud`, not merged; NOTES *HUD placement*):** `[Skies] Hud`
+  2 = edges (default), 3 = 21:9 area, 1 = 16:9 area, 0 = original 4:3 layout; Graphics tab row after
+  Picture in the menu, the launcher (`skies_video_rows` now 0..3) and Android Settings.
+
 - **Match screen (2026-10-17 late night, on `dev`, not released; NOTES *Match screen*):** Picture has
   three values, `[Skies] Widescreen` 1 = 16:9, 2 = Match screen (the window's shape, 4:3..32:9,
   applied live as the window resizes; Dolphin's custom ratio is set in the current layer only), 0 =

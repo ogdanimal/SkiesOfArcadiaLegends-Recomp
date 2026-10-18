@@ -16,7 +16,8 @@
  *     (next menu pages, cursor arms sliding in), which would otherwise show at the sides.
  * HUD anchors: code ranges listed in ws_config.anchors draw their 2D moved toward a wide edge
  *     and/or up or down (the battle HUD's panels, ws_anchor_find), unclipped. Text is queued and
- *     drawn later, so it's moved when it's queued (ws_text_anchor) and drawn unclipped then.
+ *     drawn later, so it's moved when it's queued (ws_text_anchor) and drawn unclipped then. The
+ *     edges are the picture's, or those of a narrower centred area the player picks (ws_hud_aspect).
  *
  * ws_config sits at a fixed address (the start of the data section, see cave.ld) so a frontend can
  * change the target aspect at runtime with a memory write; ws_frame_end applies it every frame. */
@@ -98,6 +99,14 @@ struct ws_config {
  * build brings that build's data section back (its code is replaced by this build's on load), so
  * ws_check resets everything here when the version in memory isn't this one. */
 #define WS_VERSION 10
+
+/* The HUD's width, written by the frontend (Core/SkiesSettings.cpp) at a fixed address (cave.ld;
+ * unused in every earlier build, so it writes it whatever the DOL): 0 = the anchored pieces at the
+ * picture's edges; > 0 = at the edges of a centred area of that aspect (a 16:9 HUD on a 21:9 or
+ * 32:9 picture), never wider than the picture; < 0 = the original layout, nothing anchored (the
+ * game's own HUD in the middle 4:3, as before ws9). Not in ws_config: growing it would move every
+ * variable after it, which a state made with an earlier build still has at the old addresses. */
+__attribute__((section(".ws_hud"), used)) float ws_hud_aspect;
 
 /* The HUD at the wide edges (found with trace2d.c's call chains, docs/development-notes.md *Widescreen*). A range
  * is a whole function, lo = start and size = its size, unless it says call sites. */
@@ -298,12 +307,19 @@ static int in_ram(const u32 *p) {
 
 TRK_CAVE static int ws_anchor_find(float *dx, float *dy) {
   u32 *frame = __builtin_frame_address(0);
+  float hud_factor;
   int depth, i;
   ws_check();
   /* The original 4:3 picture keeps the game's own HUD: no move (the gauge's dy would still apply)
    * and no unclipped text. */
-  if (ws_config.anchors[0].lo == 0 || ws_config.factor >= 1.0f)
+  if (ws_config.anchors[0].lo == 0 || ws_config.factor >= 1.0f || ws_hud_aspect < 0.0f)
     return 0;
+  /* The HUD area's x scale, like factor: never below the picture's, never above the 4:3 one. */
+  hud_factor = ws_hud_aspect > 0.0f ? GAME_DISPLAY_ASPECT / ws_hud_aspect : ws_config.factor;
+  if (hud_factor < ws_config.factor)
+    hud_factor = ws_config.factor;
+  if (hud_factor > 1.0f)
+    hud_factor = 1.0f;
   for (depth = 0; depth < 12; depth++) {
     u32 lr;
     frame = (u32 *)frame[0];
@@ -327,8 +343,9 @@ TRK_CAVE static int ws_anchor_find(float *dx, float *dy) {
           move_x = 0;
           move_y = 0;
         }
-        /* Half the screen width in HUD pixels is 320 / factor, of which 320 was there before. */
-        *dx = side * 0.01f * (0.5f * NJ_WIDTH) * (1.0f / ws_config.factor - 1.0f) + move_x;
+        /* Half the HUD area's width in HUD pixels is 320 / hud_factor (the whole screen: 320 /
+         * factor), of which 320 was there before. */
+        *dx = side * 0.01f * (0.5f * NJ_WIDTH) * (1.0f / hud_factor - 1.0f) + move_x;
         *dy = move_y;
         return 1;
       }

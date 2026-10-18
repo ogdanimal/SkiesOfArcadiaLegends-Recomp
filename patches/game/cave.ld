@@ -22,9 +22,11 @@ SECTIONS
      * others, so a save state made with an earlier build still has every older variable where this
      * build looks for it, and 0 in the new ones. */
     KEEP(*(.late_bss))
-    /* qol.c's and camera.c's input blocks, at fixed addresses the frontend writes
-     * (VideoCommon/SkiesMenu.cpp). */
-    ASSERT(. <= 0x80002EA0, "patch data runs into qol_input at 0x80002EA0")
+    /* widescreen.c's HUD width, then qol.c's and camera.c's input blocks, at fixed addresses
+     * the frontend writes (Core/SkiesSettings.cpp, VideoCommon/SkiesMenu.cpp). */
+    ASSERT(. <= 0x80002E9C, "patch data runs into ws_hud_aspect at 0x80002E9C")
+    . = 0x80002E9C;
+    KEEP(*(.ws_hud))
     . = 0x80002EA0;
     KEEP(*(.qol_input))
     . = 0x80002EC0;

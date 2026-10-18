@@ -60,6 +60,8 @@ saves from the Japanese version can't be used.
 - **Widescreen** 16:9 with the HUD at the screen edges, **Match screen** for any other shape
   (ultrawide 21:9 up to 32:9, 16:10, a phone's 20:9), or the original 4:3 (identical to the
   original game). On an ultrawide, a higher Resolution keeps the picture sharp across the width.
+- **HUD placement** on a wide picture: at the screen edges, in a centred 21:9 or 16:9 area (easier to
+  take in on an ultrawide), or the original 4:3 layout in the middle.
 - **60 fps** by frame interpolation, or the original 30.
 - Internal resolution and anti-aliasing.
 - **Camera control:** hold Z and use the C-stick to tilt, and R / L to zoom out / in (towns, dungeons

@@ -175,6 +175,7 @@ in the decomp's `docs/camera.md`. B + X + Start held for half a second is the ga
 | Key | Values (default) | Applied by |
 |---|---|---|
 | `Widescreen` | 1 = 16:9, 2 = Match screen (the window's shape, 4:3 to 32:9), 0 = original 4:3 (first boot: the DOL's) | `Core/SkiesSettings.cpp` -> `ws_config.display_aspect` (0x80002A08) and Dolphin's aspect |
+| `Hud` | 2 = at the picture's edges, 3 = in a centred 21:9 area, 1 = in a 16:9 area (a narrower picture keeps its own edges), 0 = the original 4:3 layout (2) | `Core/SkiesSettings.cpp` -> `ws_hud_aspect` (0x80002E9C: 0, 64:27, 16:9, -1) |
 | `FrameMode` | 0 = 30 fps, 1 = 60 fps interpolated (first boot: the old switches) | `FrameInterpolator::RequestEnabled` |
 | `CameraControl` | 1 = hold Z to move the camera, 0 = the game's only (1) | `SkiesMenu.cpp` -> `cam_input` (0x80002EC0) |
 | `Encounters` | percent of the encounter chance: 0, 25, 50, 100, 200, 400 (100) | `SkiesMenu.cpp` -> `qol_input` (0x80002EA0) |
@@ -1076,6 +1077,33 @@ Checked 2026-10-17 night (USA ws22, no ultrawide monitor here):
   1.778. The in-game menu's Picture row shows "Match screen" and steps to the others. (Automation pad:
   `press:z=1 wait:0.6 press:z=1,start=1` opens the menu; a `tap:start` after `press:z` doesn't.) The
   branded app's Settings row (Kotlin) is compiled in but not looked at.
+
+### HUD placement: edges, 21:9, 16:9 or the original layout (2026-10-17 night, branch `hud`)
+
+User request: on an ultrawide the HUD at the screen's edges is far apart, so the player picks where it
+goes. `[Skies] Hud` (launcher, in-game menu Graphics, Android Settings): **Screen edges** (default, as
+before), **21:9 area**, **16:9 area**, **Original 4:3**. The game patch reads `ws_hud_aspect`, a float
+at a fixed address (`0x80002E9C`, `.ws_hud` in `cave.ld`, just below `qol_input`; free in every earlier
+build, whose data ends at `0x80002BD8`, so the frontend writes it whatever the DOL): 0 = the anchors
+reach the picture's edges, an aspect = they reach the edges of a centred area that wide (never wider
+than the picture, so 21:9 on a 16:9 picture is the edges), < 0 = no anchor moves at all (the game's own
+HUD in the middle 4:3, clipped there, as before ws9; the SP gauge keeps its own height too). In
+`ws_anchor_find` the x move is computed from the HUD area's scale instead of the picture's; the
+pieces keep their shape either way (the 2D squeeze is still the picture's). Not in `ws_config`:
+growing it would move every later patch variable, which states from earlier builds still have at the
+old addresses; `WS_VERSION` stays 10. `recompcore-hud.patch`; the launcher row is in
+`moderngekko-local.patch`.
+
+Checked on WSL 2026-10-17 night (test DOL `build/game/GEAE8P-hud`, SHA-1 `0569daa3`, module
+`build/us-genhud/module-linux`, worktree `~/projects/skies-aspect`), Match screen in a 2560x720 (32:9)
+window, each choice switched live (`config:Dolphin.Skies.Hud=N`): first battle (party panel, command
+wheel, SP gauge), the Baltor ship battle with commands (left column, command grid top right, enemy
+plate below it: the layout scales to the area, `dx` +175 included) and the world map (altitude gauge,
+compass). The 4:3 choice matches the Original 4:3 picture's layout (ship battle compared). The in-game
+menu's HUD row steps Screen edges -> 21:9 -> 16:9 -> 4:3, applies on close (log `[skies] HUD 21:9`)
+and saves `Hud`. Android: the Settings row compiles (`compileDebugKotlin`), not run on a device;
+launcher row built, not looked at. Not checked: Windows, the field party status and dungeon minimap
+(right-edge anchors, same code path), the European DOL (same sources, no new game address).
 
 ### Widescreen 4:3 setting: identical to the unpatched game (2026-10-10 night, DOL `7cb9de68`, `GEAE8P-ws10`)
 

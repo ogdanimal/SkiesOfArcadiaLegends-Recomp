@@ -1,0 +1,170 @@
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+index c2969be256..a4e62fb66e 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+@@ -58,6 +58,8 @@ class SkiesSettingsPanel(
+         val BACKEND_KEYS = listOf("Vulkan", "OGL")
+         val BACKEND = choices(0 to "Vulkan", 1 to "OpenGL ES")
+         val PICTURE = choices(1 to "Widescreen 16:9", 2 to "Match screen", 0 to "Original 4:3")
++        val HUD = choices(2 to "Screen edges", 3 to "21:9 area", 1 to "16:9 area",
++            0 to "Original 4:3")
+         val FRAME_RATE = choices(0 to "30 fps (original)", 1 to "60 fps (interpolated)")
+         val RESOLUTION = choices(1 to "Native (480p)", 2 to "2x (720p)", 3 to "3x (1080p)",
+             4 to "4x (1440p)", 6 to "6x (4K)")
+@@ -212,6 +214,9 @@ class SkiesSettingsPanel(
+                 configRow(rows, "Picture", PICTURE, dolphin, "Skies", "Widescreen", 1,
+                     "Widescreen fills a 16:9 screen; Match screen fills any shape, phones too; " +
+                         "Original keeps the GameCube's 4:3 picture.")
++                configRow(rows, "HUD", HUD, dolphin, "Skies", "Hud", 2,
++                    "Where the HUD sits on a wide picture: at the edges, or nearer the middle " +
++                        "in a 16:9 or 21:9 area. Original keeps the GameCube's layout.")
+                 configRow(rows, "Frame rate", FRAME_RATE, dolphin, "Skies", "FrameMode", 0,
+                     "60 fps adds in-between frames for smoother motion. 30 fps is the original.")
+                 configRow(rows, "Resolution", RESOLUTION, gfx, "Settings", "InternalResolution", 1,
+diff --git a/Source/Core/Core/Config/SkiesSettings.cpp b/Source/Core/Core/Config/SkiesSettings.cpp
+index e89d4c0537..31358097da 100644
+--- a/Source/Core/Core/Config/SkiesSettings.cpp
++++ b/Source/Core/Core/Config/SkiesSettings.cpp
+@@ -6,6 +6,7 @@
+ namespace Config
+ {
+ const Info<int> SKIES_WIDESCREEN{{System::Main, "Skies", "Widescreen"}, -1};
++const Info<int> SKIES_HUD{{System::Main, "Skies", "Hud"}, -1};
+ const Info<int> SKIES_FRAME_MODE{{System::Main, "Skies", "FrameMode"}, -1};
+ const Info<int> SKIES_CAMERA_CONTROL{{System::Main, "Skies", "CameraControl"}, 1};
+ const Info<int> SKIES_ENCOUNTERS{{System::Main, "Skies", "Encounters"}, 100};
+diff --git a/Source/Core/Core/Config/SkiesSettings.h b/Source/Core/Core/Config/SkiesSettings.h
+index d04cfa78cd..e7e098a212 100644
+--- a/Source/Core/Core/Config/SkiesSettings.h
++++ b/Source/Core/Core/Config/SkiesSettings.h
+@@ -14,6 +14,10 @@ namespace Config
+ // 1 = 16:9 (the widescreen patch's target aspect), 0 = the original 4:3 picture, 2 = the shape of
+ // the window or screen (21:9, 32:9, 16:10, a phone's 20:9; between 4:3 and 32:9).
+ extern const Info<int> SKIES_WIDESCREEN;
++// Where a wide picture's HUD goes (the game patch's ws_hud_aspect): 2 = at the picture's edges,
++// 1 = at the edges of a centred 16:9 area, 3 = of a 21:9 area (on a wider picture; a narrower one
++// keeps its edges), 0 = the original 4:3 layout in the middle. -1 = not set: 2.
++extern const Info<int> SKIES_HUD;
+ // 0 = 30 fps (the game's own rate), 1 = 60 fps (frame interpolation), 2 = reserved (unlocked).
+ extern const Info<int> SKIES_FRAME_MODE;
+ // 1 = hold Z to tilt and zoom the camera with the C-stick and triggers (VideoCommon/SkiesMenu.cpp,
+diff --git a/Source/Core/Core/SkiesSettings.cpp b/Source/Core/Core/SkiesSettings.cpp
+index e2e826d3e7..2497cde08e 100644
+--- a/Source/Core/Core/SkiesSettings.cpp
++++ b/Source/Core/Core/SkiesSettings.cpp
+@@ -31,6 +31,11 @@ constexpr u32 WS_CONFIG_ADDRESS = 0x80002A00;
+ constexpr u32 WS_CONFIG_MAGIC = 0x57534346;  // 'WSCF'
+ constexpr u32 WS_DISPLAY_ASPECT_OFFSET = 8;
+ constexpr float WIDE_ASPECT = 16.0f / 9.0f;
++// The game patch's ws_hud_aspect (patches/game/widescreen.c; a free word in earlier builds): 0 =
++// the HUD at the picture's edges, an aspect = at the edges of a centred area that wide, < 0 = the
++// original 4:3 layout.
++constexpr u32 WS_HUD_ASPECT_ADDRESS = 0x80002E9C;
++constexpr int HUD_EDGES = 2;
+ // Widescreen = 2 follows the screen between these: narrower letterboxes at 4:3 (a portrait
+ // phone), wider pillarboxes at 32:9 (past it the sides show scenery the game never meant to be
+ // seen; 21:9 is clean in every scene checked, 32:9 shows a little at the very edges).
+@@ -121,6 +126,19 @@ void ApplyNow(Core::System& system)
+                      widescreen                 ? std::string("16:9") :
+                                                   std::string("4:3"));
+     }
++    int hud = Config::Get(Config::SKIES_HUD);
++    if (hud < 0)
++      hud = HUD_EDGES;
++    const float hud_aspect = hud == 0 ? -1.0f :
++                             hud == 1 ? WIDE_ASPECT :
++                             hud == 3 ? 64.0f / 27.0f :  // 21:9
++                                        0.0f;
++    if (memory.Read_U32(WS_HUD_ASPECT_ADDRESS) != std::bit_cast<u32>(hud_aspect))
++    {
++      memory.Write_U32(std::bit_cast<u32>(hud_aspect), WS_HUD_ASPECT_ADDRESS);
++      NOTICE_LOG_FMT(CORE, "[skies] HUD {}",
++                     hud == 0 ? "4:3" : hud == 1 ? "16:9" : hud == 3 ? "21:9" : "edges");
++    }
+     // Letterbox to match: a custom picture of the same aspect, or Dolphin's 4:3.
+     const AspectMode want = widescreen ? AspectMode::CustomStretch : AspectMode::ForceStandard;
+     if (Config::Get(Config::GFX_ASPECT_RATIO) != want)
+diff --git a/Source/Core/VideoCommon/SkiesMenu.cpp b/Source/Core/VideoCommon/SkiesMenu.cpp
+index 37b517e29b..54436d050d 100644
+--- a/Source/Core/VideoCommon/SkiesMenu.cpp
++++ b/Source/Core/VideoCommon/SkiesMenu.cpp
+@@ -83,6 +83,7 @@ enum class Option
+   LoadState,
+   AutoSave,
+   Picture,
++  Hud,
+   FrameRate,
+   Resolution,
+   Antialiasing,
+@@ -106,8 +107,9 @@ enum class Option
+ // The menu's tabs, laid out like the launchers' Settings windows (tools/moderngekko_launcher.cpp,
+ // SkiesSettingsPanel.kt), with Saves first since in game that's the one used most. L / R switch tabs.
+ constexpr std::array SAVES_ROWS{Option::SaveState, Option::LoadState, Option::AutoSave};
+-constexpr std::array GRAPHICS_ROWS{Option::Picture,      Option::FrameRate, Option::Resolution,
+-                                   Option::Antialiasing, Option::VSync,     Option::ShowFps};
++constexpr std::array GRAPHICS_ROWS{Option::Picture,    Option::Hud,          Option::FrameRate,
++                                   Option::Resolution, Option::Antialiasing, Option::VSync,
++                                   Option::ShowFps};
+ constexpr std::array GAMEPLAY_ROWS{Option::Camera, Option::BattleSpeed, Option::Encounters,
+                                    Option::Exp,    Option::Gold,        Option::MagicExp,
+                                    Option::Invincible, Option::Language};
+@@ -148,10 +150,13 @@ constexpr std::array DEAD_ZONES{0, 5, 10, 15, 20, 25, 30};
+ constexpr std::array EFB_SCALES{1, 2, 3, 4, 6};
+ // [Skies] Widescreen in menu order: 16:9, Match screen, the original 4:3.
+ constexpr std::array PICTURES{1, 2, 0};
++// [Skies] Hud in menu order: the screen's edges, a 21:9 area, a 16:9 area, the original 4:3.
++constexpr std::array HUDS{2, 3, 1, 0};
+ 
+ struct Values
+ {
+   int widescreen = 1;
++  int hud = 2;
+   int frame_mode = 0;
+   int efb_scale = 1;
+   int msaa = 1;
+@@ -331,6 +336,8 @@ Values ReadValues()
+   Values values;
+   const int widescreen = Config::Get(Config::SKIES_WIDESCREEN);
+   values.widescreen = widescreen < 0 ? 1 : widescreen;
++  const int hud = Config::Get(Config::SKIES_HUD);
++  values.hud = hud < 0 ? 2 : hud;
+   const int frame_mode = Config::Get(Config::SKIES_FRAME_MODE);
+   values.frame_mode = frame_mode < 0 ? 0 : frame_mode;
+   values.efb_scale = Config::Get(Config::GFX_EFB_SCALE);
+@@ -364,6 +371,11 @@ void Apply(const Values& values, const Values& before)
+     Config::SetBase(Config::SKIES_WIDESCREEN, values.widescreen);
+     changed = true;
+   }
++  if (values.hud != before.hud)
++  {
++    Config::SetBase(Config::SKIES_HUD, values.hud);
++    changed = true;
++  }
+   if (values.frame_mode != before.frame_mode)
+   {
+     Config::SetBase(Config::SKIES_FRAME_MODE, values.frame_mode);
+@@ -552,6 +564,9 @@ void Change(Option option, int direction, bool wrap)
+   case Option::Picture:
+     v.widescreen = Step(PICTURES, v.widescreen, direction, wrap);
+     break;
++  case Option::Hud:
++    v.hud = Step(HUDS, v.hud, direction, wrap);
++    break;
+   case Option::FrameRate:
+     v.frame_mode = v.frame_mode ? 0 : 1;
+     break;
+@@ -1691,6 +1706,14 @@ void Draw(float scale)
+                                   "Original 4:3",
+               "Widescreen fills a 16:9 screen; Match screen fills any shape, ultrawide too; "
+               "Original keeps the GameCube's 4:3 picture."};
++    case Option::Hud:
++      return {"HUD",
++              v.hud == 3 ? "21:9 area" :
++              v.hud == 1 ? "16:9 area" :
++              v.hud == 0 ? "Original 4:3" :
++                           "Screen edges",
++              "Where the HUD sits on a wide picture: at the edges, or nearer the middle in a 16:9 "
++              "or 21:9 area (easier to see on an ultrawide). Original keeps the GameCube's layout."};
+     case Option::FrameRate:
+       return {"Frame rate", v.frame_mode ? "60 fps (interpolated)" : "30 fps (original)",
+               slow_note ? "This device runs the game below full speed at 60 fps. 30 fps keeps it "

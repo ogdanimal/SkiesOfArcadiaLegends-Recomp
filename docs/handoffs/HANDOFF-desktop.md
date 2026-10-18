@@ -6,6 +6,15 @@ frame limiter off, and record it in the development-notes.md *Platforms* table. 
 [HANDOFF-android.md](HANDOFF-android.md). The top *Status* and *State of the tree* were checked against
 both trees late on 2026-10-06; older sections are kept as history and say so where they're superseded.
 
+## Status (2026-10-17, night): HUD placement (branch `hud`, not merged)
+
+Worktree `~/projects/skies-aspect`, branch `hud` from `dev` 03b83aa, uncommitted: the HUD on a wide
+picture at the edges, in a 21:9 or 16:9 area, or the original layout (`[Skies] Hud`, game patch
+`ws_hud_aspect`, `recompcore-hud.patch`, launcher row in `moderngekko-local.patch`; development-notes
+*HUD placement*). Checked on WSL only. Needs a game patch build number (ws24; the world map meter / compass
+"stretch" it was earmarked for turned out not to exist in normal play, development-notes *Known
+issues*), then release patches, Windows and Retroid.
+
 ## Status (2026-10-17, late night): Match screen (ultrawide) and the missing-module message
 
 Merged into `dev` (local, not pushed) from branch `aspect` (worktree `~/projects/skies-aspect`):

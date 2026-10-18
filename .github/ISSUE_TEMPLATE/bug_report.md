@@ -28,7 +28,7 @@ What you expected to happen.
 If it's something you can see, a screenshot helps a lot.
 
 **Settings**
-Anything you changed from the defaults: Picture (16:9 / Match screen / 4:3), Frame rate (60 / 30), resolution,
+Anything you changed from the defaults: Picture (16:9 / Match screen / 4:3), HUD (edges / 21:9 / 16:9 / 4:3), Frame rate (60 / 30), resolution,
 anti-aliasing, battle speed, options, Music (GameCube / Dreamcast), Language (European disc), button
 mapping. On Android, also Renderer (Vulkan / OpenGL ES) and GPU driver.
 
