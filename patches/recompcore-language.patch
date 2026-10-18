@@ -1,8 +1,8 @@
 diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
-index 07f9d4e699..9e7629431c 100644
+index 07f9d4e699..aa8dfe262c 100644
 --- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
 +++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
-@@ -270,6 +270,16 @@ class SkiesLauncherActivity : FragmentActivity() {
+@@ -270,6 +270,15 @@ class SkiesLauncherActivity : FragmentActivity() {
              SkiesDataFolder.restart(this)
              return
          }
@@ -10,16 +10,15 @@ index 07f9d4e699..9e7629431c 100644
 +        if (SkiesNative.takeRestartRequest() && DirectoryInitialization.areDolphinDirectoriesReady() &&
 +            !dataFolderBlocked && gameReady()
 +        ) {
-+            afterGameClosed {
-+                setAutoLoadCard(0)
-+                launch(null)
-+            }
++            message.text = "Restarting the game…"
++            buttons.removeAllViews()
++            relaunchWhenDetached(android.os.SystemClock.uptimeMillis() + CLOSE_TIMEOUT_MS)
 +            return
 +        }
          if (chooseAfterAccess && SkiesDataFolder.hasAccess()) {
              chooseAfterAccess = false
              chooseDataFolder()
-@@ -792,7 +802,7 @@ class SkiesLauncherActivity : FragmentActivity() {
+@@ -792,7 +801,7 @@ class SkiesLauncherActivity : FragmentActivity() {
          settings?.close()
          column.descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
          val game = if (ready) getString(R.string.skies_title) + " [$gameId]" else null
@@ -28,6 +27,32 @@ index 07f9d4e699..9e7629431c 100644
              { afterGameClosed { pickDisc.launch(arrayOf("*/*")) } },
              { pickDriver.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) },
              { confirmImportSave() }, { startExport() },
+@@ -889,6 +898,25 @@ class SkiesLauncherActivity : FragmentActivity() {
+ 
+     private var closePoll = Runnable {}
+ 
++    /**
++     * The language restart: this activity resumes while the finished game screen is still being torn
++     * down, and on its way out that screen's fragment pauses the emulation and releases the surface,
++     * which would hit a session started now. Its last step (onDetach) clears the registered
++     * EmulationActivity, so the new session waits for that.
++     */
++    private fun relaunchWhenDetached(deadline: Long) {
++        if (org.dolphinemu.dolphinemu.NativeLibrary.getEmulationActivity() != null &&
++            android.os.SystemClock.uptimeMillis() < deadline
++        ) {
++            handler.postDelayed({ relaunchWhenDetached(deadline) }, 100)
++            return
++        }
++        afterGameClosed {
++            setAutoLoadCard(0)
++            launch(null)
++        }
++    }
++
+     private fun launch(state: File?) {
+         // Only for a launch that goes ahead: a stale driver marker would later read as a crash
+         EmulationActivity.launch(this, mainDol.absolutePath, false) {
 diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt
 index 7764d05e04..9ea980293d 100644
 --- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt

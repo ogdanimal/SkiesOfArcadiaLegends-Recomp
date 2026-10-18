@@ -687,7 +687,15 @@ European data.
   value cancel the question. A save state still holds the language it was made in (the text pack is in
   guest RAM), so loading one made in another language brings that language back until the next start.
   Checked on WSL: English to German and French to Spanish restarts (opening text), one A then B saves
-  without a restart, the launcher's tab reads and writes `[Skies] Language`. A live switch without a
+  without a restart, the launcher's tab reads and writes `[Skies] Language`. Windows (MSVC release
+  exes in the CI package of `db0f23a`): English to German and English to Spanish, the first runner
+  waiting on the second, both gone after a stop; the prompt and footer name the key in use (X with the
+  keyboard, A with a controller). Retroid (branded test app): the Settings tab (Français saved, the
+  game booted in French), then Deutsch to Español in game. The first Android try came back to a black,
+  paused game: the launcher activity resumes while the finished game screen is still being torn down,
+  and that screen's fragment then pauses the emulation (`onPause`) and releases the surface, hitting
+  the session just started; the relaunch now waits until it has detached
+  (`NativeLibrary.getEmulationActivity()` back to null, at most 10 s). A live switch without a
   restart was researched the same day (*Live language switch* below).
 - **60 Hz:** the game picks its render mode from the TV format (`VIGetTvFormat`): PAL gives 50 Hz
   (5/6 speed; no PAL compensation in the code), EuRGB60 panics ("Invalid TV Format."). So
