@@ -1007,8 +1007,17 @@ history: [handoffs/HANDOFF-hdtextures.md](handoffs/HANDOFF-hdtextures.md); the p
 - **Import** (`VideoCommon/TexturePackImport.cpp`, shared by the launcher, `--import-texture-pack`
   and the Android app): a `.7z`, a `.zip` or a folder; only `tex1_*.png/.dds` inside the pack's
   `GEA` / `GEAE8P` / `GEAP8P` folder are copied (the pack's `Optional/` extras, French text and the
-  other flight meter, are left out), CRC-checked, into `Load/Textures/GEA.importing/`, then swapped in
-  for `GEA/`; duplicate names dropped. `skies-texture-pack.txt` there records the name and counts.
+  other flight meter, are left out), or every `tex1_` file when the pack has no such folder (the "HD
+  Texture Pack 4x Upscaled DDS v1" by Shoopkid, six archives with `UI/`, `Characters/`... at the top;
+  `__MACOSX/` resource forks skipped), CRC-checked, into `Load/Textures/GEA.importing/`, then moved
+  into `GEA/`: an import **adds** to the packs imported before (since 2026-10-18; it used to replace
+  them), a texture of the same file name (Dolphin's key) is the new pack's; duplicate names inside a
+  pack dropped. `skies-texture-pack.txt` there records the packs' names (one `name=` line each) and
+  the counts of everything in `GEA/`, recounted after an import that adds. Remove deletes `GEA/`.
+  The six 4x archives one after another on Linux (2026-10-18, `--import-texture-pack`): 15497
+  textures, all BC7, 8.7 GB; 2-5 s each for 01-05, 263 s for `06_SoAL_HD_Unsorted_Assets` (6.5 GB,
+  one 7.5 GB solid LZMA2 block, 64 MB dictionary), under 100 MB of memory. Only 23 names are in both
+  06 and the others. Its `02_SoAL_HD_Characters.7z` is a .zip (the import goes by the first bytes).
   `.7z`: the LZMA SDK 23.01 (`lib/lzma-sdk`); LZMA / LZMA2 / stored folders are decoded as a stream
   with a window no larger than the folder (the packs are one solid 256 MB-dictionary block: 732 MB out,
   a few hundred MB of memory); other methods through the SDK in memory (refused above 1 GiB). Times:

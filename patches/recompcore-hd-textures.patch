@@ -115,7 +115,7 @@ index 945f0034d0..7764d05e04 100644
       * A game imported by an earlier version of the app: patches the original main.dol kept at import
       * (sys/main.dol.orig) into this version's build. Returns "" on success, else a message.
 diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
-index a24a545979..f398064c75 100644
+index a24a545979..5e4bdf2cbc 100644
 --- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
 +++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
 @@ -38,6 +38,7 @@ class SkiesSettingsPanel(
@@ -134,7 +134,7 @@ index a24a545979..f398064c75 100644
                  boolRow(rows, "V-Sync", gfx, "Hardware", "VSync",
                      "Stops screen tearing. Can add a little input delay.")
                  boolRow(rows, "Show FPS", gfx, "Settings", "ShowFPS",
-@@ -350,6 +352,56 @@ class SkiesSettingsPanel(
+@@ -350,6 +352,57 @@ class SkiesSettingsPanel(
              "deletes them: Change moves them to a folder of your choice (it asks for All files access).")
      }
  
@@ -164,14 +164,15 @@ index a24a545979..f398064c75 100644
 +                NativeConfig.setBoolean(NativeConfig.LAYER_BASE, Settings.FILE_GFX, "Settings",
 +                    "HiresTextures", false)
 +                NativeConfig.save(NativeConfig.LAYER_BASE)
-+                importMessage = if (removed) "The texture pack was removed." else "Couldn't remove it."
++                importMessage = if (removed) "The imported textures were removed." else "Couldn't remove them."
 +                importOk = removed
 +                show()
 +            })
 +        }
 +        describe(rows, "A Skies of Arcadia texture pack you downloaded, as its .7z or .zip file. " +
 +            "Take its PNG download where there is one: phones can't load the DDS (BC7) one. " +
-+            "Importing another replaces it.")
++            "Each import adds to what's imported: a pack in several archives is imported one " +
++            "archive at a time. Remove takes them all out.")
 +        rows.addView(text(imported.ifEmpty { "Nothing imported yet." }, 15f, Color.WHITE).apply {
 +            setPadding(dp(200f), dp(8f), 0, 0)
 +        })
@@ -564,10 +565,10 @@ index 54436d050d..d25ea0d4e9 100644
        static constexpr std::array<const char*, 4> LANGUAGES{"English", "Deutsch", "Fran\xc3\xa7" "ais",
 diff --git a/Source/Core/VideoCommon/TexturePackImport.cpp b/Source/Core/VideoCommon/TexturePackImport.cpp
 new file mode 100644
-index 0000000000..f6fd3dbdbc
+index 0000000000..7f75adfdd9
 --- /dev/null
 +++ b/Source/Core/VideoCommon/TexturePackImport.cpp
-@@ -0,0 +1,832 @@
+@@ -0,0 +1,928 @@
 +// Copyright 2026 Dolphin Emulator Project
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +
@@ -589,6 +590,7 @@ index 0000000000..f6fd3dbdbc
 +#include <cstdio>
 +#include <cstdlib>
 +#include <cstring>
++#include <map>
 +#include <memory>
 +#include <new>
 +#include <optional>
@@ -598,6 +600,7 @@ index 0000000000..f6fd3dbdbc
 +#include <vector>
 +
 +#include <fmt/format.h>
++#include <fmt/ranges.h>
 +#include <mz.h>
 +#include <mz_strm.h>
 +#include <mz_zip.h>
@@ -643,6 +646,12 @@ index 0000000000..f6fd3dbdbc
 +  const size_t mip = stem.rfind("_mip");
 +  return mip != std::string_view::npos && mip + 4 < stem.size() &&
 +         std::ranges::all_of(stem.substr(mip + 4), [](char c) { return c >= '0' && c <= '9'; });
++}
++
++std::string FileName(const std::string& path)
++{
++  const size_t slash = path.rfind('/');
++  return slash == std::string::npos ? path : path.substr(slash + 1);
 +}
 +
 +// The part of a path in the pack that is inside its game folder:
@@ -695,7 +704,69 @@ index 0000000000..f6fd3dbdbc
 +  return name.empty() ? "Texture pack" : name;
 +}
 +
-+// Writes the pack's textures into Load/Textures/GEA.importing/, then swaps it in for GEA/.
++void ListFolder(const File::FSTEntry& entry, const std::string& prefix,
++                std::vector<std::pair<std::string, std::string>>* files)
++{
++  for (const File::FSTEntry& child : entry.children)
++  {
++    const std::string relative = prefix + child.virtualName;
++    if (child.isDirectory)
++      ListFolder(child, relative + "/", files);
++    else
++      files->emplace_back(relative, child.physicalName);
++  }
++}
++
++// Whether a DDS file's first 132 bytes are a DX10 header of DXGI_FORMAT_BC7_UNORM (98) or _SRGB (99)
++bool IsBc7(const u8* header, size_t size)
++{
++  if (size < 132 || std::memcmp(header, "DDS ", 4) != 0 || std::memcmp(header + 84, "DX10", 4) != 0)
++    return false;
++  u32 format;
++  std::memcpy(&format, header + 128, 4);
++  return format == 98 || format == 99;
++}
++
++struct Marker
++{
++  std::vector<std::string> names;  // the packs imported into the folder, in order
++  int textures = 0;
++  int bc7 = 0;
++};
++
++std::optional<Marker> ReadMarker(const std::string& textures_dir)
++{
++  std::string text;
++  if (!File::ReadFileToString(textures_dir + GAME_FOLDER + DIR_SEP + MARKER, text))
++    return std::nullopt;
++  Marker marker;
++  std::istringstream in(text);
++  std::string line;
++  while (std::getline(in, line))
++  {
++    const size_t eq = line.find('=');
++    if (eq == std::string::npos)
++      continue;
++    const std::string key = line.substr(0, eq), value = line.substr(eq + 1);
++    if (key == "name")
++      marker.names.push_back(value);
++    else if (key == "textures")
++      marker.textures = std::atoi(value.c_str());
++    else if (key == "bc7")
++      marker.bc7 = std::atoi(value.c_str());
++  }
++  return marker;
++}
++
++std::string Native(std::string path)
++{
++#ifdef _WIN32
++  std::ranges::replace(path, '/', '\\');
++#endif
++  return path;
++}
++
++// Writes the pack's textures into Load/Textures/GEA.importing/, then adds them to GEA/.
 +class Installer
 +{
 +public:
@@ -716,14 +787,32 @@ index 0000000000..f6fd3dbdbc
 +    return true;
 +  }
 +
++  // Called with every entry of the pack before Target: a pack with a GEA folder gives only the
++  // textures in it (others beside it are optional variants), one without (the textures in folders
++  // of their own, "UI/Main/tex1_....dds") gives all of its textures.
++  void Look(const std::string& pack_path)
++  {
++    const std::optional<std::string> inside = InGameFolder(pack_path);
++    m_game_folder |= inside && IsTexture(FileName(*inside));
++  }
++
 +  // Where an entry of the pack goes in the game folder, or nullopt to skip it.
 +  std::optional<std::string> Target(const std::string& pack_path) const
 +  {
-+    std::optional<std::string> inside = InGameFolder(pack_path);
-+    if (!inside)
-+      return std::nullopt;
-+    const size_t slash = inside->rfind('/');
-+    if (!IsTexture(slash == std::string::npos ? *inside : inside->substr(slash + 1)))
++    std::optional<std::string> inside;
++    if (m_game_folder)
++    {
++      inside = InGameFolder(pack_path);
++    }
++    else
++    {
++      inside = pack_path;
++      std::ranges::replace(*inside, '\\', '/');
++      // A Mac's resource forks in a .zip ("__MACOSX/UI/._tex1_....dds")
++      if (inside->starts_with("__MACOSX/") || inside->find("/__MACOSX/") != std::string::npos)
++        return std::nullopt;
++    }
++    if (!inside || !IsTexture(FileName(*inside)))
 +      return std::nullopt;
 +    return inside;
 +  }
@@ -740,10 +829,8 @@ index 0000000000..f6fd3dbdbc
 +      return true;
 +    }
 +    m_skip = false;
-+    std::string path = m_temp + relative;
-+#ifdef _WIN32
-+    std::ranges::replace(path, '/', '\\');
-+#endif
++    m_written.push_back(relative);
++    const std::string path = Native(m_temp + relative);
 +    File::CreateFullPath(path);
 +    m_file = File::IOFile(path, "wb");
 +    if (!m_file.IsOpen())
@@ -773,37 +860,75 @@ index 0000000000..f6fd3dbdbc
 +      return Fail("Can't write the textures. Is the disk full?");
 +    ++m_files;
 +    m_textures += m_mip ? 0 : 1;
-+    // DXGI_FORMAT_BC7_UNORM (98) or _SRGB (99) in a DX10 header
-+    if (m_header.size() >= 132 && std::memcmp(m_header.data(), "DDS ", 4) == 0 &&
-+        std::memcmp(m_header.data() + 84, "DX10", 4) == 0)
-+    {
-+      u32 format;
-+      std::memcpy(&format, m_header.data() + 128, 4);
-+      m_bc7 += (!m_mip && (format == 98 || format == 99)) ? 1 : 0;
-+    }
++    m_bc7 += !m_mip && IsBc7(m_header.data(), m_header.size()) ? 1 : 0;
 +    if (m_status && (m_files % 20 == 0 || m_files == m_total))
 +      m_status(fmt::format("Unpacking textures: {} of {} files", m_files, m_total));
 +    return true;
 +  }
 +
-+  // Replaces the imported pack with this one.
++  // Adds this pack to the imported ones (a pack can come as several archives, one per kind of
++  // texture): its textures go into GEA/, replacing the ones there of the same name.
 +  bool Commit(const std::string& name)
 +  {
 +    if (m_textures == 0)
 +      return Fail("No textures were unpacked.");
-+    if (!File::WriteStringToFile(m_temp + MARKER,
-+                                 fmt::format("name={}\ntextures={}\nbc7={}\n", name, m_textures,
-+                                             m_bc7)))
-+    {
-+      return Fail("Can't write " + m_temp + MARKER);
-+    }
 +    const std::string target = m_textures_dir + GAME_FOLDER;
-+    if (File::Exists(target) && !File::DeleteDirRecursively(target))
-+      return Fail("Can't remove the previous pack in " + target);
 +    std::string temp = m_temp;
 +    temp.pop_back();
-+    if (!File::Rename(temp, target))
-+      return Fail("Can't move the textures into " + target);
++    Marker marker{{name}, m_textures, m_bc7};
++    if (!File::Exists(target))
++    {
++      if (!File::Rename(temp, target))
++        return Fail("Can't move the textures into " + target);
++    }
++    else
++    {
++      std::vector<std::pair<std::string, std::string>> files;
++      ListFolder(File::ScanDirectoryTree(target, true), "", &files);
++      std::map<std::string, std::string> imported;  // by file name: Dolphin's key
++      for (const auto& [relative, physical] : files)
++        imported.emplace(Lower(FileName(relative)), physical);
++      for (const std::string& relative : m_written)
++      {
++        if (const auto it = imported.find(Lower(FileName(relative))); it != imported.end())
++          File::Delete(it->second);
++        const std::string path = Native(target + "/" + relative);
++        File::CreateFullPath(path);
++        if (!File::Rename(Native(m_temp + relative), path))
++          return Fail("Can't move the textures into " + target);
++      }
++      File::DeleteDirRecursively(temp);
++
++      // The counts of everything there now (the earlier packs', a folder put there by hand)
++      const std::optional<Marker> before = ReadMarker(m_textures_dir);
++      marker.names = before ? before->names : std::vector<std::string>{};
++      if (std::ranges::find(marker.names, name) == marker.names.end())
++        marker.names.push_back(name);
++      marker.textures = marker.bc7 = 0;
++      files.clear();
++      ListFolder(File::ScanDirectoryTree(target, true), "", &files);
++      for (const auto& [relative, physical] : files)
++      {
++        const std::string file_name = FileName(relative);
++        if (!IsTexture(file_name) || IsMipLevel(file_name))
++          continue;
++        ++marker.textures;
++        std::array<u8, 132> header;
++        File::IOFile file(physical, "rb");
++        if (Lower(file_name).ends_with(".dds") && file.ReadArray(&header) &&
++            IsBc7(header.data(), header.size()))
++        {
++          ++marker.bc7;
++        }
++      }
++    }
++    std::string text;
++    for (const std::string& pack : marker.names)
++      text += fmt::format("name={}\n", pack);
++    text += fmt::format("textures={}\nbc7={}\n", marker.textures, marker.bc7);
++    const std::string marker_path = Native(target + "/" + MARKER);
++    if (!File::WriteStringToFile(marker_path, text))
++      return Fail("Can't write " + marker_path);
 +    return true;
 +  }
 +
@@ -828,6 +953,7 @@ index 0000000000..f6fd3dbdbc
 +  std::string m_textures_dir;
 +  std::string m_temp;
 +  std::function<void(const std::string&)> m_status;
++  bool m_game_folder = false;
 +  size_t m_total = 0;
 +  std::set<std::string> m_names;
 +  File::IOFile m_file;
@@ -836,6 +962,7 @@ index 0000000000..f6fd3dbdbc
 +  bool m_mip = false;
 +  size_t m_files = 0;
 +  std::vector<u8> m_header;
++  std::vector<std::string> m_written;  // the textures in m_temp, relative
 +  int m_textures = 0;
 +  int m_bc7 = 0;
 +  std::string m_error;
@@ -843,18 +970,6 @@ index 0000000000..f6fd3dbdbc
 +
 +// ---- An unpacked folder ----
 +
-+void ListFolder(const File::FSTEntry& entry, const std::string& prefix,
-+                std::vector<std::pair<std::string, std::string>>* files)
-+{
-+  for (const File::FSTEntry& child : entry.children)
-+  {
-+    const std::string relative = prefix + child.virtualName;
-+    if (child.isDirectory)
-+      ListFolder(child, relative + "/", files);
-+    else
-+      files->emplace_back(relative, child.physicalName);
-+  }
-+}
 +
 +bool ImportFolder(const std::string& folder, Installer& installer, size_t* count)
 +{
@@ -866,6 +981,8 @@ index 0000000000..f6fd3dbdbc
 +  const size_t slash = base.find_last_of("/\\");
 +  ListFolder(File::ScanDirectoryTree(folder, true),
 +             (slash == std::string::npos ? base : base.substr(slash + 1)) + "/", &files);
++  for (const auto& file : files)
++    installer.Look(file.first);
 +  std::vector<std::pair<std::string, std::string>> wanted;
 +  for (const auto& [relative, physical] : files)
 +  {
@@ -910,17 +1027,21 @@ index 0000000000..f6fd3dbdbc
 +  if (mz_zip_reader_open_file(reader, path.c_str()) != MZ_OK)
 +    return installer.Fail("Can't read that .zip file. Is it damaged?");
 +  // First the textures in it, then unpack them (the reader walks the entries in order)
-+  *count = 0;
++  std::vector<std::string> names;
 +  for (int32_t err = mz_zip_reader_goto_first_entry(reader); err == MZ_OK;
 +       err = mz_zip_reader_goto_next_entry(reader))
 +  {
 +    mz_zip_file* info;
 +    if (mz_zip_reader_entry_get_info(reader, &info) == MZ_OK && info->filename &&
-+        mz_zip_reader_entry_is_dir(reader) != MZ_OK && installer.Target(info->filename))
++        mz_zip_reader_entry_is_dir(reader) != MZ_OK)
 +    {
-+      ++*count;
++      names.emplace_back(info->filename);
++      installer.Look(names.back());
 +    }
 +  }
++  *count = static_cast<size_t>(std::ranges::count_if(names, [&](const std::string& name) {
++    return installer.Target(name).has_value();
++  }));
 +  if (*count == 0 || !installer.Start(*count))
 +    return false;
 +  std::vector<u8> buffer(CHUNK);
@@ -1165,16 +1286,23 @@ index 0000000000..f6fd3dbdbc
 +
 +  // Each file's place in the pack, and where it goes (nullopt: skipped)
 +  std::vector<std::optional<std::string>> targets(db.NumFiles);
++  std::vector<std::string> names(db.NumFiles);
 +  std::vector<UInt16> name16;
-+  *count = 0;
 +  for (UInt32 i = 0; i < db.NumFiles; ++i)
 +  {
 +    if (SzArEx_IsDir(&db, i))
 +      continue;
 +    name16.resize(SzArEx_GetFileNameUtf16(&db, i, nullptr));
 +    SzArEx_GetFileNameUtf16(&db, i, name16.data());
-+    const std::u16string name(name16.begin(), name16.end() - 1);
-+    targets[i] = installer.Target(UTF16ToUTF8(name));
++    names[i] = UTF16ToUTF8(std::u16string(name16.begin(), name16.end() - 1));
++    installer.Look(names[i]);
++  }
++  *count = 0;
++  for (UInt32 i = 0; i < db.NumFiles; ++i)
++  {
++    if (SzArEx_IsDir(&db, i))
++      continue;
++    targets[i] = installer.Target(names[i]);
 +    *count += targets[i] ? 1 : 0;
 +  }
 +  if (*count == 0 || !installer.Start(*count))
@@ -1256,36 +1384,6 @@ index 0000000000..f6fd3dbdbc
 +}
 +#endif
 +
-+struct Marker
-+{
-+  std::string name;
-+  int textures = 0;
-+  int bc7 = 0;
-+};
-+
-+std::optional<Marker> ReadMarker(const std::string& textures_dir)
-+{
-+  std::string text;
-+  if (!File::ReadFileToString(textures_dir + GAME_FOLDER + DIR_SEP + MARKER, text))
-+    return std::nullopt;
-+  Marker marker;
-+  std::istringstream in(text);
-+  std::string line;
-+  while (std::getline(in, line))
-+  {
-+    const size_t eq = line.find('=');
-+    if (eq == std::string::npos)
-+      continue;
-+    const std::string key = line.substr(0, eq), value = line.substr(eq + 1);
-+    if (key == "name")
-+      marker.name = value;
-+    else if (key == "textures")
-+      marker.textures = std::atoi(value.c_str());
-+    else if (key == "bc7")
-+      marker.bc7 = std::atoi(value.c_str());
-+  }
-+  return marker;
-+}
 +}  // namespace
 +
 +std::string Import(const std::string& pack, const std::string& textures_dir, std::string* summary,
@@ -1353,8 +1451,7 @@ index 0000000000..f6fd3dbdbc
 +    installer.Abort();
 +    if (count == 0 && installer.Error().empty())
 +    {
-+      return "No Skies of Arcadia textures in that pack: it needs a GEA folder with tex1_ "
-+             "files.";
++      return "No Skies of Arcadia textures in that pack: it needs tex1_ .png or .dds files.";
 +    }
 +    return installer.Error().empty() ? "The import stopped." : installer.Error();
 +  }
@@ -1373,7 +1470,7 @@ index 0000000000..f6fd3dbdbc
 +std::string Describe(const std::string& textures_dir)
 +{
 +  if (const std::optional<Marker> marker = ReadMarker(textures_dir))
-+    return fmt::format("{}: {} textures", marker->name, marker->textures);
++    return fmt::format("{}: {} textures", fmt::join(marker->names, " + "), marker->textures);
 +  // A folder the player put there by hand
 +  const std::string folder = textures_dir + GAME_FOLDER;
 +  if (!File::IsDirectory(folder))
@@ -1402,10 +1499,10 @@ index 0000000000..f6fd3dbdbc
 +}  // namespace TexturePackImport
 diff --git a/Source/Core/VideoCommon/TexturePackImport.h b/Source/Core/VideoCommon/TexturePackImport.h
 new file mode 100644
-index 0000000000..689dfb5379
+index 0000000000..47f47fa518
 --- /dev/null
 +++ b/Source/Core/VideoCommon/TexturePackImport.h
-@@ -0,0 +1,33 @@
+@@ -0,0 +1,36 @@
 +// Copyright 2026 Dolphin Emulator Project
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +
@@ -1420,22 +1517,25 @@ index 0000000000..689dfb5379
 +//
 +// The pack is a .7z or .zip as downloaded, or its unpacked folder (not on Android, where the
 +// picker gives files). Only the game's folder in it (GEA, GEAE8P or GEAP8P) is copied, never the
-+// pack's optional extras beside it; packs without one are refused. A new import replaces the
-+// previous pack. Nothing of a pack is ever part of the recomp's builds: players bring their own.
++// pack's optional extras beside it; a pack without one (its textures in folders of their own)
++// gives all of its textures. An import adds to the packs imported before (a pack can come as
++// several archives), replacing their textures of the same name; Remove takes them all out.
++// Nothing of a pack is ever part of the recomp's builds: players bring their own.
 +namespace TexturePackImport
 +{
-+// Returns "" on success, else what went wrong (shown to the player). *summary gets what was
-+// imported, e.g. "SoA_HD_v0.06_DDS: 745 textures".
++// Returns "" on success, else what went wrong (shown to the player). *summary gets what is
++// imported now, e.g. "SoA_HD_v0.06_DDS: 745 textures" or "01_SoAL_HD_UI + 02_SoAL_HD_Characters:
++// 3230 textures".
 +// textures_dir is the user directory's Load/Textures/ and ends with a separator. file_name names
 +// the pack when its path doesn't (an Android content URI: its display name).
 +std::string Import(const std::string& pack, const std::string& textures_dir, std::string* summary,
 +                   const std::function<void(const std::string&)>& status = {},
 +                   const std::string& file_name = {});
-+// What's imported, e.g. "SoA_HD_v0.06_DDS: 745 textures", or "" if nothing.
++// What's imported (as for Import's summary), or "" if nothing.
 +std::string Describe(const std::string& textures_dir);
 +// How many of the imported textures are BC7 DDS files, which need a GPU with BC7 (BPTC) support:
 +// Dolphin skips them on others (most phones), the pack's PNG download works there.
 +int Bc7Count(const std::string& textures_dir);
-+// Removes the imported pack.
++// Removes the imported packs.
 +bool Remove(const std::string& textures_dir);
 +}  // namespace TexturePackImport

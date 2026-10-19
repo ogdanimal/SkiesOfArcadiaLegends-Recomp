@@ -185,10 +185,13 @@ menus, text and some effects). None is included: download one yourself, then:
 2. **HD textures** turns on by itself. Switch it in the launcher or in game from the settings menu's
    Graphics tab.
 
-Only the pack's textures for this game (its `GEA` folder, used by both discs) are copied; its optional
-extras (French text, the other flight meter) are left out. On Android, take the pack's **PNG** download: phones can't load its DDS (BC7) textures, and
-the app shows how many of them stay as they were. Importing another pack replaces it; **Remove**
-deletes it.
+Only the pack's textures for this game are copied: its `GEA` folder (used by both discs) when it has
+one, leaving out its optional extras (French text, the other flight meter), else every texture in
+it. Each import adds to what is already imported, so a pack that comes as several archives (the
+**HD Texture Pack 4x Upscaled** by Shoopkid comes as six) is imported one archive at a time; a texture
+in two packs is the last import's. **Remove** deletes everything imported. On Android, take a pack's
+**PNG** download where there is one: phones can't load DDS (BC7) textures, and the app shows how many
+of them stay as they were.
 
 ### Romhacks
 

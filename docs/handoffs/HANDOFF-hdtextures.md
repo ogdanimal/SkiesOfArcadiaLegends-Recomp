@@ -135,3 +135,25 @@ Recent; Downloads is one tap away).
 
 Shots: `build/android/hdtex-shots/` (g-battle-on = DDS before the fix, g-battle-png,
 g-battle-dds-fixed, toggle-face.png = on / off / on).
+
+## 2026-10-18: packs without a GEA folder, imports that add
+
+A player's "texture pack is damaged" report with the **HD Texture Pack 4x Upscaled DDS v1**
+(Shoopkid, after Bighead and frozenwings; archive.org item
+`skies-of-arcadia-legends-hd-texture-pack-4x-upscaled-dds-v1`, CC BY-NC-ND: never bundle). Six
+archives (UI, Characters, Environments, Effects, Cutscene Artwork, Unsorted Assets 6.5 GB), ~15.5k
+BC7 DDS, **no `GEA` folder** (`UI/...`, `Characters/...` at the top), and `02_..._Characters.7z` is a
+.zip with `__MACOSX/` resource forks. The import refused all six ("needs a GEA folder"); the exact
+"damaged" message wasn't reproduced (reporter's platform and file unknown: a cut-off download gives
+"Can't read that .7z file...", a .zip minizip can't open gives "...Is it damaged?").
+
+- A pack without a game folder now gives all its `tex1_` files (`Installer::Look` before `Target`),
+  `__MACOSX/` skipped; with one, only it, as before.
+- An import **adds** to what's imported (user's choice 2026-10-18): files moved into `GEA/`, same
+  file name = replaced, the marker keeps every pack's name and recounts. Launcher and Android texts
+  say so; Remove takes them all out.
+- Linux CLI: all six in a row, 15497 textures (times in development-notes); Characters byte-identical
+  to the zip; v0.06 still 745 and on top of the 4x packs replaces the 521 names they share; a
+  failed import (disk full) leaves the earlier packs and no `GEA.importing`. Not yet: Windows,
+  Android build, an in-game look. On the Retroid's stock driver this pack shows nothing (all BC7).
+- Archives kept in `~/projects/texture-packs/archives/soal-4x-v1/`.
