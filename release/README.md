@@ -1,6 +1,6 @@
 # Skies of Arcadia Legends: Recompiled
 
-A native port of **Skies of Arcadia Legends** (GameCube) for Windows, Linux and Android, made by static
+A native port of **Skies of Arcadia Legends** (GameCube) for Windows, Linux, macOS and Android, made by static
 recompilation. It doesn't contain the game: you supply your own copy of the disc, and the game's
 data is read from it.
 
@@ -15,6 +15,7 @@ This is a **beta** (v0.51). Please report what you run into.
 - **Windows:** 64-bit Windows 10 or 11.
 - **Linux:** 64-bit (x86_64) with glibc 2.38 or newer (Ubuntu 24.04, Fedora 39, Bazzite or
   later), and a Vulkan or OpenGL driver.
+- **macOS:** macOS 13 or later on an Apple Silicon Mac (M1 or newer).
 - **Android:** a 64-bit (arm64) device with Android 7 or newer. Tested on a Retroid Pocket 5
   (Snapdragon 865), which runs it at full speed at 60 fps. Slower devices may not.
 
@@ -28,6 +29,12 @@ launcher imports it (a few seconds), patches it and starts the game. After that,
 (`chmod +x`, or the file's Properties) and run it. Or extract the `.tar.gz` and run
 `./SkiesOfArcadiaLegends` from inside the folder. The rest is as on Windows.
 
+**macOS:** unzip, and open **Skies of Arcadia Legends** (move it to Applications if you like); the
+rest is as on Windows. The app isn't notarized by Apple, so the first time macOS says it can't check
+it: open **System Settings → Privacy & Security** and choose **Open Anyway** (or Control-click the app
+and choose **Open**). If the keyboard does nothing in the game, allow it in **Privacy & Security →
+Input Monitoring**.
+
 **Android:** install the APK, open **Skies of Arcadia Legends** and pick your disc image when asked.
 
 **Updating from an earlier version:** saves, save states and settings carry over. On Windows and
@@ -36,7 +43,8 @@ Linux, if the launcher asks for your disc once more, choose **Select Disc** and 
 the app updates the imported disc by itself.
 
 Your saves and settings are kept in `%LOCALAPPDATA%\Skies of Arcadia Legends` (Windows),
-`~/.local/share/Skies of Arcadia Legends` (Linux) or in the app's own storage (Android). Uninstalling the Android app deletes them, so make a backup first
+`~/.local/share/Skies of Arcadia Legends` (Linux), `~/Library/Application Support/Skies of Arcadia
+Legends` (macOS) or in the app's own storage (Android). Uninstalling the Android app deletes them, so make a backup first
 (**Settings → Saves → Back up saves**), or move them out of the app's storage.
 
 **Settings → Disc → Data folder → Change...** moves them to a folder or drive of your choice; the
@@ -176,7 +184,9 @@ Every setting is also in the launcher's **Settings** window, with a short descri
 - If you change Picture while the world map's menu (Start) is open, the flight meter and compass keep
   the old shape until you close that menu.
 - At the widest shapes (32:9), a few scenes show unfinished scenery at the far edges.
-- **"Game files missing" when the game starts (Windows / Linux):** extract the whole zip again and keep
+- **macOS: the PS button opens Apple's Game Overlay** and the game stops responding until it's
+  closed (press PS or Esc again). Use **Create** for the game's settings menu.
+- **"Game files missing" when the game starts (Windows / Linux / macOS):** extract the whole zip again and keep
   its files together; if the file named there disappears again, your antivirus removed it.
 
 ## Reporting a problem

@@ -1,0 +1,57 @@
+diff --git a/Source/Core/VideoCommon/SkiesMenu.cpp b/Source/Core/VideoCommon/SkiesMenu.cpp
+index d25ea0d..e22636c 100644
+--- a/Source/Core/VideoCommon/SkiesMenu.cpp
++++ b/Source/Core/VideoCommon/SkiesMenu.cpp
+@@ -189,6 +189,9 @@ enum class Mode
+ 
+ std::mutex s_mutex;
+ Mode s_mode = Mode::Closed;
++// When the menu last closed, and whether a slow release has been logged since
++std::chrono::steady_clock::time_point s_closing_since;
++bool s_closing_logged = false;
+ int s_tab = 0;
+ int s_selected = 0;  // row within the tab, TAB_BAR = the tab bar itself (as in the launchers)
+ constexpr int TAB_BAR = -1;
+@@ -660,6 +663,11 @@ void Change(Option option, int direction, bool wrap)
+ }
+ 
+ // Buttons, with the main stick folded into the D-pad.
++// The buttons that act in the menu (confirm, back, tabs, close): held when it closes, the game
++// doesn't get them until they're let go
++constexpr u16 CLOSING_BUTTONS = PAD_BUTTON_A | PAD_BUTTON_B | PAD_BUTTON_X | PAD_BUTTON_Y |
++                                PAD_TRIGGER_Z | PAD_BUTTON_START | PAD_TRIGGER_L | PAD_TRIGGER_R;
++
+ u16 MenuButtons(const GCPadStatus& raw)
+ {
+   u16 buttons = raw.button;
+@@ -741,6 +749,8 @@ void Open()
+ void Close()
+ {
+   s_mode = Mode::Closing;
++  s_closing_since = std::chrono::steady_clock::now();
++  s_closing_logged = false;
+   s_apply_pending = true;
+   s_apply_values = s_staged;
+   s_apply_before = s_current;
+@@ -1535,9 +1545,20 @@ GCPadStatus FilterPad(int pad_num, const GCPadStatus& raw)
+     out = FilterOpen(raw);
+     break;
+   case Mode::Closing:
+-    if (MenuButtons(raw) != 0)
++    // Only the buttons that act in the menu wait to be let go: the sticks and the D-pad reach the
++    // game at once, so a player still holding the stick (walking on as the menu closes) isn't
++    // left with a game that ignores every input until it's released.
++    if ((raw.button & CLOSING_BUTTONS) != 0 || raw.triggerLeft > 0xA0 || raw.triggerRight > 0xA0)
+     {
+       out = Released(raw);
++      if (!s_closing_logged && std::chrono::steady_clock::now() - s_closing_since > std::chrono::seconds(2))
++      {
++        s_closing_logged = true;
++        NOTICE_LOG_FMT(CORE,
++                       "[skies] menu closed 2 s ago, still waiting for release: buttons {:04x} "
++                       "triggers {},{}",
++                       raw.button, raw.triggerLeft, raw.triggerRight);
++      }
+     }
+     else
+     {

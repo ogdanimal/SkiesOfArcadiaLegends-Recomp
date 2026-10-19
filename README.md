@@ -1,6 +1,6 @@
 # Skies of Arcadia Legends: Recompiled
 
-A native port of **Skies of Arcadia Legends** (GameCube) to **Windows, Linux and Android**, made by
+A native port of **Skies of Arcadia Legends** (GameCube) to **Windows, Linux, macOS and Android**, made by
 static recompilation: the game's PowerPC code is translated ahead of time into native code, and the
 GameCube's graphics, sound and input come from [Dolphin](https://dolphin-emu.org/)'s hardware code.
 It adds widescreen, 60 fps, camera control, save states and quality-of-life options.
@@ -16,7 +16,8 @@ Get a build from the **[Releases](../../releases)** page:
 | Platform | File |
 |---|---|
 | Windows | `SkiesOfArcadiaLegends-<version>-windows.zip` |
-| Linux | `SkiesOfArcadiaLegends-<version>-linux.tar.gz` |
+| Linux | `SkiesOfArcadiaLegends-<version>-linux-x86_64.AppImage` (or `-linux.tar.gz`) |
+| macOS (Apple Silicon) | `SkiesOfArcadiaLegends-<version>-macos.zip` |
 | Android | `SkiesOfArcadiaLegends-<version>-android.apk` |
 
 Versions ending in `-beta` (or `-rc1`, `-rc2`, ...) are published as prereleases.
@@ -25,7 +26,12 @@ Versions ending in `-beta` (or `-rc1`, `-rc2`, ...) are published as prereleases
 
 1. Install it:
    - **Windows:** unzip, and run `Skies of Arcadia Legends.exe` from inside the folder.
-   - **Linux:** extract, and run `./SkiesOfArcadiaLegends` from inside the folder.
+   - **Linux:** make the `.AppImage` executable (`chmod +x`, or **Allow executing** in the file's
+     Properties) and run it; it has the libraries it needs inside. Or extract the `.tar.gz` and run
+     `./SkiesOfArcadiaLegends` from inside the folder.
+   - **macOS:** unzip, and move **Skies of Arcadia Legends** to Applications if you like. The app isn't
+     notarized by Apple, so the first time macOS says it can't check it: open **System Settings →
+     Privacy & Security** and choose **Open Anyway** (or Control-click the app and choose **Open**).
    - **Android:** install the APK and open **Skies of Arcadia Legends**.
 2. Choose **Select Disc** and pick your disc image. The launcher checks it, imports it (a few seconds)
    and patches it for this port; you only do this once.
@@ -48,6 +54,7 @@ supported. One disc is installed at a time: **Change Disc** replaces it.
 |---|---|
 | **Windows** | 64-bit Windows 10 or 11 |
 | **Linux** | 64-bit (x86_64), with a Vulkan or OpenGL driver |
+| **macOS** | macOS 13 or later on an Apple Silicon Mac (M1 or newer) |
 | **Android** | 7.0+, a 64-bit (`arm64-v8a`) device |
 
 Tested on a **Retroid Pocket 5** (Android 13, Snapdragon 865), which runs it at full speed at 60 fps,
@@ -57,9 +64,11 @@ and on Windows. Slower Android devices may not keep 60 fps (see [Slower devices]
 
 | Problem | Try this |
 |---|---|
+| **macOS:** the game opens Apple's **Game Overlay** and stops responding to the controller | That's the controller's PS button: macOS uses it for its own overlay. Press it again (or Esc) to close the overlay, and use **Create** for the game's settings menu. |
+| **macOS:** "can't be opened" / "Apple could not verify" at the first start | The app isn't notarized: **System Settings → Privacy & Security → Open Anyway** (once). |
 | **Windows / Linux:** "Failed to create Vulkan device" or a similar message at start | Your graphics driver can't run Vulkan. The game switches to OpenGL by itself and keeps it (**Settings → Display → Graphics backend**). If neither starts, install the latest driver for your graphics card. |
 | **Android:** the game crashes or draws things wrong | **Settings → Graphics → Renderer** switches between Vulkan and OpenGL ES. On Adreno devices, **Settings → Graphics → GPU driver** can load another driver (see [GPU driver](#gpu-driver-android)). |
-| **Windows / Linux:** "Game files missing" when the game starts | A file of the download (`gGEAE8P_recomp.dll` or the European `gGEAP8P_recomp.dll`; `.so` on Linux) isn't beside the game. Extract the whole zip again and keep its files together; if the file disappears again, your antivirus removed it (allow the folder). |
+| **Windows / Linux / macOS:** "Game files missing" when the game starts | A file of the download (`gGEAE8P_recomp.dll` or the European `gGEAP8P_recomp.dll`; `.so` on Linux; inside the app on macOS) isn't beside the game. Extract the whole zip again and keep its files together; if the file disappears again, your antivirus removed it (allow the folder). |
 | The import refuses your disc | It must be the USA (`GEAE8P`) or European (`GEAP8P`) disc, the original release. The Japanese disc isn't supported. |
 | Battle freezes after changing the battle speed | A known issue: change the speed while you choose commands, not while a round plays out. |
 | You want saves from Dolphin, a GameCube or another device | **Settings → Saves → Import a save**; see [Importing a save](#importing-a-save). |
@@ -69,7 +78,7 @@ and on Windows. Slower Android devices may not keep 60 fps (see [Slower devices]
 
 ## Controls
 
-On Windows and Linux the keyboard and a controller both work, together or on their own. The game
+On Windows, Linux and macOS the keyboard and a controller both work, together or on their own. The game
 uses whichever controller you press, so a controller plugged in later or a second one needs no setup
 (started from Steam with Steam Input, Steam's controller works the same way; the Steam Controller
 shows as "Steam Controller"). On Android the built-in controller, or
@@ -90,7 +99,8 @@ the first one you connect, is set up for you; without one, the game shows touch 
 The face buttons go by name, not position: Xbox A is GameCube A. Every button and key can be
 changed: **Settings → Controls** in the launcher, or **Controls → Button mapping** in the in-game
 menu (on Android too). The controller's A and B can be changed but not cleared, so the menu always
-works. On Linux the keyboard needs an X11 session or XWayland (what most desktops run games in).
+works. On Linux the keyboard needs an X11 session or XWayland (what most desktops run games in). On
+macOS, Control-Command-F switches full screen.
 
 The game's own controls are unchanged; on top of them:
 
@@ -244,6 +254,7 @@ Your imported game, saves and settings are kept in:
 |---|---|
 | **Windows** | `%LOCALAPPDATA%\Skies of Arcadia Legends` |
 | **Linux** | `~/.local/share/Skies of Arcadia Legends` |
+| **macOS** | `~/Library/Application Support/Skies of Arcadia Legends` |
 | **Android** | The app's own storage. Uninstalling deletes it: back up first (**Settings → Saves → Back up saves**), or move it out. |
 
 To keep them somewhere else, open **Settings → Disc → Data folder → Change...** and pick a folder or
@@ -254,7 +265,7 @@ start (a drive not connected), the launcher asks: try again or use the default f
 
 - **Portable (Windows and Linux):** an empty file named `portable.txt` beside the program keeps
   everything in a `User` folder beside it, for example on a USB drive. Copy that folder along when you
-  update to a new version.
+  update to a new version. (Linux: the `.tar.gz` only; the AppImage can't hold a file beside it.)
 - **Android (11 or later):** Change offers internal storage, an SD card or another folder, and asks for **All files
   access** first (the game reads its files by name, which Android allows outside the app's own storage
   only with it). Moved out, the data stays when the app is uninstalled and a file manager can reach it.

@@ -66,6 +66,24 @@ CMake and Ninja on `PATH`, and LLVM 20's release tarball
 (`clang+llvm-20.1.8-x86_64-pc-windows-msvc.tar.xz`; `LLVM_ROOT` points at it). Dolphin's Windows
 dependencies are vendored under `lib/ModernGekko/vendor/dolphin/Externals/`.
 
+### macOS
+
+An Apple Silicon Mac on macOS 13 or later, with the Xcode Command Line Tools
+(`xcode-select --install`; the full Xcode isn't needed), CMake and Ninja (Homebrew, or
+`python3 -m pip install --user cmake ninja`), and LLVM 20's release tarball
+(`LLVM-20.1.8-macOS-ARM64.tar.xz`). That LLVM's CMake package asks for a static zstd; build the one
+Dolphin vendors and point `CMAKE_PREFIX_PATH` at it when configuring DolRecomp:
+
+```sh
+cmake -S lib/ModernGekko/vendor/dolphin/Externals/zstd/zstd/build/cmake -B build/zstd -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release -DZSTD_BUILD_SHARED=OFF -DZSTD_BUILD_PROGRAMS=OFF -DZSTD_BUILD_TESTS=OFF \
+  -DCMAKE_INSTALL_PREFIX=$PWD/build/zstd-install
+cmake --build build/zstd && cmake --install build/zstd
+```
+
+The release draws with Metal (OpenGL as the fallback). Vulkan is left out: it would need MoltenVK,
+which only builds with the full Xcode.
+
 ### Android
 
 The Android SDK with NDK 29.0.14206865, platform 36 and build-tools 36.0.0 (`sdkmanager`), plus
@@ -96,7 +114,10 @@ cmake --build build/dolrecomp --target dolrecomp
 DOLRECOMP=build/dolrecomp/dolrecomp TARGETS="linux" tools/ci-codegen.sh SECRETS_DIR codegen
 ```
 
-`TARGETS` takes any of `windows linux android` (default: all three), `REGIONS` `us` and / or `eu`. The profiles are trained with
+On macOS, configure DolRecomp with `-DLLVM_DIR=/path/to/LLVM-20.1.8-macOS-ARM64/lib/cmake/llvm
+-DCMAKE_PREFIX_PATH=$PWD/build/zstd-install` and run the codegen with `TARGETS="macos"`.
+
+`TARGETS` takes any of `windows linux android macos` (default: `windows linux android`), `REGIONS` `us` and / or `eu`. The profiles are trained with
 `tools/pgo-wsl.sh` (desktop) and on the device (Android); see
 [development notes, *Performance*](docs/development-notes.md#performance).
 
@@ -118,7 +139,17 @@ tools/build-release-linux.sh package build/module-linux/gGEAE8P_recomp.so \
 This makes `build/SkiesOfArcadiaLegends-v0.51.0-beta-linux.tar.gz`: the launcher
 `SkiesOfArcadiaLegends`, the runner `skies-run`, both modules and Dolphin's `Sys` folder. Without
 `REGIONS="us eu"` at configure the release takes the USA disc alone, and `package` needs only the
-USA module.
+USA module. Dolphin's libraries (bzip2, zstd, zlib and the rest) are its own bundled copies, linked
+in (`USE_SYSTEM_LIBS=OFF`), so the package doesn't need the build machine's distribution.
+
+```sh
+tools/build-release-linux.sh appimage v0.50.0-beta
+```
+
+then makes `build/SkiesOfArcadiaLegends-v0.50.0-beta-linux-x86_64.AppImage` from that folder, with
+the remaining libraries from the build machine inside (a pinned linuxdeploy, downloaded to
+`build/tools` and checked against its SHA-256). glibc and the graphics drivers are the player's, so
+the AppImage needs a glibc at least as new as the build machine's (CI: Ubuntu 24.04, glibc 2.39).
 
 ### Windows
 
@@ -140,6 +171,26 @@ tools\build-release-win.bat package build\module\gGEAE8P_recomp.dll build\module
 This makes `build\SkiesOfArcadiaLegends-v0.51.0-beta-windows.zip` (`Skies of Arcadia Legends.exe`,
 `skies-run.exe`, both modules, `Sys`, the app-local Visual C++ runtime). `REGIONS` works as on
 Linux.
+
+### macOS
+
+```sh
+MODULE_TABLES_INC=codegen/macos/generated/module_tables.inc \
+  tools/module-macos.sh codegen/macos/generated build/module-macos
+MODULE_TABLES_INC=codegen/macos-eu/generated/module_tables.inc GAME_ID=GEAP8P \
+  tools/module-macos.sh codegen/macos-eu/generated build/module-macos-eu
+REGIONS="us eu" tools/build-release-macos.sh configure
+tools/build-release-macos.sh build
+tools/build-release-macos.sh package build/module-macos/gGEAE8P_recomp.dylib \
+  build/module-macos-eu/gGEAP8P_recomp.dylib v0.50.0-beta
+```
+
+This makes `build/SkiesOfArcadiaLegends-v0.50.0-beta-macos.zip`: `Skies of Arcadia Legends.app` (the
+launcher, `skies-run` and both modules in `Contents/MacOS`; `Sys`, the DOL patches and the launcher
+background in `Contents/Resources`) and the documents. The app is signed ad hoc (Apple Silicon runs
+nothing unsigned), not with a Developer ID, so Gatekeeper asks before the first start (see the
+[README](README.md#getting-started)). The macOS codegen is built without PGO: the desktop profile
+was trained on x86_64 and the Android one on Android's target. `REGIONS` works as on Linux.
 
 ### Android
 

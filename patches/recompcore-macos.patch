@@ -1,0 +1,464 @@
+diff --git a/Source/Core/Common/FileUtil.cpp b/Source/Core/Common/FileUtil.cpp
+index 6d2853b..73e1960 100644
+--- a/Source/Core/Common/FileUtil.cpp
++++ b/Source/Core/Common/FileUtil.cpp
+@@ -773,7 +773,11 @@ static std::string CreateSysDirectoryPath()
+ #endif
+ 
+ #if defined(__APPLE__)
+-  const std::string sys_directory = GetBundleDirectory() + DIR_SEP SYSDATA_DIR DIR_SEP;
++  // ModernGekko builds with LINUX_LOCAL_DEV, which makes SYSDATA_DIR plain "Sys" (<app>.app/Sys/):
++  // the app bundle keeps it in Contents/Resources/Sys. A bare runner (no bundle) has Sys beside it.
++  std::string sys_directory = GetBundleDirectory() + DIR_SEP "Contents/Resources/Sys" DIR_SEP;
++  if (!IsDirectory(sys_directory))
++    sys_directory = GetBundleDirectory() + DIR_SEP SYSDATA_DIR DIR_SEP;
+ #elif defined(_WIN32) || defined(LINUX_LOCAL_DEV)
+   const std::string sys_directory = GetExeDirectory() + DIR_SEP SYSDATA_DIR DIR_SEP;
+ #elif defined ANDROID
+diff --git a/Source/Core/Core/SkiesBindings.cpp b/Source/Core/Core/SkiesBindings.cpp
+index cd0c555..777cf21 100644
+--- a/Source/Core/Core/SkiesBindings.cpp
++++ b/Source/Core/Core/SkiesBindings.cpp
+@@ -60,103 +60,103 @@ constexpr std::array INPUTS{
+ #undef PAD
+ 
+ constexpr std::array KEYS{
+-    KeyName{"A", "A", "A", "A", "A"},
+-    KeyName{"B", "B", "B", "B", "B"},
+-    KeyName{"C", "C", "C", "C", "C"},
+-    KeyName{"D", "D", "D", "D", "D"},
+-    KeyName{"E", "E", "E", "E", "E"},
+-    KeyName{"F", "F", "F", "F", "F"},
+-    KeyName{"G", "G", "G", "G", "G"},
+-    KeyName{"H", "H", "H", "H", "H"},
+-    KeyName{"I", "I", "I", "I", "I"},
+-    KeyName{"J", "J", "J", "J", "J"},
+-    KeyName{"K", "K", "K", "K", "K"},
+-    KeyName{"L", "L", "L", "L", "L"},
+-    KeyName{"M", "M", "M", "M", "M"},
+-    KeyName{"N", "N", "N", "N", "N"},
+-    KeyName{"O", "O", "O", "O", "O"},
+-    KeyName{"P", "P", "P", "P", "P"},
+-    KeyName{"Q", "Q", "Q", "Q", "Q"},
+-    KeyName{"R", "R", "R", "R", "R"},
+-    KeyName{"S", "S", "S", "S", "S"},
+-    KeyName{"T", "T", "T", "T", "T"},
+-    KeyName{"U", "U", "U", "U", "U"},
+-    KeyName{"V", "V", "V", "V", "V"},
+-    KeyName{"W", "W", "W", "W", "W"},
+-    KeyName{"X", "X", "X", "X", "X"},
+-    KeyName{"Y", "Y", "Y", "Y", "Y"},
+-    KeyName{"Z", "Z", "Z", "Z", "Z"},
+-    KeyName{"1", "1", "1", "1", "1"},
+-    KeyName{"2", "2", "2", "2", "2"},
+-    KeyName{"3", "3", "3", "3", "3"},
+-    KeyName{"4", "4", "4", "4", "4"},
+-    KeyName{"5", "5", "5", "5", "5"},
+-    KeyName{"6", "6", "6", "6", "6"},
+-    KeyName{"7", "7", "7", "7", "7"},
+-    KeyName{"8", "8", "8", "8", "8"},
+-    KeyName{"9", "9", "9", "9", "9"},
+-    KeyName{"0", "0", "0", "0", "0"},
+-    KeyName{"Return", "RETURN", "Return", "Enter", "Enter"},
+-    KeyName{"Escape", "ESCAPE", "Escape", "Escape", "Esc"},
+-    KeyName{"Backspace", "BACK", "BackSpace", "Backspace", "Backspace"},
+-    KeyName{"Tab", "TAB", "Tab", "Tab", "Tab"},
+-    KeyName{"Space", "SPACE", "space", "Space", "Space"},
+-    KeyName{"-", "MINUS", "minus", "Minus", "-"},
+-    KeyName{"=", "EQUALS", "equal", "Equals", "="},
+-    KeyName{"[", "LBRACKET", "bracketleft", "Left Bracket", "["},
+-    KeyName{"]", "RBRACKET", "bracketright", "Right Bracket", "]"},
+-    KeyName{"\\", "BACKSLASH", "backslash", "Backslash", "\\"},
+-    KeyName{";", "SEMICOLON", "semicolon", "Semicolon", ";"},
+-    KeyName{"'", "APOSTROPHE", "apostrophe", "Apostrophe", "'"},
+-    KeyName{"`", "GRAVE", "grave", "Grave", "`"},
+-    KeyName{",", "COMMA", "comma", "Comma", ","},
+-    KeyName{".", "PERIOD", "period", "Period", "."},
+-    KeyName{"/", "SLASH", "slash", "Slash", "/"},
+-    KeyName{"CapsLock", "CAPITAL", "Caps_Lock", "Caps Lock", "Caps Lock"},
+-    KeyName{"F1", "F1", "F1", "F1", "F1"},
+-    KeyName{"F2", "F2", "F2", "F2", "F2"},
+-    KeyName{"F3", "F3", "F3", "F3", "F3"},
+-    KeyName{"F4", "F4", "F4", "F4", "F4"},
+-    KeyName{"F5", "F5", "F5", "F5", "F5"},
+-    KeyName{"F6", "F6", "F6", "F6", "F6"},
+-    KeyName{"F7", "F7", "F7", "F7", "F7"},
+-    KeyName{"F8", "F8", "F8", "F8", "F8"},
+-    KeyName{"F9", "F9", "F9", "F9", "F9"},
+-    KeyName{"F10", "F10", "F10", "F10", "F10"},
+-    KeyName{"F11", "F11", "F11", "F11", "F11"},
+-    KeyName{"F12", "F12", "F12", "F12", "F12"},
+-    KeyName{"Insert", "INSERT", "Insert", "Insert", "Insert"},
+-    KeyName{"Home", "HOME", "Home", "Move Home", "Home"},
+-    KeyName{"PageUp", "PRIOR", "Prior", "Page Up", "Page Up"},
+-    KeyName{"Delete", "DELETE", "Delete", "Delete", "Delete"},
+-    KeyName{"End", "END", "End", "Move End", "End"},
+-    KeyName{"PageDown", "NEXT", "Next", "Page Down", "Page Down"},
+-    KeyName{"Right", "RIGHT", "Right", "Right", "Right"},
+-    KeyName{"Left", "LEFT", "Left", "Left", "Left"},
+-    KeyName{"Down", "DOWN", "Down", "Down", "Down"},
+-    KeyName{"Up", "UP", "Up", "Up", "Up"},
+-    KeyName{"Keypad /", "DIVIDE", "KP_Divide", "Numpad Divide", "Num /"},
+-    KeyName{"Keypad *", "MULTIPLY", "KP_Multiply", "Numpad Multiply", "Num *"},
+-    KeyName{"Keypad -", "SUBTRACT", "KP_Subtract", "Numpad Subtract", "Num -"},
+-    KeyName{"Keypad +", "ADD", "KP_Add", "Numpad Add", "Num +"},
+-    KeyName{"Keypad Enter", "NUMPADENTER", "KP_Enter", "Numpad Enter", "Num Enter"},
+-    KeyName{"Keypad 1", "NUMPAD1", "KP_End", "Numpad 1", "Num 1"},
+-    KeyName{"Keypad 2", "NUMPAD2", "KP_Down", "Numpad 2", "Num 2"},
+-    KeyName{"Keypad 3", "NUMPAD3", "KP_Next", "Numpad 3", "Num 3"},
+-    KeyName{"Keypad 4", "NUMPAD4", "KP_Left", "Numpad 4", "Num 4"},
+-    KeyName{"Keypad 5", "NUMPAD5", "KP_Begin", "Numpad 5", "Num 5"},
+-    KeyName{"Keypad 6", "NUMPAD6", "KP_Right", "Numpad 6", "Num 6"},
+-    KeyName{"Keypad 7", "NUMPAD7", "KP_Home", "Numpad 7", "Num 7"},
+-    KeyName{"Keypad 8", "NUMPAD8", "KP_Up", "Numpad 8", "Num 8"},
+-    KeyName{"Keypad 9", "NUMPAD9", "KP_Prior", "Numpad 9", "Num 9"},
+-    KeyName{"Keypad 0", "NUMPAD0", "KP_Insert", "Numpad 0", "Num 0"},
+-    KeyName{"Keypad .", "DECIMAL", "KP_Delete", "Numpad Dot", "Num ."},
+-    KeyName{"Left Ctrl", "LCONTROL", "Control_L", "Left Ctrl", "Left Ctrl"},
+-    KeyName{"Left Shift", "LSHIFT", "Shift_L", "Left Shift", "Left Shift"},
+-    KeyName{"Left Alt", "LMENU", "Alt_L", "Left Alt", "Left Alt"},
+-    KeyName{"Right Ctrl", "RCONTROL", "Control_R", "Right Ctrl", "Right Ctrl"},
+-    KeyName{"Right Shift", "RSHIFT", "Shift_R", "Right Shift", "Right Shift"},
+-    KeyName{"Right Alt", "RMENU", "Alt_R", "Right Alt", "Right Alt"},
++    KeyName{"A", "A", "A", "A", "A", "A"},
++    KeyName{"B", "B", "B", "B", "B", "B"},
++    KeyName{"C", "C", "C", "C", "C", "C"},
++    KeyName{"D", "D", "D", "D", "D", "D"},
++    KeyName{"E", "E", "E", "E", "E", "E"},
++    KeyName{"F", "F", "F", "F", "F", "F"},
++    KeyName{"G", "G", "G", "G", "G", "G"},
++    KeyName{"H", "H", "H", "H", "H", "H"},
++    KeyName{"I", "I", "I", "I", "I", "I"},
++    KeyName{"J", "J", "J", "J", "J", "J"},
++    KeyName{"K", "K", "K", "K", "K", "K"},
++    KeyName{"L", "L", "L", "L", "L", "L"},
++    KeyName{"M", "M", "M", "M", "M", "M"},
++    KeyName{"N", "N", "N", "N", "N", "N"},
++    KeyName{"O", "O", "O", "O", "O", "O"},
++    KeyName{"P", "P", "P", "P", "P", "P"},
++    KeyName{"Q", "Q", "Q", "Q", "Q", "Q"},
++    KeyName{"R", "R", "R", "R", "R", "R"},
++    KeyName{"S", "S", "S", "S", "S", "S"},
++    KeyName{"T", "T", "T", "T", "T", "T"},
++    KeyName{"U", "U", "U", "U", "U", "U"},
++    KeyName{"V", "V", "V", "V", "V", "V"},
++    KeyName{"W", "W", "W", "W", "W", "W"},
++    KeyName{"X", "X", "X", "X", "X", "X"},
++    KeyName{"Y", "Y", "Y", "Y", "Y", "Y"},
++    KeyName{"Z", "Z", "Z", "Z", "Z", "Z"},
++    KeyName{"1", "1", "1", "1", "1", "1"},
++    KeyName{"2", "2", "2", "2", "2", "2"},
++    KeyName{"3", "3", "3", "3", "3", "3"},
++    KeyName{"4", "4", "4", "4", "4", "4"},
++    KeyName{"5", "5", "5", "5", "5", "5"},
++    KeyName{"6", "6", "6", "6", "6", "6"},
++    KeyName{"7", "7", "7", "7", "7", "7"},
++    KeyName{"8", "8", "8", "8", "8", "8"},
++    KeyName{"9", "9", "9", "9", "9", "9"},
++    KeyName{"0", "0", "0", "0", "0", "0"},
++    KeyName{"Return", "RETURN", "Return", "Enter", "Enter", "Return"},
++    KeyName{"Escape", "ESCAPE", "Escape", "Escape", "Esc", "Escape"},
++    KeyName{"Backspace", "BACK", "BackSpace", "Backspace", "Backspace", "Backspace"},
++    KeyName{"Tab", "TAB", "Tab", "Tab", "Tab", "Tab"},
++    KeyName{"Space", "SPACE", "space", "Space", "Space", "Space"},
++    KeyName{"-", "MINUS", "minus", "Minus", "-", "-"},
++    KeyName{"=", "EQUALS", "equal", "Equals", "=", "="},
++    KeyName{"[", "LBRACKET", "bracketleft", "Left Bracket", "[", "["},
++    KeyName{"]", "RBRACKET", "bracketright", "Right Bracket", "]", "]"},
++    KeyName{"\\", "BACKSLASH", "backslash", "Backslash", "\\", "\\"},
++    KeyName{";", "SEMICOLON", "semicolon", "Semicolon", ";", ";"},
++    KeyName{"'", "APOSTROPHE", "apostrophe", "Apostrophe", "'", "'"},
++    KeyName{"`", "GRAVE", "grave", "Grave", "`", "Tilde"},
++    KeyName{",", "COMMA", "comma", "Comma", ",", ","},
++    KeyName{".", "PERIOD", "period", "Period", ".", "."},
++    KeyName{"/", "SLASH", "slash", "Slash", "/", "/"},
++    KeyName{"CapsLock", "CAPITAL", "Caps_Lock", "Caps Lock", "Caps Lock", "Caps Lock"},
++    KeyName{"F1", "F1", "F1", "F1", "F1", "F1"},
++    KeyName{"F2", "F2", "F2", "F2", "F2", "F2"},
++    KeyName{"F3", "F3", "F3", "F3", "F3", "F3"},
++    KeyName{"F4", "F4", "F4", "F4", "F4", "F4"},
++    KeyName{"F5", "F5", "F5", "F5", "F5", "F5"},
++    KeyName{"F6", "F6", "F6", "F6", "F6", "F6"},
++    KeyName{"F7", "F7", "F7", "F7", "F7", "F7"},
++    KeyName{"F8", "F8", "F8", "F8", "F8", "F8"},
++    KeyName{"F9", "F9", "F9", "F9", "F9", "F9"},
++    KeyName{"F10", "F10", "F10", "F10", "F10", "F10"},
++    KeyName{"F11", "F11", "F11", "F11", "F11", "F11"},
++    KeyName{"F12", "F12", "F12", "F12", "F12", "F12"},
++    KeyName{"Insert", "INSERT", "Insert", "Insert", "Insert", ""},
++    KeyName{"Home", "HOME", "Home", "Move Home", "Home", "Home"},
++    KeyName{"PageUp", "PRIOR", "Prior", "Page Up", "Page Up", "Page Up"},
++    KeyName{"Delete", "DELETE", "Delete", "Delete", "Delete", "Delete"},
++    KeyName{"End", "END", "End", "Move End", "End", "End"},
++    KeyName{"PageDown", "NEXT", "Next", "Page Down", "Page Down", "Page Down"},
++    KeyName{"Right", "RIGHT", "Right", "Right", "Right", "Right Arrow"},
++    KeyName{"Left", "LEFT", "Left", "Left", "Left", "Left Arrow"},
++    KeyName{"Down", "DOWN", "Down", "Down", "Down", "Down Arrow"},
++    KeyName{"Up", "UP", "Up", "Up", "Up", "Up Arrow"},
++    KeyName{"Keypad /", "DIVIDE", "KP_Divide", "Numpad Divide", "Num /", "Keypad /"},
++    KeyName{"Keypad *", "MULTIPLY", "KP_Multiply", "Numpad Multiply", "Num *", "Keypad *"},
++    KeyName{"Keypad -", "SUBTRACT", "KP_Subtract", "Numpad Subtract", "Num -", "Keypad -"},
++    KeyName{"Keypad +", "ADD", "KP_Add", "Numpad Add", "Num +", "Keypad +"},
++    KeyName{"Keypad Enter", "NUMPADENTER", "KP_Enter", "Numpad Enter", "Num Enter", "Keypad Enter"},
++    KeyName{"Keypad 1", "NUMPAD1", "KP_End", "Numpad 1", "Num 1", "Keypad 1"},
++    KeyName{"Keypad 2", "NUMPAD2", "KP_Down", "Numpad 2", "Num 2", "Keypad 2"},
++    KeyName{"Keypad 3", "NUMPAD3", "KP_Next", "Numpad 3", "Num 3", "Keypad 3"},
++    KeyName{"Keypad 4", "NUMPAD4", "KP_Left", "Numpad 4", "Num 4", "Keypad 4"},
++    KeyName{"Keypad 5", "NUMPAD5", "KP_Begin", "Numpad 5", "Num 5", "Keypad 5"},
++    KeyName{"Keypad 6", "NUMPAD6", "KP_Right", "Numpad 6", "Num 6", "Keypad 6"},
++    KeyName{"Keypad 7", "NUMPAD7", "KP_Home", "Numpad 7", "Num 7", "Keypad 7"},
++    KeyName{"Keypad 8", "NUMPAD8", "KP_Up", "Numpad 8", "Num 8", "Keypad 8"},
++    KeyName{"Keypad 9", "NUMPAD9", "KP_Prior", "Numpad 9", "Num 9", "Keypad 9"},
++    KeyName{"Keypad 0", "NUMPAD0", "KP_Insert", "Numpad 0", "Num 0", "Keypad 0"},
++    KeyName{"Keypad .", "DECIMAL", "KP_Delete", "Numpad Dot", "Num .", "Keypad ."},
++    KeyName{"Left Ctrl", "LCONTROL", "Control_L", "Left Ctrl", "Left Ctrl", "Left Control"},
++    KeyName{"Left Shift", "LSHIFT", "Shift_L", "Left Shift", "Left Shift", "Left Shift"},
++    KeyName{"Left Alt", "LMENU", "Alt_L", "Left Alt", "Left Alt", "Left Alt"},
++    KeyName{"Right Ctrl", "RCONTROL", "Control_R", "Right Ctrl", "Right Ctrl", "Right Control"},
++    KeyName{"Right Shift", "RSHIFT", "Shift_R", "Right Shift", "Right Shift", "Right Shift"},
++    KeyName{"Right Alt", "RMENU", "Alt_R", "Right Alt", "Right Alt", "Right Alt"},
+ };
+ 
+ // Controller controls as shown: Xbox names for SDL's (as the README's table), the buttons' own for
+@@ -312,6 +312,8 @@ std::string PlatformKeyName(const KeyName& key)
+   return key.dinput;
+ #elif defined(__ANDROID__)
+   return key.android;
++#elif defined(__APPLE__)
++  return key.quartz;
+ #else
+   return key.x11;
+ #endif
+@@ -323,6 +325,8 @@ std::string DefaultKeyboardDevice()
+   return "DInput/0/Keyboard Mouse";
+ #elif defined(__ANDROID__)
+   return "";
++#elif defined(__APPLE__)
++  return "Quartz/0/Keyboard & Mouse";
+ #else
+   return "XInput2/0/Virtual core pointer";
+ #endif
+@@ -474,7 +478,8 @@ std::string ControlLabel(std::string_view control)
+   }
+   for (const KeyName& key : KEYS)
+   {
+-    if (control == key.dinput || control == key.x11 || control == key.android)
++    if (control == key.dinput || control == key.x11 || control == key.android ||
++        (*key.quartz && control == key.quartz))
+       return key.label;
+   }
+   return std::string(control);
+diff --git a/Source/Core/Core/SkiesBindings.h b/Source/Core/Core/SkiesBindings.h
+index 298752e..7095c6d 100644
+--- a/Source/Core/Core/SkiesBindings.h
++++ b/Source/Core/Core/SkiesBindings.h
+@@ -58,6 +58,7 @@ struct KeyName
+   const char* x11;
+   const char* android;
+   const char* label;
++  const char* quartz;  // macOS ("" for a key a Mac keyboard doesn't have)
+ };
+ std::span<const KeyName> KeyNames();
+ const KeyName* FindKey(std::string_view id);
+diff --git a/Source/Core/DolphinNoGUI/PlatformMacos.mm b/Source/Core/DolphinNoGUI/PlatformMacos.mm
+index e942282..f697b13 100644
+--- a/Source/Core/DolphinNoGUI/PlatformMacos.mm
++++ b/Source/Core/DolphinNoGUI/PlatformMacos.mm
+@@ -3,11 +3,14 @@
+ 
+ #include "DolphinNoGUI/Platform.h"
+ 
++#include "Common/Logging/Log.h"
+ #include "Common/MsgHandler.h"
+ #include "Core/Config/MainSettings.h"
+ #include "Core/Core.h"
++#include "Core/SkiesInput.h"
+ #include "Core/State.h"
+ #include "Core/System.h"
++#include "InputCommon/ControllerInterface/Quartz/Quartz.h"
+ #include "VideoCommon/EFBInterface.h"
+ #include "VideoCommon/Present.h"
+ 
+@@ -94,6 +97,16 @@ - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication*)sender
+   return YES;
+ }
+ 
++// Quit from outside the window's own menu (the Dock, logging out, another app's quit event):
++// AppKit's terminate: would call exit() with the emulation still running, and the static
++// destructors then abort (cubeb's logger thread). Stop the platform instead and let the main loop
++// end and the runtime shut down in order.
++- (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication*)sender
++{
++  _platform->Stop();
++  return NSTerminateCancel;
++}
++
+ - (id)initWithPlatform:(Platform*)platform
+ {
+   self = [super init];
+@@ -311,12 +324,35 @@ - (void)windowWillClose:(NSNotification*)notification
+                                            inMode:NSDefaultRunLoopMode
+                                           dequeue:YES];
+ 
+-    [NSApp sendEvent:event];
++    // The Quartz keyboard's state when the HID state can't be read (no Input Monitoring)
++    if (event && ([event type] == NSEventTypeKeyDown || [event type] == NSEventTypeKeyUp))
++      ciface::Quartz::KeyEvent([event keyCode], [event type] == NSEventTypeKeyDown);
++    else if (event && [event type] == NSEventTypeFlagsChanged)
++      ciface::Quartz::ModifierEvent([event keyCode], [event modifierFlags]);
++
++    // Skies plays on the keyboard (Core/SkiesInput.cpp), which the Quartz input source reads
++    // straight from the HID state: the window's key events only reach the menu's shortcuts (F1-F12
++    // states, F10 pause) and, with nothing to take them, beep. Command shortcuts (Quit, Full Screen)
++    // still go through.
++    const bool game_key =
++        event && SkiesInput::OwnsKeyboard() &&
++        ([event type] == NSEventTypeKeyDown || [event type] == NSEventTypeKeyUp) &&
++        !([event modifierFlags] & NSEventModifierFlagCommand);
++    if (!game_key)
++      [NSApp sendEvent:event];
+ 
+     // Need to update if m_window becomes fullscreen
+     m_window_fullscreen = [m_window styleMask] & NSWindowStyleMaskFullScreen;
+ 
+-    if ([m_window isMainWindow])
++    // With [Input] BackgroundInput = False, Dolphin ignores pads and keys while this is false
++    const bool focus = [m_window isMainWindow];
++    if (focus != m_window_focus)
++    {
++      NOTICE_LOG_FMT(CORE, "[macos] game window {} focus", focus ? "gained" : "lost");
++      if (!focus)
++        ciface::Quartz::ReleaseEventKeys();
++    }
++    if (focus)
+     {
+       m_window_focus = true;
+       if (Config::Get(Config::MAIN_SHOW_CURSOR) == Config::ShowCursor::Never &&
+@@ -372,7 +408,8 @@ - (void)windowWillClose:(NSNotification*)notification
+     [menuBar addItem:miscMenuItem];
+ 
+     // Quit
+-    NSString* quitTitle = [@"Quit " stringByAppendingString:@"dolphin-emu-nogui"];
++    NSString* appName = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleName"];
++    NSString* quitTitle = [@"Quit " stringByAppendingString:appName ? appName : @"dolphin-emu-nogui"];
+     NSMenuItem* quitMenuItem = [[NSMenuItem alloc] initWithTitle:quitTitle
+                                                           action:@selector(shutdown)
+                                                    keyEquivalent:@"q"];
+@@ -382,7 +419,9 @@ - (void)windowWillClose:(NSNotification*)notification
+     NSMenuItem* fullScreenItem = [[NSMenuItem alloc] initWithTitle:fullScreenItemTitle
+                                                             action:@selector(toggleFullScreen:)
+                                                      keyEquivalent:@"f"];
+-    [fullScreenItem setKeyEquivalentModifierMask:NSEventModifierFlagFunction];
++    // Control-Command-F, as in other Mac apps (Fn-F is the game's key F with Fn held)
++    [fullScreenItem setKeyEquivalentModifierMask:NSEventModifierFlagControl |
++                                                 NSEventModifierFlagCommand];
+ 
+     // Screenshot
+     NSString* ScreenShotTitle = @"Take Screenshot";
+diff --git a/Source/Core/InputCommon/ControllerInterface/Quartz/Quartz.h b/Source/Core/InputCommon/ControllerInterface/Quartz/Quartz.h
+index b2c6906..1289cee 100644
+--- a/Source/Core/InputCommon/ControllerInterface/Quartz/Quartz.h
++++ b/Source/Core/InputCommon/ControllerInterface/Quartz/Quartz.h
+@@ -12,4 +12,13 @@ namespace ciface::Quartz
+ std::string GetSourceName();
+ 
+ std::unique_ptr<ciface::InputBackend> CreateInputBackend(ControllerInterface* controller_interface);
++
++// The app's own key events (DolphinNoGUI/PlatformMacos.mm). Without Input Monitoring the HID key
++// state can't be read (no key ever shows as held, except key code 0, A, while the app is in
++// front), so the keys come from these instead. KeyDown / KeyUp give the key code; FlagsChanged
++// gives a modifier's key code and the event's modifier flags.
++void KeyEvent(unsigned short keycode, bool down);
++void ModifierEvent(unsigned short keycode, unsigned long modifier_flags);
++// Focus lost: the key ups go to another app
++void ReleaseEventKeys();
+ }  // namespace ciface::Quartz
+diff --git a/Source/Core/InputCommon/ControllerInterface/Quartz/QuartzKeyboardAndMouse.mm b/Source/Core/InputCommon/ControllerInterface/Quartz/QuartzKeyboardAndMouse.mm
+index 5f0022c..f89dfc7 100644
+--- a/Source/Core/InputCommon/ControllerInterface/Quartz/QuartzKeyboardAndMouse.mm
++++ b/Source/Core/InputCommon/ControllerInterface/Quartz/QuartzKeyboardAndMouse.mm
+@@ -3,6 +3,8 @@
+ 
+ #include "InputCommon/ControllerInterface/Quartz/QuartzKeyboardAndMouse.h"
+ 
++#include <array>
++#include <atomic>
+ #include <map>
+ #include <mutex>
+ 
+@@ -185,12 +187,55 @@ - (void)dealloc
+     return "Key " + std::to_string(keycode);
+ }
+ 
++namespace
++{
++// Key state from the app's key events, for when the HID state isn't readable (Quartz.h)
++std::array<std::atomic<bool>, 0x80> s_event_keys{};
++
++bool HIDKeysReadable()
++{
++  // Input Monitoring; granting it takes effect at the next start
++  static const bool readable = CGPreflightListenEventAccess();
++  return readable;
++}
++}  // namespace
++
++void KeyEvent(unsigned short keycode, bool down)
++{
++  if (keycode < s_event_keys.size())
++    s_event_keys[keycode] = down;
++}
++
++void ModifierEvent(unsigned short keycode, unsigned long modifier_flags)
++{
++  // Each side's device-dependent flag (IOLLEvent.h NX_DEVICE*KEYMASK)
++  static const std::map<unsigned short, unsigned long> side_flags = {
++      {kVK_Control, 0x1},     {kVK_Shift, 0x2},          {kVK_RightShift, 0x4},
++      {kVK_Command, 0x8},     {kVK_RightCommand, 0x10},  {kVK_Option, 0x20},
++      {kVK_RightOption, 0x40}, {kVK_RightControl, 0x2000},
++  };
++  if (const auto it = side_flags.find(keycode); it != side_flags.end())
++    KeyEvent(keycode, (modifier_flags & it->second) != 0);
++  else if (keycode == kVK_CapsLock)
++    KeyEvent(keycode, (modifier_flags & NSEventModifierFlagCapsLock) != 0);
++  else if (keycode == kVK_Function)
++    KeyEvent(keycode, (modifier_flags & NSEventModifierFlagFunction) != 0);
++}
++
++void ReleaseEventKeys()
++{
++  for (auto& key : s_event_keys)
++    key = false;
++}
++
+ KeyboardAndMouse::Key::Key(CGKeyCode keycode) : m_keycode(keycode), m_name(KeycodeToName(keycode))
+ {
+ }
+ 
+ ControlState KeyboardAndMouse::Key::GetState() const
+ {
++  if (!HIDKeysReadable())
++    return s_event_keys[m_keycode].load();
+   return CGEventSourceKeyState(kCGEventSourceStateHIDSystemState, m_keycode) != 0;
+ }
+ 
+diff --git a/Source/Core/InputCommon/ControllerInterface/SDL/SDL.cpp b/Source/Core/InputCommon/ControllerInterface/SDL/SDL.cpp
+index 5aeb9e0..a518061 100644
+--- a/Source/Core/InputCommon/ControllerInterface/SDL/SDL.cpp
++++ b/Source/Core/InputCommon/ControllerInterface/SDL/SDL.cpp
+@@ -176,6 +176,15 @@ InputBackend::InputBackend(ControllerInterface* controller_interface)
+   //  and ControllerInterface isn't prepared for SDL to spontaneously re-initialize itself.
+   SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_GAMECUBE, is_gc_adapter_configured ? "0" : "1");
+ 
++#ifdef __APPLE__
++  // With a pad open, SDL_WaitEvent on the hotplug thread updates every joystick about once a
++  // millisecond under the joystick lock. A Bluetooth DualSense goes through Apple's GameController
++  // driver, slow enough that the lock is held most of the time and the CPU thread's
++  // SDL_UpdateGamepads in UpdateInput waits on it (half speed or worse). UpdateInput's update also
++  // runs device detection, so the hotplug thread only has to wait for events.
++  SDL_SetHint(SDL_HINT_AUTO_UPDATE_JOYSTICKS, "0");
++#endif
++
+   // Load all the hints from the config file
+   std::shared_ptr<Config::Layer> layer = Config::GetLayer(Config::LayerType::Base);
+   const Config::Section& section = layer->GetSection(Config::System::Main, "SDL_Hints");

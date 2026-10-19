@@ -8,12 +8,13 @@ P=$PWD/patches
 MG=lib/ModernGekko RC=lib/ModernGekko/vendor/dolphin DR=lib/ModernGekko/vendor/dolphin/DolRecomp
 CHECK=()
 [ "${1:-}" = --check ] && CHECK=(--check)
-apply() { git -C "$1" apply "${CHECK[@]}" "$P/$2" || { echo "patch failed: $2"; exit 1; }; echo "ok: $2"; }
+apply() { git -C "$1" apply ${CHECK[@]+"${CHECK[@]}"} "$P/$2" || { echo "patch failed: $2"; exit 1; }; echo "ok: $2"; }
 
 apply $MG moderngekko-local.patch
+apply $MG moderngekko-macos.patch
 for p in $(grep -v '^#' "$P/recompcore.series"); do
   apply $RC recompcore-$p.patch
 done
-for p in mtmsr-entry gather-pipe llvm-cpu win64-sjlj-frame coff-uwtable halfword-byterev; do
+for p in mtmsr-entry gather-pipe llvm-cpu win64-sjlj-frame coff-uwtable halfword-byterev macho-sections; do
   apply $DR dolrecomp-$p.patch
 done

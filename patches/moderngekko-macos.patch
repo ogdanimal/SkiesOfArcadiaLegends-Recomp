@@ -1,0 +1,311 @@
+diff --git a/tools/frontend_config.cpp b/tools/frontend_config.cpp
+index f0eea3e..e651219 100644
+--- a/tools/frontend_config.cpp
++++ b/tools/frontend_config.cpp
+@@ -36,8 +36,14 @@ bool ValidNetplayAddress(std::string_view value) {
+ 
+ std::string NormalizeGraphicsBackend(std::string value) {
+   const std::string lower = Lower(Trim(std::move(value)));
++#if defined(__APPLE__)
++  // The macOS build has Metal and OpenGL; Vulkan (MoltenVK) isn't in it
++  if (lower == "metal" || lower == "vulkan")
++    return "Metal";
++#else
+   if (lower == "vulkan")
+     return "Vulkan";
++#endif
+   if (lower == "opengl" || lower == "ogl")
+     return "OGL";
+   return {};
+@@ -85,7 +91,11 @@ const std::vector<ResolutionOption> &SupportedResolutions() {
+ 
+ const std::vector<GraphicsBackendOption> &SupportedGraphicsBackends() {
+   static const std::vector<GraphicsBackendOption> backends = {
++#if defined(__APPLE__)
++      {"Metal", "Metal"},
++#else
+       {"Vulkan", "Vulkan"},
++#endif
+       {"OpenGL", "OGL"},
+   };
+   return backends;
+@@ -125,7 +135,7 @@ ConfigResult LoadConfig(const fs::path &user_directory,
+     else if (key == "backend" || key == "graphics_backend") {
+       config.graphics_backend = NormalizeGraphicsBackend(raw_value);
+       if (config.graphics_backend.empty())
+-        return {.error = "graphics backend must be Vulkan or OpenGL"};
++        return {.error = "graphics backend must be " DEFAULT_GRAPHICS_BACKEND " or OpenGL"};
+     }
+     else if (key == "controller")
+       config.controller = raw_value;
+diff --git a/tools/frontend_config.hpp b/tools/frontend_config.hpp
+index 8d48022..395b56e 100644
+--- a/tools/frontend_config.hpp
++++ b/tools/frontend_config.hpp
+@@ -18,6 +18,13 @@ struct ResolutionOption {
+   int dolphin_scale;
+ };
+ 
++// The backend a new config.ini starts with, and the one that falls back to OpenGL when it can't start
++#if defined(__APPLE__)
++#define DEFAULT_GRAPHICS_BACKEND "Metal"
++#else
++#define DEFAULT_GRAPHICS_BACKEND "Vulkan"
++#endif
++
+ struct GraphicsBackendOption {
+   const char *text;
+   const char *value;
+@@ -26,7 +33,7 @@ struct GraphicsBackendOption {
+ struct ConfigResult {
+   int dolphin_scale = 0;
+   std::string resolution;
+-  std::string graphics_backend = "Vulkan";
++  std::string graphics_backend = DEFAULT_GRAPHICS_BACKEND;
+   std::string controller;
+   std::vector<std::string> controllers;
+   bool show_fps_in_title = true;
+diff --git a/tools/moderngekko_launcher.cpp b/tools/moderngekko_launcher.cpp
+index a39c0df..5a4e358 100644
+--- a/tools/moderngekko_launcher.cpp
++++ b/tools/moderngekko_launcher.cpp
+@@ -21,6 +21,9 @@
+ #endif
+ 
+ #include <SDL3/SDL.h>
++#if defined(__APPLE__)
++#include <mach-o/dyld.h>
++#endif
+ #include <imgui.h>
+ #include <imgui_impl_sdl3.h>
+ #include <imgui_impl_sdlrenderer3.h>
+@@ -395,6 +398,26 @@ fs::path ExecutableDirectory(const char* argv0)
+   return ec ? fs::current_path() : executable.parent_path();
+ }
+ 
++// The folder of the programs themselves. ExecutableDirectory is the release's data folder, and in a
++// macOS app bundle the two differ: SDL_GetBasePath gives Contents/Resources (Sys, the DOL patches,
++// the background), while the runner and the preparer sit beside the launcher in Contents/MacOS.
++fs::path ProgramDirectory(const fs::path& release_directory)
++{
++#if defined(__APPLE__)
++  std::uint32_t size = 0;
++  _NSGetExecutablePath(nullptr, &size);
++  std::string executable(size, '\0');
++  if (_NSGetExecutablePath(executable.data(), &size) == 0)
++  {
++    std::error_code ec;
++    const fs::path resolved = fs::weakly_canonical(fs::path(executable.c_str()), ec);
++    if (!ec)
++      return resolved.parent_path();
++  }
++#endif
++  return release_directory;
++}
++
+ fs::path SiblingExecutable(const fs::path& release_directory, std::string name)
+ {
+ #if defined(_WIN32)
+@@ -402,7 +425,7 @@ fs::path SiblingExecutable(const fs::path& release_directory, std::string name)
+ #endif
+   // Always the one beside the launcher: a bare name would be looked up in the working directory
+   // and PATH. A missing one fails to start, with its full path in the error.
+-  return release_directory / name;
++  return ProgramDirectory(release_directory) / name;
+ }
+ 
+ // The game's save states: StateSaves, or a romhack's own folder (RomhackTag), as the runner uses
+@@ -497,6 +520,18 @@ constexpr ImVec4 LAUNCHER_STATUS{0.86f, 0.89f, 0.95f, 0.92f};
+ // (release/ in the recomp repo; Skies: art by I_LIKE_SONIC, credited in README.md / CREDITS.md). nullptr without one: the launcher keeps its plain look.
+ SDL_Texture* LoadLauncherBackground(SDL_Renderer* renderer, const fs::path& path)
+ {
++#ifdef __APPLE__
++  // Not Common::LoadPNG: libc++ tags UniqueBuffer's deleter with the exceptions setting, and Dolphin's
++  // libcommon is built with -fno-exceptions, so the launcher's call doesn't link. SDL decodes it.
++  SDL_Surface* surface = SDL_LoadPNG(path.string().c_str());
++  if (!surface)
++    return nullptr;
++  SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
++  SDL_DestroySurface(surface);
++  if (texture)
++    SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_LINEAR);
++  return texture;
++#else
+   std::ifstream file(path, std::ios::binary);
+   if (!file)
+     return nullptr;
+@@ -514,6 +549,7 @@ SDL_Texture* LoadLauncherBackground(SDL_Renderer* renderer, const fs::path& path
+   SDL_UpdateTexture(texture, nullptr, pixels.data(), static_cast<int>(width * 4));
+   SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_LINEAR);
+   return texture;
++#endif
+ }
+ 
+ // The newest memory card save of a game (GCI folders GC/<region>/Card A|B, Dolphin's default card
+@@ -899,7 +935,7 @@ fs::path SiblingRunner(const char* argv0)
+   runner += ".exe";
+ #endif
+   // Always the one beside the launcher (see SiblingExecutable)
+-  return ExecutableDirectory(argv0) / runner;
++  return ProgramDirectory(ExecutableDirectory(argv0)) / runner;
+ }
+ } // namespace
+ 
+@@ -1942,7 +1978,7 @@ int RunLauncher(int argc, char** argv, LauncherRestart* restart)
+         }
+         ImGui::EndCombo();
+       }
+-      describe("How the game draws. Keep Vulkan unless the game won't start.");
++      describe("How the game draws. Keep " DEFAULT_GRAPHICS_BACKEND " unless the game won't start.");
+     };
+     // An on / off setting: a check box in the plain panel, a labelled two-choice dropdown like the
+     // other rows in the branded Settings window. True when the value changed.
+diff --git a/tools/moderngekko_run.cpp b/tools/moderngekko_run.cpp
+index 54a7edd..6f66a77 100644
+--- a/tools/moderngekko_run.cpp
++++ b/tools/moderngekko_run.cpp
+@@ -35,6 +35,9 @@
+ #include <cerrno>
+ #include <cstring>
+ #include <unistd.h>
++#if defined(__APPLE__)
++#include <mach-o/dyld.h>
++#endif
+ #endif
+ 
+ namespace {
+@@ -117,11 +120,36 @@ std::filesystem::path ExecutableDirectory(const char *argv0) {
+   if (!ec)
+     return proc_executable.parent_path();
+   ec.clear();
++#elif defined(__APPLE__)
++  std::uint32_t size = 0;
++  _NSGetExecutablePath(nullptr, &size);
++  std::string apple_executable(size, '\0');
++  if (_NSGetExecutablePath(apple_executable.data(), &size) == 0) {
++    const std::filesystem::path resolved = std::filesystem::weakly_canonical(
++        std::filesystem::path(apple_executable.c_str()), ec);
++    if (!ec)
++      return resolved.parent_path();
++    ec.clear();
++  }
+ #endif
+   const std::filesystem::path executable =
+       std::filesystem::weakly_canonical(argv0, ec);
+   return ec ? std::filesystem::current_path() : executable.parent_path();
+ }
++
++// The release's data folder (default-game.txt, portable.txt, Mods, the DOL patches): the programs'
++// own folder, except in a macOS app bundle, where the programs and the game modules are in
++// Contents/MacOS and the data in Contents/Resources (where the launcher looks too).
++std::filesystem::path DataDirectory(const std::filesystem::path &program_directory) {
++#if defined(__APPLE__)
++  std::error_code ec;
++  const std::filesystem::path contents = program_directory.parent_path();
++  if (program_directory.filename() == "MacOS" && contents.filename() == "Contents" &&
++      std::filesystem::is_directory(contents / "Resources", ec))
++    return contents / "Resources";
++#endif
++  return program_directory;
++}
+ } // namespace
+ 
+ // Starts this program again with argv plus `extra` and returns its exit code (Windows: a child
+@@ -189,8 +217,8 @@ int RunMain(int argc, char **argv) {
+   setenv("SDL_GAMECONTROLLER_ALLOW_STEAM_VIRTUAL_GAMEPAD", "1", 0);
+ #endif
+   moderngekko::RuntimeConfig config;
+-  const std::filesystem::path executable_directory =
+-      ExecutableDirectory(argv[0]);
++  const std::filesystem::path program_directory = ExecutableDirectory(argv[0]);
++  const std::filesystem::path executable_directory = DataDirectory(program_directory);
+   const moderngekko::frontend::UserDirectoryChoice user_directory_choice =
+       FindUserDirectory(executable_directory);
+   config.user_directory = user_directory_choice.path;
+@@ -461,7 +489,7 @@ int RunMain(int argc, char **argv) {
+     if (const char *env = std::getenv("STATICRECOMP_MODULE"))
+       module_path = env;
+     else {
+-      const auto bundled = executable_directory / module_name;
++      const auto bundled = program_directory / module_name;
+       const auto user_module =
+           config.user_directory / "StaticRecompModules" / module_name;
+       if (std::filesystem::is_regular_file(bundled))
+@@ -474,9 +502,9 @@ int RunMain(int argc, char **argv) {
+     // The release ships the module beside this program; without it the runtime only says "no
+     // native module was supplied". Usually a partly extracted download, or antivirus.
+     std::cerr << "game module missing: " << module_name << " is not in "
+-              << executable_directory.string() << '\n';
++              << program_directory.string() << '\n';
+     const std::string message =
+-        module_name + " is missing from the game's folder:\n" + executable_directory.string() +
++        module_name + " is missing from the game's folder:\n" + program_directory.string() +
+         "\n\nExtract the whole download again, keeping its files together. If the file goes "
+         "missing again, your antivirus may have removed it.";
+     if (!config.headless)
+@@ -488,9 +516,9 @@ int RunMain(int argc, char **argv) {
+     config.module =
+         moderngekko::ModuleSource::DynamicPath(std::move(module_path));
+ 
+-#if defined(__linux__) || defined(_WIN32)
++#if defined(__linux__) || defined(_WIN32) || defined(__APPLE__)
+   if (!config.headless && config.graphics.backend.empty())
+-    config.graphics.backend = "Vulkan";
++    config.graphics.backend = DEFAULT_GRAPHICS_BACKEND;
+ #endif
+ 
+   if (netplay_role) {
+@@ -566,11 +594,11 @@ int RunMain(int argc, char **argv) {
+   signal_watcher.request_stop();
+   if (result.error) {
+     std::cerr << "runtime failed: " << result.error->message << '\n';
+-    // Vulkan that can't start (no driver with a usable device, e.g. in Windows Sandbox or on an
+-    // old GPU): save OpenGL as the backend and start again with it. The restart names its backend,
+-    // so this happens once.
++    // Vulkan (Metal on macOS) that can't start (no driver with a usable device, e.g. in Windows
++    // Sandbox or on an old GPU): save OpenGL as the backend and start again with it. The restart
++    // names its backend, so this happens once.
+     if (result.error->code == moderngekko::RuntimeErrorCode::VideoBackendFailed &&
+-        backend_from_config && graphics_backend == "Vulkan") {
++        backend_from_config && graphics_backend == DEFAULT_GRAPHICS_BACKEND) {
+       if (auto saved = moderngekko::frontend::LoadConfig(user_directory, false)) {
+         saved.graphics_backend = "OGL";
+         std::string error;
+@@ -578,7 +606,7 @@ int RunMain(int argc, char **argv) {
+           std::cerr << "can't save OpenGL to config.ini: " << error << '\n';
+       }
+       created.runtime.reset();
+-      std::cerr << "Vulkan couldn't start; restarting with OpenGL\n";
++      std::cerr << DEFAULT_GRAPHICS_BACKEND " couldn't start; restarting with OpenGL\n";
+       return Restart(argc, argv, {"--graphics", "OGL"});
+     }
+     // Nothing left to try: say so in words a player can act on (Dolphin's own alerts name only
+diff --git a/tools/user_directory.cpp b/tools/user_directory.cpp
+index e08f290..f01a87e 100644
+--- a/tools/user_directory.cpp
++++ b/tools/user_directory.cpp
+@@ -293,6 +293,9 @@ fs::path DefaultUserDirectory(std::string_view name, bool in_documents)
+ #if defined(_WIN32)
+   if (const fs::path local_app_data = EnvironmentPath("LOCALAPPDATA"); !local_app_data.empty())
+     return local_app_data / folder;
++#elif defined(__APPLE__)
++  if (const fs::path home = EnvironmentPath("HOME"); !home.empty())
++    return home / "Library" / "Application Support" / folder;
+ #endif
+   // XDG: an empty or relative XDG_DATA_HOME counts as unset
+   if (const fs::path xdg = EnvironmentPath("XDG_DATA_HOME"); xdg.is_absolute())
+diff --git a/tools/user_directory.hpp b/tools/user_directory.hpp
+index 67abad1..40fd540 100644
+--- a/tools/user_directory.hpp
++++ b/tools/user_directory.hpp
+@@ -5,8 +5,8 @@
+ //  1. Portable: a file named portable.txt beside the programs puts it in a User folder there.
+ //  2. Moved: Settings, Disc, Data folder moves it anywhere and leaves data-folder.txt in the
+ //     default folder, one UTF-8 line naming the new place.
+-//  3. The default: %LOCALAPPDATA%\<name> on Windows, $XDG_DATA_HOME/<name> or
+-//     ~/.local/share/<name> elsewhere (Documents/<name> in a build that asks for it).
++//  3. The default: %LOCALAPPDATA%\<name> on Windows, ~/Library/Application Support/<name> on
++//     macOS, $XDG_DATA_HOME/<name> or ~/.local/share/<name> elsewhere (Documents/<name> in a build that asks for it).
+ // Standard library only (the unit test builds it alone).
+ 
+ #include <atomic>

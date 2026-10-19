@@ -1,0 +1,23 @@
+diff --git a/src/backend/llvm/fp_fixups.cpp b/src/backend/llvm/fp_fixups.cpp
+index 4376667..131df7c 100644
+--- a/src/backend/llvm/fp_fixups.cpp
++++ b/src/backend/llvm/fp_fixups.cpp
+@@ -5,6 +5,7 @@
+ #include <llvm/IR/IRBuilder.h>
+ #include <llvm/IR/Intrinsics.h>
+ #include <llvm/IR/Module.h>
++#include <llvm/TargetParser/Triple.h>
+ 
+ #include "common/types.h"
+ 
+@@ -18,7 +19,9 @@ static void markColdFixup(Function *function) {
+   function->addFnAttr(Attribute::NoInline);
+   function->addFnAttr(Attribute::NoUnwind);
+   function->addFnAttr(Attribute::WillReturn);
+-  function->setSection(".text.unlikely." + function->getName().str());
++  // Mach-O section names are "segment,section"; there the cold attribute alone moves it aside
++  if (!Triple(function->getParent()->getTargetTriple()).isOSBinFormatMachO())
++    function->setSection(".text.unlikely." + function->getName().str());
+ }
+ 
+ Function *getPairNaNFixup(Module &module, Type *pairType) {

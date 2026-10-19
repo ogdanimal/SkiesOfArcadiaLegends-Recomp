@@ -51,3 +51,11 @@ a wanted romhack needs it:
 - **The runtime:** check every chunk against the loaded DOL at boot and send calls into changed ones
   through the dispatcher (needs DolRecomp's direct calls to check a per-chunk flag); unknown cost.
 
+## macOS release: signing, notarization — 2026-10-18
+
+The macOS build (HANDOFF-macos) is built by CI (validate.yml `macos`, since 2026-10-19) and signed ad
+hoc, so Gatekeeper asks once ("Open Anyway"). A smoother release needs an Apple Developer ID (paid
+account), `codesign --options runtime` with a timestamp, and `notarytool` submission and stapling in
+that job. The hardened runtime would also need checking against Dolphin's needs (no JIT is used by the recomp, but
+the fallback interpreter path and MAP_JIT should be confirmed). A macOS PGO profile is a separate,
+smaller step.

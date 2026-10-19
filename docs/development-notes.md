@@ -1099,6 +1099,7 @@ rows were re-measured late 2026-10-06 with the gather-pipe patches.
 | Android (Retroid Pocket 5), 1× | **LLVM + state-in-memory + gather-pipe stores + device PGO + `cortex-a77`** | **1.05×** | **1.20×** | **1.020** (04; ≥1.03 in 01, ≥1.52 in 02, ≥1.17 in 03): **stable 30 fps in all four** | correct, text readable; played by hand to the world map at 29–30 fps (2026-10-07) |
 | Android (Retroid Pocket 5), 1× | LLVM + state-in-memory + device PGO + `mtmsr` fix, before the gather-pipe work | 0.90× | 1.07× | 0.888 (01), 0.897 (04) | correct |
 | Android (Retroid Pocket 5), 1× | C backend, NDK 29 clang | 0.53× (limiter on) | 0.53× | — | correct |
+| macOS (Apple M4 Mac mini), 1× | LLVM + state-in-memory + gather-pipe stores, no PGO, `apple-m1`, Metal (2026-10-19; with the Sys and SDL fixes, see *macOS*) | **2.90×** | **3.90×** | **2.85×** (01); 2.81× at 4× + 2× MSAA, 2.63× at 4× + 60 fps | correct; v0.50 macOS build, fullscreen |
 
 All desktop rows run the speed-patched runtime (`recompcore-staticrecomp-speed.patch`). Every platform must
 boot the extracted disc folder to use the shared savestates (see *Android*). The bold rows (WSL LLVM, Windows
@@ -2193,7 +2194,74 @@ The exact commands are in [handoffs/HANDOFF-android.md](handoffs/HANDOFF-android
 - Left from the hand check: audio in depth (the user will test more) and the game after a
   swipe-away (pipeline cache).
 
+## macOS
+
+Apple Silicon, macOS 13+, since 2026-10-18 (HANDOFF-macos). The same generated code paths as Android
+(aarch64, LLVM, state in memory), as Mach-O for `arm64-apple-macosx13.0` with `apple-m1` tuning; the
+runtime is ModernGekko's upstream macOS support (Cocoa window `DolphinNoGUI/PlatformMacos.mm`, Metal,
+Cubeb, SDL gamepads, the Quartz keyboard) plus `moderngekko-macos.patch` / `recompcore-macos.patch`.
+The release is an app bundle (`tools/build-release-macos.sh`): programs and modules in
+`Contents/MacOS`, `Sys` and the DOL patches in `Contents/Resources`; data in
+`~/Library/Application Support/Skies of Arcadia Legends`. Building and the toolchain without admin
+rights: BUILDING *macOS*.
+
+- **Speed (headroom, 2026-10-19, M4 Mac mini, `tools/bench-mac.sh`):** standard protocol, limiter off, fullscreen,
+  one warmup + two interleaved rounds. Raw: `build/bench-mac-2026-10-19b.txt`. Mean / worst second:
+
+  | Profile | 01 | 02 battle | 03 | 04 |
+  |---|---|---|---|---|
+  | 1× | 2.90 / 2.85 | 4.41 / 4.29 | 3.90 / 3.49 | 3.88 / 2.95 |
+  | 4× (2560×1440) + 2× MSAA | 2.84 / 2.81 | 4.38 / 4.27 | 4.07 / 3.90 | 4.09 / 4.01 |
+  | 4× + 2× MSAA + 60 fps | 2.67 / 2.63 | 4.17 / 4.07 | 3.89 / 3.78 | 3.69 / 3.62 |
+
+  Extras at 1×: 07 red alarm 4.13 (4.05), 10 world map 3.13 (3.04). 1× 03 round 1 (3.72) and 04 round 1 (one
+  2.95 second) ran below round 2; state 03's camera varies. Measured on a bench copy of the app with the two fixes below added by hand; the fixes are in
+  `recompcore-macos.patch` since (the rebuilt app, `v0.50.0-beta-fix`, measured 2.93 / 4.44 / 4.12 / 4.10× at 1×
+  with no hint in its config). The published v0.50 macOS app has neither.
+- **Fixed bug: Dolphin's `Sys` wasn't found in the app** (`recompcore-macos.patch`, `FileUtil.cpp`). ModernGekko forces `LINUX_LOCAL_DEV` ON, so `SYSDATA_DIR` is
+  `Sys` and the `__APPLE__` branch of `CreateSysDirectoryPath` looks in `<app>.app/Sys/`, not
+  `Contents/Resources/Sys`. Without it: no `GameSettings/GEAE8P.ini` (idle skip, `CPUThread = True`), no IPL fonts
+  ("Windows-1252 fonts" warning), no DSP coefficients. States from other platforms then fail to load silently
+  (OSD only: "Could not find the DSP polyphase resampling coefficients used by the savestate"; the runner boots the
+  disc instead). Now `Contents/Resources/Sys`, or `Sys` beside a runner outside a bundle.
+- **Fixed bug: a Bluetooth pad cut the speed to a fifth** (`recompcore-macos.patch`, `SDL.cpp`). With the DualSense Edge over Bluetooth (Apple's GameController driver),
+  SDL3's `SDL_WaitEvent` on Dolphin's SDL hotplug thread re-polls the joysticks about every 1 ms and holds the joystick
+  lock ~72% of the time; the CPU-GPU thread blocks on it in `SDL_UpdateGamepads`. `[SDL_Hints]
+  SDL_AUTO_UPDATE_JOYSTICKS = 0` in `Dolphin.ini`: 01 at 1× from 0.60× to 2.90× (Sys fixed in both). The game thread's
+  own `SDL_UpdateGamepads` still polls and detects pads; a real-pad play check is still open. `--headless` (no input)
+  isn't affected.
+- A window behind others, or a run started from a shell while the user works, is throttled: bench fullscreen.
+- **Page size:** Apple Silicon has 16 KB pages; nothing here assumes 4 KB (guest RAM is plain heap,
+  SMC goes through icbi/dcbf hooks, Android already links with 16 KB max pages).
+- **Input:** the keyboard is Dolphin's Quartz source, which reads the HID key state, so the window
+  drops game key events itself (no beep, no F1–F12 state shortcuts while Skies owns the keyboard).
+  With `[Input] BackgroundInput = False` a lost focus (another app, macOS's Game Overlay on the PS
+  button) closes the input gate; `PlatformMacos.mm` logs `[macos] game window lost/gained focus`.
+- **Keyboard without Input Monitoring (fixed 2026-10-19):** without the permission
+  (`CGPreflightListenEventAccess()` false) `CGEventSourceKeyState` reports no real key, but key code 0
+  (`A`) as held whenever the app is in front (probe: W and A held by hand never showed; code 0 always
+  did, with focus only). `A` is stick-Left in the Skies layout, so the menu's Left never registered
+  (stick X 27) and the prompts flipped back to the keyboard (`SkiesInput` counts any pressed key).
+  Without the permission the Quartz keys now come from the window's KeyDown / KeyUp / FlagsChanged
+  events (`ciface::Quartz::KeyEvent`, released on focus loss); with it, the HID state as before.
+- **Quitting** from the Dock goes through `applicationShouldTerminate:` (stop, cancel), not
+  `terminate:` → `exit()`.
+
 ## Known issues
+
+- **macOS: Left doesn't register in the in-game settings menu (open, 2026-10-18):** D-pad and stick
+  Left do nothing in the Skies menu while Right / Up / Down work (DualSense Edge over USB). The menu
+  treats stick-left as D-pad Left and acts on new presses only, so a stick already reading left blocks
+  both. Being traced with temporary logging (HANDOFF-macos *Open*).
+
+- **Dead controls after closing the in-game menu while holding the stick (fixed 2026-10-18, every
+  platform):** the menu's Closing state held back all input until the sticks were centred too, so a
+  player walking on as the menu closed got nothing, keyboard included, until letting go. Only the
+  menu's buttons wait now (`recompcore-menu-close.patch`).
+
+- **macOS: quitting from the Dock aborted (fixed 2026-10-18):** AppKit's `terminate:` called `exit()`
+  with the emulation running and cubeb's logger thread aborted in its destructor;
+  `recompcore-macos.patch` stops the platform instead.
 
 - **No usable Vulkan on a PC (found 2026-10-13 in Windows Sandbox, fixed):** Dolphin put up "Failed to
   create Vulkan device", then a white window that never started. Now `Core::VideoBackendFailed()`
