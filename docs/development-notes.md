@@ -924,7 +924,11 @@ ws22).
   enabled and the intro reads the GameCube files. Windows (release build of the branch, CHDs imported
   over `\\wsl.localhost`): the same converted files byte for byte; the intro recorded with the A/V
   rig differs from a GameCube recording through the whole song and runs at 1.00x. `m03`'s scene
-  itself not reached in game; Android (the Intro music row, the import) not built yet.
+  itself not reached in game. Android (Retroid, branded debug test app `skies-recomp-dcs` around the
+  ws25 module, a ws25 USA game and the music pushed by adb, the cache removed first): the Sound tab
+  shows **Intro music** under the import ("both streamed songs"); the device converted both tracks in
+  5.3 s, byte for byte the desktop files (MD5), before the intro reached its song; the intro played
+  stream `m01` at 1.003x. The Android import itself (picker, CHD) not tried.
 - **Driver protocol:** as dc-manatee's `host_protocol.md` (Manatee 1.1) with Bonito's work table at
   image +0xC0: port status `0x12600`, flag byte `0x12400`, bank table `0x14000`, host commands
   `0x12200`; SMSB version 2. Commands used: 0x01 play, 0x02 stop, 0x81 master volume (0xF0 = 15, the
