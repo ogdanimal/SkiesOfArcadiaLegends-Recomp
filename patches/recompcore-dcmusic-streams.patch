@@ -24,7 +24,7 @@ index 0dcc8fda74..8090e6d238 100644
  
      /** Graphics: Vulkan (default) or OpenGL ES, the way out of a Vulkan driver that misbehaves. */
 diff --git a/Source/Core/AudioCommon/DCMusicImport.cpp b/Source/Core/AudioCommon/DCMusicImport.cpp
-index 72041b585e..54b33ecb11 100644
+index 72041b585e..eae51ebf5a 100644
 --- a/Source/Core/AudioCommon/DCMusicImport.cpp
 +++ b/Source/Core/AudioCommon/DCMusicImport.cpp
 @@ -33,8 +33,9 @@ namespace
@@ -101,7 +101,7 @@ index 72041b585e..54b33ecb11 100644
      if (kept)
        *summary += fmt::format(" ({} kept from an NTSC disc)", kept);
    }
-@@ -457,12 +474,22 @@ std::string Describe(const std::string& music_dir)
+@@ -457,12 +474,25 @@ std::string Describe(const std::string& music_dir)
      parts.push_back(fmt::format("disc {} ({})", disc, region));
    std::sort(parts.begin(), parts.end());
    int banks = 0;
@@ -122,7 +122,10 @@ index 72041b585e..54b33ecb11 100644
 +  // An import from before the streamed songs were copied: importing the disc again adds them.
 +  if (streams == 0)
 +    return fmt::format("{}: {} music banks (import again for the streamed songs)", text, banks);
-+  return fmt::format("{}: {} music banks, {} of the 2 streamed songs", text, banks, streams);
++  return fmt::format("{}: {} music banks, {}", text, banks,
++                     streams == 2 ? "both streamed songs" :
++                     tracks[1]    ? "the intro's streamed song (disc 2 has the other)" :
++                                    "one streamed song (disc 1 has the intro's)");
  }
  
  bool Remove(const std::string& music_dir)
