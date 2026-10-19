@@ -198,8 +198,9 @@ menus, text and some effects). None is included: download one yourself, then:
 Only the pack's textures for this game are copied: its `GEA` folder (used by both discs) when it has
 one, leaving out its optional extras (French text, the other flight meter), else every texture in
 it. Each import adds to what is already imported, so a pack that comes as several archives (the
-**HD Texture Pack 4x Upscaled** by Shoopkid comes as six) is imported one archive at a time; a texture
-in two packs is the last import's. **Remove** deletes everything imported. On Android, take a pack's
+**HD Texture Pack 4x Upscaled** by Shoopkid comes as six) can be imported one archive at a time, or
+all at once: pick them all in the Android picker, or put them in one folder or `.zip` / `.7z` and
+import that; a texture in two packs is the last import's. **Remove** deletes everything imported. On Android, take a pack's
 **PNG** download where there is one: phones can't load DDS (BC7) textures, and the app shows how many
 of them stay as they were.
 

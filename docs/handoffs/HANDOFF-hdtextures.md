@@ -157,3 +157,35 @@ BC7 DDS, **no `GEA` folder** (`UI/...`, `Characters/...` at the top), and `02_..
   failed import (disk full) leaves the earlier packs and no `GEA.importing`. Not yet: Windows,
   Android build, an in-game look. On the Retroid's stock driver this pack shows nothing (all BC7).
 - Archives kept in `~/projects/texture-packs/archives/soal-4x-v1/`.
+
+## 2026-10-19: archives inside a pack, several picked at once (Android)
+
+A Reddit report (Android, v0.50 by its message text): the six 4x `.7z` files put into a self-made
+`GEA` folder and archived. As a `.7z`: "No skies of Arcadia textures in that pack. It needs a GEA
+folder with tex1_ files"; as a `.zip`: "...is the zip broken?". The import never opened archives
+inside a pack, and the Android picker took one file at a time. The zip message is that player's own
+zip (minizip can't open it): zip import works on Android, a 7.3 GB zip64 of the six included.
+
+- `recompcore-hd-textures-nested.patch` (last in the series): a pack with no textures but `.7z` /
+  `.zip` files in it imports each of them, in name order, as its own pack (marker names
+  `01_SoAL_HD_UI + ...`, the same as importing them one after another). From an archive, each is
+  unpacked into `Load/Textures/GEA.unpacking/` first and deleted after (peak extra disk: the largest
+  inner archive); from a folder, read where it is. One level only; archives without textures are
+  skipped; the first other error stops the import and names the archive (those before it stay).
+- Android: `OpenMultipleDocuments`, the picked files imported in a row with "Archive N of M" above the
+  progress, an error naming the file; the Settings text says to pick all of a pack's archives at once.
+- Linux CLI (`~/projects/texture-packs/test/nest2/`): a `.7z` (7-Zip, solid) and a `.zip` of
+  01/04/05 and a folder of them are byte-identical (diff -r, marker too) to importing the three one
+  after another (2532 textures, ~7.5 s); a readme `.zip` beside them skipped; a `.zip` holding only
+  that readme refused ("No Skies of Arcadia textures in that pack or the archives in it"); v0.06 PNG
+  `.zip`, DDS `.7z`, folder, cut-off `.7z` and non-archive unchanged (PNG `.zip` byte-identical to
+  2026-10-17's). The reporter's layout with all six (`test/nested/GEA.zip`, 7.3 GB): 274 s, 15497
+  textures, as six imports in a row.
+- Retroid, test app (`skies-recomp-nest-2026-10-19-test.apk`, the device's own game modules): the
+  nested `.zip` through the picker (~6 s, "04_SoAL_HD_Effects.7z (2 of 3): Unpacking textures...")
+  and, after Remove, the three `.7z` picked at once ("Archive 2 of 3"): both 2532 textures, nothing
+  left in `GEA.unpacking` / `GEA.importing`. The multi-pick error text wasn't triggered on the device.
+  Windows not built (CI will).
+- BC7 on the Retroid: the stock driver skips them (`BUG_BROKEN_BPTC`), so the 4x pack (all BC7) shows
+  nothing there; with Turnip v26 R8 BC7 draws correctly (checked in game, 10-19). BC1 / BC3 DDS draw
+  correctly on the stock driver. The Settings warning still says "most phones can't load" BC7.

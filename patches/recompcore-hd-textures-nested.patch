@@ -1,0 +1,445 @@
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
+index 7508ac7518..9cc277bfa2 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
+@@ -26,6 +26,7 @@ import android.net.Uri
+ import android.os.Bundle
+ import android.os.Handler
+ import android.os.Looper
++import android.provider.OpenableColumns
+ import android.util.Log
+ import android.view.Gravity
+ import android.view.InputDevice
+@@ -96,6 +97,10 @@ class SkiesLauncherActivity : FragmentActivity() {
+         /** The texture pack import's result (Settings, Graphics), as the music import's. */
+         @Volatile
+         var textureResult: Array<String>? = null
++
++        /** Which of the picked texture pack archives is importing ("Archive 2 of 6"), "" for one. */
++        @Volatile
++        var importStep = ""
+     }
+ 
+     private lateinit var message: TextView
+@@ -152,10 +157,11 @@ class SkiesLauncherActivity : FragmentActivity() {
+     private var dataFolderBlocked = false
+ 
+     // The texture pack for HD textures (Settings, Graphics): imported with the disc import's
+-    // progress screen, and the Settings window comes back on Graphics with what happened
++    // progress screen, and the Settings window comes back on Graphics with what happened. A pack
++    // in several archives can be picked at once: they are imported one after another.
+     private val pickTexturePack =
+-        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+-            if (uri != null) startTexturePackImport(uri)
++        registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris: List<Uri> ->
++            if (uris.isNotEmpty()) startTexturePackImport(uris)
+         }
+ 
+     // Back up saves (Settings, Saves): one .zip written where the player chooses
+@@ -936,6 +942,7 @@ class SkiesLauncherActivity : FragmentActivity() {
+             }
+             val status = SkiesNative.importStatus()
+             message.text = getString(R.string.skies_importing) +
++                (if (importStep.isNotEmpty()) "\n" + importStep else "") +
+                 if (status.isNotEmpty()) "\n" + status else ""
+             handler.postDelayed(this, 250)
+         }
+@@ -1169,18 +1176,29 @@ class SkiesLauncherActivity : FragmentActivity() {
+         showImporting()
+     }
+ 
+-    private fun startTexturePackImport(uri: Uri) {
++    private fun startTexturePackImport(uris: List<Uri>) {
+         if (importRunning) {
+             showImporting()
+             return
+         }
+         importRunning = true
+         textureResult = null
+-        val pack = uri.toString()
+         Thread({
+             var result = arrayOf("The import stopped.", "")
+             try {
+-                val error = SkiesNative.importTexturePack(pack)
++                var error = ""
++                for ((i, uri) in uris.withIndex()) {
++                    if (uris.size > 1) importStep = "Archive ${i + 1} of ${uris.size}"
++                    error = SkiesNative.importTexturePack(uri.toString())
++                    if (error.isEmpty()) continue
++                    if (uris.size > 1) {
++                        val name = contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME),
++                            null, null, null)?.use { if (it.moveToFirst()) it.getString(0) else null }
++                        error = (name ?: "Archive ${i + 1}") + ": " + error +
++                            if (i > 0) " The archives before it are imported." else ""
++                    }
++                    break
++                }
+                 result = if (error.isEmpty()) {
+                     // A new pack is on at once (Settings, Graphics switches it off)
+                     NativeConfig.setBoolean(NativeConfig.LAYER_BASE, Settings.FILE_GFX, "Settings",
+@@ -1189,6 +1207,7 @@ class SkiesLauncherActivity : FragmentActivity() {
+                     arrayOf("Imported: " + SkiesNative.describeTexturePack(), "ok")
+                 } else arrayOf(error, "")
+             } finally {
++                importStep = ""
+                 textureResult = result
+                 importRunning = false
+             }
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+index f9854c7238..4a60eb4b15 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+@@ -404,8 +404,8 @@ class SkiesSettingsPanel(
+         }
+         describe(rows, "A Skies of Arcadia texture pack you downloaded, as its .7z or .zip file. " +
+             "Take its PNG download where there is one: phones can't load the DDS (BC7) one. " +
+-            "Each import adds to what's imported: a pack in several archives is imported one " +
+-            "archive at a time. Remove takes them all out.")
++            "Each import adds to what's imported: pick all of a pack's archives at once, or one " +
++            "at a time. Remove takes them all out.")
+         rows.addView(text(imported.ifEmpty { "Nothing imported yet." }, 15f, Color.WHITE).apply {
+             setPadding(dp(200f), dp(8f), 0, 0)
+         })
+diff --git a/Source/Core/VideoCommon/TexturePackImport.cpp b/Source/Core/VideoCommon/TexturePackImport.cpp
+index 7f75adfdd9..490369ea8b 100644
+--- a/Source/Core/VideoCommon/TexturePackImport.cpp
++++ b/Source/Core/VideoCommon/TexturePackImport.cpp
+@@ -83,6 +83,19 @@ std::string FileName(const std::string& path)
+   return slash == std::string::npos ? path : path.substr(slash + 1);
+ }
+ 
++// An archive inside a pack: the pack's archives put into one .zip or folder by the player
++bool IsArchive(std::string_view file_name)
++{
++  const std::string lower = Lower(file_name);
++  return lower.ends_with(".7z") || lower.ends_with(".zip");
++}
++
++// A Mac's resource forks in a .zip ("__MACOSX/UI/._tex1_....dds")
++bool IsMacResourceFork(const std::string& path)
++{
++  return path.starts_with("__MACOSX/") || path.find("/__MACOSX/") != std::string::npos;
++}
++
+ // The part of a path in the pack that is inside its game folder:
+ // "SoA_HD_v0.06_DDS/GEA/UI/Main/tex1_....dds" -> "UI/Main/tex1_....dds".
+ std::optional<std::string> InGameFolder(std::string path)
+@@ -195,16 +208,21 @@ std::string Native(std::string path)
+   return path;
+ }
+ 
+-// Writes the pack's textures into Load/Textures/GEA.importing/, then adds them to GEA/.
++// Writes the pack's textures into Load/Textures/GEA.importing/, then adds them to GEA/. Or, with
++// ExtractOnly, one archive inside the pack into its temp folder (GEA.unpacking/), to import that.
+ class Installer
+ {
+ public:
+-  Installer(const std::string& textures_dir, std::function<void(const std::string&)> status)
+-      : m_textures_dir(textures_dir), m_temp(textures_dir + GAME_FOLDER + ".importing" DIR_SEP),
++  Installer(const std::string& textures_dir, std::function<void(const std::string&)> status,
++            const char* temp = ".importing")
++      : m_textures_dir(textures_dir), m_temp(textures_dir + GAME_FOLDER + temp + DIR_SEP),
+         m_status(std::move(status))
+   {
+   }
+ 
++  // Unpacks only the pack's entry (an archive's path in it, as Look got it) into Temp()
++  void ExtractOnly(std::string entry) { m_extract = std::move(entry); }
++
+   // Starts the import of total textures
+   bool Start(size_t total)
+   {
+@@ -213,21 +231,34 @@ public:
+       return Fail("Can't clear " + m_temp);
+     if (!File::CreateFullPath(m_temp))
+       return Fail("Can't create " + m_temp);
++    if (m_extract && m_status)
++      m_status("Unpacking it from the pack");
+     return true;
+   }
+ 
+   // Called with every entry of the pack before Target: a pack with a GEA folder gives only the
+   // textures in it (others beside it are optional variants), one without (the textures in folders
+-  // of their own, "UI/Main/tex1_....dds") gives all of its textures.
+-  void Look(const std::string& pack_path)
++  // of their own, "UI/Main/tex1_....dds") gives all of its textures. The archives in it are kept
++  // for a pack without textures (physical: a folder's file on disk).
++  void Look(const std::string& pack_path, const std::string& physical = {})
+   {
+     const std::optional<std::string> inside = InGameFolder(pack_path);
+     m_game_folder |= inside && IsTexture(FileName(*inside));
++    std::string path = pack_path;
++    std::ranges::replace(path, '\\', '/');
++    if (IsArchive(FileName(path)) && !IsMacResourceFork(path))
++      m_archives.emplace_back(pack_path, physical);
+   }
+ 
+   // Where an entry of the pack goes in the game folder, or nullopt to skip it.
+   std::optional<std::string> Target(const std::string& pack_path) const
+   {
++    if (m_extract)
++    {
++      std::string path = pack_path;
++      std::ranges::replace(path, '\\', '/');
++      return pack_path == *m_extract ? std::optional(FileName(path)) : std::nullopt;
++    }
+     std::optional<std::string> inside;
+     if (m_game_folder)
+     {
+@@ -237,8 +268,7 @@ public:
+     {
+       inside = pack_path;
+       std::ranges::replace(*inside, '\\', '/');
+-      // A Mac's resource forks in a .zip ("__MACOSX/UI/._tex1_....dds")
+-      if (inside->starts_with("__MACOSX/") || inside->find("/__MACOSX/") != std::string::npos)
++      if (IsMacResourceFork(*inside))
+         return std::nullopt;
+     }
+     if (!inside || !IsTexture(FileName(*inside)))
+@@ -278,6 +308,11 @@ public:
+       m_header.insert(m_header.end(), data, data + std::min(size, 132 - m_header.size()));
+     if (!m_file.WriteBytes(data, size))
+       return Fail("Can't write the textures. Is the disk full?");
++    // An archive in the pack can be gigabytes
++    constexpr u64 MB = 1 << 20;
++    if (m_extract && m_status && (m_bytes + size) / (64 * MB) != m_bytes / (64 * MB))
++      m_status(fmt::format("Unpacking it from the pack: {} MB", (m_bytes + size) / MB));
++    m_bytes += size;
+     return true;
+   }
+ 
+@@ -290,7 +325,7 @@ public:
+     ++m_files;
+     m_textures += m_mip ? 0 : 1;
+     m_bc7 += !m_mip && IsBc7(m_header.data(), m_header.size()) ? 1 : 0;
+-    if (m_status && (m_files % 20 == 0 || m_files == m_total))
++    if (m_status && !m_extract && (m_files % 20 == 0 || m_files == m_total))
+       m_status(fmt::format("Unpacking textures: {} of {} files", m_files, m_total));
+     return true;
+   }
+@@ -377,12 +412,18 @@ public:
+   const std::string& Error() const { return m_error; }
+   int Textures() const { return m_textures; }
+   int Bc7() const { return m_bc7; }
++  const std::string& Temp() const { return m_temp; }
++  // The archives in the pack: its path in the pack, and its file for a folder's
++  const std::vector<std::pair<std::string, std::string>>& Archives() const { return m_archives; }
+ 
+ private:
+   std::string m_textures_dir;
+   std::string m_temp;
+   std::function<void(const std::string&)> m_status;
+   bool m_game_folder = false;
++  std::vector<std::pair<std::string, std::string>> m_archives;
++  std::optional<std::string> m_extract;
++  u64 m_bytes = 0;
+   size_t m_total = 0;
+   std::set<std::string> m_names;
+   File::IOFile m_file;
+@@ -410,8 +451,8 @@ bool ImportFolder(const std::string& folder, Installer& installer, size_t* count
+   const size_t slash = base.find_last_of("/\\");
+   ListFolder(File::ScanDirectoryTree(folder, true),
+              (slash == std::string::npos ? base : base.substr(slash + 1)) + "/", &files);
+-  for (const auto& file : files)
+-    installer.Look(file.first);
++  for (const auto& [relative, physical] : files)
++    installer.Look(relative, physical);
+   std::vector<std::pair<std::string, std::string>> wanted;
+   for (const auto& [relative, physical] : files)
+   {
+@@ -813,20 +854,107 @@ bool Import7z(const std::string& path, Installer& installer, size_t* count)
+ }
+ #endif
+ 
+-}  // namespace
++enum class Kind
++{
++  Folder,
++  Zip,
++  SevenZip
++};
+ 
+-std::string Import(const std::string& pack, const std::string& textures_dir, std::string* summary,
+-                   const std::function<void(const std::string&)>& status,
+-                   const std::string& file_name)
++// Unpacks the pack's entries the installer wants
++bool Run(Kind kind, const std::string& pack, Installer& installer, size_t* count)
++{
++  switch (kind)
++  {
++  case Kind::Folder:
++    return ImportFolder(pack, installer, count);
++  case Kind::Zip:
++#ifdef ANDROID
++  {
++    // minizip opens files by path: a content URI's file through the process's descriptor
++    File::IOFile file(pack, "rb");
++    if (!file.IsOpen())
++      return installer.Fail("Can't open that file.");
++    return ImportZip(fmt::format("/proc/self/fd/{}", fileno(file.GetHandle())), installer, count);
++  }
++#else
++    return ImportZip(pack, installer, count);
++#endif
++  case Kind::SevenZip:
++#ifdef HAVE_LZMA_SDK
++    return Import7z(pack, installer, count);
++#else
++    return installer.Fail("This build can't read .7z files: unpack the pack, then import its folder.");
++#endif
++  }
++  return false;
++}
++
++std::string ImportPack(const std::string& pack, const std::string& textures_dir,
++                       const std::function<void(const std::string&)>& status,
++                       const std::string& file_name, bool inner, bool* empty);
++
++// A pack without textures of its own but with archives in it (the player put a pack's archives
++// into one .zip or folder): each archive is imported as if picked on its own, in name order
++// ("01_SoAL_HD_UI.7z" first), unpacked from the pack into GEA.unpacking/ first when it is one.
++// Archives without textures are skipped.
++std::string ImportArchives(Kind kind, const std::string& pack, const std::string& textures_dir,
++                           const std::function<void(const std::string&)>& status,
++                           std::vector<std::pair<std::string, std::string>> archives, bool* empty)
++{
++  std::ranges::sort(archives, {}, [](const auto& archive) { return Lower(archive.first); });
++  int imported = 0;
++  for (size_t i = 0; i < archives.size(); ++i)
++  {
++    const auto& [entry, physical] = archives[i];
++    std::string path = entry;
++    std::ranges::replace(path, '\\', '/');
++    const std::string name = FileName(path);
++    const auto step = [&, i](const std::string& text) {
++      if (status)
++        status(fmt::format("{} ({} of {}): {}", name, i + 1, archives.size(), text));
++    };
++    Installer extractor(textures_dir, step, ".unpacking");
++    Common::ScopeGuard extracted{[&] { extractor.Abort(); }};
++    path = physical;
++    if (path.empty())
++    {
++      extractor.ExtractOnly(entry);
++      size_t found = 0;
++      if (!Run(kind, pack, extractor, &found))
++      {
++        return extractor.Error().empty() ? fmt::format("Can't unpack {} from the pack.", name) :
++                                           extractor.Error();
++      }
++      path = Native(extractor.Temp() + name);
++    }
++    bool none = false;
++    const std::string error = ImportPack(path, textures_dir, step, name, true, &none);
++    if (none)
++      continue;
++    if (!error.empty())
++    {
++      return fmt::format("{} in the pack: {}{}", name, error,
++                         imported == 0 ? "" : " The archives before it are imported.");
++    }
++    ++imported;
++  }
++  if (imported != 0)
++    return "";
++  *empty = true;
++  return "No Skies of Arcadia textures in that pack or the archives in it: they need tex1_ .png or "
++         ".dds files.";
++}
++
++// Imports one pack (inner: an archive in a pack, which doesn't look for archives in it). "" or
++// what went wrong; *empty when it has no textures.
++std::string ImportPack(const std::string& pack, const std::string& textures_dir,
++                       const std::function<void(const std::string&)>& status,
++                       const std::string& file_name, bool inner, bool* empty)
+ {
+   if (status)
+     status("Reading the texture pack");
+-  enum class Kind
+-  {
+-    Folder,
+-    Zip,
+-    SevenZip
+-  } kind;
++  Kind kind;
+   if (File::IsDirectory(pack))
+   {
+     kind = Kind::Folder;
+@@ -847,39 +975,14 @@ std::string Import(const std::string& pack, const std::string& textures_dir, std
+ 
+   size_t count = 0;  // textures found in the pack
+   Installer installer(textures_dir, status);
+-  const auto run = [&]() -> bool {
+-    switch (kind)
+-    {
+-    case Kind::Folder:
+-      return ImportFolder(pack, installer, &count);
+-    case Kind::Zip:
+-#ifdef ANDROID
+-    {
+-      // minizip opens files by path: a content URI's file through the process's descriptor
+-      File::IOFile file(pack, "rb");
+-      if (!file.IsOpen())
+-        return installer.Fail("Can't open that file.");
+-      return ImportZip(fmt::format("/proc/self/fd/{}", fileno(file.GetHandle())), installer,
+-                       &count);
+-    }
+-#else
+-      return ImportZip(pack, installer, &count);
+-#endif
+-    case Kind::SevenZip:
+-#ifdef HAVE_LZMA_SDK
+-      return Import7z(pack, installer, &count);
+-#else
+-      return installer.Fail(
+-          "This build can't read .7z files: unpack the pack, then import its folder.");
+-#endif
+-    }
+-    return false;
+-  };
+-  if (!run())
++  if (!Run(kind, pack, installer, &count))
+   {
+     installer.Abort();
+     if (count == 0 && installer.Error().empty())
+     {
++      if (!inner && !installer.Archives().empty())
++        return ImportArchives(kind, pack, textures_dir, status, installer.Archives(), empty);
++      *empty = true;
+       return "No Skies of Arcadia textures in that pack: it needs tex1_ .png or .dds files.";
+     }
+     return installer.Error().empty() ? "The import stopped." : installer.Error();
+@@ -891,6 +994,18 @@ std::string Import(const std::string& pack, const std::string& textures_dir, std
+     installer.Abort();
+     return installer.Error();
+   }
++  return "";
++}
++}  // namespace
++
++std::string Import(const std::string& pack, const std::string& textures_dir, std::string* summary,
++                   const std::function<void(const std::string&)>& status,
++                   const std::string& file_name)
++{
++  bool empty = false;
++  const std::string error = ImportPack(pack, textures_dir, status, file_name, false, &empty);
++  if (!error.empty())
++    return error;
+   if (summary)
+     *summary = Describe(textures_dir);
+   return "";
+diff --git a/Source/Core/VideoCommon/TexturePackImport.h b/Source/Core/VideoCommon/TexturePackImport.h
+index 47f47fa518..3536fc9c97 100644
+--- a/Source/Core/VideoCommon/TexturePackImport.h
++++ b/Source/Core/VideoCommon/TexturePackImport.h
+@@ -14,7 +14,9 @@
+ // picker gives files). Only the game's folder in it (GEA, GEAE8P or GEAP8P) is copied, never the
+ // pack's optional extras beside it; a pack without one (its textures in folders of their own)
+ // gives all of its textures. An import adds to the packs imported before (a pack can come as
+-// several archives), replacing their textures of the same name; Remove takes them all out.
++// several archives), replacing their textures of the same name; Remove takes them all out. A pack
++// without textures but with .7z / .zip files in it (a pack's archives put into one .zip or folder)
++// gives each of those archives' textures, as if they were imported one after another.
+ // Nothing of a pack is ever part of the recomp's builds: players bring their own.
+ namespace TexturePackImport
+ {

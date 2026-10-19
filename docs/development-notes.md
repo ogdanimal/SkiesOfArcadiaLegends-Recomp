@@ -1016,6 +1016,12 @@ history: [handoffs/HANDOFF-hdtextures.md](handoffs/HANDOFF-hdtextures.md); the p
   them), a texture of the same file name (Dolphin's key) is the new pack's; duplicate names inside a
   pack dropped. `skies-texture-pack.txt` there records the packs' names (one `name=` line each) and
   the counts of everything in `GEA/`, recounted after an import that adds. Remove deletes `GEA/`.
+  A pack with no textures of its own but `.7z` / `.zip` files in it (a pack's archives put into one
+  folder or archive by the player, 2026-10-19) imports each of them in name order as if picked one
+  after another (`recompcore-hd-textures-nested.patch`): unpacked into `GEA.unpacking/` first, one at
+  a time, and deleted after; one level only; archives without textures skipped. The Android picker
+  takes several files at once (imported in a row, "Archive N of M"). The six 4x archives zipped
+  into one 7.3 GB `.zip`: 274 s on Linux, the same 15497 textures.
   The six 4x archives one after another on Linux (2026-10-18, `--import-texture-pack`): 15497
   textures, all BC7, 8.7 GB; 2-5 s each for 01-05, 263 s for `06_SoAL_HD_Unsorted_Assets` (6.5 GB,
   one 7.5 GB solid LZMA2 block, 64 MB dictionary), under 100 MB of memory. Only 23 names are in both
@@ -1038,7 +1044,9 @@ history: [handoffs/HANDOFF-hdtextures.md](handoffs/HANDOFF-hdtextures.md); the p
   but samples BC7 as coloured noise; `DriverDetails::BUG_BROKEN_BPTC` (Vulkan, Qualcomm, Android)
   turns `bSupportsBPTCTextures` off, so Dolphin skips BC7 DDS files and the game's own textures stay.
   The pack's DDS download is 535 BC7 + 210 uncompressed; its PNG download has everything. The Android
-  settings warn when an imported pack has BC7 textures. Turnip untried.
+  settings warn when an imported pack has BC7 textures. Mesa Turnip (v26 R8) draws BC7 correctly
+  (2026-10-19): Dolphin sees it as `VENDOR_MESA` / `DRIVER_FREEDRENO`, so the bug isn't set; BC1 /
+  BC3 DDS work on the stock driver too.
 - **EFB copies**: the pack's old note that a UI texture needs EFB copies to texture only doesn't
   apply: this game needs copies to RAM (Dolphin's `GEA.ini`), so that element shows what the game draws.
 - **Flight meter**: the pack's `GEA` has the 4:3 meter, which is right in every picture: the port's
