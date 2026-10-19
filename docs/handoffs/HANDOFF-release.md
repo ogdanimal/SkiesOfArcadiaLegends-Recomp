@@ -126,8 +126,17 @@ Pushed to `origin/dev` 2026-10-18 (validate green: 39175810228 on `7f0e385`, 391
 - Release-note wording: "Romhacks: play a romhack that changes the game's data, such as Maeson's
   rebalance: patch your disc image with it and pick that image. Hold B (Settings → Gameplay) stops
   random battles while you hold B. A romhack's save states are kept apart from the original game's."
-- **Dreamcast streamed songs** (`3c18001`..`966a8ea`, HANDOFF-dcmusic-eu): the Dreamcast music
-  import also takes the intro's and m03's streamed songs; Settings → Sound → **Intro music**.
+- **Dreamcast streamed songs** (`3c18001`..`966a8ea`, development notes *Dreamcast music*,
+  HANDOFF-dcmusic-eu): with the Dreamcast music on, the intro's song (`m01`, a different cut, disc 1)
+  and a story scene's (`m03`, another mix, disc 2) play the Dreamcast disc's recordings, converted
+  once into the GameCube streams' format (`recompcore-dcmusic-streams.patch`); **Intro music**
+  (Dreamcast / GameCube) under the import in the launcher and on Android. The title / staff roll and
+  ending songs are the same recordings on both, so they stay. No game patch or codegen change.
+  Checked on WSL, Windows and the Retroid (test app). Music imported with 0.10 / 0.50 has no streamed
+  songs: the player imports the disc again (the Sound tab says so). Release-note wording: "Dreamcast
+  music: the intro and one story scene now play the Dreamcast recordings too (import your Dreamcast
+  disc again to get them). Intro music (Settings → Sound) picks the intro's song: the Dreamcast cut
+  doesn't line up with this intro's scenes."
 - **HD textures fix** (`b74fdf8`, HANDOFF-hdtextures 2026-10-18): a player's "texture pack is
   damaged" with the HD Texture Pack 4x Upscaled DDS v1 (six archives, no `GEA` folder). Packs
   without a `GEA` folder now import, and each import adds to what's imported (Remove clears all).
