@@ -1,5 +1,6 @@
 # Tagged release: vMAJOR.MINOR.PATCH[-suffix] on a commit on main -> the Windows zip, the Linux
-# tar.gz and AppImage and the signed Android APK on a GitHub Release (a -suffix tag is a prerelease).
+# tar.gz and AppImage, the macOS app zip and the signed Android APK on a GitHub Release (a -suffix
+# tag is a prerelease).
 #
 # Triggers ONLY on tag pushes, so fork PRs cannot reach the game DOL or the signing key. The builds
 # are validate.yml's own steps (workflow_call), not a copy. Nothing published contains game data:
@@ -102,6 +103,12 @@ jobs:
           name: linux-${{ github.sha }}
           path: out
 
+      - name: Download macOS build
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: macos-${{ github.sha }}
+          path: out
+
       - name: Download Android build
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -124,7 +131,7 @@ jobs:
       # un-downloaded. Game data = a disc image, a DOL (by name, or by the hash of the original or
       # of the patched one the launcher makes), the disc's banner, or DolRecomp output; archives
       # inside the packages are opened and checked too. The recompiled modules (g<disc ID>_recomp.dll /
-      # .so / lib...so, one each for GEAE8P and GEAP8P) are translated game code by design, as in the N64
+      # .so / .dylib / lib...so, one each for GEAE8P and GEAP8P) are translated game code by design, as in the N64
       # recomps: they are the game-derived files allowed, by name.
       - name: Refuse anything game-shaped
         run: |
@@ -169,9 +176,11 @@ jobs:
           for m in '-windows\.zip/[^/]+/gGEAE8P_recomp\.dll' '-linux\.tar\.gz/[^/]+/gGEAE8P_recomp\.so' \
                    '-android\.apk/lib/arm64-v8a/libgGEAE8P_recomp\.so' \
                    '-x86_64\.AppImage/squashfs-root/usr/bin/gGEAE8P_recomp\.so' \
+                   '-macos\.zip/[^/]+/Skies of Arcadia Legends\.app/Contents/MacOS/gGEAE8P_recomp\.dylib' \
                    '-windows\.zip/[^/]+/gGEAP8P_recomp\.dll' '-linux\.tar\.gz/[^/]+/gGEAP8P_recomp\.so' \
                    '-android\.apk/lib/arm64-v8a/libgGEAP8P_recomp\.so' \
-                   '-x86_64\.AppImage/squashfs-root/usr/bin/gGEAP8P_recomp\.so'; do
+                   '-x86_64\.AppImage/squashfs-root/usr/bin/gGEAP8P_recomp\.so' \
+                   '-macos\.zip/[^/]+/Skies of Arcadia Legends\.app/Contents/MacOS/gGEAP8P_recomp\.dylib'; do
             grep -qE -e "$m\$" list.txt || { echo "::error::A package is missing its recompiled module ($m)."; exit 1; }
           done
           rm -rf x list.txt sums.txt nested other src
@@ -201,6 +210,9 @@ jobs:
           - **Linux** (x86_64): the `.AppImage` is one file with the libraries it needs inside: make
             it executable (`chmod +x`, or the file's Properties) and run it. Or extract the `.tar.gz`
             and run `./SkiesOfArcadiaLegends` from inside the folder. Then choose Select Disc.
+          - **macOS** (Apple Silicon, macOS 13+): unzip and open Skies of Arcadia Legends. The app
+            isn't notarized: the first time, macOS says it can't check it; allow it in System
+            Settings → Privacy & Security (Open Anyway). Then choose Select Disc.
           - **Android** (arm64, Android 7+): install the APK, open Skies of Arcadia Legends and pick
             your disc image.
 

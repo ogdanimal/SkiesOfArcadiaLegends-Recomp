@@ -1,14 +1,15 @@
-# Build validation for Skies of Arcadia Legends: Recompiled -- Windows, Linux and Android.
+# Build validation for Skies of Arcadia Legends: Recompiled -- Windows, Linux, macOS and Android.
 #
 # On a push this is validation only: nothing is signed or published; each job uploads a short-lived
 # artifact so a build can be inspected. release.yml CALLS this workflow (workflow_call,
 # `release: true`) so a tagged release is built by exactly these steps: Windows packages the zip
-# under the tag's version, Linux the tar.gz, and Android builds a SIGNED, minified release APK.
+# under the tag's version, Linux the tar.gz, macOS the app zip, and Android builds a SIGNED,
+# minified release APK.
 #
 # NO GAME FILES LEAVE THE CODEGEN JOB. The game's main.dol (and the PGO profiles, which are
 # game-derived) live in a private secrets repo, cloned with a read-only token in the codegen job
 # only and deleted right after. tools/ci-codegen.sh patches the DOL, runs DolRecomp for both
-# targets (x86_64 Windows and Linux, aarch64 Android), precomputes each module's tables (so the build jobs never need the DOL:
+# targets (x86_64 Windows and Linux, aarch64 Android and macOS), precomputes each module's tables (so the build jobs never need the DOL:
 # -DMODULE_TABLES_INC) and refuses to finish if a DOL ended up in its output. The generated code is
 # game-derived too, so it travels between jobs encrypted (SOAL_ARTIFACT_KEY): for one day within a
 # run, and for 30 days under its cache key so a release tag reuses what validate made for its commit.
@@ -17,7 +18,7 @@
 #   SOAL_SECRETS_REPO_WITH_PAT -> https://x-access-token:<PAT>@github.com/<owner>/<secrets repo>.git
 #       holding main.dol (the ORIGINAL USA DOL), main-eu.dol (the ORIGINAL European DOL; SHA-256s
 #       below) and pgo/windows.profdata, pgo/android.profdata (optionally pgo/windows-eu.profdata,
-#       pgo/android-eu.profdata) at its root
+#       pgo/android-eu.profdata, pgo/macos.profdata, pgo/macos-eu.profdata) at its root
 #   SOAL_ARTIFACT_KEY          -> any long random string (encrypts the codegen artifact)
 #   RELEASE_KEYSTORE_BASE64, RELEASE_STORE_PASSWORD, RELEASE_KEY_PASSWORD, RELEASE_KEY_ALIAS
 #       -> release signing (tools/make-release-key.sh); release mode only, and only in the
@@ -196,8 +197,8 @@ jobs:
           mkdir -p "$RUNNER_TEMP/secrets/pgo"
           cp "$RUNNER_TEMP/s/main.dol" "$RUNNER_TEMP/s/main-eu.dol" "$RUNNER_TEMP/secrets/"
           cp "$RUNNER_TEMP/s/pgo/windows.profdata" "$RUNNER_TEMP/s/pgo/android.profdata" "$RUNNER_TEMP/secrets/pgo/"
-          # European profiles are optional: without one that region is built without PGO
-          for f in windows-eu android-eu; do
+          # European and macOS profiles are optional: without one that build has no PGO
+          for f in windows-eu android-eu macos macos-eu; do
             if [ -f "$RUNNER_TEMP/s/pgo/$f.profdata" ]; then cp "$RUNNER_TEMP/s/pgo/$f.profdata" "$RUNNER_TEMP/secrets/pgo/"; fi
           done
           rm -rf "$RUNNER_TEMP/s"
@@ -220,7 +221,9 @@ jobs:
         run: |
           test -n "$SOAL_ARTIFACT_KEY" || { echo "::error::SOAL_ARTIFACT_KEY is not set; refusing to upload game code in the clear."; exit 1; }
           tar czf - codegen/windows/generated codegen/linux/generated codegen/android/generated \
+              codegen/macos/generated \
               codegen/windows-eu/generated codegen/linux-eu/generated codegen/android-eu/generated \
+              codegen/macos-eu/generated \
             | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass env:SOAL_ARTIFACT_KEY -out codegen.tar.gz.enc
 
       - name: Save codegen
@@ -394,6 +397,70 @@ jobs:
           path: |
             build/SkiesOfArcadiaLegends-*-linux.tar.gz*
             build/SkiesOfArcadiaLegends-*-linux-x86_64.AppImage*
+          if-no-files-found: error
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # macOS (Apple Silicon): the modules from the arm64 Mach-O codegen, then the app bundle
+  # (tools/build-release-macos.sh: Metal, signed ad hoc, not notarized) in a zip.
+  macos:
+    name: macos
+    environment: ci
+    needs: codegen
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Apply patches
+        run: tools/apply-patches.sh
+
+      - name: Download codegen
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: codegen
+
+      # Homebrew's OpenSSL 3 (on the runner image), not the system LibreSSL: the same enc as the
+      # codegen job's
+      - name: Decrypt codegen
+        shell: bash  # -o pipefail
+        env:
+          SOAL_ARTIFACT_KEY: ${{ secrets.SOAL_ARTIFACT_KEY }}
+        run: |
+          OPENSSL="$(brew --prefix openssl@3)/bin/openssl"
+          "$OPENSSL" enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:SOAL_ARTIFACT_KEY -in codegen.tar.gz.enc \
+            | tar xzf - codegen/macos/generated codegen/macos-eu/generated
+          rm codegen.tar.gz.enc
+
+      - name: Install Ninja
+        run: brew install ninja
+
+      - name: Build the module
+        run: |
+          MODULE_TABLES_INC=codegen/macos/generated/module_tables.inc \
+            tools/module-macos.sh codegen/macos/generated build/module-macos
+          GAME_ID=GEAP8P MODULE_TABLES_INC=codegen/macos-eu/generated/module_tables.inc \
+            tools/module-macos.sh codegen/macos-eu/generated build/module-macos-eu
+          rm -rf codegen
+
+      - name: Build and package the launcher and runner
+        env:
+          VNAME: ${{ inputs.vname }}
+        run: |
+          if [ -z "$VNAME" ]; then VERSION=dev-${GITHUB_SHA::7}; else VERSION=v$VNAME; fi
+          tools/build-release-macos.sh configure
+          tools/build-release-macos.sh build
+          tools/build-release-macos.sh package build/module-macos/gGEAE8P_recomp.dylib \
+            build/module-macos-eu/gGEAP8P_recomp.dylib "$VERSION"
+
+      - name: Upload build
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: macos-${{ github.sha }}
+          path: build/SkiesOfArcadiaLegends-*-macos.zip*
           if-no-files-found: error
           retention-days: 7
 
