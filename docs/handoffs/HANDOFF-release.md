@@ -1,4 +1,19 @@
-# Handoff: releases (Windows, Linux, Android)
+# Handoff: releases (Windows, Linux, macOS, Android)
+
+## On dev after v0.51.0-beta (2026-10-19): macOS
+
+- **macOS joins the packages** (HANDOFF-macos): `6d54f6f` (the port, its patches and the Sys /
+  Bluetooth pad / keyboard fixes; rebased onto dev, `check-patches` exact) and `04bc86d` (CI). The
+  codegen job also generates `codegen/macos{,-eu}` (in the encrypted artifact; the cache key changed,
+  so the first run regenerates everything), validate.yml's `macos` job builds
+  `SkiesOfArcadiaLegends-<version>-macos.zip` on `macos-15`, and release.yml downloads it, unpacks it
+  in *Refuse anything game-shaped* (both `.dylib` modules required by name) and names macOS in the
+  notes. The zip is packed without extended attributes (`ditto --norsrc --noextattr --noqtn`). First
+  run: 39341292040.
+- Before the next tag: the macOS job green, the zip checked on the Mac (import, start, a state), and the
+  README's download table (it says macOS comes "from the release after v0.51.0-beta").
+- The app is signed ad hoc, not notarized: players allow it once (README). Developer ID signing is in
+  the backlog (*macOS release*).
 
 ## Released (2026-10-19 UTC): v0.51.0-beta
 

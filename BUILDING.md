@@ -117,7 +117,7 @@ DOLRECOMP=build/dolrecomp/dolrecomp TARGETS="linux" tools/ci-codegen.sh SECRETS_
 On macOS, configure DolRecomp with `-DLLVM_DIR=/path/to/LLVM-20.1.8-macOS-ARM64/lib/cmake/llvm
 -DCMAKE_PREFIX_PATH=$PWD/build/zstd-install` and run the codegen with `TARGETS="macos"`.
 
-`TARGETS` takes any of `windows linux android macos` (default: `windows linux android`), `REGIONS` `us` and / or `eu`. The profiles are trained with
+`TARGETS` takes any of `windows linux android macos` (default: all four), `REGIONS` `us` and / or `eu`. The profiles are trained with
 `tools/pgo-wsl.sh` (desktop) and on the device (Android); see
 [development notes, *Performance*](docs/development-notes.md#performance).
 
@@ -182,15 +182,17 @@ MODULE_TABLES_INC=codegen/macos-eu/generated/module_tables.inc GAME_ID=GEAP8P \
 REGIONS="us eu" tools/build-release-macos.sh configure
 tools/build-release-macos.sh build
 tools/build-release-macos.sh package build/module-macos/gGEAE8P_recomp.dylib \
-  build/module-macos-eu/gGEAP8P_recomp.dylib v0.50.0-beta
+  build/module-macos-eu/gGEAP8P_recomp.dylib VERSION
 ```
 
-This makes `build/SkiesOfArcadiaLegends-v0.50.0-beta-macos.zip`: `Skies of Arcadia Legends.app` (the
+This makes `build/SkiesOfArcadiaLegends-VERSION-macos.zip`: `Skies of Arcadia Legends.app` (the
 launcher, `skies-run` and both modules in `Contents/MacOS`; `Sys`, the DOL patches and the launcher
 background in `Contents/Resources`) and the documents. The app is signed ad hoc (Apple Silicon runs
 nothing unsigned), not with a Developer ID, so Gatekeeper asks before the first start (see the
 [README](README.md#getting-started)). The macOS codegen is built without PGO: the desktop profile
-was trained on x86_64 and the Android one on Android's target. `REGIONS` works as on Linux.
+was trained on x86_64 and the Android one on Android's target. `REGIONS` works as on Linux. CI runs
+these steps in validate.yml's `macos` job (a `macos-15` runner, Homebrew's Ninja), from the codegen
+job's `codegen/macos{,-eu}`.
 
 ### Android
 

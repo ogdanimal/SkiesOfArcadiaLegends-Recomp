@@ -1,11 +1,14 @@
 # Handoff: the macOS port (Apple Silicon)
 
-**Status (2026-10-19): builds, boots and plays both discs at full speed; benchmarked; Sys path, Bluetooth pad and keyboard fixed (build `v0.50.0-beta-fix`); not committed yet.** Worked on
-from a Mac session (Apple Silicon, macOS 26.3, Command Line Tools only, no Homebrew) in the main
-checkout `~/Projects/SkiesOfArcadiaLegends-Recomp`, with answers from the Windows/WSL session. Build
+**Status (2026-10-19): on `dev` (`6d54f6f` the port and its fixes, `04bc86d` CI); not in a release
+yet.** Builds, boots and plays both discs at full speed; benchmarked (NOTES *macOS*); the Sys path,
+Bluetooth pad and keyboard bugs are fixed; CI builds the app zip (validate.yml `macos`, first run
+39341292040) and release.yml ships it with the next tag. Worked on from a Mac session (Apple Silicon,
+macOS 26.3, Command Line Tools only, no Homebrew) in the main checkout
+`~/Projects/SkiesOfArcadiaLegends-Recomp`, with answers from the Windows/WSL session. Build
 steps: BUILDING *macOS*; patches: `patches/README.md` (`moderngekko-macos`, `recompcore-macos`,
-`recompcore-menu-close`, `dolrecomp-macho-sections`); developer notes: NOTES *macOS*. Open: the
-in-game menu's Left (below), a player check of the launcher and the controls, CI and signing.
+`recompcore-menu-close`, `dolrecomp-macho-sections`); developer notes: NOTES *macOS*. Open: the PS button's Game Overlay, a player check of the launcher,
+Developer ID signing / notarization, and a macOS PGO profile (*Open* below).
 
 ## What it is
 
@@ -93,6 +96,10 @@ visible.
    per item at start (the shortcuts become Command-F1… instead); harmless.
 
 ## Running on the Mac
+
+- Commits from the Mac use the ogdanimal noreply identity (global git config since 2026-10-19).
+  Pushing workflow changes needs the `workflow` scope on gh's token (`gh auth refresh -s workflow`,
+  done 2026-10-19).
 
 - Toolchain without admin rights: `python3 -m pip install --user cmake ninja`; LLVM 20.1.8 in
   `~/.local/opt/LLVM-20.1.8-macOS-ARM64`; a static zstd from Dolphin's Externals in `~/.local/opt/zstd`

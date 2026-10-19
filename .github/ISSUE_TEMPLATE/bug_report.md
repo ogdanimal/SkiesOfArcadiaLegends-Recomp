@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a bug on Windows, Linux or Android
+about: Report a bug on Windows, Linux, macOS or Android
 title: ''
 labels: ''
 assignees: ''
@@ -33,7 +33,7 @@ anti-aliasing, HD textures (and which texture pack), battle speed, options, Musi
 Dreamcast), Language (European disc), button mapping. On Android, also Renderer (Vulkan / OpenGL ES) and GPU driver.
 
 **Your system**
-- Platform: [Windows / Linux / Android]
+- Platform: [Windows / Linux / macOS / Android]
 - Disc: [USA `GEAE8P` / European `GEAP8P`]
 - Version: [e.g. v0.51.0-beta — from the file name or Settings → About]
 - **Android:** paste **Settings → About → Copy device info** here (device, chip, GPU driver)

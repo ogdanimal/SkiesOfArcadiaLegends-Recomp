@@ -17,7 +17,7 @@ Get a build from the **[Releases](../../releases)** page:
 |---|---|
 | Windows | `SkiesOfArcadiaLegends-<version>-windows.zip` |
 | Linux | `SkiesOfArcadiaLegends-<version>-linux-x86_64.AppImage` (or `-linux.tar.gz`) |
-| macOS (Apple Silicon) | `SkiesOfArcadiaLegends-<version>-macos.zip` |
+| macOS (Apple Silicon) | `SkiesOfArcadiaLegends-<version>-macos.zip` (from the release after v0.51.0-beta) |
 | Android | `SkiesOfArcadiaLegends-<version>-android.apk` |
 
 Versions ending in `-beta` (or `-rc1`, `-rc2`, ...) are published as prereleases.

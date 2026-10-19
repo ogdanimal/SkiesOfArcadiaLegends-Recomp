@@ -2246,13 +2246,22 @@ rights: BUILDING *macOS*.
   events (`ciface::Quartz::KeyEvent`, released on focus loss); with it, the HID state as before.
 - **Quitting** from the Dock goes through `applicationShouldTerminate:` (stop, cancel), not
   `terminate:` → `exit()`.
+- **CI (2026-10-19):** validate.yml's `macos` job (`macos-15`) links both modules from the codegen job's
+  arm64 Mach-O output and packages the app zip; release.yml ships it with the other packages and
+  checks it the same way (no game files; both `.dylib` modules by name). The dev build of `6d54f6f`
+  (game patch ws25), made the same way on the Mac, loads the standard states and ran 2.93 / 4.42 /
+  3.23 / 2.90× (01–04, 1×, no SDL hint in the config): 01/02 match the table above. 04 ran just as low
+  for the v0.50-based build in the same session (back to back: 2.92 / 2.94 vs 2.91 / 2.91), so that's
+  spread between sessions, not the dev changes; 03's camera varies (see the table's notes).
 
 ## Known issues
 
-- **macOS: Left doesn't register in the in-game settings menu (open, 2026-10-18):** D-pad and stick
-  Left do nothing in the Skies menu while Right / Up / Down work (DualSense Edge over USB). The menu
-  treats stick-left as D-pad Left and acts on new presses only, so a stick already reading left blocks
-  both. Being traced with temporary logging (HANDOFF-macos *Open*).
+- **macOS: Left didn't register in the in-game settings menu (fixed 2026-10-19):** D-pad and stick
+  Left did nothing in the Skies menu while Right / Up / Down worked. Without Input Monitoring macOS
+  reports key code 0 (`A`, stick-Left in the Skies layout) as held while the app is in front, so the
+  stick read full left and the menu, which acts on new presses only, never saw Left; the same phantom
+  key flipped the button prompts to the keyboard. The keys now come from the window's own events then
+  (*macOS*, `recompcore-macos.patch`); user-confirmed.
 
 - **Dead controls after closing the in-game menu while holding the stick (fixed 2026-10-18, every
   platform):** the menu's Closing state held back all input until the sticks were centred too, so a
