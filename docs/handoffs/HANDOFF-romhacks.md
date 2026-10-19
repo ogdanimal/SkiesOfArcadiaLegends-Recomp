@@ -3,9 +3,9 @@
 ## Status: on `origin/dev` (pushed 2026-10-18); not released
 
 Built in the worktree `~/projects/skies-romhack` (submodules are worktrees of the main checkout's,
-patches applied), branch `romhack` off `dev`, then rebased onto the Linux fix (`3ff8f21`) and pushed:
-`4c70847` (the feature), `e7a96fc` (checks), `75462e9` (save states per disc), `bbed64a` (Android
-picker import), `abf91ba` (Android's "modified" line, the no-disc hint), `6b7601e` (docs). Validate
+patches applied), branch `romhack` off `dev`, then rebased onto the Linux fix (`ed60d09`) and pushed:
+`5fa0082` (the feature), `a603ab5` (checks), `4d7c2cc` (save states per disc), `efc6271` (Android
+picker import), `af17c42` (Android's "modified" line, the no-disc hint), `0b01896` (docs). Validate
 run 39178782588 green (every module regenerated for ws25); its Linux AppImage imports and boots. The
 branch `romhack` still points at the pre-rebase commits. Release: HANDOFF-release *On dev, not
 released yet* (ws25 patches, so CI regenerates every module). Open: romhacks that change code
@@ -81,7 +81,7 @@ can't repatch ("imported by an older version").
 
 **Not done yet:** ws25 European modules for Windows and Android with PGO (the Android EU module is built without
 a profile, as before); release modules through CI (`tools/ci-codegen.sh` needs nothing new: the
-patches carry everything); a release. Merged into `dev` 2026-10-18 (`0e16132`, fast-forward); then **save states per disc**
+patches carry everything); a release. Merged into `dev` 2026-10-18 (`a603ab5`, fast-forward); then **save states per disc**
 (development notes, *Romhacks*): checked on WSL (a Maeson auto-save and an imported state in
 `StateSaves/romhack-4d5febec`, the USA and European originals in `StateSaves`), Windows (Import a save
 into the same folder) and the Retroid test app (auto-save there, Continue offers it; device put back

@@ -1,8 +1,33 @@
 # Handoff: releases (Windows, Linux, Android)
 
-## Released (2026-10-18): v0.50.0-beta
+## Released (2026-10-19 UTC): v0.51.0-beta
 
-**v0.50.0-beta is the current release** (prerelease, the user's version number; tag on `db0f23a`, run
+**v0.51.0-beta is the current release** (prerelease, the user's version number; tag on `992ae4f`,
+`main` fast-forwarded to it, run 39193654173, published 03:39 UTC):
+https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/releases/tag/v0.51.0-beta. Notes:
+`build/notes-0.51.0-beta.md` (local; same layout as 0.10 / 0.50), put on the release by
+`tools/release.sh`. What it carries over 0.50.0: *Shipped in v0.51.0-beta* below (Linux libraries +
+AppImage, Language tab, Romhacks + Hold B with game patch ws25, Dreamcast streamed songs, the HD
+textures fix). The version strings were bumped before the tag this time (`992ae4f`).
+
+- Before the tag, the PII sweep found `7f0e385` (the AppImage commit, made in the Mac clone) authored
+  under a real name and a `.local` host, already on public `origin/dev`. With the user's OK, `dev`
+  was rebased with only that author changed (trees identical) and force-pushed (2026-10-18); the
+  commits from it up got new hashes (it is now `4c9dcdb`). The Mac clone must commit as the noreply
+  identity. Check every new commit's identity before a push.
+- `android-sign` approved by Claude on the user's delegation for this release only, after checking
+  the run (tag, `992ae4f`, every other job green, only `android-sign` waiting) and the workflow diff
+  since 0.50 (AppImage only).
+- Verified after publishing: SHA256SUMS OK; APK signer `e2c00b0b...` (the pinned one), versionCode
+  419244, versionName 0.51.0-beta, no testOnly / debuggable; both games' modules and both
+  `.dolpatch` files in the zip, the tar.gz, the AppImage and the APK; the packages' README says v0.51;
+  666 64-byte samples of the USA and European original DOLs: 0 hits in 11416 unpacked files.
+- Not checked before release (the user chose to release): the HD textures fix on Windows, Android and
+  in game; the AppImage / tar.gz on Bazzite or Fedora.
+
+## Earlier release (2026-10-18): v0.50.0-beta
+
+**v0.50.0-beta** (prerelease, the user's version number; tag on `db0f23a`, run
 39104413365, published 10:49 UTC):
 https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/releases/tag/v0.50.0-beta. Notes are in
 `build/notes-0.50.0-beta.md` (local). The run published the generic fallback body; it was replaced
@@ -106,16 +131,17 @@ Since 0.9.1, before 0.10 (all in 0.10.0-beta):
   `REGIONS: us eu`, both modules in every package; the publish check knows both games' DOL hashes and
   requires both modules. No European PGO profiles yet.
 
-## On `dev`, not released yet (after v0.50.0-beta)
+## Shipped in v0.51.0-beta
 
-Pushed to `origin/dev` 2026-10-18 (validate green: 39175810228 on `7f0e385`, 39178782588 on `6b7601e`,
-39187359736 on `966a8ea`; later pushes have their own runs). Draft notes: `build/notes-next.md` (local).
-- **Linux on other distributions** (`7f0e385`, docs `3ff8f21`; *Linux on other distributions* below):
+Released 2026-10-19 UTC as v0.51.0-beta (tag `992ae4f`, validate 39191738208, release 39193654173).
+Hashes here are the ones after the author rewrite (*Released* at the top); the earlier validate runs
+(39175810228, 39178782588, 39187359736, 39189129132) ran on the same trees under the old hashes.
+- **Linux on other distributions** (`4c9dcdb`, docs `ed60d09`; *Linux on other distributions* below):
   the launcher didn't start on Bazzite (the build machine's `libbz2.so.1.0`); Dolphin's own bzip2,
   zstd, lzma, zlib and lz4 are linked in now, and an AppImage ships beside the tar.gz. glibc 2.38.
-- **Language** (`791088a`..`3453e19`): a Language tab in the in-game menu, the launcher and Android
+- **Language** (`cd294e4`..`5e36c00`): a Language tab in the in-game menu, the launcher and Android
   Settings; A twice in the menu restarts the game in the new language (European disc).
-- **Romhacks** (`4c70847`..`6b7601e`, HANDOFF-romhacks): a romhack that changes only the game's data
+- **Romhacks** (`5fa0082`..`0b01896`, HANDOFF-romhacks): a romhack that changes only the game's data
   plays on the release's module (Maeson's rebalance, romhacking.net 2859); one that changes code is
   refused at import with a message; **Hold B** (Settings → Gameplay) for no random battles while B is
   held; a romhack's save states in a folder of their own; "[GEAE8P, modified]" under Start Game.
@@ -126,7 +152,7 @@ Pushed to `origin/dev` 2026-10-18 (validate green: 39175810228 on `7f0e385`, 391
 - Release-note wording: "Romhacks: play a romhack that changes the game's data, such as Maeson's
   rebalance: patch your disc image with it and pick that image. Hold B (Settings → Gameplay) stops
   random battles while you hold B. A romhack's save states are kept apart from the original game's."
-- **Dreamcast streamed songs** (`3c18001`..`966a8ea`, development notes *Dreamcast music*,
+- **Dreamcast streamed songs** (`d2e8430`..`49526ab`, development notes *Dreamcast music*,
   HANDOFF-dcmusic-eu): with the Dreamcast music on, the intro's song (`m01`, a different cut, disc 1)
   and a story scene's (`m03`, another mix, disc 2) play the Dreamcast disc's recordings, converted
   once into the GameCube streams' format (`recompcore-dcmusic-streams.patch`); **Intro music**
@@ -137,7 +163,7 @@ Pushed to `origin/dev` 2026-10-18 (validate green: 39175810228 on `7f0e385`, 391
   music: the intro and one story scene now play the Dreamcast recordings too (import your Dreamcast
   disc again to get them). Intro music (Settings → Sound) picks the intro's song: the Dreamcast cut
   doesn't line up with this intro's scenes."
-- **HD textures fix** (`b74fdf8`, HANDOFF-hdtextures 2026-10-18): a player's "texture pack is
+- **HD textures fix** (`6ddc770`, HANDOFF-hdtextures 2026-10-18): a player's "texture pack is
   damaged" with the HD Texture Pack 4x Upscaled DDS v1 (six archives, no `GEA` folder). Packs
   without a `GEA` folder now import, and each import adds to what's imported (Remove clears all).
   Linux CLI only so far; Windows / Android / in game not checked. Workaround for v0.50.0 players:
@@ -203,10 +229,10 @@ and device checks; *Released* at the top). Everything below went in; on 2026-10-
   or portable beside the program (an empty portable.txt). On Android 11 and later the data can leave
   the app's storage, so it survives an uninstall."
 
-## Linux on other distributions (on `dev`, after v0.50.0-beta)
+## Linux on other distributions (shipped in v0.51.0-beta)
 
 The v0.50.0-beta launcher didn't start on Bazzite: it linked the build machine's `libbz2.so.1.0`
-(Debian's name; Fedora's is `libbz2.so.1`). `7f0e385` (written by the macOS session, built, checked
+(Debian's name; Fedora's is `libbz2.so.1`). `4c9dcdb` (written by the macOS session, built, checked
 and pushed from Linux): `tools/build-release-linux.sh configure` sets `-DUSE_SYSTEM_LIBS=OFF`
 (Dolphin's own bzip2, zstd, lzma, zlib and lz4 linked in; iconv stays glibc's), and
 `build-release-linux.sh appimage VERSION` makes `SkiesOfArcadiaLegends-VERSION-linux-x86_64.AppImage`

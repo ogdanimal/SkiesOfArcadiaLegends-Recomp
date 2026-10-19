@@ -68,7 +68,7 @@ synced 2026-10-17: the branded release (`lib\ModernGekko\build-release`, `REGION
    (`tools/pgo-wsl.sh` on the European DOL) is open too. Ask before using the device.
 2. **Android Dreamcast import** (Settings → Sound, CHD) and an Android European disc import: in the
    release APK, not tried on a device by this session.
-3. **Streamed music** (`m01`-`m04`): done 2026-10-18 (branch `dcstreams`, on `dev` since `966a8ea`,
+3. **Streamed music** (`m01`-`m04`): done 2026-10-18 (branch `dcstreams`, on `dev` since `49526ab`,
    pushed, validate green; not released yet): `m02` / `m04` are the
    same recordings on both; `m03` (another mix) and the intro `m01` (another cut, behind **Intro
    music**) are converted into the GameCube streams' format and served in their place; the old reason
