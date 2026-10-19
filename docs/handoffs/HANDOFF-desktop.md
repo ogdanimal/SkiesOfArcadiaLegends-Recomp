@@ -29,7 +29,7 @@ development-notes *Known issues*).
 
 ## Status (2026-10-17, late night): Match screen (ultrawide) and the missing-module message
 
-Merged into `dev` (local, not pushed) from branch `aspect` (worktree `~/projects/skies-aspect`):
+Merged into `dev` from branch `aspect` (worktree `~/projects/skies-aspect`); shipped in v0.50.0-beta:
 - **Match screen**, `[Skies] Widescreen = 2` (`patches/recompcore-match-screen.patch` + the launcher's
   Picture list in `moderngekko-local.patch`): the game's aspect follows the window (4:3..32:9).
   Details and checks: development-notes *Match screen*. Windows was checked with the window resized

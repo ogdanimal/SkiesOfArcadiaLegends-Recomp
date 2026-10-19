@@ -108,10 +108,14 @@ Since 0.9.1, before 0.10 (all in 0.10.0-beta):
 
 ## On `dev`, not released yet (after v0.50.0-beta)
 
-Local `dev`, **not pushed** (2026-10-18). Draft notes: `build/notes-next.md` (local).
-- **Language** (`257be96`..`8e34d40`): a Language tab in the in-game menu, the launcher and Android
+Pushed to `origin/dev` 2026-10-18 (validate green: 39175810228 on `7f0e385`, 39178782588 on `6b7601e`,
+39187359736 on `966a8ea`; later pushes have their own runs). Draft notes: `build/notes-next.md` (local).
+- **Linux on other distributions** (`7f0e385`, docs `3ff8f21`; *Linux on other distributions* below):
+  the launcher didn't start on Bazzite (the build machine's `libbz2.so.1.0`); Dolphin's own bzip2,
+  zstd, lzma, zlib and lz4 are linked in now, and an AppImage ships beside the tar.gz. glibc 2.38.
+- **Language** (`791088a`..`3453e19`): a Language tab in the in-game menu, the launcher and Android
   Settings; A twice in the menu restarts the game in the new language (European disc).
-- **Romhacks** (`2798449`..`ddeee59`, HANDOFF-romhacks): a romhack that changes only the game's data
+- **Romhacks** (`4c70847`..`6b7601e`, HANDOFF-romhacks): a romhack that changes only the game's data
   plays on the release's module (Maeson's rebalance, romhacking.net 2859); one that changes code is
   refused at import with a message; **Hold B** (Settings → Gameplay) for no random battles while B is
   held; a romhack's save states in a folder of their own; "[GEAE8P, modified]" under Start Game.
@@ -122,6 +126,11 @@ Local `dev`, **not pushed** (2026-10-18). Draft notes: `build/notes-next.md` (lo
 - Release-note wording: "Romhacks: play a romhack that changes the game's data, such as Maeson's
   rebalance: patch your disc image with it and pick that image. Hold B (Settings → Gameplay) stops
   random battles while you hold B. A romhack's save states are kept apart from the original game's."
+- **Dreamcast streamed songs** (`3c18001`..`966a8ea`, HANDOFF-dcmusic-eu): with the Dreamcast music
+  on, the intro (m01) and m03 come from the Dreamcast disc too (m02 / m04 are the same recordings);
+  Settings → Sound → Intro music (Dreamcast / GameCube). Checked on WSL, Windows and the Retroid.
+- **HD texture packs** (`b74fdf8`, HANDOFF-hdtextures): a pack without a game-ID folder imports (the
+  4x Upscaled DDS pack, six archives), and each import adds to the ones before.
 
 ## Shipped in v0.50.0-beta
 
@@ -180,7 +189,7 @@ and device checks; *Released* at the top). Everything below went in; on 2026-10-
   or portable beside the program (an empty portable.txt). On Android 11 and later the data can leave
   the app's storage, so it survives an uninstall."
 
-## On `dev` after v0.50.0-beta: Linux on other distributions
+## Linux on other distributions (on `dev`, after v0.50.0-beta)
 
 The v0.50.0-beta launcher didn't start on Bazzite: it linked the build machine's `libbz2.so.1.0`
 (Debian's name; Fedora's is `libbz2.so.1`). `7f0e385` (written by the macOS session, built, checked
@@ -190,7 +199,9 @@ and pushed from Linux): `tools/build-release-linux.sh configure` sets `-DUSE_SYS
 from the packaged folder (pinned linuxdeploy `1-alpha-20251107-1`, its SHA-256 checked); validate
 uploads it beside the tar.gz, `release.yml` unpacks it for the game-data check and publishes it.
 
-Checked: validate run 39175810228 green (every job). Its artifact: the launcher and runner need no
+Checked: validate run 39175810228 green (every job), and 39178782588 (with Language and Romhacks,
+ws25, every module regenerated) too, its Linux build checked the same way (ws25 patches, CI AppImage
+imported the USA RVZ and booted). The first one's artifact: the launcher and runner need no
 bz2 / zstd / lzma / lz4 from the system; the modules need only libc and libm; glibc 2.38 and
 `GLIBCXX_3.4.32` at most (built on ubuntu-24.04). The AppImage carries everything else but glibc,
 libstdc++, the graphics drivers and ALSA (the zstd / lzma / lz4 inside are libsystemd's). Locally

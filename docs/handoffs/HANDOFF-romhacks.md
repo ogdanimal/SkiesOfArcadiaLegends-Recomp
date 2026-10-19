@@ -1,11 +1,13 @@
 # Romhack support (2026-10-18)
 
-## Status: merged into `dev` (local, not pushed); not released
+## Status: on `origin/dev` (pushed 2026-10-18); not released
 
 Built in the worktree `~/projects/skies-romhack` (submodules are worktrees of the main checkout's,
-patches applied), branch `romhack` off `dev` (8e34d40): `2798449` (the feature), `0e16132` (checks),
-`bf00943` (save states per disc), `838c26a` (Android picker import), `ddeee59` (Android's "modified"
-line, the no-disc hint); each fast-forwarded into `dev`. Release: HANDOFF-release *On dev, not
+patches applied), branch `romhack` off `dev`, then rebased onto the Linux fix (`3ff8f21`) and pushed:
+`4c70847` (the feature), `e7a96fc` (checks), `75462e9` (save states per disc), `bbed64a` (Android
+picker import), `abf91ba` (Android's "modified" line, the no-disc hint), `6b7601e` (docs). Validate
+run 39178782588 green (every module regenerated for ws25); its Linux AppImage imports and boots. The
+branch `romhack` still points at the pre-rebase commits. Release: HANDOFF-release *On dev, not
 released yet* (ws25 patches, so CI regenerates every module). Open: romhacks that change code
 (`docs/backlog.md`). The user picked options 1 + 2 below
 ("this all sounds good... continue"), and said every GameCube version will be supported, so nothing
