@@ -163,9 +163,13 @@ chip, and it sounds different from the GameCube version. To hear it here:
    game; it switches mid-song).
 
 The port runs the Dreamcast's sound driver on an emulated sound chip and plays the songs from your
-disc, in place of the GameCube music. The few streamed tracks (the staff roll, the ending and two
-story scenes) stay GameCube: the Dreamcast recordings differ in length, and those scenes are timed to
-the GameCube ones. The two discs can come from different regions. Where both have a song, the USA or
+disc, in place of the GameCube music. Two of the streamed songs differ on the Dreamcast, the intro's
+(disc 1) and a story scene's (disc 2), and play the disc's recordings too (converted once, the first
+time they're needed, and kept in the music folder); the other two (the title and staff roll, the
+ending) are the same recordings on both. **Intro music** (below the import) picks the intro's: the
+Dreamcast recording is a different cut, so it doesn't line up with this intro's scenes; choose
+GameCube to keep them in step. Music imported with an earlier version has no streamed songs: import
+the disc again. The two discs can come from different regions. Where both have a song, the USA or
 Japanese copy is kept, because the European discs play the story scenes' music slower (made for 50 Hz).
 **Remove** deletes the imported music. Only the sound driver and
 the music are copied from the disc.

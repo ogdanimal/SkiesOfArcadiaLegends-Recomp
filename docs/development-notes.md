@@ -885,10 +885,43 @@ ws22).
   Disc 1 has 116 `M*.MLT`, disc 2 adds `M0282`. The European disc 2's event banks (`M5*`) are slowed
   6/5 for 50 Hz (tempo 600 vs 500 ms per beat), so the import keeps an NTSC disc's copy over a PAL one.
   Research: the decomp's `docs/sound.md`.
-- **Not handled: the streamed music** (`m01`-`m04`: the staff roll, the ending and two events) stays
-  GameCube. The Dreamcast streams (`M01S.P04`, `M02S.P16` / `.P04`, `M03S.P04`, `M04S.P16`) are
-  different recordings of different lengths (`m04` 234 s on the GameCube, `M04S.P16` about 340 s), and
-  the staff roll and ending are timed to the GameCube streams.
+- **The streamed songs (2026-10-18):** `m01`-`m04` aren't sequences but DSP ADPCM streams
+  (`sound/m0n_L.dsp` / `_R.dsp`, 22050 Hz; decomp `docs/sound.md` *Streams*): `m01` the intro
+  (`field/me299a.sct`, from the text screen on; the intro has no sequence at all), `m02` the title and
+  the staff roll, `m03` a story scene (`me298a.sct`), `m04` the ending. The Dreamcast's
+  (`SOUND/M0nS.P16`: 16-bit PCM, `.P04`: the AICA's 4-bit ADPCM, low nibble first; 44100 Hz, stereo
+  in 0x2000-byte blocks, left and right in turn; no header; `M02S.P04` decodes to `M02S.P16`, envelope
+  r = 0.999) compare to the GameCube's (lengths GameCube / Dreamcast 128.25 / 122.60, 93.42 / 93.44,
+  121.12 / 124.46, 340.02 / 340.03 s):
+  - `m02` and `m04` are **the same recordings** (sample-aligned, same level; converted, they
+    correlate 0.999 with the GameCube files), so they stay the GameCube's and aren't imported.
+  - `m03`: the same recording (correlation 0.98-0.999 in 20 s windows, 0.80 at 20-40 s) with
+    another volume balance (the GameCube's quieter at 40-60 s, louder from 80 s), 3.3 s more at the
+    end, mastered hotter.
+  - `m01`: a different cut, 5.6 s shorter (about 0.9 s behind by 15 s, apart after 45 s), mastered
+    about 2.5x hotter.
+  Disc 1 has `M01S.P04` (and `M02S.P16`), disc 2 `M03S.P04` (and `M02S.P04`, `M04S.P16`); the
+  European disc 2's are the USA's. (Until 2026-10-18 these notes said the GameCube `m04` was 234 s
+  and that the recordings differed in length, the reason the streams stayed GameCube: wrong.)
+  How `m01` and `m03` play: `DiscIO/SkiesStreams.cpp` (`recompcore-dcmusic-streams.patch`) converts
+  each, once, into a file laid out exactly as the GameCube one (its header, size and coefficient
+  pairs; the recording resampled to its rate, windowed sinc, and matched to its RMS over their common
+  length: gain 0.23 / 0.25 for `m01`, 0.75 for `m03`; a longer one faded out over 1.5 s at the
+  GameCube's end; each 14-sample frame encoded with the pair and scale that reproduce it best;
+  against the Dreamcast recording the result is 31-37 dB down), cached as
+  `DreamcastMusic/STREAMS/m0n_l-<key>.dsp` (the key hashes both GameCube headers and sizes, the
+  source's size and a version), and `DirectoryBlob` reads it in place of the GameCube file while the
+  track is enabled (`SetEnabled` from `SkiesMusic::Poll`: `m03` with the Dreamcast music, `m01` too
+  with `[Skies] DreamcastIntro`, default on; the launcher's and Android's **Intro music** row under
+  the import). The game streams it as before, so its starts, fades, stops and savestates are
+  untouched; with the same coefficients a switch mid-stream changes the data from the next read (a
+  click at worst; checked: Music off and on during the intro, the stream plays on, no burst in the
+  DSP dump). Until a track's file is made (a background thread started by the first poll that
+  enables it; both tracks in about 3.5 s on WSL), the GameCube one plays. The import copies
+  `M01S` / `M03S` (16 MB limit); music imported before that says "import again for the streamed
+  songs". Checked on WSL 2026-10-18 (Linux release build, USA disc 1 + European disc 2 CHDs): the
+  intro served from the converted files 16 s after boot; with Intro music GameCube only `m03` is
+  enabled and the intro reads the GameCube files. `m03`'s scene itself not reached in game.
 - **Driver protocol:** as dc-manatee's `host_protocol.md` (Manatee 1.1) with Bonito's work table at
   image +0xC0: port status `0x12600`, flag byte `0x12400`, bank table `0x14000`, host commands
   `0x12200`; SMSB version 2. Commands used: 0x01 play, 0x02 stop, 0x81 master volume (0xF0 = 15, the

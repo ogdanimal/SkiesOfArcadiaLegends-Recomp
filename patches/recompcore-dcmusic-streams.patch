@@ -1,0 +1,758 @@
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+index 0dcc8fda74..8090e6d238 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+@@ -79,6 +79,7 @@ class SkiesSettingsPanel(
+         val INVINCIBLE = choices(1 to "On (L3 / R3)", 0 to "Off (L3 / R3)")
+         val HOLD_B = choices(0 to "Off", 1 to "No battles while held")
+         val MUSIC = choices(0 to "GameCube", 1 to "Dreamcast")
++        val INTRO = choices(1 to "Dreamcast", 0 to "GameCube")
+         val LANGUAGE = choices(0 to "English", 1 to "Deutsch", 2 to "Français", 3 to "Español")
+         val VOLUME = (0..100 step 10).map { Choice(it, if (it == 0) "0% (muted)" else "$it%") }
+         val DEAD_ZONE = (0..30 step 5).map { Choice(it, if (it == 0) "Off" else "$it%") }
+@@ -460,6 +461,12 @@ class SkiesSettingsPanel(
+                 setPadding(dp(200f), dp(10f), 0, 0)
+             })
+         }
++        if (imported.isNotEmpty()) {
++            configRow(rows, "Intro music", INTRO, Settings.FILE_DOLPHIN, "Skies", "DreamcastIntro", 1,
++                "With the Dreamcast music: the intro's song from the Dreamcast disc (disc 1), or the " +
++                    "GameCube's. The Dreamcast recording is a different cut, so it doesn't line up " +
++                    "with this intro's scenes.")
++        }
+     }
+ 
+     /** Graphics: Vulkan (default) or OpenGL ES, the way out of a Vulkan driver that misbehaves. */
+diff --git a/Source/Core/AudioCommon/DCMusicImport.cpp b/Source/Core/AudioCommon/DCMusicImport.cpp
+index 72041b585e..54b33ecb11 100644
+--- a/Source/Core/AudioCommon/DCMusicImport.cpp
++++ b/Source/Core/AudioCommon/DCMusicImport.cpp
+@@ -33,8 +33,9 @@ namespace
+ constexpr u32 HIGH_DENSITY_LBA = 45000;
+ constexpr u32 RAW_SECTOR = 2352;
+ constexpr u32 CHD_FRAME = 2448;  // a raw sector + 96 bytes of subcode
+-// The music files and their limits (the largest bank on the discs is 1.3 MB).
++// The music files and their limits (the largest bank on the discs is 1.3 MB, the streams 5.3 MB).
+ constexpr u32 MAX_FILE = 4 << 20;
++constexpr u32 MAX_STREAM = 16 << 20;
+ 
+ // The 2048-byte user data of the high-density area's sectors (mode 1).
+ class SectorReader
+@@ -292,9 +293,22 @@ bool ListFiles(SectorReader& reader, std::map<std::string, Entry>* files)
+   return true;
+ }
+ 
++// The streamed songs whose Dreamcast recordings differ from the GameCube's, SOUND/M01S.P04 (the
++// intro, disc 1) and M03S.P04 (a story scene, disc 2) (DiscIO/SkiesStreams.h): the track number,
++// else 0. M02S and M04S are the GameCube's recordings, so they aren't copied.
++int StreamTrack(const std::string& name)
++{
++  if (name.size() != 14 || !name.starts_with("SOUND/M0") || (name[8] != '1' && name[8] != '3') ||
++      name[9] != 'S' || (!name.ends_with(".P04") && !name.ends_with(".P16")))
++  {
++    return 0;
++  }
++  return name[8] - '0';
++}
++
+ bool Wanted(const std::string& name)
+ {
+-  if (name == "BONITO.DRV" || name == "ARESNEW.MLT")
++  if (name == "BONITO.DRV" || name == "ARESNEW.MLT" || StreamTrack(name))
+     return true;
+   return name.starts_with("SOUND/M") && name.ends_with(".MLT");
+ }
+@@ -388,7 +402,7 @@ std::string Import(const std::string& image, const std::string& music_dir, std::
+     return "Can't create " + dir + ".";
+   std::map<std::string, std::string> sources = ReadSources(dir);
+ 
+-  int banks = 0, kept = 0;
++  int banks = 0, streams = 0, kept = 0;
+   std::vector<u8> data;
+   std::array<u8, 2048> sector;
+   for (const auto& [name, entry] : files)
+@@ -401,7 +415,7 @@ std::string Import(const std::string& image, const std::string& music_dir, std::
+       ++kept;
+       continue;
+     }
+-    if (entry.size > MAX_FILE)
++    if (entry.size > (StreamTrack(name) ? MAX_STREAM : MAX_FILE))
+       return "Unexpected file size for " + name + ".";
+     report("Copying " + name);
+     data.resize(entry.size);
+@@ -419,7 +433,9 @@ std::string Import(const std::string& image, const std::string& music_dir, std::
+       return "Can't write " + path + ".";
+     }
+     sources[name] = region;
+-    if (name.starts_with("SOUND/"))
++    if (StreamTrack(name))
++      ++streams;
++    else if (name.starts_with("SOUND/"))
+       ++banks;
+   }
+   std::string list;
+@@ -435,7 +451,8 @@ std::string Import(const std::string& image, const std::string& music_dir, std::
+ 
+   if (summary)
+   {
+-    *summary = fmt::format("Disc {} ({}): {} music banks", disc, region, banks);
++    *summary = fmt::format("Disc {} ({}): {} music banks, {} streamed song{}", disc, region, banks,
++                           streams, streams == 1 ? "" : "s");
+     if (kept)
+       *summary += fmt::format(" ({} kept from an NTSC disc)", kept);
+   }
+@@ -457,12 +474,22 @@ std::string Describe(const std::string& music_dir)
+     parts.push_back(fmt::format("disc {} ({})", disc, region));
+   std::sort(parts.begin(), parts.end());
+   int banks = 0;
++  std::array<bool, 5> tracks{};
+   for (const auto& [name, r] : ReadSources(music_dir))
+-    banks += name.starts_with("SOUND/") ? 1 : 0;
++  {
++    if (const int track = StreamTrack(name))
++      tracks[track] = true;
++    else if (name.starts_with("SOUND/"))
++      ++banks;
++  }
++  const auto streams = std::count(tracks.begin(), tracks.end(), true);
+   std::string text = parts.empty() ? "Imported" : fmt::format("{}", fmt::join(parts, " and "));
+   if (!text.empty())
+     text[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(text[0])));
+-  return fmt::format("{}: {} music banks", text, banks);
++  // An import from before the streamed songs were copied: importing the disc again adds them.
++  if (streams == 0)
++    return fmt::format("{}: {} music banks (import again for the streamed songs)", text, banks);
++  return fmt::format("{}: {} music banks, {} of the 2 streamed songs", text, banks, streams);
+ }
+ 
+ bool Remove(const std::string& music_dir)
+diff --git a/Source/Core/Core/Config/SkiesSettings.cpp b/Source/Core/Core/Config/SkiesSettings.cpp
+index 0e18a8f241..2e99071373 100644
+--- a/Source/Core/Core/Config/SkiesSettings.cpp
++++ b/Source/Core/Core/Config/SkiesSettings.cpp
+@@ -19,4 +19,5 @@ const Info<int> SKIES_HOLD_B{{System::Main, "Skies", "HoldB"}, 0};
+ const Info<int> SKIES_AUTO_SAVE{{System::Main, "Skies", "AutoSave"}, 10};
+ const Info<int> SKIES_LANGUAGE{{System::Main, "Skies", "Language"}, 0};
+ const Info<int> SKIES_DC_MUSIC{{System::Main, "Skies", "DreamcastMusic"}, 0};
++const Info<int> SKIES_DC_INTRO{{System::Main, "Skies", "DreamcastIntro"}, 1};
+ }  // namespace Config
+diff --git a/Source/Core/Core/Config/SkiesSettings.h b/Source/Core/Core/Config/SkiesSettings.h
+index 62ff13ffaa..53badb3c58 100644
+--- a/Source/Core/Core/Config/SkiesSettings.h
++++ b/Source/Core/Core/Config/SkiesSettings.h
+@@ -46,4 +46,7 @@ extern const Info<int> SKIES_LANGUAGE;
+ // 1 = the Dreamcast version's music (AudioCommon/DCMusic.h, imported from the player's Dreamcast
+ // disc) instead of the GameCube's; 0 = the GameCube music.
+ extern const Info<int> SKIES_DC_MUSIC;
++// With the Dreamcast music on: 1 = the intro (stream m01) plays the Dreamcast recording too, a
++// different cut that doesn't line up with this intro's scenes; 0 = the GameCube's (DiscIO/SkiesStreams.h).
++extern const Info<int> SKIES_DC_INTRO;
+ }  // namespace Config
+diff --git a/Source/Core/Core/SkiesMusic.cpp b/Source/Core/Core/SkiesMusic.cpp
+index 097479fb99..9778451cfc 100644
+--- a/Source/Core/Core/SkiesMusic.cpp
++++ b/Source/Core/Core/SkiesMusic.cpp
+@@ -19,6 +19,7 @@
+ #include "Core/Config/SkiesSettings.h"
+ #include "Core/Config/ConfigManager.h"
+ #include "Core/HW/Memmap.h"
++#include "DiscIO/SkiesStreams.h"
+ 
+ namespace SkiesMusic
+ {
+@@ -456,6 +457,10 @@ void Poll(Memory::MemoryManager& memory)
+     s_current = s_paused = Song{};
+     DCMusic::Shutdown();
+   }
++  // The streamed songs that differ on the Dreamcast (m03, and the intro m01 only if asked; m02 and
++  // m04 are the same recordings): their Dreamcast recordings in place of the GameCube's files.
++  DiscIO::SkiesStreams::SetEnabled(
++      s_running ? 0b0100u | (Config::Get(Config::SKIES_DC_INTRO) != 0 ? 1u : 0u) : 0u);
+   if (!s_running)
+   {
+     // The GameCube music: the patch mutes nothing (a running song is unmuted by dcm_frame).
+diff --git a/Source/Core/DiscIO/CMakeLists.txt b/Source/Core/DiscIO/CMakeLists.txt
+index bfec96dd9d..864fe40cb5 100644
+--- a/Source/Core/DiscIO/CMakeLists.txt
++++ b/Source/Core/DiscIO/CMakeLists.txt
+@@ -36,6 +36,8 @@ add_library(discio
+   RiivolutionParser.h
+   RiivolutionPatcher.cpp
+   RiivolutionPatcher.h
++  SkiesStreams.cpp
++  SkiesStreams.h
+   ScrubbedBlob.cpp
+   ScrubbedBlob.h
+   SplitFileBlob.cpp
+diff --git a/Source/Core/DiscIO/DirectoryBlob.cpp b/Source/Core/DiscIO/DirectoryBlob.cpp
+index b2fadeb814..9b4cf47ae4 100644
+--- a/Source/Core/DiscIO/DirectoryBlob.cpp
++++ b/Source/Core/DiscIO/DirectoryBlob.cpp
+@@ -24,6 +24,7 @@
+ #include "Core/IOS/ES/Formats.h"
+ #include "DiscIO/Blob.h"
+ #include "DiscIO/DiscUtils.h"
++#include "DiscIO/SkiesStreams.h"
+ #include "DiscIO/VolumeDisc.h"
+ #include "DiscIO/VolumeWii.h"
+ #include "DiscIO/WiiEncryptionCache.h"
+@@ -93,7 +94,8 @@ bool DiscContent::Read(u64* offset, u64* length, u8** buffer, DirectoryBlobReade
+     if (std::holds_alternative<ContentFile>(m_content_source))
+     {
+       const auto& content = std::get<ContentFile>(m_content_source);
+-      File::DirectIOFile file(content.m_filename, File::AccessMode::Read);
++      // Skies: a streamed song can be served from its Dreamcast recording (SkiesStreams.h).
++      File::DirectIOFile file(SkiesStreams::Redirect(content.m_filename), File::AccessMode::Read);
+       if (!file.OffsetRead(content.m_offset + offset_in_content, *buffer, bytes_to_read))
+       {
+         return false;
+@@ -1082,6 +1084,7 @@ static std::vector<FSTBuilderNode> ConvertFSTEntriesToBuilderNodes(const File::F
+     }
+     else
+     {
++      SkiesStreams::Register(entry.physicalName);
+       content =
+           std::vector<BuilderContentSource>{{0, entry.size, ContentFile{entry.physicalName, 0}}};
+     }
+diff --git a/Source/Core/DiscIO/SkiesStreams.cpp b/Source/Core/DiscIO/SkiesStreams.cpp
+new file mode 100644
+index 0000000000..dd7d2939cc
+--- /dev/null
++++ b/Source/Core/DiscIO/SkiesStreams.cpp
+@@ -0,0 +1,498 @@
++// Copyright 2026 Dolphin Emulator Project
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++#include "DiscIO/SkiesStreams.h"
++
++#include <algorithm>
++#include <array>
++#include <atomic>
++#include <cmath>
++#include <cstring>
++#include <limits>
++#include <mutex>
++#include <numbers>
++#include <thread>
++#include <vector>
++
++#include <fmt/format.h>
++
++#include "Common/CommonPaths.h"
++#include "Common/FileUtil.h"
++#include "Common/IOFile.h"
++#include "Common/Logging/Log.h"
++#include "Common/StringUtil.h"
++
++namespace DiscIO::SkiesStreams
++{
++namespace
++{
++constexpr int TRACKS = 4;
++// Bumped when the conversion changes, so older cached files are made again.
++constexpr u32 VERSION = 1;
++constexpr u32 HEADER = 0x60;
++constexpr u32 DC_RATE = 44100;
++// The Dreamcast streams are stored in 0x2000-byte blocks, left and right in turn.
++constexpr std::size_t DC_BLOCK = 0x2000;
++// Where a Dreamcast recording runs past the GameCube one's end, it fades out over this much.
++constexpr double FADE_SECONDS = 1.5;
++
++struct Track
++{
++  std::string gc[2];       // the GameCube files, left and right ("" = not on this disc)
++  std::string ready[2];    // the converted files, once made
++  bool attempted = false;  // converted, or found impossible, for these GameCube files
++};
++
++struct State
++{
++  std::mutex lock;
++  std::array<Track, TRACKS> tracks;
++  u32 enabled = 0;
++  bool building = false;
++};
++
++// Never destroyed: the conversion thread may still run while the process exits.
++State& S()
++{
++  static State* state = new State;
++  return *state;
++}
++
++std::string Lower(std::string s)
++{
++  Common::ToLower(&s);
++  return s;
++}
++
++// "…/sound/m01_l.dsp" -> track 0, channel 0; -1 when it's no stream file.
++int Classify(const std::string& path, int* channel)
++{
++  const std::string lower = Lower(path);
++  const std::size_t slash = lower.find_last_of("/\\");
++  const std::string name = lower.substr(slash == std::string::npos ? 0 : slash + 1);
++  if (name.size() != 9 || name[0] != 'm' || name[1] != '0' || name[2] < '1' || name[2] > '4' ||
++      name[3] != '_' || (name[4] != 'l' && name[4] != 'r') || name.substr(5) != ".dsp")
++  {
++    return -1;
++  }
++  if (slash == std::string::npos || slash < 5 || lower.compare(slash - 5, 5, "sound") != 0)
++    return -1;
++  *channel = name[4] == 'l' ? 0 : 1;
++  return name[2] - '1';
++}
++
++u16 Be16(const u8* p)
++{
++  return static_cast<u16>(p[0] << 8 | p[1]);
++}
++
++u32 Be32(const u8* p)
++{
++  return static_cast<u32>(p[0]) << 24 | p[1] << 16 | p[2] << 8 | p[3];
++}
++
++u32 Fnv(u32 h, const void* data, std::size_t size)
++{
++  const u8* p = static_cast<const u8*>(data);
++  for (std::size_t i = 0; i < size; ++i)
++    h = (h ^ p[i]) * 16777619u;
++  return h;
++}
++
++// A GameCube stream file: its header's sample count, rate and coefficient pairs.
++struct GcStream
++{
++  std::vector<u8> data;
++  u32 samples = 0;
++  u32 rate = 0;
++  std::array<s16, 16> coefs{};
++
++  bool Load(const std::string& path)
++  {
++    std::string file;
++    if (!File::ReadFileToString(path, file) || file.size() < HEADER + 8)
++      return false;
++    data.assign(file.begin(), file.end());
++    samples = Be32(data.data());
++    rate = Be32(data.data() + 8);
++    for (int i = 0; i < 16; ++i)
++      coefs[i] = static_cast<s16>(Be16(data.data() + 0x1C + i * 2));
++    // The last frame may be cut short at the file's end (m01_L: 5 bytes).
++    const u64 frames = (samples + 13) / 14;
++    return rate >= 8000 && rate <= 48000 && samples > 0 && HEADER + frames * 8 < data.size() + 8;
++  }
++
++  std::vector<float> Decode() const
++  {
++    std::vector<float> out(samples);
++    int h1 = 0, h2 = 0;
++    for (u32 o = 0, p = HEADER; o < samples; p += 8)
++    {
++      const u8 ps = data[p];
++      const int scale = 1 << (ps & 15);
++      const int c1 = coefs[(ps >> 4 & 7) * 2], c2 = coefs[(ps >> 4 & 7) * 2 + 1];
++      for (int k = 0; k < 14 && o < samples; ++k, ++o)
++      {
++        const u8 byte = p + 1 + k / 2 < data.size() ? data[p + 1 + k / 2] : 0;
++        int nib = k % 2 == 0 ? byte >> 4 : byte & 15;
++        if (nib >= 8)
++          nib -= 16;
++        const int s = std::clamp((((nib * scale) << 11) + c1 * h1 + c2 * h2 + 1024) >> 11, -32768, 32767);
++        out[o] = static_cast<float>(s);
++        h2 = h1;
++        h1 = s;
++      }
++    }
++    return out;
++  }
++};
++
++// The Dreamcast recording, both channels at 44100 Hz. .P16: 16-bit little-endian PCM; .P04: the
++// AICA's 4-bit ADPCM (Yamaha's), low nibble first.
++bool LoadDreamcast(const std::string& path, bool adpcm, std::array<std::vector<float>, 2>* out)
++{
++  std::string file;
++  if (!File::ReadFileToString(path, file) || file.size() < 2 * DC_BLOCK)
++    return false;
++  const u8* d = reinterpret_cast<const u8*>(file.data());
++  const std::size_t pairs = file.size() / (2 * DC_BLOCK);
++  for (int c = 0; c < 2; ++c)
++  {
++    std::vector<float>& ch = (*out)[c];
++    ch.clear();
++    ch.reserve(pairs * (adpcm ? DC_BLOCK * 2 : DC_BLOCK / 2));
++    int signal = 0, step = 0x7F;
++    for (std::size_t b = 0; b < pairs; ++b)
++    {
++      const u8* block = d + (b * 2 + c) * DC_BLOCK;
++      if (!adpcm)
++      {
++        for (std::size_t i = 0; i < DC_BLOCK; i += 2)
++          ch.push_back(static_cast<float>(static_cast<s16>(block[i] | block[i + 1] << 8)));
++        continue;
++      }
++      static constexpr int STEP_SCALE[8] = {230, 230, 230, 230, 307, 409, 512, 614};
++      for (std::size_t i = 0; i < DC_BLOCK * 2; ++i)
++      {
++        const int nib = i % 2 == 0 ? block[i / 2] & 15 : block[i / 2] >> 4;
++        const int diff = ((2 * (nib & 7) + 1) * step) >> 3;
++        signal = std::clamp(nib & 8 ? signal - diff : signal + diff, -32768, 32767);
++        step = std::clamp((step * STEP_SCALE[nib & 7]) >> 8, 0x7F, 0x6000);
++        ch.push_back(static_cast<float>(signal));
++      }
++    }
++  }
++  return true;
++}
++
++// Windowed-sinc resampling (Blackman, 16 zero crossings each side), with the cutoff below the
++// lower of the two rates' Nyquist.
++std::vector<float> Resample(const std::vector<float>& in, u32 in_rate, u32 out_rate)
++{
++  const double ratio = static_cast<double>(in_rate) / out_rate;
++  const double cutoff = 0.5 * 0.92 / std::max(ratio, 1.0);  // in cycles per input sample
++  constexpr int ZEROS = 16;
++  const int half = static_cast<int>(std::ceil(ZEROS / (2.0 * cutoff)));
++  const std::size_t n = static_cast<std::size_t>(in.size() / ratio);
++  std::vector<float> out(n);
++  // The kernel at 64 phases per input sample, interpolated linearly between them.
++  constexpr int PHASES = 64;
++  std::vector<float> kernel((2 * half + 1) * PHASES + 1);
++  for (std::size_t i = 0; i < kernel.size(); ++i)
++  {
++    const double x = static_cast<double>(i) / PHASES - half;
++    const double t = 2.0 * cutoff * x;
++    const double sinc = x == 0 ? 1.0 : std::sin(std::numbers::pi * t) / (std::numbers::pi * t);
++    const double w = (x + half) / (2.0 * half);
++    const double window = w < 0 || w > 1 ? 0.0 :
++                                           0.42 - 0.5 * std::cos(2 * std::numbers::pi * w) +
++                                               0.08 * std::cos(4 * std::numbers::pi * w);
++    kernel[i] = static_cast<float>(2.0 * cutoff * sinc * window);
++  }
++  for (std::size_t j = 0; j < n; ++j)
++  {
++    const double pos = j * ratio;
++    const long center = static_cast<long>(std::floor(pos));
++    const double frac = pos - center;
++    double acc = 0;
++    for (int k = -half; k <= half; ++k)
++    {
++      const long idx = center + k;
++      if (idx < 0 || idx >= static_cast<long>(in.size()))
++        continue;
++      const double kp = (k - frac + half) * PHASES;
++      const std::size_t ki = static_cast<std::size_t>(kp);
++      if (ki + 1 >= kernel.size())
++        continue;
++      const double kf = kp - ki;
++      acc += in[idx] * (kernel[ki] * (1 - kf) + kernel[ki + 1] * kf);
++    }
++    out[j] = static_cast<float>(acc);
++  }
++  return out;
++}
++
++double Rms(const std::vector<float>& x, std::size_t n)
++{
++  n = std::min(n, x.size());
++  double sum = 0;
++  for (std::size_t i = 0; i < n; ++i)
++    sum += static_cast<double>(x[i]) * x[i];
++  return n ? std::sqrt(sum / n) : 0.0;
++}
++
++// DSP ADPCM with the GameCube file's own coefficient pairs: each 14-sample frame takes the pair
++// and scale that reproduce it best (the scales around the one its largest residual needs).
++void Encode(const std::vector<s16>& pcm, const GcStream& gc, std::vector<u8>* out)
++{
++  int h1 = 0, h2 = 0;
++  const u32 frames = (gc.samples + 13) / 14;
++  for (u32 f = 0; f < frames; ++f)
++  {
++    s16 x[14];
++    for (int k = 0; k < 14; ++k)
++    {
++      const std::size_t i = f * 14 + k;
++      x[k] = i < pcm.size() ? pcm[i] : 0;
++    }
++    u64 best_err = std::numeric_limits<u64>::max();
++    u8 best[8] = {};
++    int best_h1 = 0, best_h2 = 0;
++    for (int pred = 0; pred < 8; ++pred)
++    {
++      const int c1 = gc.coefs[pred * 2], c2 = gc.coefs[pred * 2 + 1];
++      // The scale the frame needs without quantisation feedback.
++      int max_residual = 0;
++      {
++        int a = h1, b = h2;
++        for (int k = 0; k < 14; ++k)
++        {
++          const int predicted = (c1 * a + c2 * b + 1024) >> 11;
++          max_residual = std::max(max_residual, std::abs(x[k] - predicted));
++          b = a;
++          a = x[k];
++        }
++      }
++      int need = 0;
++      while (need < 12 && (7 << need) < max_residual)
++        ++need;
++      for (int shift = std::max(0, need - 1); shift <= std::min(12, need + 1); ++shift)
++      {
++        u8 frame[8] = {static_cast<u8>(pred << 4 | shift)};
++        int a = h1, b = h2;
++        u64 err = 0;
++        for (int k = 0; k < 14 && err < best_err; ++k)
++        {
++          const int p = c1 * a + c2 * b;
++          const double ideal = (x[k] * 2048.0 - p) / (2048.0 * (1 << shift));
++          const int nib = std::clamp(static_cast<int>(std::lround(ideal)), -8, 7);
++          const int s = std::clamp((((nib * (1 << shift)) << 11) + p + 1024) >> 11, -32768, 32767);
++          const s64 e = static_cast<s64>(x[k]) - s;
++          err += static_cast<u64>(e * e);
++          frame[1 + k / 2] |= static_cast<u8>((nib & 15) << (k % 2 == 0 ? 4 : 0));
++          b = a;
++          a = s;
++        }
++        if (err < best_err)
++        {
++          best_err = err;
++          std::memcpy(best, frame, 8);
++          best_h1 = a;
++          best_h2 = b;
++        }
++      }
++    }
++    const std::size_t at = HEADER + std::size_t{f} * 8;
++    std::memcpy(out->data() + at, best, std::min<std::size_t>(8, out->size() - at));
++    h1 = best_h1;
++    h2 = best_h2;
++  }
++  // The header's initial predictor / scale and history are the first frame's.
++  (*out)[0x3E] = 0;
++  (*out)[0x3F] = (*out)[HEADER];
++  std::fill(out->begin() + 0x40, out->begin() + 0x44, u8{0});
++}
++
++std::string MusicDir()
++{
++  return File::GetUserPath(D_USER_IDX) + "DreamcastMusic" DIR_SEP;
++}
++
++// Makes (or finds) the converted files of one track; "" when it can't.
++bool Convert(int track, const std::string (&gc_paths)[2], std::string (&made)[2])
++{
++  const std::string sound = MusicDir() + "SOUND" DIR_SEP;
++  const std::string base = fmt::format("M0{}S", track + 1);
++  std::string source = sound + base + ".P16";
++  bool adpcm = false;
++  if (!File::Exists(source))
++  {
++    source = sound + base + ".P04";
++    adpcm = true;
++    if (!File::Exists(source))
++      return false;
++  }
++  GcStream gc[2];
++  if (!gc[0].Load(gc_paths[0]) || !gc[1].Load(gc_paths[1]))
++    return false;
++
++  u32 key = Fnv(2166136261u, &VERSION, sizeof(VERSION));
++  for (const GcStream& g : gc)
++  {
++    key = Fnv(key, g.data.data(), HEADER);
++    const u64 size = g.data.size();
++    key = Fnv(key, &size, sizeof(size));
++  }
++  const u64 source_size = File::GetSize(source);
++  key = Fnv(key, &source_size, sizeof(source_size));
++  const std::string dir = MusicDir() + "STREAMS" DIR_SEP;
++  for (int c = 0; c < 2; ++c)
++    made[c] = dir + fmt::format("m0{}_{}-{:08x}.dsp", track + 1, c ? 'r' : 'l', key);
++  if (File::GetSize(made[0]) == gc[0].data.size() && File::GetSize(made[1]) == gc[1].data.size())
++    return true;
++
++  std::array<std::vector<float>, 2> dc;
++  if (!LoadDreamcast(source, adpcm, &dc))
++    return false;
++  File::CreateFullPath(dir);
++  // Older conversions of this track.
++  for (const File::FSTEntry& entry : File::ScanDirectoryTree(dir, false).children)
++  {
++    if (entry.virtualName.starts_with(fmt::format("m0{}_", track + 1)))
++      File::Delete(entry.physicalName);
++  }
++  for (int c = 0; c < 2; ++c)
++  {
++    const GcStream& g = gc[c];
++    std::vector<float> pcm = Resample(dc[c], DC_RATE, g.rate);
++    // As loud as the GameCube recording (the Dreamcast's ADPCM streams are mastered hotter).
++    const std::size_t common = std::min<std::size_t>(pcm.size(), g.samples);
++    const double gc_rms = Rms(g.Decode(), common), dc_rms = Rms(pcm, common);
++    const float gain = dc_rms > 1 ? static_cast<float>(std::clamp(gc_rms / dc_rms, 0.1, 2.0)) : 1.0f;
++    // Past the GameCube length: faded out there.
++    const std::size_t fade = static_cast<std::size_t>(FADE_SECONDS * g.rate);
++    const bool longer = pcm.size() > g.samples;
++    std::vector<s16> samples(std::min<std::size_t>(pcm.size(), g.samples));
++    for (std::size_t i = 0; i < samples.size(); ++i)
++    {
++      float v = pcm[i] * gain;
++      if (longer && i + fade > g.samples)
++        v *= static_cast<float>(g.samples - i) / fade;
++      samples[i] = static_cast<s16>(std::clamp(std::lround(v), -32768l, 32767l));
++    }
++    std::vector<u8> file = g.data;
++    Encode(samples, g, &file);
++    const std::string temp = made[c] + ".part";
++    if (!File::WriteStringToFile(temp, std::string_view(reinterpret_cast<const char*>(file.data()),
++                                                        file.size())) ||
++        !File::Rename(temp, made[c]))
++    {
++      return false;
++    }
++    INFO_LOG_FMT(DISCIO, "Dreamcast stream m0{} {}: {} ({:.1f} s; the GameCube's {:.1f} s), gain {:.2f}",
++                 track + 1, c ? "right" : "left", source, dc[c].size() / double(DC_RATE),
++                 g.samples / double(g.rate), gain);
++  }
++  return true;
++}
++
++// Converts the enabled tracks that aren't ready, the intro first.
++void Build()
++{
++  State& s = S();
++  for (;;)
++  {
++    int track = -1;
++    std::string gc[2];
++    {
++      std::lock_guard lk(s.lock);
++      for (int t = 0; t < TRACKS && track < 0; ++t)
++      {
++        const Track& tr = s.tracks[t];
++        if ((s.enabled >> t & 1) && !tr.attempted && !tr.gc[0].empty() && !tr.gc[1].empty())
++          track = t;
++      }
++      if (track < 0)
++      {
++        s.building = false;
++        return;
++      }
++      gc[0] = s.tracks[track].gc[0];
++      gc[1] = s.tracks[track].gc[1];
++      s.tracks[track].attempted = true;
++    }
++    std::string made[2];
++    const bool ok = Convert(track, gc, made);
++    std::lock_guard lk(s.lock);
++    Track& tr = s.tracks[track];
++    if (ok && tr.gc[0] == gc[0] && tr.gc[1] == gc[1])
++    {
++      tr.ready[0] = made[0];
++      tr.ready[1] = made[1];
++    }
++    else if (!ok)
++    {
++      INFO_LOG_FMT(DISCIO, "Dreamcast stream m0{}: none (not imported, or unreadable)", track + 1);
++    }
++  }
++}
++}  // namespace
++
++void Register(const std::string& physical_path)
++{
++  int channel = 0;
++  const int track = Classify(physical_path, &channel);
++  if (track < 0)
++    return;
++  State& s = S();
++  std::lock_guard lk(s.lock);
++  Track& tr = s.tracks[track];
++  if (tr.gc[channel] == physical_path)
++    return;
++  tr.gc[channel] = physical_path;
++  tr.ready[0].clear();
++  tr.ready[1].clear();
++  tr.attempted = false;
++}
++
++std::string Redirect(const std::string& physical_path)
++{
++  // Cheap for every other file the game reads.
++  if (physical_path.size() < 9 ||
++      Lower(physical_path.substr(physical_path.size() - 4)) != ".dsp")
++  {
++    return physical_path;
++  }
++  int channel = 0;
++  const int track = Classify(physical_path, &channel);
++  if (track < 0)
++    return physical_path;
++  State& s = S();
++  std::lock_guard lk(s.lock);
++  const Track& tr = s.tracks[track];
++  if (!(s.enabled >> track & 1) || tr.gc[channel] != physical_path || tr.ready[channel].empty())
++    return physical_path;
++  return tr.ready[channel];
++}
++
++void SetEnabled(u32 mask)
++{
++  State& s = S();
++  std::lock_guard lk(s.lock);
++  if (mask == s.enabled)
++    return;
++  s.enabled = mask;
++  if (s.building)
++    return;
++  for (int t = 0; t < TRACKS; ++t)
++  {
++    const Track& tr = s.tracks[t];
++    if ((mask >> t & 1) && !tr.attempted && !tr.gc[0].empty() && !tr.gc[1].empty())
++    {
++      s.building = true;
++      std::thread(Build).detach();
++      return;
++    }
++  }
++}
++}  // namespace DiscIO::SkiesStreams
+diff --git a/Source/Core/DiscIO/SkiesStreams.h b/Source/Core/DiscIO/SkiesStreams.h
+new file mode 100644
+index 0000000000..bebb8cf4f2
+--- /dev/null
++++ b/Source/Core/DiscIO/SkiesStreams.h
+@@ -0,0 +1,32 @@
++// Copyright 2026 Dolphin Emulator Project
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++#pragma once
++
++#include <string>
++
++#include "Common/CommonTypes.h"
++
++// The Skies of Arcadia Legends recomp's Dreamcast streamed music. Four of the game's songs aren't
++// sequences but streams from the disc, sound/m01..m04_L.dsp / _R.dsp (DSP ADPCM, 22050 Hz): m01 the
++// intro, m02 the title and the staff roll, m03 a story scene, m04 the ending. The Dreamcast disc
++// carries its own recordings of them (SOUND/M0nS.P16, 16-bit PCM, or .P04, AICA ADPCM; 44100 Hz).
++// m02 and m04 are the GameCube's recordings; m01 is a different cut and m03 another mix, which the
++// music import copies (AudioCommon/DCMusicImport.cpp) and Core/SkiesMusic.cpp enables.
++//
++// When the Dreamcast music is on, each is converted once into a file laid out exactly as the
++// GameCube one (same header, size and ADPCM coefficients, the recording resampled to its rate and
++// matched to its loudness; cached in the music folder's STREAMS/), and the extracted disc serves
++// that file's bytes for the GameCube one's (DirectoryBlob). The game streams it as before, so its
++// start, fades, stops and savestates are untouched; switching mid-stream changes the data from the
++// next read on (same coefficients: a click at worst).
++namespace DiscIO::SkiesStreams
++{
++// Every file of an extracted game's folder, as the disc is built: notes the stream files.
++void Register(const std::string& physical_path);
++// The file to read for physical_path: the converted stream when that track is enabled and ready.
++std::string Redirect(const std::string& physical_path);
++// Which tracks play the Dreamcast recording, bit n - 1 for mn; converts the missing ones on a
++// background thread (until a track is ready, the GameCube one plays).
++void SetEnabled(u32 mask);
++}  // namespace DiscIO::SkiesStreams

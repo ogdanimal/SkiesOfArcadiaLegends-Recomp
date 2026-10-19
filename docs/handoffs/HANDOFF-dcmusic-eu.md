@@ -68,8 +68,10 @@ synced 2026-10-17: the branded release (`lib\ModernGekko\build-release`, `REGION
    (`tools/pgo-wsl.sh` on the European DOL) is open too. Ask before using the device.
 2. **Android Dreamcast import** (Settings → Sound, CHD) and an Android European disc import: in the
    release APK, not tried on a device by this session.
-3. **Streamed music** (`m01`-`m04`) stays GameCube: different recordings of different lengths, and
-   the staff roll and ending are timed to them.
+3. **Streamed music** (`m01`-`m04`): done 2026-10-18 (branch `dcstreams`): `m02` / `m04` are the
+   same recordings on both; `m03` (another mix) and the intro `m01` (another cut, behind **Intro
+   music**) are converted into the GameCube streams' format and served in their place; the old reason
+   here (different lengths) was wrong. Development notes, *Dreamcast music*.
 4. **Continue crash (found while making those states, fixed in ws23 `b1493b4`):** the first battle
    after a Continue from a card save read `0x00000004`, both games (development-notes *Memory card
    auto-load*). Release patches are ws23: USA output `018a9ffb`, European `8b556a56`.
@@ -110,8 +112,7 @@ synced 2026-10-17: the branded release (`lib\ModernGekko\build-release`, `REGION
    forms (the release session), European PGO profiles (desktop: `tools/pgo-wsl.sh` on the European
    DOL; Android: on the Retroid, the user's call). Done 2026-10-17 except the profiles: `main-eu.dol`
    added, `validate.yml` `REGIONS: us eu` (`2436886`).
-5. **Streamed music** (`m01`-`m04`) stays GameCube: different recordings of different lengths, and
-   the staff roll and ending are timed to them.
+5. **Streamed music** (`m01`-`m04`): done 2026-10-18 (branch `dcstreams`), see 3.
 6. Android: build an APK with both modules (`android-ws-build.sh` with the European DOL), import a CHD
    for the music, the Settings → Sound rows, a European disc import (ask before using the Retroid).
    The APK is built (`skies-ws22eu-2026-10-17.apk`) and CI's release APK has both modules; the device

@@ -94,8 +94,12 @@ saves from the Japanese version can't be used.
 Dreamcast disc as a **GDI** (with its track files beside it) or a **CHD** (Android: CHD). Either
 disc has most of the music; import both for all of it (they can be from different regions). Then set **Music** to **Dreamcast**
 (there, or in the settings menu's Sound tab in game). The Dreamcast's sound driver plays the songs
-from your disc on an emulated sound chip, in place of the GameCube music. The streamed tracks (the
-staff roll, the ending and two story scenes) stay GameCube. **Remove** deletes the imported music.
+from your disc on an emulated sound chip, in place of the GameCube music. The two streamed songs
+that differ on the Dreamcast (the intro's, disc 1, and a story scene's, disc 2) play the disc's
+recordings too, converted once the first time they're needed. **Intro music** (below the import)
+picks the intro's: the Dreamcast recording is a different cut that doesn't line up with this intro's
+scenes; GameCube keeps them in step. Music imported with an earlier version has no streamed songs:
+import the disc again. **Remove** deletes the imported music.
 
 ### HD textures
 
