@@ -126,11 +126,16 @@ Pushed to `origin/dev` 2026-10-18 (validate green: 39175810228 on `7f0e385`, 391
 - Release-note wording: "Romhacks: play a romhack that changes the game's data, such as Maeson's
   rebalance: patch your disc image with it and pick that image. Hold B (Settings → Gameplay) stops
   random battles while you hold B. A romhack's save states are kept apart from the original game's."
-- **Dreamcast streamed songs** (`3c18001`..`966a8ea`, HANDOFF-dcmusic-eu): with the Dreamcast music
-  on, the intro (m01) and m03 come from the Dreamcast disc too (m02 / m04 are the same recordings);
-  Settings → Sound → Intro music (Dreamcast / GameCube). Checked on WSL, Windows and the Retroid.
-- **HD texture packs** (`b74fdf8`, HANDOFF-hdtextures): a pack without a game-ID folder imports (the
-  4x Upscaled DDS pack, six archives), and each import adds to the ones before.
+- **Dreamcast streamed songs** (`3c18001`..`966a8ea`, HANDOFF-dcmusic-eu): the Dreamcast music
+  import also takes the intro's and m03's streamed songs; Settings → Sound → **Intro music**.
+- **HD textures fix** (`b74fdf8`, HANDOFF-hdtextures 2026-10-18): a player's "texture pack is
+  damaged" with the HD Texture Pack 4x Upscaled DDS v1 (six archives, no `GEA` folder). Packs
+  without a `GEA` folder now import, and each import adds to what's imported (Remove clears all).
+  Linux CLI only so far; Windows / Android / in game not checked. Workaround for v0.50.0 players:
+  unpack all six into a folder named `GEA`, then Import a folder (desktop) or zip that folder and
+  import the .zip. Release-note wording: "Fixed: texture packs without a GEA folder (such as the HD
+  Texture Pack 4x Upscaled) were refused. Each import now adds to the textures already imported, so
+  a pack in several archives can be imported one archive at a time."
 
 ## Shipped in v0.50.0-beta
 

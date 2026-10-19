@@ -106,8 +106,11 @@ import the disc again. **Remove** deletes the imported music.
 Texture packs made for Dolphin work, for example **Skies of Arcadia HD** by Bighead and frozenwings
 (Dolphin forums). None is included. **Settings → Graphics → Import a texture pack...** takes the
 `.7z` or `.zip` you downloaded (on desktop, **Import a folder...** an unpacked one) and turns **HD
-textures** on; switch it there or in game. Only the pack's `GEA` textures are copied, without its
-optional extras. On Android, take the **PNG** download: phones can't load the DDS (BC7) one. **Remove** deletes the pack.
+textures** on; switch it there or in game. Only the pack's `GEA` textures are copied when it has
+that folder, without its optional extras; else all of its textures. Each import adds to what is
+imported, so a pack in several archives (the **HD Texture Pack 4x Upscaled** comes as six) is
+imported one archive at a time. **Remove** deletes everything imported. On Android, take a pack's
+**PNG** download where there is one: phones can't load DDS (BC7) textures.
 
 ### Romhacks
 
