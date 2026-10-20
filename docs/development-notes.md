@@ -917,8 +917,14 @@ four extra `beff/f2911?f3.mlk`, and no `field/mb*.std`, `list2.txt`, `shop_hrse.
   (1.00x; Z to 2x at 1.00x, 59.9 fps), the in-game menu's Language tab ("Japanese: the Japanese disc
   is in Japanese only"), a menu save state in `StateSaves/GEAJ8P` that boots, the state folders (a
   newer USA state in `StateSaves` not offered for the Japanese game; a European state there moved to
-  `StateSaves/GEAP8P` and offered), the USA and European games still boot in the same build. Card
-  saves and world-map speed: sent to it (the Mac had no card save).
+  `StateSaves/GEAP8P` and offered), the USA and European games still boot in the same build. Then,
+  with the converted Japanese card files sent over: Import a save puts them in `GC/JAP/Card A`
+  (a USA card save is refused for the Japanese game, as designed; so is a USA save state, and a
+  Japanese state imports into `StateSaves/GEAJ8P`); Continue from file 2 reaches the world map and
+  file 3 Pirate Isle's underground at 1.00x; flying the world map 1.00x at 30 fps, field speed 2x and
+  3x (encounters off) 1.000x at 59.9 fps with no step-down; field speed in the opening 2x. The user
+  once saw the window turn green (Metal, windowed, probably at the end of the field-speed run); a
+  rerun with a capture every 10 s didn't show it. Not reproduced.
 
 ### Romhacks (2026-10-18, branch `romhack`)
 

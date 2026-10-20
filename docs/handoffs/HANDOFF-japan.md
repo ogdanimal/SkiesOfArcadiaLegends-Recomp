@@ -50,8 +50,9 @@ the Dreamcast music. Details: development notes.
    **macOS:** the Mac session has the disc, the original DOL and the branch (sent privately as the
    user chose, deleted after download; `japan` was not pushed for it), made the Japanese arm64 module
    (2.5 min, no PGO, `d4867b46` / `27a4261c`) and passed everything it could test on `8d3c50a`
-   (development notes); card-save Continue and world-map speed were pending there (it had no card
-   save; the user's USA card files sent).
+   (development notes), card-save Import and Continue and world-map speed included (with the
+   converted Japanese card files; it had none). One unreproduced green window seen by the user on the
+   Mac (Metal), noted there.
 3. **Android: done** (development notes): `build/android/apk/skies-recomp-jp26b-2026-10-20-test.apk`
    (USA ws26 + Japanese modules, no Japanese PGO, the state-folder and text fixes) on the Retroid
    Pocket 5's and the Retroid Nova's test app (`com.skiesofarcadia.recomp.test`; the release apps not
