@@ -438,6 +438,14 @@ jobs:
       - name: Install Ninja
         run: brew install ninja
 
+      # The image's default Xcode 16.4 libc++ has no std::jthread (dolphin_runtime.cpp uses it):
+      # take the newest Xcode 26 on the image.
+      - name: Select Xcode 26
+        run: |
+          xcode=$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)
+          sudo xcode-select -s "$xcode"
+          clang++ --version
+
       - name: Build the module
         run: |
           MODULE_TABLES_INC=codegen/macos/generated/module_tables.inc \
