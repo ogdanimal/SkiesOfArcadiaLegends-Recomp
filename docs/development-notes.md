@@ -875,10 +875,50 @@ four extra `beff/f2911?f3.mlk`, and no `field/mb*.std`, `list2.txt`, `shop_hrse.
   `build\modules-llvm-jp26` from `tools/module-llvm-win.sh` without PGO, package `vjp-test` with the
   USA ws26 module and the Japanese one, portable copy `build\rt-jp-win`): the launcher's `--extract`
   of the ISO over `\\wsl.localhost` (pinned DOL), Continue to the world map, 1.000x flying (n=20),
-  a battle at 2x at 0.999x (59.8 game frames a second), Japanese text and the widescreen HUD. Not
-  done: saving from the Japanese game itself (early in the story only at save points; the scripted
-  walk didn't open the save menu there; the format is the USA one, statically), macOS, Android on a
-  device, a Japanese PGO profile.
+  a battle at 2x at 0.999x (59.8 game frames a second), Japanese text and the widescreen HUD.
+- **Android (2026-10-20, Retroid Pocket 5 and Retroid Nova, test app):** the app's own picker import
+  of an RVZ of the disc (`Games/GEAJ8P`, the pinned DOL `27a4261c`, `main.dol.orig` kept; the USA
+  game's folder removed, one game at a time), Start Game to the Japanese opening text (Nova, fresh
+  install), Continue from the converted card save (file 1: the Valuan ship's red alert, game mode 6).
+  **Speed without a Japanese PGO profile is full:** Continue into each state, 16 s, `speed:30`, 60 fps
+  mode, two rounds per device (`build/android/bench/jp26b-r{1,2}`, `jp26b-nova-r{1,2}`, script
+  `build/android/bench/jp-bench.sh`): Retroid Pocket 5 1.000-1.007 (59.8-59.9 fps) in
+  `jp-04-red-alarm` (new, saved there), `jp-03-worldmap-battle-start`, `jp-02-pirate-isle-save-point`,
+  `jp-01-first-battle-results`; Retroid Nova (Snapdragon 8 Gen 2, Adreno 740, stock driver) 1.000-1.005 (59.8-59.9 fps) in the same four. Europe needed its own profile (0.93); the Japanese
+  module apparently doesn't, but there is no Japanese ship-battle state to try the heaviest scene.
+  The first-run text said "USA or Europe": now names Japan too.
+- **Save states per version (found here, fixed 2026-10-20):** with the Japanese game imported on the
+  Retroid, Continue still offered the USA game's newest auto-save: every version shared `StateSaves`,
+  and nothing checks a state's game ID before loading it (`State.cpp` doesn't; only Import a save
+  does). It booted the USA state on the Japanese module: "Invalid write to 0x00008032, PC =
+  0x80237bb0" at once. The European game has had the same problem since 0.10.0-beta (desktop keeps
+  both games, so a USA state newer than the European ones was always Continue's pick there). Now the
+  release's first game (USA) keeps `StateSaves`, the others use `StateSaves/<disc ID>`
+  (`dol_patch.cpp` `StateDirectory`'s `disc_folder`; `release_games.hpp` `StateFolderFor` on desktop,
+  the app's first region in `SkiesImport.cpp`), for Continue, the launcher's list, Import a save and
+  the in-game menu and auto-save (the runner sets `RuntimeConfig::state_directory`). States an
+  earlier release left in `StateSaves` move to their game's folder by the game ID at the start of
+  the header (`MoveDiscStates`; only `state-skies-*` / `recovery-skies-*`, a name already there is
+  left). Romhacks keep `StateSaves/romhack-<tag>`. Checked: WSL (release copy `build/rt-jp`, all
+  three games: a USA, a European and a Japanese state in `StateSaves`; the Japanese one moved, the
+  launcher's Continue skips the newer USA one and boots the Japanese one; the auto-save goes to
+  `StateSaves/GEAJ8P`; the European one moved when that game was picked and Continue booted it on the
+  world map; the USA game still offers its auto-save from `StateSaves`), Windows (`build\rt-jp-win`:
+  the move, Continue, the auto-save in `StateSaves\GEAJ8P`), Retroid Pocket 5 (Continue hidden with
+  only USA states, then the Japanese states and auto-save in `StateSaves/GEAJ8P`). `--headless`
+  release runs stop on an ImGui assert (`GetIO`, no context) in any build, unrelated.
+- **Not done:** saving from the Japanese game itself (early in the story only at save points; the
+  scripted walk didn't open the save menu there; the format is the USA one, statically); the in-game
+  menu's Language row on desktop and Android (automation input doesn't open the menu; by hand).
+- **macOS (2026-10-20, the Mac session, M4, `japan` at `8d3c50a`):** the patches apply; the Japanese
+  arm64 module without PGO (codegen 2.5 min, DOL `d4867b46` / `27a4261c`) beside the 0.60 CI zip's USA
+  and European modules, release build `REGIONS="us eu jp"`. `--extract` of the RVZ (pinned DOL, 2.6
+  s), the Japanese opening text and title, New Game through the opening at 1.00x to the first battle
+  (1.00x; Z to 2x at 1.00x, 59.9 fps), the in-game menu's Language tab ("Japanese: the Japanese disc
+  is in Japanese only"), a menu save state in `StateSaves/GEAJ8P` that boots, the state folders (a
+  newer USA state in `StateSaves` not offered for the Japanese game; a European state there moved to
+  `StateSaves/GEAP8P` and offered), the USA and European games still boot in the same build. Card
+  saves and world-map speed: sent to it (the Mac had no card save).
 
 ### Romhacks (2026-10-18, branch `romhack`)
 

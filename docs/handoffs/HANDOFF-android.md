@@ -1,13 +1,18 @@
 # Handoff: Android build of the Skies recomp (2026-10-05, updated 2026-10-18)
 
-## The Japanese disc (2026-10-20, branch `japan`): test APK built, not on a device
+## The Japanese disc (2026-10-20, branch `japan`): checked on both Retroids, no profile needed
 
-`build/android/apk/skies-recomp-jp26-2026-10-20-test.apk` in `~/projects/skies-romhack` (the test
-app's ID; the USA ws26 module from `jniLibs-ws26g` and a Japanese ws26 module without PGO, made by a
-copy of `android-ws-build.sh`'s `module()` steps, then `JNILIBS=` for the APK; the Japanese patch,
-`skies-GEAJ8P.ini` and `dol-sha256-jp.txt` inside). Next, with the user's go-ahead for the Retroid:
-import the ISO in the test app, a speed check like the European one (Europe ran 0.93 without its own
-profile), then a Japanese PGO profile if needed (states: HANDOFF-japan). HANDOFF-japan.
+`build/android/apk/skies-recomp-jp26b-2026-10-20-test.apk` in `~/projects/skies-romhack` (test ID;
+`BRAND=1 TEST_ID=1 NAME=jp26b JNILIBS=build/android/jniLibs-jp26-src`: the USA ws26 module from
+`jniLibs-ws26g` and a Japanese ws26 module without PGO). Installed on the Retroid Pocket 5's and the
+Retroid Nova's test app (Nova: new install; the release apps untouched). Picker import of
+`Eternal Arcadia Legends.rvz` from Downloads, Start Game, Continue from a converted card save, and
+**60 fps at full speed without a Japanese profile** on both (two rounds each; numbers, the state
+folder fix it led to and the first-run text fix: development notes, *The Japanese release*;
+HANDOFF-japan). Bench through the app's own Continue: `build/android/bench/jp-bench.sh OUT STATE...`
+(`SERIAL`, `TAP` = Continue's position: `300 540` on the Pocket 5, `260 480` on the Nova; the states
+in `StateSaves/GEAJ8P` as `state-skies-<name>.sav`): the branded test app doesn't export Dolphin's
+deep link activity that `android-boot.sh` starts (not tried with it).
 
 ## Status (2026-10-18): romhacks and Hold B (ws25, merged into `dev`)
 

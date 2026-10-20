@@ -146,7 +146,9 @@ press Start**), or in the launcher's **Settings** window.
 - **HD textures** (optional): a texture pack you downloaded, imported in Settings (see
   [HD textures](#hd-textures)).
 - **Save states:** five slots, plus an auto-save every 10 minutes on the field (the newest three are
-  kept). Your memory card saves are never touched by a state.
+  kept). Your memory card saves are never touched by a state. Each version of the game keeps its own
+  (the European and Japanese ones in `StateSaves/GEAP8P` and `StateSaves/GEAJ8P`), so Continue and
+  the slots only show the disc you play.
 - **Continue** in the launcher starts from your newest save state or memory card save, whichever is
   newer. A memory card save loads straight into the game, without the intro or title screen.
 

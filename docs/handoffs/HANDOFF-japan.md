@@ -10,7 +10,9 @@ it in `jp/disc`). How it works: `docs/development-notes.md` (*The Japanese relea
 Branch `japan`, worktree `~/projects/skies-romhack` (its submodules are worktrees of the main
 checkout's with the patches applied), rebased on `origin/dev` `4bd2c05` (the credits, pushed
 2026-10-20): `f55f594` the Japanese disc, `3f0bc95` the European Import a save fix, `9c00386` and
-later docs. **Not pushed, not merged.** The ISO matches Redump (disc SHA-1 `bb06f5ba...`; the
+later docs, then the device checks' fixes: `8d3c50a` save states per version (all platforms: the
+European and Japanese games keep `StateSaves/<disc ID>`), `adaced9` the Android first-run text, and
+their docs. **Not pushed, not merged.** The ISO matches Redump (disc SHA-1 `bb06f5ba...`; the
 research notes' regions table); research notes: `../GameCube-Research/targets/SkiesOfArcadiaLegends`
 (*Japanese release*, `jp-address-map.md`).
 
@@ -45,13 +47,21 @@ the Dreamcast music. Details: development notes.
    user's step; it's their private repo.)
 2. **Windows: done** (development notes: import, Continue, 1.000x on the world map, battle at 2x at
    full speed; `C:\dev\SkiesRomhack\build\rt-jp-win`, module `build\modules-llvm-jp26`, no PGO).
-   **macOS:** not built (the Mac session; `tools/build-release-macos.sh` takes the third module).
-3. **Android:** test APK `build/android/apk/skies-recomp-jp26-*-test.apk` (USA ws26 + Japanese
-   modules, no Japanese PGO). Not installed: ask before using the Retroid. Likely needs a Japanese
-   Android PGO profile for 60 fps, as Europe did (0.93 without one).
+   **macOS:** the Mac session has the disc, the original DOL and the branch (sent privately as the
+   user chose, deleted after download; `japan` was not pushed for it), made the Japanese arm64 module
+   (2.5 min, no PGO, `d4867b46` / `27a4261c`) and passed everything it could test on `8d3c50a`
+   (development notes); card-save Continue and world-map speed were pending there (it had no card
+   save; the user's USA card files sent).
+3. **Android: done** (development notes): `build/android/apk/skies-recomp-jp26b-2026-10-20-test.apk`
+   (USA ws26 + Japanese modules, no Japanese PGO, the state-folder and text fixes) on the Retroid
+   Pocket 5's and the Retroid Nova's test app (`com.skiesofarcadia.recomp.test`; the release apps not
+   touched). Picker import, Start Game, card Continue, and full speed at 60 fps without a Japanese
+   profile (two rounds on each device). Both test apps are left with the Japanese game imported and
+   `Eternal Arcadia Legends.rvz` in Downloads; the Pocket 5's settings restored (30 fps, field speed
+   2x as they were); the Nova's test app is a new install (60 fps set for the bench).
 4. **In game, not yet seen:** a save written by the Japanese game itself (early in the story only at
-   save points; the scripted walk didn't open the menu), the in-game menu's Language row (ImGui, not
-   in screenshots), a ship battle. Battle speed: done (WSL and Windows).
+   save points; the scripted walk didn't open the menu), the in-game menu's Language row on desktop
+   and Android (automation input doesn't open the menu there; seen on macOS), a ship battle. Battle speed: done (WSL and Windows).
 5. **Known difference:** Continue (the patch's direct card load) skips the Japanese load screen's
    bonus-file check (`EA_LEGEND_EXTRA #00`-`#02` on the card set or clear event flags 2852, 1096,
    2850), so the flags stay as the save has them. Loading through the title's own Continue menu
@@ -64,3 +74,8 @@ the Dreamcast music. Details: development notes.
    lands in `GC/USA` and the same Continue loads Pirate Isle (status 2). Separate commit. Saves a
    European player imported before stay in `GC/EUR` unused: importing them again puts them in place
    (worth a line in the release notes). The Japanese disc is NTSC-J: `GC/JAP` on both sides.
+7. **Fixed on the way (European since 0.10.0-beta, and the Japanese game): save states per version**
+   (`8d3c50a`, `recompcore-state-folders.patch` + `moderngekko-local.patch`): Continue offered another
+   version's newest state from the shared `StateSaves` and crashed on it (seen on the Retroid). Now
+   `StateSaves/GEAP8P` and `StateSaves/GEAJ8P`; an earlier release's states move there by their header's
+   game ID. Release notes draft (main checkout `build/notes-next.md`) has the line.
