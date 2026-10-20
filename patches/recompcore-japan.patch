@@ -349,3 +349,16 @@ index c967f2f6f8..f93577b13b 100644
        if (!IsEurope())
          return {"Language", "English", "Other languages need the European disc."};
        if (v.language == opened_language)
+diff --git a/Source/Android/app/src/main/res/values/skies_strings.xml b/Source/Android/app/src/main/res/values/skies_strings.xml
+index 8310139575..be7dfb0078 100644
+--- a/Source/Android/app/src/main/res/values/skies_strings.xml
++++ b/Source/Android/app/src/main/res/values/skies_strings.xml
+@@ -5,7 +5,7 @@
+     <string name="skies_subtitle" translatable="false">Skies of Arcadia Legends: Recompiled</string>
+     <string name="skies_title" translatable="false">Skies of Arcadia Legends</string>
+     <string name="skies_starting" translatable="false">Starting…</string>
+-    <string name="skies_need_disc" translatable="false">To play, choose your own copy of Skies of Arcadia Legends for the GameCube (USA or Europe). ISO, GCM, RVZ, WIA, GCZ and CISO disc images work. It is copied into the app once and patched; the image itself isn\'t changed.</string>
++    <string name="skies_need_disc" translatable="false">To play, choose your own copy of Skies of Arcadia Legends for the GameCube (USA, Europe or Japan). ISO, GCM, RVZ, WIA, GCZ and CISO disc images work. It is copied into the app once and patched; the image itself isn\'t changed.</string>
+     <string name="skies_importing" translatable="false">Importing your disc. This takes a minute or two.</string>
+     <string name="skies_ready" translatable="false">Settings are here and in the game (hold Z, press Start).</string>
+     <string name="skies_play" translatable="false">Start Game</string>
