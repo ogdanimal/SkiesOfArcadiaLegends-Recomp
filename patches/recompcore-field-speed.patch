@@ -1,0 +1,380 @@
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+index 4a60eb4b15..7711e58429 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+@@ -72,6 +72,7 @@ class SkiesSettingsPanel(
+         val CAMERA = choices(1 to "Hold Z to move", 0 to "Original")
+         val SPEED = choices(1 to "Normal (Z in battle)", 2 to "2x (Z in battle)",
+             3 to "3x (Z in battle)", 4 to "4x (Z in battle)")
++        val FIELD_SPEED = choices(1 to "Normal (Z+X)", 2 to "2x (Z+X)", 3 to "3x (Z+X)")
+         val ENCOUNTERS = choices(0 to "Off", 25 to "1/4", 50 to "1/2", 100 to "Normal",
+             200 to "2x", 400 to "4x")
+         val REWARDS = choices(0 to "Off", 50 to "1/2", 100 to "Normal", 200 to "2x", 300 to "3x",
+@@ -245,6 +246,9 @@ class SkiesSettingsPanel(
+                         "game's fixed camera.")
+                 configRow(rows, "Battle speed", SPEED, dolphin, "Skies", "BattleSpeed", 1,
+                     "Plays battles faster. Tap Z during a battle to switch speeds.")
++                configRow(rows, "Field speed", FIELD_SPEED, dolphin, "Skies", "FieldSpeed", 1,
++                    "Plays cutscenes, walking and sailing faster. Hold Z and press X outside " +
++                        "battle to switch speeds.")
+                 configRow(rows, "Encounters", ENCOUNTERS, dolphin, "Skies", "Encounters", 100,
+                     "How often random battles happen. Off means none.")
+                 configRow(rows, "Hold B", HOLD_B, dolphin, "Skies", "HoldB", 0,
+diff --git a/Source/Core/Core/Config/SkiesSettings.cpp b/Source/Core/Core/Config/SkiesSettings.cpp
+index 2e99071373..20e06e4053 100644
+--- a/Source/Core/Core/Config/SkiesSettings.cpp
++++ b/Source/Core/Core/Config/SkiesSettings.cpp
+@@ -14,6 +14,7 @@ const Info<int> SKIES_EXP{{System::Main, "Skies", "Exp"}, 100};
+ const Info<int> SKIES_GOLD{{System::Main, "Skies", "Gold"}, 100};
+ const Info<int> SKIES_MAGIC_EXP{{System::Main, "Skies", "MagicExp"}, 100};
+ const Info<int> SKIES_BATTLE_SPEED{{System::Main, "Skies", "BattleSpeed"}, 1};
++const Info<int> SKIES_FIELD_SPEED{{System::Main, "Skies", "FieldSpeed"}, 1};
+ const Info<int> SKIES_INVINCIBLE{{System::Main, "Skies", "Invincible"}, 0};
+ const Info<int> SKIES_HOLD_B{{System::Main, "Skies", "HoldB"}, 0};
+ const Info<int> SKIES_AUTO_SAVE{{System::Main, "Skies", "AutoSave"}, 10};
+diff --git a/Source/Core/Core/Config/SkiesSettings.h b/Source/Core/Core/Config/SkiesSettings.h
+index 53badb3c58..063e800a44 100644
+--- a/Source/Core/Core/Config/SkiesSettings.h
++++ b/Source/Core/Core/Config/SkiesSettings.h
+@@ -31,6 +31,9 @@ extern const Info<int> SKIES_EXP;
+ extern const Info<int> SKIES_GOLD;
+ extern const Info<int> SKIES_MAGIC_EXP;
+ extern const Info<int> SKIES_BATTLE_SPEED;
++// The same for the field (game mode 6 outside a ship battle: cutscenes, towns, dungeons and the
++// world map); a Z tap there cycles it.
++extern const Info<int> SKIES_FIELD_SPEED;
+ // 1 = in battle the party's HP, MP and Spirit stay full and the party takes no damage; L3 or R3 (the
+ // real controller's stick clicks) toggles it.
+ extern const Info<int> SKIES_INVINCIBLE;
+diff --git a/Source/Core/VideoCommon/SkiesMenu.cpp b/Source/Core/VideoCommon/SkiesMenu.cpp
+index 63440da8a0..3919ccefcd 100644
+--- a/Source/Core/VideoCommon/SkiesMenu.cpp
++++ b/Source/Core/VideoCommon/SkiesMenu.cpp
+@@ -104,6 +104,7 @@ enum class Option
+   Gold,
+   MagicExp,
+   BattleSpeed,
++  FieldSpeed,
+   Invincible,
+   Music,
+   Language,
+@@ -116,9 +117,9 @@ constexpr std::array SAVES_ROWS{Option::SaveState, Option::LoadState, Option::Au
+ constexpr std::array GRAPHICS_ROWS{Option::Picture,    Option::Hud,          Option::FrameRate,
+                                    Option::Resolution, Option::Antialiasing, Option::HdTextures,
+                                    Option::VSync,      Option::ShowFps};
+-constexpr std::array GAMEPLAY_ROWS{Option::Camera, Option::BattleSpeed, Option::Encounters,
+-                                   Option::HoldB,  Option::Exp,         Option::Gold,
+-                                   Option::MagicExp, Option::Invincible};
++constexpr std::array GAMEPLAY_ROWS{Option::Camera,     Option::BattleSpeed, Option::FieldSpeed,
++                                   Option::Encounters, Option::HoldB,       Option::Exp,
++                                   Option::Gold,       Option::MagicExp,    Option::Invincible};
+ constexpr std::array LANGUAGE_ROWS{Option::Language};
+ constexpr std::array SOUND_ROWS{Option::Volume, Option::Music};
+ constexpr std::array CONTROLS_ROWS{Option::Mapping, Option::DeadZone, Option::Rumble};
+@@ -150,6 +151,8 @@ constexpr std::array AUTO_SAVE_MINUTES{0, 5, 10, 15, 30};
+ constexpr std::array ENCOUNTER_RATES{0, 25, 50, 100, 200, 400};
+ constexpr std::array REWARD_RATES{0, 50, 100, 200, 300, 400};
+ constexpr std::array BATTLE_SPEEDS{1, 2, 3, 4};
++// The field's: 4x isn't offered, as a desktop PC already tops out at about 2.9x on the world map.
++constexpr std::array FIELD_SPEEDS{1, 2, 3};
+ 
+ // Stick dead zone choices in percent (the main stick and the C-stick of controller 1's profile).
+ constexpr std::array DEAD_ZONES{0, 5, 10, 15, 20, 25, 30};
+@@ -175,6 +178,7 @@ struct Values
+   int gold = 100;
+   int magic_exp = 100;
+   int battle_speed = 1;
++  int field_speed = 1;  // cutscenes, towns, dungeons and the world map
+   int invincible = 0;
+   bool vsync = false;
+   int volume = 100;
+@@ -215,6 +219,7 @@ Values s_apply_before;
+ // Z hold-back for the open combo (and, where the camera can be moved, for the camera hold).
+ bool s_z_held_back = false;
+ bool s_z_camera_used = false;
++bool s_speed_chord = false;  // Z+X switched the field speed; both held back until let go
+ bool s_z_passed = false;
+ Clock::time_point s_z_down;
+ int s_z_replay_polls = 0;
+@@ -381,6 +386,7 @@ Values ReadValues()
+   values.gold = Config::Get(Config::SKIES_GOLD);
+   values.magic_exp = Config::Get(Config::SKIES_MAGIC_EXP);
+   values.battle_speed = Config::Get(Config::SKIES_BATTLE_SPEED);
++  values.field_speed = std::clamp(Config::Get(Config::SKIES_FIELD_SPEED), 1, FIELD_SPEEDS.back());
+   values.invincible = Config::Get(Config::SKIES_INVINCIBLE) != 0 ? 1 : 0;
+   values.vsync = Config::Get(Config::GFX_VSYNC);
+   values.volume = Config::Get(Config::MAIN_AUDIO_VOLUME);
+@@ -442,6 +448,7 @@ void Apply(const Values& values, const Values& before)
+   set(Config::SKIES_GOLD, values.gold, before.gold);
+   set(Config::SKIES_MAGIC_EXP, values.magic_exp, before.magic_exp);
+   set(Config::SKIES_BATTLE_SPEED, values.battle_speed, before.battle_speed);
++  set(Config::SKIES_FIELD_SPEED, values.field_speed, before.field_speed);
+   set(Config::SKIES_INVINCIBLE, values.invincible, before.invincible);
+   set(Config::SKIES_AUTO_SAVE, values.auto_save, before.auto_save);
+   set(Config::SKIES_DC_MUSIC, values.music, before.music);
+@@ -547,9 +554,9 @@ std::string RateText(int percent)
+   }
+ }
+ 
+-std::string SpeedText(int speed)
++std::string SpeedText(int speed, std::string_view keys)
+ {
+-  return speed <= 1 ? "Normal (Z in battle)" : std::to_string(speed) + "x (Z in battle)";
++  return fmt::format("{} ({})", speed <= 1 ? "Normal" : std::to_string(speed) + "x", keys);
+ }
+ 
+ std::string MsaaText(int samples)
+@@ -648,6 +655,9 @@ void Change(Option option, int direction, bool wrap)
+   case Option::BattleSpeed:
+     v.battle_speed = Step(BATTLE_SPEEDS, v.battle_speed, direction, wrap);
+     break;
++  case Option::FieldSpeed:
++    v.field_speed = Step(FIELD_SPEEDS, v.field_speed, direction, wrap);
++    break;
+   case Option::Invincible:
+     v.invincible = v.invincible ? 0 : 1;
+     break;
+@@ -926,8 +936,9 @@ void Write(Memory::MemoryManager& memory, const Context& context, bool enabled)
+ }  // namespace camera
+ 
+ // Quality-of-life options: the settings go to the game patch (patches/game/qol.c) through
+-// qol_input every poll; a Z tap in battle cycles the battle speed; frame interpolation steps aside
+-// while a battle runs fast (the game then draws a real picture for every retrace or more).
++// qol_input every poll; a Z tap in battle cycles the battle speed, Z+X in the field the field
++// speed; frame interpolation steps aside while the game runs fast (it then draws a real picture for
++// every retrace or more).
+ namespace qol
+ {
+ const RegionAddress HOOK_SITE{0x800C207C, 0x800C2430};  // bl fn_8025ECC4 (rand) in the unpatched game
+@@ -935,13 +946,32 @@ const RegionAddress HOOK_ORIGINAL{0x4819CC49, 0x4819EFD5};
+ constexpr u32 INPUT = 0x80002EA0;          // qol.c's qol_input
+ constexpr u32 INPUT_MAGIC = 0x514F4C43;    // 'QOLC'
+ const RegionAddress GAME_MODE{0x803475CC, 0x8034ACEC};  // 7 = battle (ship battles: InShipBattle)
++const RegionAddress MAP_ID{0x80311AC4, 0x80315154};
++// In qol_input's speed word (ws26): the speed holds in the field (game mode 6) too. Written only
++// outside battle, so an earlier game patch, which takes the whole word for the battle speed, never
++// sees it in a battle.
++constexpr u32 SPEED_FIELD = 0x100;
++
++// Where the speed options apply: a battle (ground, deck or ship) or the field (mode 6 otherwise:
++// cutscenes, towns, dungeons, the world map).
++enum class Place
++{
++  Other,
++  Battle,
++  Field,
++};
+ 
+-bool s_interpolation_held = false;  // turned off for a fast battle
++bool s_interpolation_held = false;  // turned off while the game runs fast
+ int s_speed_pending = 0;            // a new battle speed to save (after the lock is let go)
++int s_field_speed_pending = 0;      // a new field speed to save (after the lock is let go)
+ int s_invincible_pending = -1;      // a new Invincible setting to save (after the lock is let go)
+ // A battle at 3x or 4x the host can't keep up with (the emulation drops under 95% for 1.5 s) steps
+-// down, to 2x at the lowest, until the battle ends: the Retroid manages about 2.5x.
++// down, to 2x at the lowest, until it ends: the Retroid manages about 2.5x. The field the same from
++// 2x, to normal at the lowest, until the map changes (a desktop PC holds 2x everywhere, but only
++// about 2.9x on the world map).
+ int s_speed_cap = 4;
++Place s_cap_place = Place::Other;
++u32 s_cap_map = 0;
+ Clock::time_point s_slow_since{};
+ bool s_stick_click = false;         // L3 / R3 down at the last poll
+ // A ship battle frame takes about a retrace of the emulated CPU's time, so skipping the waits takes
+@@ -961,16 +991,40 @@ bool InBattle(Memory::MemoryManager& memory)
+   return memory.Read_U32(GAME_MODE) == 7 || InShipBattle(memory);
+ }
+ 
+-int EffectiveSpeed(Memory::MemoryManager& memory, int speed)
++Place WhereNow(Memory::MemoryManager& memory)
+ {
+-  if (!InBattle(memory))
++  if (InBattle(memory))
++    return Place::Battle;
++  return memory.Read_U32(GAME_MODE) == 6 ? Place::Field : Place::Other;
++}
++
++int BattleSpeed()
++{
++  return s_speed_pending ? s_speed_pending : Config::Get(Config::SKIES_BATTLE_SPEED);
++}
++
++int FieldSpeed()
++{
++  return s_field_speed_pending ? s_field_speed_pending :
++                                 std::clamp(Config::Get(Config::SKIES_FIELD_SPEED), 1,
++                                            FIELD_SPEEDS.back());
++}
++
++int EffectiveSpeed(Memory::MemoryManager& memory, Place place, int speed)
++{
++  // The field steps down per map (the world map is the dearest), and so tries again on the next
++  const u32 map = place == Place::Field ? memory.Read_U32(MAP_ID) : 0;
++  if (place != s_cap_place || map != s_cap_map)
+   {
++    s_cap_place = place;
++    s_cap_map = map;
+     s_speed_cap = 4;
+     s_slow_since = {};
+-    return speed;
+   }
++  if (place == Place::Other)
++    return speed;
+   const int effective = std::min(speed, s_speed_cap);
+-  if (effective < 3)
++  if (effective < (place == Place::Field ? 2 : 3))
+     return effective;
+   const Clock::time_point now = Clock::now();
+   if (Core::System::GetInstance().GetPerfMetrics().GetSpeed() >= 0.95)
+@@ -985,7 +1039,9 @@ int EffectiveSpeed(Memory::MemoryManager& memory, int speed)
+   {
+     s_speed_cap = effective - 1;
+     s_slow_since = {};
+-    OSD::AddMessage(fmt::format("Battle speed: {}x (the most this device keeps up with)", s_speed_cap),
++    OSD::AddMessage(fmt::format("{} speed: {} (the most this device keeps up with)",
++                                place == Place::Battle ? "Battle" : "Field",
++                                s_speed_cap <= 1 ? "normal" : fmt::format("{}x", s_speed_cap)),
+                     2500);
+   }
+   return std::min(speed, s_speed_cap);
+@@ -993,8 +1049,9 @@ int EffectiveSpeed(Memory::MemoryManager& memory, int speed)
+ 
+ void Write(Memory::MemoryManager& memory)
+ {
+-  const int speed = EffectiveSpeed(
+-      memory, s_speed_pending ? s_speed_pending : Config::Get(Config::SKIES_BATTLE_SPEED));
++  const Place place = WhereNow(memory);
++  const int speed = std::clamp(
++      EffectiveSpeed(memory, place, place == Place::Field ? FieldSpeed() : BattleSpeed()), 1, 4);
+   memory.Write_U32(INPUT_MAGIC, INPUT);
+   // Percentages, held to the menus' range: a hand-edited Dolphin.ini can say anything.
+   const auto percent = [](const Config::Info<int>& info, int most) {
+@@ -1004,20 +1061,23 @@ void Write(Memory::MemoryManager& memory)
+   memory.Write_U32(percent(Config::SKIES_EXP, REWARD_RATES.back()), INPUT + 8);
+   memory.Write_U32(percent(Config::SKIES_GOLD, REWARD_RATES.back()), INPUT + 12);
+   memory.Write_U32(percent(Config::SKIES_MAGIC_EXP, REWARD_RATES.back()), INPUT + 16);
+-  memory.Write_U32(static_cast<u32>(std::clamp(speed, 1, 4)), INPUT + 20);
++  memory.Write_U32(static_cast<u32>(speed) | (place == Place::Field ? SPEED_FIELD : 0), INPUT + 20);
+   const int invincible =
+       s_invincible_pending >= 0 ? s_invincible_pending : Config::Get(Config::SKIES_INVINCIBLE);
+   memory.Write_U32(invincible ? 1 : 0, INPUT + 24);
+   memory.Write_U32(Config::Get(Config::SKIES_HOLD_B) != 0 ? 1 : 0, INPUT + 28);
+ 
+-  const bool hold = InBattle(memory) && speed >= 2;
+-  if (hold != s_interpolation_held)
++  const bool fast = place != Place::Other && speed >= 2;
++  if (fast != s_interpolation_held)
+   {
+-    s_interpolation_held = hold;
+-    FrameInterpolator::RequestEnabled(!hold && Config::Get(Config::SKIES_FRAME_MODE) >= 1);
++    s_interpolation_held = fast;
++    FrameInterpolator::RequestEnabled(!fast && Config::Get(Config::SKIES_FRAME_MODE) >= 1);
+   }
+ 
+-  const float overclock = InBattle(memory) && speed >= 3 ? std::clamp(speed, 1, 4) / 2.0f : 1.0f;
++  // A world map frame takes about a retrace of the emulated CPU's time, as a ship battle's does
++  // (s_overclock), so 3x there needs it clocked at 2x (1.5x stayed at 60 frames a second).
++  const float overclock = !fast || speed < 3 ? 1.0f :
++                          place == Place::Field ? speed - 1.0f : speed / 2.0f;
+   if (overclock != s_overclock)
+   {
+     s_overclock = overclock;
+@@ -1054,11 +1114,14 @@ void PollStickClick()
+   s_stick_click = down;
+ }
+ 
+-// Z tapped in battle: next speed, saved and shown once the lock is let go.
+-void CycleSpeed()
++// Z tapped in battle: next battle speed; Z+X in the field: next field speed. Saved and shown once
++// the lock is let go.
++void CycleSpeed(Place place)
+ {
+-  const int speed = s_speed_pending ? s_speed_pending : Config::Get(Config::SKIES_BATTLE_SPEED);
+-  s_speed_pending = speed >= 4 ? 1 : speed + 1;
++  if (place == Place::Battle)
++    s_speed_pending = BattleSpeed() >= 4 ? 1 : BattleSpeed() + 1;
++  else if (place == Place::Field)
++    s_field_speed_pending = FieldSpeed() >= FIELD_SPEEDS.back() ? 1 : FieldSpeed() + 1;
+ }
+ }  // namespace qol
+ 
+@@ -1223,6 +1286,7 @@ GCPadStatus FilterClosed(const GCPadStatus& raw)
+   GCPadStatus out = raw;
+   const bool z = raw.button & PAD_TRIGGER_Z;
+   const bool start = raw.button & PAD_BUTTON_START;
++  const bool x = raw.button & PAD_BUTTON_X;
+   const Clock::time_point now = Clock::now();
+   const float dt = std::clamp(std::chrono::duration<float>(now - camera::s_last_poll).count(), 0.0f, 0.1f);
+   camera::s_last_poll = now;
+@@ -1252,6 +1316,23 @@ GCPadStatus FilterClosed(const GCPadStatus& raw)
+     Open();
+     return Released(raw);
+   }
++  // Z+X in the field: the field speed (a Z tap there is the game's: the minimap on foot, the world
++  // map's menu). Neither reaches the game until both are let go.
++  const qol::Place place = qol_present ? qol::WhereNow(memory) : qol::Place::Other;
++  if (s_speed_chord && !z && !x)
++    s_speed_chord = false;
++  if (!s_speed_chord && z && x && (s_z_held_back || s_z_passed) && place == qol::Place::Field)
++  {
++    s_speed_chord = true;
++    s_z_held_back = false;
++    s_z_passed = false;
++    qol::CycleSpeed(place);
++  }
++  if (s_speed_chord)
++  {
++    out.button &= ~(PAD_TRIGGER_Z | PAD_BUTTON_X);
++    return out;
++  }
+   if (camera_on)
+   {
+     if (camera::Update(context, raw, s_z_held_back && z, dt))
+@@ -1280,12 +1361,12 @@ GCPadStatus FilterClosed(const GCPadStatus& raw)
+       // Released before Start came (and without moving the camera): in battle that's the battle
+       // speed (the game doesn't use Z there), elsewhere the game gets its tap late.
+       s_z_held_back = false;
+-      if (qol_present && qol::InBattle(memory))
+-        qol::CycleSpeed();
++      if (place == qol::Place::Battle)
++        qol::CycleSpeed(place);
+       else if (!s_z_camera_used)
+         s_z_replay_polls = 4;
+     }
+-    else if (now - s_z_down < Z_HOLD_BACK || (qol_present && qol::InBattle(memory)))
++    else if (now - s_z_down < Z_HOLD_BACK || place == qol::Place::Battle)
+     {
+       // In battle the game has no use for Z: held back until it's released (a tap: the battle
+       // speed) or Start comes (the menu).
+@@ -1649,6 +1730,17 @@ GCPadStatus FilterPad(int pad_num, const GCPadStatus& raw)
+                     1500);
+     return out;
+   }
++  if (qol::s_field_speed_pending)
++  {
++    const int speed = qol::s_field_speed_pending;
++    qol::s_field_speed_pending = 0;
++    lock.unlock();
++    Config::SetBase(Config::SKIES_FIELD_SPEED, speed);
++    Config::Save();
++    OSD::AddMessage(speed <= 1 ? "Field speed: normal" : fmt::format("Field speed: {}x", speed),
++                    1500);
++    return out;
++  }
+   // Save states run as host jobs: the host thread pauses the emulation at a safe point (a load from
+   // in here, the middle of the game's pad read, would pull the CPU state out from under it).
+   const StateAction state_action = s_state_action;
+@@ -1834,8 +1926,12 @@ void Draw(float scale)
+               "Hold Z, then tilt with the C-stick and zoom with L / R. Original keeps the game's "
+               "fixed camera."};
+     case Option::BattleSpeed:
+-      return {"Battle speed", SpeedText(v.battle_speed),
++      return {"Battle speed", SpeedText(v.battle_speed, "Z in battle"),
+               "Plays battles faster. Tap Z during a battle to switch speeds."};
++    case Option::FieldSpeed:
++      return {"Field speed", SpeedText(v.field_speed, "Z+X"),
++              "Plays cutscenes, walking and sailing faster. Hold Z and press X outside battle to "
++              "switch speeds."};
+     case Option::Encounters:
+       return {"Encounters", RateText(v.encounters),
+               "How often random battles happen. Off means none."};

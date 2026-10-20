@@ -10,18 +10,24 @@ TOOLS=$(dirname "$(readlink -f "$0")")  # before any cd
 #         invincible  first battle with [Skies] Invincible: lowest HP of Vyse, MP and Spirit
 #         speed       deck battle (16-deck-battle-ws10): game frames per second (frame counter
 #                     0x803475C0) before and after a Z tap
+#         field       field speed (ws26): STATE (default 10-worldmap-android, flying forward; also
+#                     01-opening-cutscene, 03-valuan-ship-field) at [Skies] FieldSpeed 1-3 set live:
+#                     game frames per second and the emulation speed; then FieldSpeed after a Z tap
+#                     (the game's: unchanged) and after Z+X (the next speed)
 #         ship        Baltor ship battle (17b-ship-battle-baltor-commands, made with ws15) with
 #                     [Skies] Invincible=1 (pass it): qol_ship_live (0x80002BA8, ws17 on), the ship's
 #                     HP and the map through the battle and into a second one; the flag should be 0 on
 #                     load (an older state), set from the first phase, 0 after the results
 #   KEY=VALUE: [Skies] settings for the run, e.g. Exp=400 Gold=400 MagicExp=400 Encounters=0
+#   RUNNER: the runner to start (default the dev build's; the release one is
+#   lib\ModernGekko\build-release\skies-run.exe, which takes only the pinned DOL)
 set -u
 cd "${WIN_ROOT:-/mnt/c/dev/SkiesRecomp}"
 GAME=$1 MODULE=$2 TEST=$3; shift 3
 U=build/user-qoltest A=build/auto-qoltest
 rm -rf "$U" "$A"; mkdir -p "$A/commands"; cp -r build/user-bt "$U"
 { echo; echo "[Skies]"; for kv in "$@"; do echo "${kv%%=*} = ${kv#*=}"; done; } >> "$U/Config/Dolphin.ini"
-cmd.exe /c "lib\\ModernGekko\\build\\moderngekko-run.exe --game $GAME --module $MODULE --user-dir build\\user-qoltest --automation-dir build\\auto-qoltest > build\\auto-qoltest\\run.log 2>&1" &
+cmd.exe /c "${RUNNER:-lib\\ModernGekko\\build\\moderngekko-run.exe} --game $GAME --module $MODULE --user-dir build\\user-qoltest --automation-dir build\\auto-qoltest > build\\auto-qoltest\\run.log 2>&1" &
 D="python3 $TOOLS/drive.py"
 d() { AUTO=$A timeout 120 $D "$@" 2>/dev/null | grep -v "^$"; }
 word() { d peek:$1:4 | awk '{print strtonum("0x"$2$3$4$5)}'; }
@@ -107,5 +113,17 @@ speed)
   d tap:z:3 wait:1 >/dev/null; rate
   d shot:$(pwd)/build/qoltest-speed-a.png wait:0.3 shot:$(pwd)/build/qoltest-speed-b.png >/dev/null
   grep -i "BattleSpeed" "$U/Config/Dolphin.ini" ;;
+field)
+  d load:build/savestates/${STATE:-10-worldmap-android}.sav wait:3 >/dev/null
+  [ "${STATE:-10-worldmap-android}" = 10-worldmap-android ] && d press:main_y=1 >/dev/null
+  rate() { a=$(word 0x803475C0); s1=$(date +%s.%N); d speed:5 > $A/speed.out; b=$(word 0x803475C0); s2=$(date +%s.%N)
+           echo "game frames/s $(echo "($b - $a) / ($s2 - $s1)" | bc -l | cut -c1-5)  mode $(word 0x803475CC)  map $(word 0x80311AC4)  speed word $(d peek:0x80002EB4:4 | awk '{print $2$3$4$5}')  $(tr '\n' ' ' < $A/speed.out)"; }
+  for n in 1 2 3; do
+    d config:Dolphin.Skies.FieldSpeed=$n wait:2 >/dev/null; echo -n "FieldSpeed $n: "; rate
+  done
+  d config:Dolphin.Skies.FieldSpeed=1 release wait:1 tap:z:3 wait:1 >/dev/null
+  echo "after a Z tap: $(grep -i "FieldSpeed" "$U/Config/Dolphin.ini")  speed word $(d peek:0x80002EB4:4 | awk '{print $2$3$4$5}')"
+  d hold:z=1:6 hold:z=1,x=1:6 wait:1 >/dev/null
+  echo "after Z+X: $(grep -i "FieldSpeed" "$U/Config/Dolphin.ini")  speed word $(d peek:0x80002EB4:4 | awk '{print $2$3$4$5}')" ;;
 esac
 d stop >/dev/null; wait

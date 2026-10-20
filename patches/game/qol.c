@@ -1,5 +1,5 @@
 /* Quality-of-life options for Skies of Arcadia Legends (GEAE8P, USA Rev 0): random encounter rate,
- * EXP / gold / magic EXP from battles, and battle speed.
+ * EXP / gold / magic EXP from battles, and battle and field speed.
  *
  * Built into the DOL with widescreen.c by tools/gamepatch.py (spec: widescreen.json). The research:
  * ../SkiesOfArcadiaLegends-Decomp/docs/qol_cheats.md. Every hook takes over a whole call:
@@ -35,6 +35,10 @@
  *             skipped by moving the mark back before fn_801DC420 runs (qol_frame, from ws_frame_end),
  *             not by hooking its call: the game spends much of a frame polling there, and a savestate
  *             made inside patch code returns into whatever a later build put at that address.
+ *             With QOL_SPEED_FIELD (ws26) the same goes for the field (game mode 6: towns, dungeons,
+ *             the world map and the cutscenes, which all run there); the frontend sets it with the
+ *             field speed outside battle and leaves it off in battle, so an earlier build, which
+ *             reads the whole word as the battle speed, only ever sees the battle speed in battle.
  *
  * qol_input sits at a fixed address (cave.ld) and is written by the frontend every poll
  * (VideoCommon/SkiesMenu.cpp); with no frontend its magic stays 0 and the game is unchanged. */
@@ -60,12 +64,16 @@ struct qol_input {
   int exp;           /* percent of the EXP each battle gives */
   int gold;          /* percent of the gold */
   int magic_exp;     /* percent of the magic EXP */
-  int battle_speed;  /* 1 = normal, 2..4 = that many times faster in battle */
+  int battle_speed;  /* 1 = normal, 2..4 = that many times faster in battle (| QOL_SPEED_FIELD) */
   int invincible;    /* party HP / MP / Spirit kept full and no damage, in battle */
   int hold_b;        /* no random battle while controller 1's B is held (was padding until ws25) */
 };
 
 __attribute__((section(".qol_input"), used)) struct qol_input qol_input;
+
+/* In qol_input.battle_speed: the speed (low byte) holds in the field too. */
+#define QOL_SPEED_FIELD 0x100
+#define QOL_SPEED (qol_input.battle_speed & 0xFF)
 
 /* The battle data last scaled (cleared once the game leaves battle), so a battle is scaled once. */
 /* In one struct so they keep the order (and addresses) earlier builds had: the compiler orders
@@ -286,7 +294,9 @@ TRK_CAVE void qol_ship_phase(int phase, int side) {
 }
 
 TRK_CAVE static int qol_fast(void) {
-  return qol_on() && qol_input.battle_speed >= 2 && qol_in_battle();
+  if (!qol_on() || QOL_SPEED < 2)
+    return 0;
+  return qol_in_battle() || ((qol_input.battle_speed & QOL_SPEED_FIELD) && GAME_MODE == 6);
 }
 
 /* Once a frame, from ws_frame_end just before fn_801DC420 (end of frame): out of battle the
@@ -338,8 +348,8 @@ TRK_CAVE int qol_skip_wait(void) {
     return 0;
   }
   qol_speed_phase += 2;
-  if (qol_speed_phase < qol_input.battle_speed)
+  if (qol_speed_phase < QOL_SPEED)
     return 1;
-  qol_speed_phase -= qol_input.battle_speed;
+  qol_speed_phase -= QOL_SPEED;
   return 0;
 }

@@ -1,5 +1,23 @@
 # Handoff: releases (Windows, Linux, macOS, Android)
 
+## Branch `speed` (2026-10-20): field speed, game patch ws26
+
+User request: speed up cutscenes and traversal like the battle speed. Branch `speed` (worktree
+`~/projects/skies-romhack`, off `origin/dev` 87ba4f3), not merged or pushed. **Field speed** (Normal /
+2x / 3x) in the in-game menu, both launchers and `[Skies] FieldSpeed`; hold Z and press X outside
+battle cycles it (a Z tap there is the game's). Game patch **ws26** (`qol.c`: `QOL_SPEED_FIELD`), so
+CI regenerates every module; both release `.dolpatch` files are regenerated. Notes: development-notes
+*QOL* (Field speed), `patches/game/README.md` (ws26), `patches/README.md`
+(`recompcore-field-speed.patch`), decomp `docs/qol_cheats.md` *Field speed*.
+
+- Checked on Windows (`C:\dev\SkiesRomhack`, synced from the worktree; release build, ws26 module
+  `build\modules-llvm-pgo-ws26` with the desktop PGO profile; `tools/qol-test-win.sh ... field` with
+  `RUNNER=lib\ModernGekko\build-release\skies-run.exe`): 2x full speed in states 01, 03, 07, 10; 3x
+  ~2.9x on the world map, steps down to 2x on the ship and in the opening cutscene; Z tap unchanged,
+  Z+X cycles; 13 Z+X during the opening cutscene; a 3x field into a 1x battle; the menu row.
+- Not done: Linux / macOS / Android builds (CI), the Retroid (ask first; the field step-down floors at
+  normal there if 2x is too much), the European game in play, the launchers' rows by eye.
+
 ## On dev after v0.51.0-beta (2026-10-19): macOS, HD texture archives, codegen in parallel
 
 For the next release's notes: macOS (below), HD texture packs whose archives were put into one

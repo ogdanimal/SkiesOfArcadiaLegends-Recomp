@@ -2394,7 +2394,7 @@ index 0000000..f3c3d14
 +void DrawMapping(State& state, const fs::path& user_directory, float scale);
 +}  // namespace moderngekko::launcher_controls
 diff --git a/tools/moderngekko_launcher.cpp b/tools/moderngekko_launcher.cpp
-index 7699c3d..a39c0df 100644
+index 7699c3d..512fd91 100644
 --- a/tools/moderngekko_launcher.cpp
 +++ b/tools/moderngekko_launcher.cpp
 @@ -1,12 +1,24 @@
@@ -2458,7 +2458,7 @@ index 7699c3d..a39c0df 100644
  constexpr std::string_view CONTROLLER_PROFILE_NAME = "WiimoteNew.ini";
  constexpr std::string_view GENERATED_PROFILE_LABEL = "sideways profile";
  #endif
-@@ -74,22 +106,172 @@ struct DialogState
+@@ -74,22 +106,174 @@ struct DialogState
    std::string error;
  };
  
@@ -2600,6 +2600,8 @@ index 7699c3d..a39c0df 100644
 +                                                       {2, "2x (Z in battle)"},
 +                                                       {3, "3x (Z in battle)"},
 +                                                       {4, "4x (Z in battle)"}}};
++constexpr std::array<LauncherChoice, 3> FIELD_SPEED_CHOICES{
++    {{1, "Normal (Z+X)"}, {2, "2x (Z+X)"}, {3, "3x (Z+X)"}}};
 +constexpr std::array<LauncherChoice, 2> HOLD_B_CHOICES{{{0, "Off"}, {1, "No battles while held"}}};
 +constexpr std::array<LauncherChoice, 2> INVINCIBLE_CHOICES{
 +    {{1, "On (L3 / R3)"}, {0, "Off (L3 / R3)"}}};
@@ -2640,7 +2642,7 @@ index 7699c3d..a39c0df 100644
  #ifdef MODERNGEKKO_REQUIRED_REL_SHA256
    if (metadata.rel_sha256 != MODERNGEKKO_REQUIRED_REL_SHA256)
      return "_Main.rel does not match the pinned release";
-@@ -101,6 +283,18 @@ std::string RequiredGameError(const moderngekko::GameMetadata& metadata)
+@@ -101,6 +285,18 @@ std::string RequiredGameError(const moderngekko::GameMetadata& metadata)
    return {};
  }
  
@@ -2659,7 +2661,7 @@ index 7699c3d..a39c0df 100644
  std::vector<ControllerOption> EnumerateControllers()
  {
    std::vector<ControllerOption> result;
-@@ -111,14 +305,31 @@ std::vector<ControllerOption> EnumerateControllers()
+@@ -111,14 +307,31 @@ std::vector<ControllerOption> EnumerateControllers()
    {
      const SDL_JoystickID joystick_id = joystick_ids[i];
      const bool gamepad = SDL_IsGamepad(joystick_id);
@@ -2695,7 +2697,7 @@ index 7699c3d..a39c0df 100644
      option.device = "SDL/" + std::to_string(device_id) + "/" + name;
      result.emplace_back(std::move(option));
    }
-@@ -129,28 +340,28 @@ std::vector<ControllerOption> EnumerateControllers()
+@@ -129,28 +342,28 @@ std::vector<ControllerOption> EnumerateControllers()
  int FindController(const std::vector<ControllerOption>& controllers, std::string_view device)
  {
    const auto found = std::ranges::find(controllers, device, &ControllerOption::device);
@@ -2741,7 +2743,7 @@ index 7699c3d..a39c0df 100644
  }
  
  fs::path DocumentsDirectory()
-@@ -166,6 +377,13 @@ fs::path DocumentsDirectory()
+@@ -166,6 +379,13 @@ fs::path DocumentsDirectory()
  
  fs::path ExecutableDirectory(const char* argv0)
  {
@@ -2755,7 +2757,7 @@ index 7699c3d..a39c0df 100644
    std::error_code ec;
  #if defined(__linux__)
    const fs::path proc_executable = fs::read_symlink("/proc/self/exe", ec);
-@@ -182,26 +400,37 @@ fs::path SiblingExecutable(const fs::path& release_directory, std::string name)
+@@ -182,26 +402,37 @@ fs::path SiblingExecutable(const fs::path& release_directory, std::string name)
  #if defined(_WIN32)
    name += ".exe";
  #endif
@@ -2806,7 +2808,7 @@ index 7699c3d..a39c0df 100644
  }
  
  fs::path DefaultGameFile(const fs::path& user_directory, const fs::path& release_directory)
-@@ -220,10 +449,7 @@ fs::path ReadDefaultGame(const fs::path& user_directory, const fs::path& release
+@@ -220,10 +451,7 @@ fs::path ReadDefaultGame(const fs::path& user_directory, const fs::path& release
    std::getline(file, value);
    if (!value.empty() && value.back() == '\r')
      value.pop_back();
@@ -2818,7 +2820,7 @@ index 7699c3d..a39c0df 100644
  }
  
  bool WriteDefaultGame(const fs::path& user_directory, const fs::path& release_directory,
-@@ -232,7 +458,10 @@ bool WriteDefaultGame(const fs::path& user_directory, const fs::path& release_di
+@@ -232,7 +460,10 @@ bool WriteDefaultGame(const fs::path& user_directory, const fs::path& release_di
    const fs::path destination = DefaultGameFile(user_directory, release_directory);
    std::error_code ec;
    fs::create_directories(destination.parent_path(), ec);
@@ -2830,7 +2832,7 @@ index 7699c3d..a39c0df 100644
    if (!file)
    {
      if (error)
-@@ -246,9 +475,150 @@ bool WriteDefaultGame(const fs::path& user_directory, const fs::path& release_di
+@@ -246,9 +477,150 @@ bool WriteDefaultGame(const fs::path& user_directory, const fs::path& release_di
      stored = relative;
  #endif
    file << stored.string() << '\n';
@@ -2981,7 +2983,7 @@ index 7699c3d..a39c0df 100644
  std::vector<fs::path> FindDiscImages()
  {
    std::vector<fs::path> images;
-@@ -259,7 +629,9 @@ std::vector<fs::path> FindDiscImages()
+@@ -259,7 +631,9 @@ std::vector<fs::path> FindDiscImages()
    fs::recursive_directory_iterator iterator(documents,
                                              fs::directory_options::skip_permission_denied, ec);
    const fs::recursive_directory_iterator end;
@@ -2992,7 +2994,7 @@ index 7699c3d..a39c0df 100644
    {
      if (iterator.depth() > 4)
        iterator.disable_recursion_pending();
-@@ -268,7 +640,7 @@ std::vector<fs::path> FindDiscImages()
+@@ -268,7 +642,7 @@ std::vector<fs::path> FindDiscImages()
        std::string extension = iterator->path().extension().string();
        std::ranges::transform(extension, extension.begin(),
                               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
@@ -3001,7 +3003,7 @@ index 7699c3d..a39c0df 100644
          images.push_back(iterator->path());
      }
      iterator.increment(ec);
-@@ -290,16 +662,14 @@ std::optional<fs::path> PrepareDisc(const fs::path& image, const fs::path& user_
+@@ -290,16 +664,14 @@ std::optional<fs::path> PrepareDisc(const fs::path& image, const fs::path& user_
      return std::nullopt;
    }
    const std::string source_id = source->GetGameID(source->GetGamePartition());
@@ -3022,7 +3024,7 @@ index 7699c3d..a39c0df 100644
      return std::nullopt;
    }
    const fs::path output = user_directory / "Setup" / "SonicRidersTE-2.4.6.1.iso";
-@@ -372,13 +742,13 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+@@ -372,13 +744,13 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
      return fail("Dolphin could not read the game partition filesystem");
  
    std::string disc_id = volume->GetGameID(partition);
@@ -3042,7 +3044,7 @@ index 7699c3d..a39c0df 100644
  #ifdef MODERNGEKKO_PORTABLE_DEFAULT_GAME
    const fs::path games_directory = release_directory;
    const fs::path output = games_directory / "Game";
-@@ -387,28 +757,34 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+@@ -387,28 +759,34 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
    const fs::path output = games_directory / disc_id;
  #endif
    std::error_code ec;
@@ -3092,7 +3094,7 @@ index 7699c3d..a39c0df 100644
    fs::create_directories(staging / "files", ec);
    if (ec)
      return fail("can't create extraction directory: " + ec.message());
-@@ -423,47 +799,57 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+@@ -423,47 +801,57 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
      return fail("Dolphin failed while extracting the disc system data");
    }
  
@@ -3168,7 +3170,7 @@ index 7699c3d..a39c0df 100644
    std::string error;
    if (!WriteDefaultGame(user_directory, release_directory, output, &error))
      return fail(error);
-@@ -472,6 +858,13 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+@@ -472,6 +860,13 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
      std::lock_guard lock(state->mutex);
      state->finished_game = output;
      state->status = "Extraction complete";
@@ -3182,7 +3184,7 @@ index 7699c3d..a39c0df 100644
    }
    state->running = false;
    return true;
-@@ -487,23 +880,92 @@ void SDLCALL FileDialogCallback(void* userdata, const char* const* filelist, int
+@@ -487,23 +882,92 @@ void SDLCALL FileDialogCallback(void* userdata, const char* const* filelist, int
      state->selected = filelist[0];
  }
  
@@ -3280,7 +3282,7 @@ index 7699c3d..a39c0df 100644
    for (int i = 1; i < argc; ++i)
    {
      if (std::string_view(argv[i]) == "-X11" || std::string_view(argv[i]) == "--x11")
-@@ -512,10 +974,92 @@ int main(int argc, char** argv)
+@@ -512,10 +976,92 @@ int main(int argc, char** argv)
        use_wayland = true;
      else if (std::string_view(argv[i]) == "--extract" && i + 1 < argc)
        extract_only = argv[++i];
@@ -3374,7 +3376,7 @@ index 7699c3d..a39c0df 100644
    if (extract_only)
    {
      ExtractionState extraction;
-@@ -529,6 +1073,23 @@ int main(int argc, char** argv)
+@@ -529,6 +1075,23 @@ int main(int argc, char** argv)
        std::cout << extraction.status << ": " << *extraction.finished_game << '\n';
      return success ? 0 : 1;
    }
@@ -3398,7 +3400,7 @@ index 7699c3d..a39c0df 100644
  
    auto config = moderngekko::frontend::LoadConfig(user_directory, true);
    if (!config)
-@@ -546,9 +1107,18 @@ int main(int argc, char** argv)
+@@ -546,9 +1109,18 @@ int main(int argc, char** argv)
    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD))
      return 1;
  
@@ -3419,7 +3421,7 @@ index 7699c3d..a39c0df 100644
                                          SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
    if (!window)
    {
-@@ -578,19 +1148,101 @@ int main(int argc, char** argv)
+@@ -578,19 +1150,101 @@ int main(int argc, char** argv)
    ImGui::GetStyle().FontScaleDpi = scale;
    ImGui_ImplSDL3_InitForSDLRenderer(window, renderer);
    ImGui_ImplSDLRenderer3_Init(renderer);
@@ -3526,7 +3528,7 @@ index 7699c3d..a39c0df 100644
    const auto& resolutions = moderngekko::frontend::SupportedResolutions();
    const auto& graphics_backends =
        moderngekko::frontend::SupportedGraphicsBackends();
-@@ -605,6 +1257,47 @@ int main(int argc, char** argv)
+@@ -605,6 +1259,48 @@ int main(int argc, char** argv)
    int netplay_port = config.netplay_port;
    bool automatic_buffer = config.netplay_buffer == "auto";
    int manual_buffer = automatic_buffer ? 5 : std::stoi(config.netplay_buffer);
@@ -3559,6 +3561,7 @@ index 7699c3d..a39c0df 100644
 +  SettingValue gold = setting({"Dolphin.ini", "Skies", "Gold"}, 100);
 +  SettingValue magic_exp = setting({"Dolphin.ini", "Skies", "MagicExp"}, 100);
 +  SettingValue battle_speed = setting({"Dolphin.ini", "Skies", "BattleSpeed"}, 1);
++  SettingValue field_speed = setting({"Dolphin.ini", "Skies", "FieldSpeed"}, 1);
 +  SettingValue invincible = setting({"Dolphin.ini", "Skies", "Invincible"}, 0);
 +  SettingValue hold_b = setting({"Dolphin.ini", "Skies", "HoldB"}, 0);
 +  SettingValue auto_save = setting({"Dolphin.ini", "Skies", "AutoSave"}, 10);
@@ -3574,7 +3577,7 @@ index 7699c3d..a39c0df 100644
    int resolution_index = 0;
    for (std::size_t i = 0; i < resolutions.size(); ++i)
    {
-@@ -621,17 +1314,151 @@ int main(int argc, char** argv)
+@@ -621,17 +1317,151 @@ int main(int argc, char** argv)
    // StateSaves is Dolphin's own state directory, so states written in-game land
    // here without any extra configuration and show up on the next launch.
    //
@@ -3733,7 +3736,7 @@ index 7699c3d..a39c0df 100644
    std::vector<ControllerOption> controllers = EnumerateControllers();
    bool controller_profile_exists = moderngekko::frontend::ControllerConfigExists(user_directory);
    std::vector<std::string> configured_controllers =
-@@ -640,11 +1467,22 @@ int main(int argc, char** argv)
+@@ -640,11 +1470,22 @@ int main(int argc, char** argv)
        configured_controllers.empty() ? config.controller : configured_controllers.front();
    int controller_index = FindController(controllers, selected_controller);
    std::string controller_status;
@@ -3758,7 +3761,7 @@ index 7699c3d..a39c0df 100644
      {
        std::lock_guard lock(dialog.mutex);
        dialog.error = std::move(message);
-@@ -652,13 +1490,13 @@ int main(int argc, char** argv)
+@@ -652,13 +1493,13 @@ int main(int argc, char** argv)
      }
      std::string error;
      if (!moderngekko::frontend::SaveConfig(user_directory, resolutions[resolution_index].text,
@@ -3774,7 +3777,7 @@ index 7699c3d..a39c0df 100644
      configured_controllers = {selected_controller};
      config.controller = selected_controller;
      config.controllers = configured_controllers;
-@@ -673,7 +1511,28 @@ int main(int argc, char** argv)
+@@ -673,7 +1514,28 @@ int main(int argc, char** argv)
      if (moderngekko::frontend::ControllerConfigExists(user_directory))
      {
        controller_profile_exists = true;
@@ -3803,7 +3806,7 @@ index 7699c3d..a39c0df 100644
        if (configured_controllers.empty())
        {
          std::lock_guard lock(dialog.mutex);
-@@ -686,12 +1545,14 @@ int main(int argc, char** argv)
+@@ -686,12 +1548,14 @@ int main(int argc, char** argv)
        controller_status = "Using existing " + std::string(CONTROLLER_PROFILE_NAME);
        return true;
      }
@@ -3818,7 +3821,7 @@ index 7699c3d..a39c0df 100644
      return select_controller(controller_index);
    };
    const auto refresh_controllers = [&]
-@@ -726,13 +1587,22 @@ int main(int argc, char** argv)
+@@ -726,13 +1590,22 @@ int main(int argc, char** argv)
      Join,
    };
    bool done = false;
@@ -3841,7 +3844,7 @@ index 7699c3d..a39c0df 100644
        ImGui_ImplSDL3_ProcessEvent(&event);
        if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED)
          done = true;
-@@ -744,6 +1614,7 @@ int main(int argc, char** argv)
+@@ -744,6 +1617,7 @@ int main(int argc, char** argv)
      }
      if (controllers_changed)
        refresh_controllers();
@@ -3849,7 +3852,7 @@ index 7699c3d..a39c0df 100644
  
      {
        std::lock_guard lock(dialog.mutex);
-@@ -751,16 +1622,88 @@ int main(int argc, char** argv)
+@@ -751,16 +1625,88 @@ int main(int argc, char** argv)
        {
          selected_image = std::move(dialog.selected);
          dialog.selected.reset();
@@ -3943,7 +3946,7 @@ index 7699c3d..a39c0df 100644
          extraction.finished_game.reset();
          if (ensure_controller())
          {
-@@ -774,18 +1717,79 @@ int main(int argc, char** argv)
+@@ -774,18 +1720,79 @@ int main(int argc, char** argv)
      ImGui_ImplSDL3_NewFrame();
      ImGui::NewFrame();
      const ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -4034,7 +4037,7 @@ index 7699c3d..a39c0df 100644
        if (!launcher_savestates.empty())
        {
          ImGui::TextUnformatted("Start from savestate");
-@@ -820,6 +1824,24 @@ int main(int argc, char** argv)
+@@ -820,6 +1827,24 @@ int main(int argc, char** argv)
          ImGui::TextDisabled("Solo play only.");
          ImGui::Spacing();
        }
@@ -4059,7 +4062,7 @@ index 7699c3d..a39c0df 100644
        if (ImGui::Button("Play", ImVec2(180 * scale, 42 * scale)))
        {
          if (ensure_controller())
-@@ -828,7 +1850,9 @@ int main(int argc, char** argv)
+@@ -828,7 +1853,9 @@ int main(int argc, char** argv)
            done = true;
          }
        }
@@ -4070,7 +4073,7 @@ index 7699c3d..a39c0df 100644
        if (ImGui::Button("Host Netplay", ImVec2(180 * scale, 42 * scale)))
        {
          if (ensure_controller())
-@@ -884,213 +1908,1427 @@ int main(int argc, char** argv)
+@@ -884,213 +1911,1430 @@ int main(int argc, char** argv)
            }
          }
        }
@@ -5562,6 +5565,9 @@ index 7699c3d..a39c0df 100644
 +                            "the game's fixed camera.");
 +                setting_row("Battle speed", "##battle_speed", battle_speed, SPEED_CHOICES,
 +                            "Plays battles faster. Tap Z during a battle to switch speeds.");
++                setting_row("Field speed", "##field_speed", field_speed, FIELD_SPEED_CHOICES,
++                            "Plays cutscenes, walking and sailing faster. Hold Z and press X "
++                            "outside battle to switch speeds.");
 +                setting_row("Encounters", "##encounters", encounters, ENCOUNTER_CHOICES,
 +                            "How often random battles happen. Off means none.");
 +                setting_row("Hold B", "##hold_b", hold_b, HOLD_B_CHOICES,
@@ -5651,7 +5657,7 @@ index 7699c3d..a39c0df 100644
  
      ImGui::Render();
      SDL_SetRenderScale(renderer, io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y);
-@@ -1107,8 +3345,17 @@ int main(int argc, char** argv)
+@@ -1107,8 +3351,17 @@ int main(int argc, char** argv)
    if (launch_mode != LaunchMode::None)
    {
      std::string launch_error;
@@ -5671,7 +5677,7 @@ index 7699c3d..a39c0df 100644
      {
        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Launch failed", launch_error.c_str(), window);
        result = 1;
-@@ -1163,6 +3410,15 @@ int main(int argc, char** argv)
+@@ -1163,6 +3416,15 @@ int main(int argc, char** argv)
            user_directory / "Logs" / MODERNGEKKO_LOG_FILENAME;
        std::error_code log_error;
        std::filesystem::create_directories(log_path.parent_path(), log_error);
@@ -5687,7 +5693,7 @@ index 7699c3d..a39c0df 100644
        SDL_IOStream* log_stream =
            log_error ? nullptr : SDL_IOFromFile(log_path.string().c_str(), "w");
        SDL_Process* process = nullptr;
-@@ -1205,7 +3461,12 @@ int main(int argc, char** argv)
+@@ -1205,7 +3467,12 @@ int main(int argc, char** argv)
          int exit_code = 1;
          const bool waited = SDL_WaitProcess(process, true, &exit_code);
          SDL_DestroyProcess(process);
@@ -5701,7 +5707,7 @@ index 7699c3d..a39c0df 100644
          {
            SDL_ShowWindow(window);
            if (!waited)
-@@ -1263,6 +3524,8 @@ int main(int argc, char** argv)
+@@ -1263,6 +3530,8 @@ int main(int argc, char** argv)
      }
    }
  
@@ -5710,7 +5716,7 @@ index 7699c3d..a39c0df 100644
    ImGui_ImplSDLRenderer3_Shutdown();
    ImGui_ImplSDL3_Shutdown();
    ImGui::DestroyContext();
-@@ -1271,3 +3534,15 @@ int main(int argc, char** argv)
+@@ -1271,3 +3540,15 @@ int main(int argc, char** argv)
    SDL_Quit();
    return result;
  }

@@ -161,6 +161,7 @@ the frontend side is `recompcore-skies-settings.patch` (`VideoCommon/SkiesMenu.c
 | Hold Z + R / L (analog) | towns, dungeons, world map | zoom out / in |
 | Hold Z + C-stick left/right | world map | turn the camera around the ship (eases back behind when let go); in towns it's the game's own turn |
 | Tap Z | battle | battle speed Normal -> 2x -> 3x -> 4x -> Normal (message on screen, saved) |
+| Hold Z, press X | field (game mode 6 outside a ship battle: cutscenes, towns, dungeons, world map) | field speed Normal -> 2x -> 3x -> Normal (message on screen, saved); neither button reaches the game until both are let go |
 | Tap Z | elsewhere | the game's own Z (minimap on foot, Map / To Bridge / Save on the world map), sent on release |
 | L3 or R3 | anywhere | Invincible on / off (message on screen, saved); the `[SkiesHotkeys] Invincible` hotkey, not a GameCube button, so Button mapping can move it or give it a key |
 
@@ -183,6 +184,7 @@ in the decomp's `docs/camera.md`. B + X + Start held for half a second is the ga
 | `Encounters` | percent of the encounter chance: 0, 25, 50, 100, 200, 400 (100) | `SkiesMenu.cpp` -> `qol_input` (0x80002EA0) |
 | `Exp`, `Gold`, `MagicExp` | percent of what battles give: 0, 50, 100, 200, 300, 400 (100) | same |
 | `BattleSpeed` | 1-4 (1) | same |
+| `FieldSpeed` | 1-3 (1) | same (ws26: `QOL_SPEED_FIELD` in the speed word) |
 | `Invincible` | 0 / 1 (0) | same |
 | `AutoSave` | minutes between auto-saves: 0 (off), 5, 10, 15, 30 (10) | `SkiesMenu.cpp` (namespace `autosave`) |
 | `Language` | European disc only: 0 English, 1 German, 2 French, 3 Spanish (0); at the next boot | `SConfig::GetLanguageAdjustedForRegion` (*The European release*) |
@@ -203,7 +205,7 @@ every boot, so a change in game is written back there too. Any key can be set fr
 (controller 1). Since 2026-10-11 (late night, user request) it looks like the launchers' Settings
 windows: a rounded navy window over the dimmed game, **tabs** Saves (Save state, Load state, Auto-save),
 Graphics (Picture, Frame rate, Resolution 1 / 2 / 3 / 4 / 6x, Anti-aliasing = the backend's MSAA modes,
-HD textures (since 2026-10-17; Off with a hint until a pack is imported), V-Sync, Show FPS), Gameplay (Camera, Battle speed, Encounters, EXP, Gold, Magic EXP, Invincible),
+HD textures (since 2026-10-17; Off with a hint until a pack is imported), V-Sync, Show FPS), Gameplay (Camera, Battle speed, Field speed, Encounters, Hold B, EXP, Gold, Magic EXP, Invincible),
 Language (since 2026-10-18; the European disc's four, a second A restarts the game in a new one), Sound (Volume; Music once a Dreamcast disc is imported), Controls
 (Stick dead zone, Rumble, Button mapping since 0.10); each row a label, a value box (the selected one gold-edged
 with arrows) and the launchers' one-line description; a hint line for the selected row. **L / R** (digital,
@@ -327,6 +329,21 @@ and battles are untouched. Checked on Windows and the Retroid: `tools/camera-tes
   not listened to yet). The runtime turns frame
   interpolation off while a battle runs fast, and steps a battle down (to 2x at the lowest) when the
   emulation stays under 95% for 1.5 s.
+- Field speed (ws26, 2026-10-20): the same waits skipped in the field (game mode 6: cutscenes, towns,
+  dungeons, the world map; a ship battle counts as battle), when the frontend sets `QOL_SPEED_FIELD`
+  (0x100) in `qol_input`'s speed word, which it does only outside battle (an earlier DOL takes the word
+  for the battle speed and never sees the flag in a battle). Normal / 2x / 3x, Z+X cycles it (a Z tap
+  in the field is the game's: minimap, world map menu). Measured on Windows (release runner, ws26
+  PGO module, 1x resolution, `tools/qol-test-win.sh ... field`): 2x = 60 game frames a second at
+  1.00x in the opening cutscene (state 01), the Valuan ship (03, 07) and the world map (10); 3x
+  needs the emulated CPU clocked at 2x on the world map (a frame there takes about a retrace, as a
+  ship battle's; 1.5x stayed at 60) and reaches ~88 game frames a second at 0.97x there, while in
+  the ship's corridors and the cutscene it steps down to 2x: the host can't run 90 game frames a
+  second. Hence no 4x. The step-down works as in battle but from 2x (to normal on a device that
+  can't hold 2x) and starts over on every new map (`MAP_ID`), so the world map's limit doesn't stick
+  in towns. A 3x field speed into a 1x battle drops the overclock at the battle's start (checked: the
+  battle runs at 30 game frames a second). Thirteen Z+X presses during the opening cutscene's dialogue
+  left it running (and on the 1x it ended at), and A went on through it.
 - Invincible: party HP, MP and Spirit refilled every battle frame (magic and S-moves cost nothing),
   damage to the party zeroed in the damage function `fn_8002DC14` (13 calls and a handler table entry);
   turning it off leaves the stats as they are. Members already knocked out (HP 0) aren't revived. Turned
@@ -392,7 +409,7 @@ state: Slot 2  Oct 11 18:00" or "Memory card save: file 1  Oct 11 17:30". Start 
 SDL's own environment is case-sensitive, Windows spells it `windir`). **Settings** opens a rounded modal
 window over the dimmed home screen, tabs **Graphics** (Picture, Frame rate, Anti-aliasing, V-Sync),
 **Display** (Screen windowed / fullscreen, Resolution, Show FPS, FPS in title bar, Graphics backend),
-**Gameplay** (Camera, Battle speed, Encounters, EXP, Gold, Magic EXP, Invincible), **Language** (since
+**Gameplay** (Camera, Battle speed, Field speed, Encounters, Hold B, EXP, Gold, Magic EXP, Invincible), **Language** (since
 2026-10-18: English / Deutsch / Français / Español with the European disc, else a line saying the USA disc
 is English only), **Sound** (Volume; Music, Import a Dreamcast disc..., Remove: *Dreamcast music*),
 **Controls** (Controller: picking one moves controller 1 to it and keeps the bindings; a table of
