@@ -1,0 +1,69 @@
+diff --git a/Source/Core/DolphinNoGUI/PlatformWayland.cpp b/Source/Core/DolphinNoGUI/PlatformWayland.cpp
+index f7e1ca2013..55d0ed2339 100644
+--- a/Source/Core/DolphinNoGUI/PlatformWayland.cpp
++++ b/Source/Core/DolphinNoGUI/PlatformWayland.cpp
+@@ -132,9 +132,33 @@ constexpr wl_registry_listener s_registry_listener = {PlatformWayland::RegistryG
+                                                        PlatformWayland::RegistryGlobalRemove};
+ constexpr xdg_wm_base_listener s_wm_base_listener = {PlatformWayland::WmBasePing};
+ constexpr xdg_surface_listener s_surface_listener = {PlatformWayland::SurfaceConfigure};
++// Older Wayland headers (Ubuntu 22.04's, which the Linux release is built with so it runs there)
++// lack the newer events: the listeners stop before them, and the binds ask for no newer version
++// than the listeners cover, so the compositor never sends an event past their end.
++#if defined(XDG_TOPLEVEL_WM_CAPABILITIES_SINCE_VERSION)
++constexpr uint32_t XDG_WM_BASE_MAX_VERSION = 6;
++#elif defined(XDG_TOPLEVEL_CONFIGURE_BOUNDS_SINCE_VERSION)
++constexpr uint32_t XDG_WM_BASE_MAX_VERSION = 4;
++#else
++constexpr uint32_t XDG_WM_BASE_MAX_VERSION = 3;
++#endif
++#if defined(WL_POINTER_AXIS_RELATIVE_DIRECTION_SINCE_VERSION)
++constexpr uint32_t SEAT_MAX_VERSION = 9;
++#elif defined(WL_POINTER_AXIS_VALUE120_SINCE_VERSION)
++constexpr uint32_t SEAT_MAX_VERSION = 8;
++#else
++constexpr uint32_t SEAT_MAX_VERSION = 7;
++#endif
++
+ constexpr xdg_toplevel_listener s_toplevel_listener = {
+     PlatformWayland::ToplevelConfigure, PlatformWayland::ToplevelClose,
+-    PlatformWayland::ToplevelConfigureBounds, PlatformWayland::ToplevelWmCapabilities};
++#ifdef XDG_TOPLEVEL_CONFIGURE_BOUNDS_SINCE_VERSION
++    PlatformWayland::ToplevelConfigureBounds,
++#endif
++#ifdef XDG_TOPLEVEL_WM_CAPABILITIES_SINCE_VERSION
++    PlatformWayland::ToplevelWmCapabilities,
++#endif
++};
+ constexpr wl_seat_listener s_seat_listener = {PlatformWayland::SeatCapabilities,
+                                               PlatformWayland::SeatName};
+ constexpr wl_keyboard_listener s_keyboard_listener = {
+@@ -151,8 +175,12 @@ constexpr wl_pointer_listener s_pointer_listener = {
+     PlatformWayland::PointerAxisSource,
+     PlatformWayland::PointerAxisStop,
+     PlatformWayland::PointerAxisDiscrete,
++#ifdef WL_POINTER_AXIS_VALUE120_SINCE_VERSION
+     PlatformWayland::PointerAxisValue120,
++#endif
++#ifdef WL_POINTER_AXIS_RELATIVE_DIRECTION_SINCE_VERSION
+     PlatformWayland::PointerAxisRelativeDirection,
++#endif
+ };
+ 
+ PlatformWayland::~PlatformWayland()
+@@ -406,13 +434,13 @@ void PlatformWayland::RegistryGlobal(void* data, wl_registry* registry, uint32_t
+   else if (std::strcmp(interface, wl_seat_interface.name) == 0 && !platform->m_seat)
+   {
+     platform->m_seat = static_cast<wl_seat*>(
+-        wl_registry_bind(registry, name, &wl_seat_interface, std::min(version, 9u)));
++        wl_registry_bind(registry, name, &wl_seat_interface, std::min(version, SEAT_MAX_VERSION)));
+     wl_seat_add_listener(platform->m_seat, &s_seat_listener, platform);
+   }
+   else if (std::strcmp(interface, xdg_wm_base_interface.name) == 0)
+   {
+-    platform->m_wm_base = static_cast<xdg_wm_base*>(
+-        wl_registry_bind(registry, name, &xdg_wm_base_interface, std::min(version, 6u)));
++    platform->m_wm_base = static_cast<xdg_wm_base*>(wl_registry_bind(
++        registry, name, &xdg_wm_base_interface, std::min(version, XDG_WM_BASE_MAX_VERSION)));
+   }
+   else if (std::strcmp(interface, zxdg_decoration_manager_v1_interface.name) == 0)
+   {

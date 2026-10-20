@@ -326,7 +326,7 @@ index 0adc855..77d385d 100644
  
  struct RuntimeError
 diff --git a/src/runtime/dolphin_runtime.cpp b/src/runtime/dolphin_runtime.cpp
-index f9b5405..a4fa720 100644
+index f9b5405..c8d5bc9 100644
 --- a/src/runtime/dolphin_runtime.cpp
 +++ b/src/runtime/dolphin_runtime.cpp
 @@ -2,6 +2,7 @@
@@ -423,7 +423,25 @@ index f9b5405..a4fa720 100644
    Config::SetBase(Config::GFX_SHADER_CACHE, true);
    Config::SetBase(Config::GFX_SHADER_COMPILATION_MODE,
                    ShaderCompilationMode::AsynchronousUberShaders);
-@@ -700,11 +740,15 @@ RuntimeCreateResult Runtime::Create(RuntimeConfig config) {
+@@ -674,13 +714,14 @@ RuntimeCreateResult Runtime::Create(RuntimeConfig config) {
+   if (impl->config.headless) {
+     impl->config.audio.backend = BACKEND_NULLSOUND;
+   } else if (impl->config.audio.backend.empty() ||
+-             !std::ranges::contains(audio_backends,
+-                                    impl->config.audio.backend)) {
++             std::ranges::find(audio_backends, impl->config.audio.backend) ==
++                 audio_backends.end()) {
+     constexpr std::array preferred_backends = {
+         BACKEND_CUBEB, BACKEND_PULSEAUDIO, BACKEND_ALSA};
+     const auto preferred =
+         std::ranges::find_if(preferred_backends, [&](const char *backend) {
+-          return std::ranges::contains(audio_backends, backend);
++          return std::ranges::find(audio_backends, backend) !=
++                 audio_backends.end();
+         });
+     impl->config.audio.backend =
+         preferred != preferred_backends.end() ? *preferred : BACKEND_NULLSOUND;
+@@ -700,11 +741,15 @@ RuntimeCreateResult Runtime::Create(RuntimeConfig config) {
      recomp_source = StaticRecompModuleSource::Attached(
          reinterpret_cast<const StaticRecompModuleDesc *>(
              impl->config.module.descriptor));
@@ -444,7 +462,7 @@ index f9b5405..a4fa720 100644
    jit.SetStaticRecompModuleSource(std::move(recomp_source));
  
    s_runtime_active = true;
-@@ -730,6 +774,10 @@ Runtime::~Runtime() {
+@@ -730,6 +775,10 @@ Runtime::~Runtime() {
      m_impl->automation_registered = false;
    }
    m_impl->state_hook = {};
@@ -455,7 +473,7 @@ index f9b5405..a4fa720 100644
    if (m_impl->controllers_initialized)
      UICommon::ShutdownControllers();
    if (m_impl->ui_initialized)
-@@ -823,6 +871,11 @@ RuntimeRunResult Runtime::Run() {
+@@ -823,6 +872,11 @@ RuntimeRunResult Runtime::Run() {
    Core::Shutdown(Core::System::GetInstance());
    m_impl->booted = false;
    m_impl->running = false;
@@ -6496,6 +6514,21 @@ index d6b3569..c9ad09e 100644
    return 0;
  }
  
+diff --git a/tools/netplay_session.cpp b/tools/netplay_session.cpp
+index 7ef27ba..4a0fc0a 100644
+--- a/tools/netplay_session.cpp
++++ b/tools/netplay_session.cpp
+@@ -452,8 +452,8 @@ bool RunLobbyWindow(RuntimeConfig &runtime_config,
+     const std::size_t local_limit =
+         std::min<std::size_t>(4, assigned + 4 - total_assigned);
+     for (const ControllerOption &controller : available) {
+-      bool selected =
+-          std::ranges::contains(options.controllers, controller.device);
++      bool selected = std::ranges::find(options.controllers, controller.device) !=
++                      options.controllers.end();
+       ImGui::BeginDisabled(!selected &&
+                            options.controllers.size() >= local_limit);
+       if (ImGui::Checkbox(controller.label.c_str(), &selected)) {
 diff --git a/tools/port_command_line.hpp b/tools/port_command_line.hpp
 index f2152dc..b59e7e9 100644
 --- a/tools/port_command_line.hpp

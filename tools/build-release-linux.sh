@@ -9,12 +9,12 @@
 # REGIONS="us eu jp" (configure) makes the release take the European and the Japanese disc too ("us eu":
 # the European one); the default is the USA disc alone, and package then needs only the USA module.
 # package: build/SkiesOfArcadiaLegends-VERSION-linux.tar.gz (+ .sha256), one top-level folder.
-# appimage: build/SkiesOfArcadiaLegends-VERSION-linux-x86_64.AppImage (+ .sha256) from the folder
+# appimage: build/SkiesOfArcadiaLegends-VERSION-x86_64.AppImage (+ .sha256) from the folder
 # package made, with the libraries the binaries need from the build machine inside (linuxdeploy;
 # glibc and the graphics drivers stay the player's own, so it needs a glibc as new as the builder's).
 set -euo pipefail
 cd "$(dirname "$0")/.."
-B=lib/ModernGekko/build-release-linux
+B=${BUILD_DIR:-lib/ModernGekko/build-release-linux}
 # Pinned linuxdeploy (its AppImage carries the AppImage output plugin)
 LINUXDEPLOY_URL=https://github.com/linuxdeploy/linuxdeploy/releases/download/1-alpha-20251107-1/linuxdeploy-x86_64.AppImage
 LINUXDEPLOY_SHA256=c20cd71e3a4e3b80c3483cef793cda3f4e990aca14014d23c544ca3ce1270b4d
@@ -85,7 +85,7 @@ appimage)
   VERSION=${2:-v0.9.0}
   P=build/SkiesOfArcadiaLegends-$VERSION-linux
   [ -d "$P" ] || { echo "no $P: run package first" >&2; exit 1; }
-  OUT=build/SkiesOfArcadiaLegends-$VERSION-linux-x86_64.AppImage
+  OUT=build/SkiesOfArcadiaLegends-$VERSION-x86_64.AppImage
   LD=build/tools/linuxdeploy-x86_64.AppImage
   if ! echo "$LINUXDEPLOY_SHA256  $LD" | sha256sum -c --status 2>/dev/null; then
     mkdir -p build/tools

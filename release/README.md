@@ -15,8 +15,8 @@ This is a **beta** (v0.60). Please report what you run into.
   Japanese (the port's own menus stay in English). The import checks the game.
 - As RVZ, ISO, GCM, GCZ, WIA or CISO.
 - **Windows:** 64-bit Windows 10 or 11.
-- **Linux:** 64-bit (x86_64) with glibc 2.38 or newer (Ubuntu 24.04, Fedora 39, Bazzite or
-  later), and a Vulkan or OpenGL driver.
+- **Linux:** 64-bit (x86_64) with glibc 2.35 or newer (Ubuntu 22.04, Debian 12, Fedora 36, SteamOS,
+  Bazzite or later), and a Vulkan or OpenGL driver.
 - **macOS:** macOS 13 or later on an Apple Silicon Mac (M1 or newer).
 - **Android:** a 64-bit (arm64) device with Android 7 or newer. Tested on a Retroid Pocket 5
   (Snapdragon 865), which runs it at full speed at 60 fps. Slower devices may not.

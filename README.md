@@ -16,7 +16,7 @@ Get a build from the **[Releases](../../releases)** page:
 | Platform | File |
 |---|---|
 | Windows | `SkiesOfArcadiaLegends-<version>-windows.zip` |
-| Linux | `SkiesOfArcadiaLegends-<version>-linux-x86_64.AppImage` (or `-linux.tar.gz`) |
+| Linux | `SkiesOfArcadiaLegends-<version>-x86_64.AppImage` (or `-linux.tar.gz`) |
 | macOS (Apple Silicon) | `SkiesOfArcadiaLegends-<version>-macos.zip` |
 | Android | `SkiesOfArcadiaLegends-<version>-android.apk` |
 

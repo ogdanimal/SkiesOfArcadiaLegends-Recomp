@@ -926,6 +926,25 @@ four extra `beff/f2911?f3.mlk`, and no `field/mb*.std`, `list2.txt`, `shop_hrse.
   once saw the window turn green (Metal, windowed, probably at the end of the field-speed run); a
   rerun with a capture every 10 s didn't show it. Not reproduced.
 
+### Linux on older distributions (2026-10-20)
+
+The AppImage catalog (AppImageHub) has a bot that finds GitHub projects publishing AppImages; it
+opened a pull request to list v0.60.0-beta and its test failed: the test runs the AppImage on the
+oldest Ubuntu LTS in standard support (22.04, glibc 2.35), and the release, built on 24.04, needed
+`GLIBC_2.38` / `GLIBCXX_3.4.32` (the binaries and the libraries linuxdeploy bundles from the builder).
+The `linux` job now runs in an `ubuntu:22.04` container with GCC 12 (22.04's newest, Dolphin's
+minimum; CMake 3.22 is enough). Two things didn't build there: `std::ranges::contains` (GCC 13) in
+upstream ModernGekko, now `std::ranges::find`; and Dolphin's `PlatformWayland.cpp` listeners, which
+name events 22.04's Wayland headers don't have (`recompcore-wayland-old-headers.patch`, with the bind
+versions capped to match). Measured on the container build: everything in the AppImage needs glibc
+2.34 and `GLIBCXX_3.4.30` at most, the module glibc 2.4. A stock `ubuntu:22.04` with Xvfb, the usual
+desktop libraries (ALSA, X11, GTK, Mesa) and no network (`unshare -n`) shows the launcher's home
+screen; `--extract` of the Japanese RVZ gives the pinned DOL and the runner boots to the title
+(software GL; a container needs `--shm-size`: the default 64 MB `/dev/shm` gives a bus error, as
+Dolphin's memory arena lives there). The newer build machines are unaffected (both builds compile; WSL
+`--wayland` still runs). The AppImage's name drops `-linux-` (the catalog's naming rule; `release.yml`
+matches `-x86_64.AppImage`). Not yet in a release; after one, `/retest` on the catalog's PR.
+
 ### Romhacks (2026-10-18, branch `romhack`)
 
 User request: play romhacks of the game, the first being **Maeson's rebalance** ("Skies of Arcadia:

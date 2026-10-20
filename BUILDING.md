@@ -157,10 +157,13 @@ in (`USE_SYSTEM_LIBS=OFF`), so the package doesn't need the build machine's dist
 tools/build-release-linux.sh appimage v0.60.0-beta
 ```
 
-then makes `build/SkiesOfArcadiaLegends-v0.60.0-beta-linux-x86_64.AppImage` from that folder, with
+then makes `build/SkiesOfArcadiaLegends-v0.60.0-beta-x86_64.AppImage` from that folder, with
 the remaining libraries from the build machine inside (a pinned linuxdeploy, downloaded to
 `build/tools` and checked against its SHA-256). glibc and the graphics drivers are the player's, so
-the AppImage needs a glibc at least as new as the build machine's (CI: Ubuntu 24.04, glibc 2.39).
+the AppImage needs a glibc at least as new as the build machine's. CI builds it in an Ubuntu 22.04
+container with GCC 12 (the oldest Ubuntu LTS still supported, and Dolphin's minimum compiler), so the
+release runs on glibc 2.35 and later; `BUILD_DIR=...` puts a build in another folder than
+`lib/ModernGekko/build-release-linux`.
 
 ### Windows
 

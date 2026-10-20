@@ -5,7 +5,15 @@
 - **On `origin/dev`:** `4bd2c05`, credits for cleartonic (the Hold B idea), Maeson (the rebalance
   romhack support was made for) and Shoopkid (the HD texture pack the import was tested with) in
   README, release/README and release/CREDITS.md (docs only: no CI run).
-- **Branch `japan`, not pushed** (worktree `~/projects/skies-romhack`, on `4bd2c05`): the Japanese
+- **Linux for older distributions (2026-10-20):** the AppImage catalog's bot (probonopd's
+  discover workflow) opened AppImage/appimage.github.io#10524 for v0.60.0-beta; its test (Ubuntu 22.04)
+  failed on glibc 2.38 and named the `-linux-` in the file name. validate's `linux` job now builds in
+  an `ubuntu:22.04` container with GCC 12 (`recompcore-wayland-old-headers.patch`, `std::ranges::find`
+  for GCC 12 in `moderngekko-local.patch`), the AppImage is `SkiesOfArcadiaLegends-VERSION-x86_64.AppImage`.
+  Checked locally in podman: the 22.04 build's AppImage needs glibc 2.34 / `GLIBCXX_3.4.30` at most;
+  on a stock 22.04 with Xvfb and no network the launcher shows its home screen, and the Japanese disc
+  imports and boots to the title. After the next release: comment `/retest` on #10524.
+- **Branch `japan`: pushed to `dev` `1b33bac`** (validate 39479175431 green, all four Japanese codegen jobs; worktree `~/projects/skies-romhack`, rebased on `4598e1d`): the Japanese
   disc (GEAJ8P, `f55f594`, docs `9c00386`) and a fix for every release since 0.10.0-beta: Import a
   save put European card saves in `GC/EUR`, which the European game (run as NTSC-U) never reads
   (`3f0bc95`). HANDOFF-japan. `main-jp.dol` is in the secrets repo (`83fe499`, 2026-10-20); every package
