@@ -857,8 +857,8 @@ four extra `beff/f2911?f3.mlk`, and no `field/mb*.std`, `list2.txt`, `shop_hrse.
   `-jp` outputs and profiles), `tools/android-ws-build.sh` (`DOL_JP` / `PREGEN_JP`, assets,
   `dol-sha256-jp.txt`), validate.yml (matrix region `jp`, `DOL_SHA256_JP`, `REGIONS: us eu jp`, the
   modules in every package) and release.yml (the publish check knows the Japanese DOLs and wants the
-  `gGEAJ8P_recomp` module in every package). **CI needs `main-jp.dol` (the original Japanese DOL) in
-  the secrets repo before this runs** (the user's step).
+  `gGEAJ8P_recomp` module in every package). CI reads `main-jp.dol` (the original Japanese DOL)
+  from the secrets repo (added 2026-10-20, RecompSecrets `83fe499`).
 - **Checked (WSL, 2026-10-20):** dev runner (`build-egl`, Linux module `build/jp-gen26/module-linux`,
   no PGO): boots to the Japanese opening text, title, new game, rumble prompt, the opening on
   Alfonso's ship, the first battle won and its results screen, 1.00x (llvmpipe dips while loading),

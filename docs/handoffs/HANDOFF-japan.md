@@ -42,9 +42,8 @@ the Dreamcast music. Details: development notes.
 
 ## Open
 
-1. **Secrets repo:** add the original Japanese `main.dol` as `main-jp.dol` (SHA-256 `4aa0f3dc...`)
-   before CI runs this branch; validate.yml now builds the `jp` region and fails without it. (The
-   user's step; it's their private repo.)
+1. **Secrets repo: done** (2026-10-20, the user's go-ahead): `main-jp.dol` (SHA-256 `4aa0f3dc...`)
+   is in RecompSecrets (`83fe499`), so validate builds the `jp` region.
 2. **Windows: done** (development notes: import, Continue, 1.000x on the world map, battle at 2x at
    full speed; `C:\dev\SkiesRomhack\build\rt-jp-win`, module `build\modules-llvm-jp26`, no PGO).
    **macOS:** the Mac session has the disc, the original DOL and the branch (sent privately as the
