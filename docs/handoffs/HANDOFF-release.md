@@ -29,9 +29,12 @@
   region's patch, regenerates only those. Each job clones the secrets but keeps only its DOL and
   profile. Artifacts: `run-codegen-NAME` per run (the build jobs take `run-codegen-TARGET*`), and
   `codegen-NAME-KEY` kept 30 days. The build jobs still wait for all 8.
-- The first run under the new keys regenerates everything (nothing cached matches); its time is the
-  real figure for a full miss. Expected ~15 min. The `ci` environment takes only `dev` and tags, so
-  a workflow change can't be tried on a side branch (a dispatch on branch `ci-codegen` was refused).
+- On dev as `b62186d`. Its run 39357356589 regenerated everything (new keys) and was all green:
+  codegen 02:09-02:28 UTC, 18.5 min for all 8 (Generate code 7 min windows-eu to 17 min android-us;
+  the USA ones are slower, with PGO), the whole run 41 min (the run before: 105 min of codegen, 2 h
+  14 min in all). 8 caches of 250-265 MB on `dev` and the 8 keyed artifacts (30 days).
+- The `ci` environment takes only `dev` and tags, so a workflow change can't be tried on a side
+  branch (a dispatch on branch `ci-codegen` was refused).
 - Considered and not done (the user chose to wait): codegen on a self-hosted runner on the dev PC,
   or uploading locally made codegen for CI to fetch. The repo is public, so GitHub-hosted minutes
   (macOS too) cost nothing.

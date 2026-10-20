@@ -249,11 +249,11 @@ GitHub Actions builds every platform the same way:
 
 - **`validate.yml`** runs on pushes to `dev` (and by hand; `main` only ever moves to a `dev` commit it
   passed), except pushes that change only Markdown, `.gitignore`, `.recomp.json` or the issue
-  templates. Its `codegen` job is the only one that sees the game: it clones the private secrets repo
+  templates. Its `codegen` jobs are the only ones that see the game: it clones the private secrets repo
   (the original `main.dol` and the PGO profiles) with a read-only token, runs `tools/ci-codegen.sh`,
   deletes the inputs, and passes the generated code to the build jobs **encrypted**. It is a matrix:
-  one job per target and region (8, at the same time; one takes about 15 minutes when it has to
-  generate). Each one's encrypted output is kept under a key made of what it depends on (the
+  one job per target and region (8, at the same time; 7 to 17 minutes each when they have to
+  generate, about 20 for all of them). Each one's encrypted output is kept under a key made of what it depends on (the
   region's DOL patch, the target's line in `tools/codegen-targets.txt`, DolRecomp and its patches,
   the table generator, LLVM, the secrets repo's commit, the artifact key): in the Actions cache, and
   as an artifact named by that key for 30 days. A run whose inputs are unchanged reuses it, so a new
@@ -281,6 +281,6 @@ SHA NOTES.md` fast-forwards `main` to that commit, tags it, waits for `release.y
 replaces the generated text with the release notes. The `android-sign` job waits for the owner's
 approval of the `release` environment (Actions page) before it signs. A tag on a commit validated
 within the last 30 days reuses its codegen, so the release takes about 25 minutes; otherwise it
-generates again (about 15 minutes more, all targets at once; before 2026-10-19 the targets ran one
+generates again (about 20 minutes more, all targets at once; before 2026-10-19 the targets ran one
 after another, 1.5 to 2 hours). Release notes say what this release adds or fixes, and link the
 README for everything else.
