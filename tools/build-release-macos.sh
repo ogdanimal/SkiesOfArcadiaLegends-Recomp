@@ -29,6 +29,7 @@ configure)
     -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
     -DDOLRECOMP_ENABLE_LLVM=OFF -DENABLE_VULKAN=OFF -DUSE_BUNDLED_MOLTENVK=OFF \
     -DMACOS_CODE_SIGNING=OFF -DENABLE_QT=OFF \
+    -DUSE_SYSTEM_ZSTD=OFF -DUSE_SYSTEM_LZ4=OFF -DUSE_SYSTEM_LZO=OFF -DUSE_SYSTEM_LIBUSB=OFF \
     "-DCMAKE_C_FLAGS=$MAP" "-DCMAKE_CXX_FLAGS=$MAP" "-DCMAKE_OBJCXX_FLAGS=$MAP" \
     "-DMODERNGEKKO_FRONTEND_NAME=$APP_NAME" -DMODERNGEKKO_LAUNCHER_OUTPUT_NAME=SkiesOfArcadiaLegends \
     -DMODERNGEKKO_RUNNER_OUTPUT_NAME=skies-run "-DMODERNGEKKO_USER_DIRECTORY_NAME=$APP_NAME" \
@@ -53,6 +54,11 @@ package)
   # Programs and game modules in Contents/MacOS; Sys, the patches and the background in
   # Contents/Resources (where Dolphin looks for Sys and the launcher and runner for their data)
   cp $B/SkiesOfArcadiaLegends $B/skies-run "$APP/Contents/MacOS/"
+  # Only system libraries: the GitHub runner has Homebrew's zstd, lz4, lzo and libusb, which
+  # Dolphin's CMake prefers to the bundled ones (USE_SYSTEM_*=OFF above), and a player's Mac doesn't
+  if otool -L $B/SkiesOfArcadiaLegends $B/skies-run | grep -E '/opt/homebrew|/usr/local'; then
+    echo "error: the programs link libraries outside macOS (above)" >&2; exit 1
+  fi
   strip -S -x -o "$APP/Contents/MacOS/gGEAE8P_recomp.dylib" "$MODULE"
   [ -n "$MODULE_EU" ] && strip -S -x -o "$APP/Contents/MacOS/gGEAP8P_recomp.dylib" "$MODULE_EU"
   cp -R $B/Sys "$APP/Contents/Resources/"
