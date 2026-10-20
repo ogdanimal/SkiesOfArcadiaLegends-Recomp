@@ -6542,10 +6542,10 @@ index 0000000..b779d53
 +}  // namespace moderngekko::frontend
 diff --git a/tools/save_import.cpp b/tools/save_import.cpp
 new file mode 100644
-index 0000000..be89c9f
+index 0000000..b1aed3b
 --- /dev/null
 +++ b/tools/save_import.cpp
-@@ -0,0 +1,582 @@
+@@ -0,0 +1,586 @@
 +#include "save_import.hpp"
 +
 +#include <algorithm>
@@ -6666,9 +6666,13 @@ index 0000000..be89c9f
 +  return files.size() == 1 ? text : "files " + text;
 +}
 +
-+// The region folder Dolphin keeps a game's card in, from the disc ID's region letter.
++// The region folder Dolphin keeps a game's card in, from the disc ID's region letter. The European
++// Skies of Arcadia Legends runs as an NTSC-U game (SConfig::SetPathsAndGameMetadata, for 60 Hz), so
++// Dolphin keeps its card in the USA folder.
 +std::string_view RegionFolder(std::string_view game_id)
 +{
++  if (game_id == "GEAP8P")
++    return "USA";
 +  switch (game_id.size() > 3 ? game_id[3] : 'E')
 +  {
 +  case 'J':

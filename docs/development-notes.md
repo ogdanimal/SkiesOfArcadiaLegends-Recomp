@@ -762,7 +762,9 @@ European data.
 - **60 Hz:** the game picks its render mode from the TV format (`VIGetTvFormat`): PAL gives 50 Hz
   (5/6 speed; no PAL compensation in the code), EuRGB60 panics ("Invalid TV Format."). So
   `SConfig::SetPathsAndGameMetadata` sets the region to NTSC-U for GEAP8P (VI preset NTSC, `0xCC` =
-  0). Memory card saves are `8P-GEAP-SA_LEGENDS.*` in the USA card folder.
+  0). Memory card saves are `8P-GEAP-SA_LEGENDS.*` in the USA card folder (Import a save put them in
+  `GC/EUR` until 2026-10-20, where the game never looked: `save_import.cpp`'s `RegionFolder` now
+  says `USA` for GEAP8P).
 - **Frontend addresses:** `VideoCommon/SkiesMenu.cpp` has `RegionAddress{usa, europe}` (converts to
   the running disc's) for its game addresses; two hook-check words differ (qol `0x4819EFD5`,
   autoload `0x4804DC89`). `IsSkies()` accepts both IDs.

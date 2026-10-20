@@ -51,9 +51,11 @@ the Dreamcast music. Details: development notes.
    bonus-file check (`EA_LEGEND_EXTRA #00`-`#02` on the card set or clear event flags 2852, 1096,
    2850), so the flags stay as the save has them. Loading through the title's own Continue menu
    (not the launcher's) does the check.
-6. **Unrelated, noticed:** `tools/save_import.cpp`'s `RegionFolder` puts European ('P') card saves in
-   `GC/EUR`, but the European game runs as NTSC-U, so Dolphin's card folder for it is `GC/USA`
-   (`SetPathsAndGameMetadata`; `CEXIMemoryCard::GetGCIFolderPath` takes `SConfig::m_region`). So
-   Import a save for the European disc most likely writes where the game doesn't look (read in the
-   code, not tried). Not changed here; the Japanese disc is NTSC-J and its saves go to `GC/JAP` on
-   both sides.
+6. **Fixed on the way (European, every release since 0.10.0-beta):** Import a save put European card
+   saves in `GC/EUR` (`save_import.cpp`'s `RegionFolder`, by the disc ID's letter), but the European
+   game runs as NTSC-U, so Dolphin reads its card from `GC/USA` (`CEXIMemoryCard::GetGCIFolderPath`
+   takes `SConfig::m_region`). Reproduced in the Linux release copy `build/rt-eu`: file 3 imported to
+   `GC/EUR`, Continue's auto-load failed (`load_request` status 3); with `GEAP8P` -> `USA` the import
+   lands in `GC/USA` and the same Continue loads Pirate Isle (status 2). Separate commit. Saves a
+   European player imported before stay in `GC/EUR` unused: importing them again puts them in place
+   (worth a line in the release notes). The Japanese disc is NTSC-J: `GC/JAP` on both sides.
