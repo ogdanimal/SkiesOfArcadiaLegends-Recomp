@@ -74,7 +74,7 @@ jobs:
     needs: guard
     permissions:
       contents: read
-      actions: read   # validate's codegen job reuses the codegen of the validated commit
+      actions: read   # validate's codegen jobs reuse the codegen of the validated commit
     uses: ./.github/workflows/validate.yml
     with:
       release: true

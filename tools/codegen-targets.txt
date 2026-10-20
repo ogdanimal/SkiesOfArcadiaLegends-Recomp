@@ -1,0 +1,12 @@
+# The codegen targets (tools/ci-codegen.sh), one per line: NAME PROFILE CPU TRIPLE [DOLRECOMP ARGS...]
+#   PROFILE  the PGO profile in the secrets' pgo/ (PROFILE.profdata; PROFILE-eu.profdata for the
+#            European game); missing: that build has no PGO
+#   CPU      DOLRECOMP_LLVM_CPU, or - for LLVM's default
+#   TRIPLE   DOLRECOMP_LLVM_TARGET
+# CI generates and caches each target and region on its own (validate.yml's codegen matrix, which
+# lists the names too), under a key with the target's line: a line added or changed here
+# regenerates only that target.
+windows  windows  -           x86_64-pc-windows-msvc
+linux    windows  -           x86_64-pc-linux-gnu
+android  android  cortex-a77  aarch64-unknown-linux-android24  --targets=aarch64
+macos    macos    apple-m1    arm64-apple-macosx13.0           --targets=aarch64

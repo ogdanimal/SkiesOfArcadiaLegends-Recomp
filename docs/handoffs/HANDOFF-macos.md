@@ -22,7 +22,8 @@ Developer ID signing / notarization, and a macOS PGO profile (*Open* below).
 - Graphics: **Metal** by default, OpenGL as the fallback (`DEFAULT_GRAPHICS_BACKEND`); no Vulkan
   (MoltenVK needs the full Xcode). Audio: Cubeb.
 - Codegen: `TARGETS=macos tools/ci-codegen.sh` → `DOLRECOMP_LLVM_TARGET=arm64-apple-macosx13.0`,
-  `DOLRECOMP_LLVM_CPU=apple-m1`, `--targets=aarch64`; no PGO (no `pgo/macos.profdata` yet).
+  `DOLRECOMP_LLVM_CPU=apple-m1`, `--targets=aarch64` (the `macos` line of `tools/codegen-targets.txt`,
+  since 2026-10-19); no PGO (no `pgo/macos.profdata` yet).
   Modules: `tools/module-macos.sh`.
 
 ## Checked (2026-10-18)
@@ -81,9 +82,10 @@ visible.
 3. ~~**Input Monitoring**~~ not needed since 2026-10-19 (item 1); README's tips still say where to allow it.
 4. **Launcher by hand**: Select Disc / Change Disc, Settings tabs, Controls remapping, the data folder
    move (SDL's folder picker), Continue from a card save — the user started the game from it once.
-5. **Release**: CI builds it since 2026-10-19 (validate.yml `macos` job on `macos-15`: codegen makes
-   `codegen/macos{,-eu}` on Linux, the job links the modules and packages the app; release.yml ships
-   the zip and checks it like the other packages). No Developer ID signing or notarization (backlog
+5. **Release**: CI builds it since 2026-10-19 (validate.yml `macos` job on `macos-15` with Xcode 26
+   selected, `a8d0007`: 16.4's libc++ has no `std::jthread`; the codegen matrix's `macos us` /
+   `macos eu` jobs make `codegen/macos{,-eu}` on Linux, the job links the modules and packages the
+   app; release.yml ships the zip and checks it like the other packages). No Developer ID signing or notarization (backlog
    *macOS release*). PGO profile for macOS not trained (`--profile-generate` run on the Mac, like
    Android's device run; trying `pgo/android.profdata`, the same aarch64 code, is a cheap first step).
 7. **Two speed bugs found by the 2026-10-19 benchmark (NOTES *macOS*), fixed in `recompcore-macos.patch`

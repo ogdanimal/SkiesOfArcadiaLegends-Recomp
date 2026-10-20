@@ -15,6 +15,27 @@
 - The app is signed ad hoc, not notarized: players allow it once (README). Developer ID signing is in
   the backlog (*macOS release*).
 
+## CI since v0.51.0-beta: codegen per target and region (2026-10-19)
+
+- With macOS (above), codegen was 8 DolRecomp runs in one job, one after another; each takes ~12-15 min on the 4-core runner (4 min
+  locally), so a cache miss held every build up for 1.5-2 hours (earlier misses: 52, 73, 90, 90 min).
+  `04bc86d`'s run 39341292040 was such a miss (codegen 105 min): it changed `tools/ci-codegen.sh`, a
+  cache input. Its `macos` job failed (macos-15's Xcode 16.4 libc++ has no `std::jthread`); `a8d0007`
+  selects Xcode 26, and run 39354677233 was all green (codegen cached, 1 min).
+- Now: `codegen` is a matrix, one job per target and region
+  (8 at once, `fail-fast: false`). The targets' settings moved from the script to
+  `tools/codegen-targets.txt` (NAME PROFILE CPU TRIPLE ARGS); each job's cache key has its target's
+  line (spacing evened out) and its region's DOL patch only, so a new or changed target, or one
+  region's patch, regenerates only those. Each job clones the secrets but keeps only its DOL and
+  profile. Artifacts: `run-codegen-NAME` per run (the build jobs take `run-codegen-TARGET*`), and
+  `codegen-NAME-KEY` kept 30 days. The build jobs still wait for all 8.
+- The first run under the new keys regenerates everything (nothing cached matches); its time is the
+  real figure for a full miss. Expected ~15 min. The `ci` environment takes only `dev` and tags, so
+  a workflow change can't be tried on a side branch (a dispatch on branch `ci-codegen` was refused).
+- Considered and not done (the user chose to wait): codegen on a self-hosted runner on the dev PC,
+  or uploading locally made codegen for CI to fetch. The repo is public, so GitHub-hosted minutes
+  (macOS too) cost nothing.
+
 ## Released (2026-10-19 UTC): v0.51.0-beta
 
 **v0.51.0-beta is the current release** (prerelease, the user's version number; tag on `992ae4f`,

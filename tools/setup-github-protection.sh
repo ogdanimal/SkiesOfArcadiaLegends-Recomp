@@ -19,7 +19,7 @@
 #                           keyed on, the artifact key the next step replaces)
 # Then: tools/set-release-secrets.sh --environments (moves the secrets into the environments and
 # deletes the repo-level copies), then the environment: lines in validate.yml: `environment: ci` on
-# codegen, windows, linux and android-module (the jobs that read secrets; android runs Gradle and gets
+# codegen, windows, linux, macos and android-module (the jobs that read secrets; android runs Gradle and gets
 # none), `environment: release` on android-sign.
 set -euo pipefail
 REPO=${1:?usage: tools/setup-github-protection.sh OWNER/REPO}

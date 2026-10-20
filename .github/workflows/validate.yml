@@ -6,13 +6,15 @@
 # under the tag's version, Linux the tar.gz, macOS the app zip, and Android builds a SIGNED,
 # minified release APK.
 #
-# NO GAME FILES LEAVE THE CODEGEN JOB. The game's main.dol (and the PGO profiles, which are
-# game-derived) live in a private secrets repo, cloned with a read-only token in the codegen job
-# only and deleted right after. tools/ci-codegen.sh patches the DOL, runs DolRecomp for both
-# targets (x86_64 Windows and Linux, aarch64 Android and macOS), precomputes each module's tables (so the build jobs never need the DOL:
-# -DMODULE_TABLES_INC) and refuses to finish if a DOL ended up in its output. The generated code is
-# game-derived too, so it travels between jobs encrypted (SOAL_ARTIFACT_KEY): for one day within a
-# run, and for 30 days under its cache key so a release tag reuses what validate made for its commit.
+# NO GAME FILES LEAVE THE CODEGEN JOBS. The game's main.dol (and the PGO profiles, which are
+# game-derived) live in a private secrets repo, cloned with a read-only token in the codegen jobs
+# only (each takes its own DOL and profile) and deleted right after. tools/ci-codegen.sh patches the DOL, runs DolRecomp for a target
+# (x86_64 Windows and Linux, aarch64 Android and macOS: tools/codegen-targets.txt), precomputes each
+# module's tables (so the build jobs never need the DOL: -DMODULE_TABLES_INC) and refuses to finish
+# if a DOL ended up in its output; the codegen matrix runs it for each target and region at once.
+# The generated code is game-derived too, so it travels between jobs encrypted (SOAL_ARTIFACT_KEY):
+# for one day within a run, and for 30 days under its cache key so a release tag reuses what
+# validate made for its commit.
 #
 # Required secrets:
 #   SOAL_SECRETS_REPO_WITH_PAT -> https://x-access-token:<PAT>@github.com/<owner>/<secrets repo>.git
@@ -72,13 +74,26 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------------
+  # One job per target and region, all at once (one DolRecomp run takes ~12-15 minutes on the
+  # runner; all 8 in one job took ~1.5-2 hours). The build jobs wait for all of them.
   codegen:
-    name: codegen
+    name: codegen ${{ matrix.target }} ${{ matrix.region }}
     environment: ci
     runs-on: ubuntu-26.04  # LLVM 20.1.8 in its own archive
     permissions:
       contents: read
       actions: read   # earlier runs' codegen artifacts
+    strategy:
+      fail-fast: false  # the others still finish and are cached for the rerun
+      matrix:
+        target: [windows, linux, android, macos]  # tools/codegen-targets.txt
+        region: [us, eu]                          # env.REGIONS
+    env:
+      # The output's name (codegen/NAME/generated) and the region's DOL patch
+      NAME: ${{ matrix.target }}${{ matrix.region == 'eu' && '-eu' || '' }}
+      DOLPATCH: release/skies-widescreen${{ matrix.region == 'eu' && '-eu' || '' }}.dolpatch
+      TARGET: ${{ matrix.target }}
+      REGION: ${{ matrix.region }}
     steps:
       - name: Checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -95,10 +110,12 @@ jobs:
       - name: Apply patches
         run: tools/apply-patches.sh
 
-      # Codegen takes ~2 hours, and most changes (the frontend, the launchers, the Android app) don't
-      # touch it. The ENCRYPTED artifact is cached under a key made of everything the generated code
-      # depends on: the DOL patch, DolRecomp (pin + patches), the table generator, LLVM, the codegen
-      # script, the secrets repo's commit (DOL, profiles) and which artifact key encrypted it.
+      # Most changes (the frontend, the launchers, the Android app) don't touch the generated code.
+      # Each target and region's ENCRYPTED output is cached under a key made of everything it
+      # depends on: the region's DOL patch, the target's line in tools/codegen-targets.txt,
+      # DolRecomp (pin + patches), the table generator, LLVM, the codegen script, the secrets repo's
+      # commit (DOLs, profiles) and which artifact key encrypted it. So a new or changed target, or
+      # one region's DOL patch, regenerates only those.
       - name: Codegen cache key
         id: key
         env:
@@ -117,10 +134,15 @@ jobs:
           # The repository files the output depends on: tools/ci-codegen.sh lists them (CACHE_INPUTS)
           FILES=$(sed -n 's/^# CACHE_INPUTS: //p' tools/ci-codegen.sh)
           test -n "$FILES" || { echo "::error::tools/ci-codegen.sh has no CACHE_INPUTS line"; exit 1; }
-          KEY=$( { echo "$INPUTS" "$LLVM_APT_VERSION" "$REGIONS"; git -C "$D" rev-parse HEAD:DolRecomp
+          [[ " $REGIONS " == *" $REGION "* ]] || { echo "::error::region $REGION isn't in REGIONS ($REGIONS)"; exit 1; }
+          # The target's line, its spacing evened out (an aligned column isn't a change)
+          LINE=$(grep -E "^$TARGET[[:space:]]" tools/codegen-targets.txt | tr -s ' \t' ' ')
+          test -n "$LINE" || { echo "::error::no $TARGET in tools/codegen-targets.txt"; exit 1; }
+          KEY=$( { echo "$INPUTS" "$LLVM_APT_VERSION" "$REGION"; echo "$LINE"
+                   git -C "$D" rev-parse HEAD:DolRecomp
                    printf '%s' "$SOAL_ARTIFACT_KEY" | sha256sum
-                   sha256sum $FILES; } | sha256sum | cut -c1-32)
-          echo "key=codegen-$KEY" >> "$GITHUB_OUTPUT"
+                   sha256sum $FILES "$DOLPATCH"; } | sha256sum | cut -c1-32)
+          echo "key=codegen-$NAME-$KEY" >> "$GITHUB_OUTPUT"
 
       - name: Restore codegen
         id: cached
@@ -130,7 +152,7 @@ jobs:
           key: ${{ steps.key.outputs.key }}
 
       # Caches belong to one branch or tag, so a release tag never saw the codegen dev's run made
-      # for the same commit and generated it again (~55 min). Artifacts belong to none: each key's
+      # for the same commit and generated it again. Artifacts belong to none: each key's
       # codegen is also kept as an artifact named by the key (30 days), and a cache miss takes it
       # from there. It only decrypts with SOAL_ARTIFACT_KEY (its digest is in the key), so one that
       # does was made by this repo's workflows.
@@ -194,20 +216,24 @@ jobs:
           GIT_TERMINAL_PROMPT=0 GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
             GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $AUTH" \
             git clone -q --depth 1 "https://${REST#*@}" "$RUNNER_TEMP/s"
+          # Only this job's DOL and profile
           mkdir -p "$RUNNER_TEMP/secrets/pgo"
-          cp "$RUNNER_TEMP/s/main.dol" "$RUNNER_TEMP/s/main-eu.dol" "$RUNNER_TEMP/secrets/"
-          cp "$RUNNER_TEMP/s/pgo/windows.profdata" "$RUNNER_TEMP/s/pgo/android.profdata" "$RUNNER_TEMP/secrets/pgo/"
-          # European and macOS profiles are optional: without one that build has no PGO
-          for f in windows-eu android-eu macos macos-eu; do
-            if [ -f "$RUNNER_TEMP/s/pgo/$f.profdata" ]; then cp "$RUNNER_TEMP/s/pgo/$f.profdata" "$RUNNER_TEMP/secrets/pgo/"; fi
-          done
+          if [ "$REGION" = eu ]; then DOL=main-eu.dol SUM=$DOL_SHA256_EU SUFFIX=-eu; else DOL=main.dol SUM=$DOL_SHA256 SUFFIX=; fi
+          cp "$RUNNER_TEMP/s/$DOL" "$RUNNER_TEMP/secrets/"
+          PROFILE=pgo/$(grep -E "^$TARGET[[:space:]]" tools/codegen-targets.txt | awk '{print $2}')$SUFFIX.profdata
+          # The USA Windows and Android profiles must be there; the others are optional (without one
+          # that build has no PGO)
+          case "$PROFILE" in
+            pgo/windows.profdata|pgo/android.profdata)
+              test -f "$RUNNER_TEMP/s/$PROFILE" || { echo "::error::the secrets repo has no $PROFILE"; exit 1; } ;;
+          esac
+          if [ -f "$RUNNER_TEMP/s/$PROFILE" ]; then cp "$RUNNER_TEMP/s/$PROFILE" "$RUNNER_TEMP/secrets/pgo/"; fi
           rm -rf "$RUNNER_TEMP/s"
-          echo "$DOL_SHA256  $RUNNER_TEMP/secrets/main.dol" | sha256sum -c --quiet -
-          echo "$DOL_SHA256_EU  $RUNNER_TEMP/secrets/main-eu.dol" | sha256sum -c --quiet -
+          echo "$SUM  $RUNNER_TEMP/secrets/$DOL" | sha256sum -c --quiet -
 
       - name: Generate code
         if: steps.cached.outputs.cache-hit != 'true' && steps.reused.outputs.found != 'true'
-        run: DOLRECOMP=build/dolrecomp/dolrecomp tools/ci-codegen.sh "$RUNNER_TEMP/secrets" codegen
+        run: DOLRECOMP=build/dolrecomp/dolrecomp TARGETS=$TARGET REGIONS=$REGION tools/ci-codegen.sh "$RUNNER_TEMP/secrets" codegen
 
       - name: Delete the private inputs
         if: always()
@@ -220,10 +246,7 @@ jobs:
           SOAL_ARTIFACT_KEY: ${{ secrets.SOAL_ARTIFACT_KEY }}
         run: |
           test -n "$SOAL_ARTIFACT_KEY" || { echo "::error::SOAL_ARTIFACT_KEY is not set; refusing to upload game code in the clear."; exit 1; }
-          tar czf - codegen/windows/generated codegen/linux/generated codegen/android/generated \
-              codegen/macos/generated \
-              codegen/windows-eu/generated codegen/linux-eu/generated codegen/android-eu/generated \
-              codegen/macos-eu/generated \
+          tar czf - "codegen/$NAME/generated" \
             | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass env:SOAL_ARTIFACT_KEY -out codegen.tar.gz.enc
 
       - name: Save codegen
@@ -233,10 +256,11 @@ jobs:
           path: codegen.tar.gz.enc
           key: ${{ steps.key.outputs.key }}
 
+      # run-codegen-NAME: the build jobs take theirs by the pattern run-codegen-TARGET*
       - name: Upload codegen
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: codegen
+          name: run-codegen-${{ env.NAME }}
           path: codegen.tar.gz.enc
           if-no-files-found: error
           retention-days: 1
@@ -280,15 +304,17 @@ jobs:
       - name: Download codegen
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: codegen
+          pattern: run-codegen-windows*  # the USA and European game
 
       - name: Decrypt codegen
         shell: bash
         env:
           SOAL_ARTIFACT_KEY: ${{ secrets.SOAL_ARTIFACT_KEY }}
         run: |
-          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:SOAL_ARTIFACT_KEY -in codegen.tar.gz.enc | tar xzf -
-          rm codegen.tar.gz.enc
+          for f in run-codegen-*/codegen.tar.gz.enc; do
+            openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:SOAL_ARTIFACT_KEY -in "$f" | tar xzf -
+          done
+          rm -rf run-codegen-*
 
       # Not cached: the download, checksum and extract take under a minute, and saving the
       # extracted tree to the cache took three (2026-10-17 run)
@@ -354,15 +380,17 @@ jobs:
       - name: Download codegen
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: codegen
+          pattern: run-codegen-linux*  # the USA and European game
 
       - name: Decrypt codegen
         shell: bash  # -o pipefail
         env:
           SOAL_ARTIFACT_KEY: ${{ secrets.SOAL_ARTIFACT_KEY }}
         run: |
-          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:SOAL_ARTIFACT_KEY -in codegen.tar.gz.enc | tar xzf -
-          rm codegen.tar.gz.enc
+          for f in run-codegen-*/codegen.tar.gz.enc; do
+            openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:SOAL_ARTIFACT_KEY -in "$f" | tar xzf -
+          done
+          rm -rf run-codegen-*
 
       - name: Install dependencies
         run: |
@@ -421,19 +449,20 @@ jobs:
       - name: Download codegen
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: codegen
+          pattern: run-codegen-macos*  # the USA and European game
 
       # Homebrew's OpenSSL 3 (on the runner image), not the system LibreSSL: the same enc as the
-      # codegen job's
+      # codegen jobs
       - name: Decrypt codegen
         shell: bash  # -o pipefail
         env:
           SOAL_ARTIFACT_KEY: ${{ secrets.SOAL_ARTIFACT_KEY }}
         run: |
           OPENSSL="$(brew --prefix openssl@3)/bin/openssl"
-          "$OPENSSL" enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:SOAL_ARTIFACT_KEY -in codegen.tar.gz.enc \
-            | tar xzf - codegen/macos/generated codegen/macos-eu/generated
-          rm codegen.tar.gz.enc
+          for f in run-codegen-*/codegen.tar.gz.enc; do
+            "$OPENSSL" enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:SOAL_ARTIFACT_KEY -in "$f" | tar xzf -
+          done
+          rm -rf run-codegen-*
 
       - name: Install Ninja
         run: brew install ninja
@@ -494,15 +523,17 @@ jobs:
       - name: Download codegen
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: codegen
+          pattern: run-codegen-android*  # the USA and European game
 
       - name: Decrypt codegen
         shell: bash  # -o pipefail
         env:
           SOAL_ARTIFACT_KEY: ${{ secrets.SOAL_ARTIFACT_KEY }}
         run: |
-          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:SOAL_ARTIFACT_KEY -in codegen.tar.gz.enc | tar xzf -
-          rm codegen.tar.gz.enc
+          for f in run-codegen-*/codegen.tar.gz.enc; do
+            openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:SOAL_ARTIFACT_KEY -in "$f" | tar xzf -
+          done
+          rm -rf run-codegen-*
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4

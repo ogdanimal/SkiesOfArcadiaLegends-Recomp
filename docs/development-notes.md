@@ -756,7 +756,9 @@ European data.
   USA alone; `REGIONS` sets it), into `windows-eu/` etc., without PGO until there are European
   profiles (`pgo/*-eu.profdata`; on Android 60 fps likely needs one, trained on the device). The
   secrets repo has `main-eu.dol` since 2026-10-17 and `validate.yml` sets `REGIONS: us eu`, so every
-  package carries both modules (`2436886`); the publish check knows both DOL hashes.
+  package carries both modules (`2436886`); the publish check knows both DOL hashes. Since 2026-10-19
+  CI runs it once per target and region (`TARGETS` / `REGIONS`), each its own job and cache key,
+  with the region's DOL patch only (BUILDING *CI and releases*).
 - **Shipped** in v0.10.0-beta (2026-10-17, `61ac70e`).
 
 ### Romhacks (2026-10-18, branch `romhack`)
@@ -2246,7 +2248,8 @@ rights: BUILDING *macOS*.
   events (`ciface::Quartz::KeyEvent`, released on focus loss); with it, the HID state as before.
 - **Quitting** from the Dock goes through `applicationShouldTerminate:` (stop, cancel), not
   `terminate:` → `exit()`.
-- **CI (2026-10-19):** validate.yml's `macos` job (`macos-15`) links both modules from the codegen job's
+- **CI (2026-10-19):** validate.yml's `macos` job (`macos-15`, Xcode 26 selected: 16.4's libc++
+  has no `std::jthread`) links both modules from the `macos us` / `macos eu` codegen jobs'
   arm64 Mach-O output and packages the app zip; release.yml ships it with the other packages and
   checks it the same way (no game files; both `.dylib` modules by name). The dev build of `6d54f6f`
   (game patch ws25), made the same way on the Mac, loads the standard states and ran 2.93 / 4.42 /

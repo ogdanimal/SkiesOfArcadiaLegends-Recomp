@@ -101,11 +101,14 @@ python3 -I tools/applydolpatch.py /path/to/european/main.dol release/skies-wides
 
 `tools/ci-codegen.sh` is the release recipe: from a folder holding `main.dol` (the USA original),
 `main-eu.dol` (the European original; without it, the USA game alone) and the PGO profiles
-`pgo/windows.profdata` (desktop, used for both x86_64 targets) and `pgo/android.profdata`, it patches
-each DOL, runs DolRecomp for each target and precomputes each module's tables, so the module builds
-below never need the DOL. The European game goes to `windows-eu/`, `linux-eu/` and `android-eu/`, and
-is built without PGO unless `pgo/windows-eu.profdata` / `pgo/android-eu.profdata` exist (the
-profiles are keyed by code addresses, which differ between the two games):
+`pgo/windows.profdata` (desktop, used for both x86_64 targets), `pgo/android.profdata` and optionally
+`pgo/macos.profdata`, it patches each DOL, runs DolRecomp for each target in
+`tools/codegen-targets.txt` (Windows, Linux, Android, macOS; one line each: the LLVM triple, CPU and
+profile) and precomputes each module's tables, so the module builds below never need the DOL. The
+USA game goes to `windows/`, `linux/`, `android/` and `macos/`, the European one to `windows-eu/` and
+so on, built without PGO unless `pgo/windows-eu.profdata` / `pgo/android-eu.profdata` /
+`pgo/macos-eu.profdata` exist (the profiles are keyed by code addresses, which differ between the two
+games). A target without its profile is built without PGO:
 
 ```sh
 cmake -S lib/ModernGekko/vendor/dolphin/DolRecomp -B build/dolrecomp -G Ninja \
@@ -117,7 +120,9 @@ DOLRECOMP=build/dolrecomp/dolrecomp TARGETS="linux" tools/ci-codegen.sh SECRETS_
 On macOS, configure DolRecomp with `-DLLVM_DIR=/path/to/LLVM-20.1.8-macOS-ARM64/lib/cmake/llvm
 -DCMAKE_PREFIX_PATH=$PWD/build/zstd-install` and run the codegen with `TARGETS="macos"`.
 
-`TARGETS` takes any of `windows linux android macos` (default: all four), `REGIONS` `us` and / or `eu`. The profiles are trained with
+`TARGETS` takes any of the targets in `tools/codegen-targets.txt` (`windows linux android macos`, the
+default: all four), `REGIONS` `us` and / or `eu`. That file has each target's LLVM triple, CPU and
+PGO profile. The profiles are trained with
 `tools/pgo-wsl.sh` (desktop) and on the device (Android); see
 [development notes, *Performance*](docs/development-notes.md#performance).
 
@@ -189,10 +194,11 @@ This makes `build/SkiesOfArcadiaLegends-VERSION-macos.zip`: `Skies of Arcadia Le
 launcher, `skies-run` and both modules in `Contents/MacOS`; `Sys`, the DOL patches and the launcher
 background in `Contents/Resources`) and the documents. The app is signed ad hoc (Apple Silicon runs
 nothing unsigned), not with a Developer ID, so Gatekeeper asks before the first start (see the
-[README](README.md#getting-started)). The macOS codegen is built without PGO: the desktop profile
-was trained on x86_64 and the Android one on Android's target. `REGIONS` works as on Linux. CI runs
-these steps in validate.yml's `macos` job (a `macos-15` runner, Homebrew's Ninja), from the codegen
-job's `codegen/macos{,-eu}`.
+[README](README.md#getting-started)). The macOS codegen is built without PGO until there is a
+`pgo/macos.profdata` (none trained yet: the desktop profile was trained on x86_64 and the Android one
+on Android's target). `REGIONS` works as on Linux. CI runs these steps in validate.yml's `macos` job
+(a `macos-15` runner with Xcode 26 selected, Homebrew's Ninja), from the `macos us` / `macos eu`
+codegen jobs' `codegen/macos{,-eu}`.
 
 ### Android
 
@@ -235,7 +241,7 @@ helpers in `tools/`:
 | [`docs/development-notes.md`](docs/development-notes.md) | how it all works, measurements, known issues; *The player build* lists every control and setting |
 | [`patches/README.md`](patches/README.md) | the patches to ModernGekko, RecompCore and DolRecomp |
 | [`patches/game/README.md`](patches/game/README.md) | the game patch built into the DOL (widescreen, camera, options) |
-| [`docs/handoffs/`](docs/handoffs/) | status and history per area: release, code review, settings, desktop, Android, input, the European disc and Dreamcast music, HD textures |
+| [`docs/handoffs/`](docs/handoffs/) | status and history per area: release, code review, settings, desktop, Android, macOS, input, the European disc and Dreamcast music, HD textures |
 
 ## 5. CI and releases
 
@@ -245,15 +251,19 @@ GitHub Actions builds every platform the same way:
   passed), except pushes that change only Markdown, `.gitignore`, `.recomp.json` or the issue
   templates. Its `codegen` job is the only one that sees the game: it clones the private secrets repo
   (the original `main.dol` and the PGO profiles) with a read-only token, runs `tools/ci-codegen.sh`,
-  deletes the inputs, and passes the generated code to the build jobs **encrypted**. Codegen takes
-  about an hour, so its encrypted output is kept under a key made of what it depends on (the DOL
-  patch, DolRecomp and its patches, the table generator, LLVM, the secrets repo's commit, the artifact
-  key): in the Actions cache, and as an artifact named by that key for 30 days. A run whose inputs
-  are unchanged reuses it; the artifact is what lets a release tag (which can't see `dev`'s cache)
-  reuse what validate made. The `windows`, `linux` and `android` jobs build and upload a package each.
+  deletes the inputs, and passes the generated code to the build jobs **encrypted**. It is a matrix:
+  one job per target and region (8, at the same time; one takes about 15 minutes when it has to
+  generate). Each one's encrypted output is kept under a key made of what it depends on (the
+  region's DOL patch, the target's line in `tools/codegen-targets.txt`, DolRecomp and its patches,
+  the table generator, LLVM, the secrets repo's commit, the artifact key): in the Actions cache, and
+  as an artifact named by that key for 30 days. A run whose inputs are unchanged reuses it, so a new
+  or changed target regenerates only its own code; the artifact is what lets a release tag (which
+  can't see `dev`'s cache) reuse what validate made. The `windows`, `linux`, `macos` and `android`
+  jobs build and upload a package each.
 - **`release.yml`** runs on a `v*` tag on a commit on `main`: it calls `validate.yml` in release mode
   (version from the tag, a signed Android APK), refuses any package that holds a disc image, a DOL or
-  generated code, and publishes a GitHub Release with the three packages and `SHA256SUMS.txt`. A tag
+  generated code, and publishes a GitHub Release with the packages (the Windows zip, the Linux tar.gz
+  and AppImage, the macOS app zip, the Android APK) and `SHA256SUMS.txt`. A tag
   with a suffix (`v0.51.0-beta`) is a prerelease.
 
 Neither runs on pull requests, so code from forks never reaches the secrets.
@@ -262,7 +272,7 @@ Secrets (in the `ci` environment, and `release` for signing; none at repository 
 
 | Secret | What |
 |---|---|
-| `SOAL_SECRETS_REPO_WITH_PAT` | `https://x-access-token:<PAT>@github.com/<owner>/<secrets repo>.git`: `main.dol` (USA original, SHA-256 `87c240ac...`), `main-eu.dol` (European original, `d0e9fc91...`) and `pgo/windows.profdata`, `pgo/android.profdata` at its root (European profiles `pgo/*-eu.profdata` optional) |
+| `SOAL_SECRETS_REPO_WITH_PAT` | `https://x-access-token:<PAT>@github.com/<owner>/<secrets repo>.git`: `main.dol` (USA original, SHA-256 `87c240ac...`), `main-eu.dol` (European original, `d0e9fc91...`) and `pgo/windows.profdata`, `pgo/android.profdata` at its root (`pgo/macos.profdata` and the European profiles `pgo/*-eu.profdata` optional) |
 | `SOAL_ARTIFACT_KEY` | any long random string (encrypts the codegen artifact) |
 | `RELEASE_KEYSTORE_BASE64`, `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_PASSWORD`, `RELEASE_KEY_ALIAS` | Android release signing (`tools/make-release-key.sh`, then `tools/set-release-secrets.sh`) |
 
@@ -271,5 +281,6 @@ SHA NOTES.md` fast-forwards `main` to that commit, tags it, waits for `release.y
 replaces the generated text with the release notes. The `android-sign` job waits for the owner's
 approval of the `release` environment (Actions page) before it signs. A tag on a commit validated
 within the last 30 days reuses its codegen, so the release takes about 25 minutes; otherwise it
-generates again (about an hour more). Release notes say what this release adds or fixes, and link the
+generates again (about 15 minutes more, all targets at once; before 2026-10-19 the targets ran one
+after another, 1.5 to 2 hours). Release notes say what this release adds or fixes, and link the
 README for everything else.
