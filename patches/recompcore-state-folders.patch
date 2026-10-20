@@ -1,0 +1,34 @@
+diff --git a/Source/Android/jni/SkiesImport.cpp b/Source/Android/jni/SkiesImport.cpp
+index b384b4b2e1..9fa9fa76a5 100644
+--- a/Source/Android/jni/SkiesImport.cpp
++++ b/Source/Android/jni/SkiesImport.cpp
+@@ -297,15 +297,23 @@ JNIEXPORT jstring JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_patch
+   return ToJString(env, (region ? region : &REGIONS[0])->patch);
+ }
+ 
+-// The game's save state folder (StateSaves, or a romhack's own: tools/dol_patch.hpp RomhackTag),
+-// made Dolphin's for this process, so the in-game menu and auto-save use it; returns it.
++// The game's save state folder (StateSaves, a romhack's own: tools/dol_patch.hpp RomhackTag, or the
++// European or Japanese game's StateSaves/<disc ID>), made Dolphin's for this process, so the in-game
++// menu and auto-save use it; returns it.
+ JNIEXPORT jstring JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_useStateFolder(
+     JNIEnv* env, jclass, jstring game_root, jstring patch)
+ {
+-  const fs::path folder = moderngekko::frontend::StateDirectory(
+-      StringToPath(File::GetUserPath(D_USER_IDX)),
+-      moderngekko::frontend::RomhackTag(StringToPath(GetJString(env, game_root)),
+-                                        StringToPath(GetJString(env, patch))));
++  const fs::path user_directory = StringToPath(File::GetUserPath(D_USER_IDX));
++  const std::string tag = moderngekko::frontend::RomhackTag(StringToPath(GetJString(env, game_root)),
++                                                            StringToPath(GetJString(env, patch)));
++  // Another version than the USA game (whose states were always in StateSaves) keeps its own: a
++  // state holds the whole game, so the other version's code would run on it. The ones an earlier
++  // release kept in StateSaves move there.
++  const Region& region = InstalledRegion(user_directory);
++  const std::string_view disc_folder = &region == &REGIONS[0] ? std::string_view() : region.id;
++  const fs::path folder = moderngekko::frontend::StateDirectory(user_directory, tag, disc_folder);
++  if (tag.empty())
++    moderngekko::frontend::MoveDiscStates(user_directory, folder, region.id);
+   std::error_code ec;
+   fs::create_directories(folder, ec);
+   File::SetUserPath(D_STATESAVES_IDX, PathToString(folder));

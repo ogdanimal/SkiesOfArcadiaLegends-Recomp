@@ -1160,7 +1160,7 @@ index 0000000..1dae3db
 +void RecoverReplacedDirectory(const std::filesystem::path& destination);
 +}  // namespace moderngekko::frontend
 diff --git a/tools/dol_patch.cpp b/tools/dol_patch.cpp
-index d8b1aba..7dc0225 100644
+index d8b1aba..86da241 100644
 --- a/tools/dol_patch.cpp
 +++ b/tools/dol_patch.cpp
 @@ -1,11 +1,16 @@
@@ -1189,7 +1189,7 @@ index d8b1aba..7dc0225 100644
      const std::size_t first_comma = line.find(',');
      const std::size_t second_comma =
          line.find(',', first_comma == std::string::npos ? 0 : first_comma + 1);
-@@ -158,12 +165,444 @@ bool ReplaceFile(const fs::path &path, const std::vector<std::uint8_t> &bytes,
+@@ -158,12 +165,478 @@ bool ReplaceFile(const fs::path &path, const std::vector<std::uint8_t> &bytes,
  #endif
    return true;
  }
@@ -1579,9 +1579,43 @@ index d8b1aba..7dc0225 100644
 +  return moderngekko::Sha256(*data + fst).substr(0, 8);
 +}
 +
-+fs::path StateDirectory(const fs::path &user_directory, std::string_view tag) {
-+  return tag.empty() ? user_directory / "StateSaves"
-+                     : user_directory / "StateSaves" / ("romhack-" + std::string(tag));
++fs::path StateDirectory(const fs::path &user_directory, std::string_view tag,
++                        std::string_view disc_folder) {
++  if (!tag.empty())
++    return user_directory / "StateSaves" / ("romhack-" + std::string(tag));
++  return disc_folder.empty() ? user_directory / "StateSaves"
++                             : user_directory / "StateSaves" / std::string(disc_folder);
++}
++
++int MoveDiscStates(const fs::path &user_directory, const fs::path &folder,
++                   std::string_view disc_id) {
++  const fs::path root = user_directory / "StateSaves";
++  std::error_code ec;
++  if (disc_id.empty() || fs::equivalent(root, folder, ec))
++    return 0;
++  int moved = 0;
++  for (const fs::directory_entry &entry : fs::directory_iterator(root, ec)) {
++    const std::string name = entry.path().filename().string();
++    if (!entry.is_regular_file(ec) || !name.ends_with(".sav") ||
++        !(name.starts_with("state-skies-") || name.starts_with("recovery-skies-")))
++      continue;
++    // Dolphin's state header starts with the game ID (StateFile.h LegacyStateHeader)
++    std::array<char, 6> id{};
++    {
++      std::ifstream file(entry.path(), std::ios::binary);
++      if (!file.read(id.data(), id.size()) ||
++          std::string_view(id.data(), id.size()) != disc_id)
++        continue;
++    }
++    const fs::path target = folder / entry.path().filename();
++    if (fs::exists(target, ec))
++      continue;
++    fs::create_directories(folder, ec);
++    fs::rename(entry.path(), target, ec);
++    if (!ec)
++      ++moved;
++  }
++  return moved;
 +}
 +
 +bool DolMatchesPin(const fs::path &dol_path, const fs::path &patch_path,
@@ -1636,10 +1670,10 @@ index d8b1aba..7dc0225 100644
    if (!LoadManifest(manifest_path, &patches, error))
      return false;
 diff --git a/tools/dol_patch.hpp b/tools/dol_patch.hpp
-index f2def1f..ffc5401 100644
+index f2def1f..e508f0c 100644
 --- a/tools/dol_patch.hpp
 +++ b/tools/dol_patch.hpp
-@@ -1,10 +1,56 @@
+@@ -1,10 +1,65 @@
  #pragma once
  
 +#include <cstdint>
@@ -1687,9 +1721,18 @@ index f2def1f..ffc5401 100644
 +std::string RomhackTag(const std::filesystem::path &game_root,
 +                       const std::filesystem::path &patch_path);
 +
-+// Where the game's save states go: <user>/StateSaves, or <user>/StateSaves/romhack-<tag>.
++// Where the game's save states go: <user>/StateSaves, <user>/StateSaves/romhack-<tag>, or for a disc
++// with a folder of its own (disc_folder: another version of the game than the one whose states were
++// always in StateSaves) <user>/StateSaves/<disc_folder>. A state holds the whole game, so one made
++// with another version or a romhack must not load.
 +std::filesystem::path StateDirectory(const std::filesystem::path &user_directory,
-+                                     std::string_view tag);
++                                     std::string_view tag, std::string_view disc_folder = {});
++
++// Moves the port's own states (state-skies-*.sav, recovery-skies-*.sav) whose header names disc_id
++// from <user>/StateSaves into folder, where an earlier release had kept every disc's. A name already
++// in folder is left. Returns how many moved.
++int MoveDiscStates(const std::filesystem::path &user_directory, const std::filesystem::path &folder,
++                   std::string_view disc_id);
 +
 +// True if the DOL is the build a release pins: its SHA-256 is pinned_sha256, or patch_path is the
 +// patch that makes that build and the DOL has its code (a data romhack it patched; modified_data).
@@ -2467,7 +2510,7 @@ index 0000000..f3c3d14
 +void DrawMapping(State& state, const fs::path& user_directory, float scale);
 +}  // namespace moderngekko::launcher_controls
 diff --git a/tools/moderngekko_launcher.cpp b/tools/moderngekko_launcher.cpp
-index 7699c3d..fd28926 100644
+index 7699c3d..a886f18 100644
 --- a/tools/moderngekko_launcher.cpp
 +++ b/tools/moderngekko_launcher.cpp
 @@ -1,12 +1,24 @@
@@ -2830,7 +2873,7 @@ index 7699c3d..fd28926 100644
    std::error_code ec;
  #if defined(__linux__)
    const fs::path proc_executable = fs::read_symlink("/proc/self/exe", ec);
-@@ -182,26 +402,37 @@ fs::path SiblingExecutable(const fs::path& release_directory, std::string name)
+@@ -182,26 +402,44 @@ fs::path SiblingExecutable(const fs::path& release_directory, std::string name)
  #if defined(_WIN32)
    name += ".exe";
  #endif
@@ -2847,11 +2890,18 @@ index 7699c3d..fd28926 100644
 +{
 +  const moderngekko::frontend::ReleaseGame* game =
 +      moderngekko::frontend::FindReleaseGame(moderngekko::frontend::ReadDiscId(game_root));
-+  return moderngekko::frontend::StateDirectory(
-+      user_directory, game && !game->dol_patch.empty() && !game_root.empty() ?
-+                          moderngekko::frontend::RomhackTag(game_root,
-+                                                            release_directory / game->dol_patch) :
-+                          std::string());
++  const std::string tag = game && !game->dol_patch.empty() && !game_root.empty() ?
++                              moderngekko::frontend::RomhackTag(game_root,
++                                                                release_directory / game->dol_patch) :
++                              std::string();
++  if (!tag.empty() || !game)
++    return moderngekko::frontend::StateDirectory(user_directory, tag);
++  // Another version of the game has its own folder (as the runner); the states an earlier release
++  // kept in StateSaves move there, so Continue finds them
++  const fs::path folder = moderngekko::frontend::StateDirectory(
++      user_directory, {}, moderngekko::frontend::StateFolderFor(game->disc_id));
++  moderngekko::frontend::MoveDiscStates(user_directory, folder, game->disc_id);
++  return folder;
  }
  
  bool ApplyBundledDolPatch(const fs::path& game_root, const fs::path& release_directory,
@@ -2881,7 +2931,7 @@ index 7699c3d..fd28926 100644
  }
  
  fs::path DefaultGameFile(const fs::path& user_directory, const fs::path& release_directory)
-@@ -220,10 +451,7 @@ fs::path ReadDefaultGame(const fs::path& user_directory, const fs::path& release
+@@ -220,10 +458,7 @@ fs::path ReadDefaultGame(const fs::path& user_directory, const fs::path& release
    std::getline(file, value);
    if (!value.empty() && value.back() == '\r')
      value.pop_back();
@@ -2893,7 +2943,7 @@ index 7699c3d..fd28926 100644
  }
  
  bool WriteDefaultGame(const fs::path& user_directory, const fs::path& release_directory,
-@@ -232,7 +460,10 @@ bool WriteDefaultGame(const fs::path& user_directory, const fs::path& release_di
+@@ -232,7 +467,10 @@ bool WriteDefaultGame(const fs::path& user_directory, const fs::path& release_di
    const fs::path destination = DefaultGameFile(user_directory, release_directory);
    std::error_code ec;
    fs::create_directories(destination.parent_path(), ec);
@@ -2905,7 +2955,7 @@ index 7699c3d..fd28926 100644
    if (!file)
    {
      if (error)
-@@ -246,9 +477,152 @@ bool WriteDefaultGame(const fs::path& user_directory, const fs::path& release_di
+@@ -246,9 +484,152 @@ bool WriteDefaultGame(const fs::path& user_directory, const fs::path& release_di
      stored = relative;
  #endif
    file << stored.string() << '\n';
@@ -3058,7 +3108,7 @@ index 7699c3d..fd28926 100644
  std::vector<fs::path> FindDiscImages()
  {
    std::vector<fs::path> images;
-@@ -259,7 +633,9 @@ std::vector<fs::path> FindDiscImages()
+@@ -259,7 +640,9 @@ std::vector<fs::path> FindDiscImages()
    fs::recursive_directory_iterator iterator(documents,
                                              fs::directory_options::skip_permission_denied, ec);
    const fs::recursive_directory_iterator end;
@@ -3069,7 +3119,7 @@ index 7699c3d..fd28926 100644
    {
      if (iterator.depth() > 4)
        iterator.disable_recursion_pending();
-@@ -268,7 +644,7 @@ std::vector<fs::path> FindDiscImages()
+@@ -268,7 +651,7 @@ std::vector<fs::path> FindDiscImages()
        std::string extension = iterator->path().extension().string();
        std::ranges::transform(extension, extension.begin(),
                               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
@@ -3078,7 +3128,7 @@ index 7699c3d..fd28926 100644
          images.push_back(iterator->path());
      }
      iterator.increment(ec);
-@@ -290,16 +666,14 @@ std::optional<fs::path> PrepareDisc(const fs::path& image, const fs::path& user_
+@@ -290,16 +673,14 @@ std::optional<fs::path> PrepareDisc(const fs::path& image, const fs::path& user_
      return std::nullopt;
    }
    const std::string source_id = source->GetGameID(source->GetGamePartition());
@@ -3099,7 +3149,7 @@ index 7699c3d..fd28926 100644
      return std::nullopt;
    }
    const fs::path output = user_directory / "Setup" / "SonicRidersTE-2.4.6.1.iso";
-@@ -372,13 +746,13 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+@@ -372,13 +753,13 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
      return fail("Dolphin could not read the game partition filesystem");
  
    std::string disc_id = volume->GetGameID(partition);
@@ -3119,7 +3169,7 @@ index 7699c3d..fd28926 100644
  #ifdef MODERNGEKKO_PORTABLE_DEFAULT_GAME
    const fs::path games_directory = release_directory;
    const fs::path output = games_directory / "Game";
-@@ -387,28 +761,34 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+@@ -387,28 +768,34 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
    const fs::path output = games_directory / disc_id;
  #endif
    std::error_code ec;
@@ -3169,7 +3219,7 @@ index 7699c3d..fd28926 100644
    fs::create_directories(staging / "files", ec);
    if (ec)
      return fail("can't create extraction directory: " + ec.message());
-@@ -423,47 +803,57 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+@@ -423,47 +810,57 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
      return fail("Dolphin failed while extracting the disc system data");
    }
  
@@ -3245,7 +3295,7 @@ index 7699c3d..fd28926 100644
    std::string error;
    if (!WriteDefaultGame(user_directory, release_directory, output, &error))
      return fail(error);
-@@ -472,6 +862,13 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+@@ -472,6 +869,13 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
      std::lock_guard lock(state->mutex);
      state->finished_game = output;
      state->status = "Extraction complete";
@@ -3259,7 +3309,7 @@ index 7699c3d..fd28926 100644
    }
    state->running = false;
    return true;
-@@ -487,23 +884,93 @@ void SDLCALL FileDialogCallback(void* userdata, const char* const* filelist, int
+@@ -487,23 +891,93 @@ void SDLCALL FileDialogCallback(void* userdata, const char* const* filelist, int
      state->selected = filelist[0];
  }
  
@@ -3358,7 +3408,7 @@ index 7699c3d..fd28926 100644
    for (int i = 1; i < argc; ++i)
    {
      if (std::string_view(argv[i]) == "-X11" || std::string_view(argv[i]) == "--x11")
-@@ -512,10 +979,131 @@ int main(int argc, char** argv)
+@@ -512,10 +986,131 @@ int main(int argc, char** argv)
        use_wayland = true;
      else if (std::string_view(argv[i]) == "--extract" && i + 1 < argc)
        extract_only = argv[++i];
@@ -3491,7 +3541,7 @@ index 7699c3d..fd28926 100644
    if (extract_only)
    {
      ExtractionState extraction;
-@@ -529,7 +1117,39 @@ int main(int argc, char** argv)
+@@ -529,7 +1124,39 @@ int main(int argc, char** argv)
        std::cout << extraction.status << ": " << *extraction.finished_game << '\n';
      return success ? 0 : 1;
    }
@@ -3531,7 +3581,7 @@ index 7699c3d..fd28926 100644
    auto config = moderngekko::frontend::LoadConfig(user_directory, true);
    if (!config)
    {
-@@ -546,9 +1166,18 @@ int main(int argc, char** argv)
+@@ -546,9 +1173,18 @@ int main(int argc, char** argv)
    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD))
      return 1;
  
@@ -3552,7 +3602,7 @@ index 7699c3d..fd28926 100644
                                          SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
    if (!window)
    {
-@@ -578,19 +1207,101 @@ int main(int argc, char** argv)
+@@ -578,19 +1214,101 @@ int main(int argc, char** argv)
    ImGui::GetStyle().FontScaleDpi = scale;
    ImGui_ImplSDL3_InitForSDLRenderer(window, renderer);
    ImGui_ImplSDLRenderer3_Init(renderer);
@@ -3659,7 +3709,7 @@ index 7699c3d..fd28926 100644
    const auto& resolutions = moderngekko::frontend::SupportedResolutions();
    const auto& graphics_backends =
        moderngekko::frontend::SupportedGraphicsBackends();
-@@ -605,6 +1316,48 @@ int main(int argc, char** argv)
+@@ -605,6 +1323,48 @@ int main(int argc, char** argv)
    int netplay_port = config.netplay_port;
    bool automatic_buffer = config.netplay_buffer == "auto";
    int manual_buffer = automatic_buffer ? 5 : std::stoi(config.netplay_buffer);
@@ -3708,7 +3758,7 @@ index 7699c3d..fd28926 100644
    int resolution_index = 0;
    for (std::size_t i = 0; i < resolutions.size(); ++i)
    {
-@@ -621,17 +1374,162 @@ int main(int argc, char** argv)
+@@ -621,17 +1381,162 @@ int main(int argc, char** argv)
    // StateSaves is Dolphin's own state directory, so states written in-game land
    // here without any extra configuration and show up on the next launch.
    //
@@ -3878,7 +3928,7 @@ index 7699c3d..fd28926 100644
    std::vector<ControllerOption> controllers = EnumerateControllers();
    bool controller_profile_exists = moderngekko::frontend::ControllerConfigExists(user_directory);
    std::vector<std::string> configured_controllers =
-@@ -640,11 +1538,22 @@ int main(int argc, char** argv)
+@@ -640,11 +1545,22 @@ int main(int argc, char** argv)
        configured_controllers.empty() ? config.controller : configured_controllers.front();
    int controller_index = FindController(controllers, selected_controller);
    std::string controller_status;
@@ -3903,7 +3953,7 @@ index 7699c3d..fd28926 100644
      {
        std::lock_guard lock(dialog.mutex);
        dialog.error = std::move(message);
-@@ -652,13 +1561,13 @@ int main(int argc, char** argv)
+@@ -652,13 +1568,13 @@ int main(int argc, char** argv)
      }
      std::string error;
      if (!moderngekko::frontend::SaveConfig(user_directory, resolutions[resolution_index].text,
@@ -3919,7 +3969,7 @@ index 7699c3d..fd28926 100644
      configured_controllers = {selected_controller};
      config.controller = selected_controller;
      config.controllers = configured_controllers;
-@@ -673,25 +1582,48 @@ int main(int argc, char** argv)
+@@ -673,25 +1589,48 @@ int main(int argc, char** argv)
      if (moderngekko::frontend::ControllerConfigExists(user_directory))
      {
        controller_profile_exists = true;
@@ -3974,7 +4024,7 @@ index 7699c3d..fd28926 100644
      return select_controller(controller_index);
    };
    const auto refresh_controllers = [&]
-@@ -726,13 +1658,22 @@ int main(int argc, char** argv)
+@@ -726,13 +1665,22 @@ int main(int argc, char** argv)
      Join,
    };
    bool done = false;
@@ -3997,7 +4047,7 @@ index 7699c3d..fd28926 100644
        ImGui_ImplSDL3_ProcessEvent(&event);
        if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED)
          done = true;
-@@ -744,6 +1685,7 @@ int main(int argc, char** argv)
+@@ -744,6 +1692,7 @@ int main(int argc, char** argv)
      }
      if (controllers_changed)
        refresh_controllers();
@@ -4005,7 +4055,7 @@ index 7699c3d..fd28926 100644
  
      {
        std::lock_guard lock(dialog.mutex);
-@@ -751,6 +1693,72 @@ int main(int argc, char** argv)
+@@ -751,6 +1700,72 @@ int main(int argc, char** argv)
        {
          selected_image = std::move(dialog.selected);
          dialog.selected.reset();
@@ -4078,7 +4128,7 @@ index 7699c3d..fd28926 100644
        }
      }
      {
-@@ -758,9 +1766,16 @@ int main(int argc, char** argv)
+@@ -758,9 +1773,16 @@ int main(int argc, char** argv)
        if (extraction.finished_game)
        {
          current_game = *extraction.finished_game;
@@ -4098,7 +4148,7 @@ index 7699c3d..fd28926 100644
          extraction.finished_game.reset();
          if (ensure_controller())
          {
-@@ -774,18 +1789,79 @@ int main(int argc, char** argv)
+@@ -774,18 +1796,79 @@ int main(int argc, char** argv)
      ImGui_ImplSDL3_NewFrame();
      ImGui::NewFrame();
      const ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -4190,7 +4240,7 @@ index 7699c3d..fd28926 100644
        if (!launcher_savestates.empty())
        {
          ImGui::TextUnformatted("Start from savestate");
-@@ -820,6 +1896,24 @@ int main(int argc, char** argv)
+@@ -820,6 +1903,24 @@ int main(int argc, char** argv)
          ImGui::TextDisabled("Solo play only.");
          ImGui::Spacing();
        }
@@ -4215,7 +4265,7 @@ index 7699c3d..fd28926 100644
        if (ImGui::Button("Play", ImVec2(180 * scale, 42 * scale)))
        {
          if (ensure_controller())
-@@ -828,7 +1922,9 @@ int main(int argc, char** argv)
+@@ -828,7 +1929,9 @@ int main(int argc, char** argv)
            done = true;
          }
        }
@@ -4226,7 +4276,7 @@ index 7699c3d..fd28926 100644
        if (ImGui::Button("Host Netplay", ImVec2(180 * scale, 42 * scale)))
        {
          if (ensure_controller())
-@@ -884,213 +1980,1502 @@ int main(int argc, char** argv)
+@@ -884,213 +1987,1502 @@ int main(int argc, char** argv)
            }
          }
        }
@@ -5886,7 +5936,7 @@ index 7699c3d..fd28926 100644
  
      ImGui::Render();
      SDL_SetRenderScale(renderer, io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y);
-@@ -1107,8 +3492,17 @@ int main(int argc, char** argv)
+@@ -1107,8 +3499,17 @@ int main(int argc, char** argv)
    if (launch_mode != LaunchMode::None)
    {
      std::string launch_error;
@@ -5906,7 +5956,7 @@ index 7699c3d..fd28926 100644
      {
        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Launch failed", launch_error.c_str(), window);
        result = 1;
-@@ -1163,6 +3557,15 @@ int main(int argc, char** argv)
+@@ -1163,6 +3564,15 @@ int main(int argc, char** argv)
            user_directory / "Logs" / MODERNGEKKO_LOG_FILENAME;
        std::error_code log_error;
        std::filesystem::create_directories(log_path.parent_path(), log_error);
@@ -5922,7 +5972,7 @@ index 7699c3d..fd28926 100644
        SDL_IOStream* log_stream =
            log_error ? nullptr : SDL_IOFromFile(log_path.string().c_str(), "w");
        SDL_Process* process = nullptr;
-@@ -1205,7 +3608,12 @@ int main(int argc, char** argv)
+@@ -1205,7 +3615,12 @@ int main(int argc, char** argv)
          int exit_code = 1;
          const bool waited = SDL_WaitProcess(process, true, &exit_code);
          SDL_DestroyProcess(process);
@@ -5936,7 +5986,7 @@ index 7699c3d..fd28926 100644
          {
            SDL_ShowWindow(window);
            if (!waited)
-@@ -1263,6 +3671,8 @@ int main(int argc, char** argv)
+@@ -1263,6 +3678,8 @@ int main(int argc, char** argv)
      }
    }
  
@@ -5945,7 +5995,7 @@ index 7699c3d..fd28926 100644
    ImGui_ImplSDLRenderer3_Shutdown();
    ImGui_ImplSDL3_Shutdown();
    ImGui::DestroyContext();
-@@ -1271,3 +3681,15 @@ int main(int argc, char** argv)
+@@ -1271,3 +3688,15 @@ int main(int argc, char** argv)
    SDL_Quit();
    return result;
  }
@@ -6006,7 +6056,7 @@ index af1c2a5..1a61395 100644
                 "       moderngekko-port pgo-run <game-root> [--backend c|llvm] [--toolchain auto|clang] [--opt-level 0-3]\n"
                 "               [--output path] [--profile-dir path] [--llvm-profdata path] [--keep-work]\n"
 diff --git a/tools/moderngekko_run.cpp b/tools/moderngekko_run.cpp
-index d6b3569..54a7edd 100644
+index d6b3569..c9ad09e 100644
 --- a/tools/moderngekko_run.cpp
 +++ b/tools/moderngekko_run.cpp
 @@ -4,8 +4,12 @@
@@ -6240,7 +6290,7 @@ index d6b3569..54a7edd 100644
    if (use_default_mods) {
      config.mod_directories.push_back(executable_directory / "Mods");
      config.mod_directories.push_back(config.user_directory / "Mods");
-@@ -266,39 +369,77 @@ int RunMain(int argc, char **argv) {
+@@ -266,39 +369,88 @@ int RunMain(int argc, char **argv) {
      std::cout << "controller configuration: " << controller_message << '\n';
    }
  
@@ -6287,6 +6337,17 @@ index d6b3569..54a7edd 100644
 +        !tag.empty()) {
 +      config.state_directory =
 +          moderngekko::frontend::StateDirectory(config.user_directory, tag);
++      std::cout << "save states: " << config.state_directory.string() << '\n';
++    } else if (const std::string folder =
++                   moderngekko::frontend::StateFolderFor(release_game->disc_id);
++               !folder.empty()) {
++      // Another version of the game: its states apart from the USA game's (a state holds the
++      // whole game; the other version's code would run on it), and those an earlier release kept
++      // in StateSaves moved there
++      config.state_directory =
++          moderngekko::frontend::StateDirectory(config.user_directory, {}, folder);
++      moderngekko::frontend::MoveDiscStates(config.user_directory, config.state_directory,
++                                            release_game->disc_id);
 +      std::cout << "save states: " << config.state_directory.string() << '\n';
 +    }
    }
@@ -6343,7 +6404,7 @@ index d6b3569..54a7edd 100644
  #ifdef MODERNGEKKO_REQUIRED_REL_SHA256
    if (inspected.metadata->rel_sha256 != MODERNGEKKO_REQUIRED_REL_SHA256) {
      std::cerr << "unsupported _Main.rel: this release requires its pinned game build\n";
-@@ -314,12 +455,12 @@ int RunMain(int argc, char **argv) {
+@@ -314,12 +466,12 @@ int RunMain(int argc, char **argv) {
  #endif
  
    // Compatibility discovery belongs to the runner, never the runtime library.
@@ -6358,7 +6419,7 @@ index d6b3569..54a7edd 100644
        const auto bundled = executable_directory / module_name;
        const auto user_module =
            config.user_directory / "StaticRecompModules" / module_name;
-@@ -329,6 +470,20 @@ int RunMain(int argc, char **argv) {
+@@ -329,6 +481,20 @@ int RunMain(int argc, char **argv) {
          module_path = user_module;
      }
    }
@@ -6379,7 +6440,7 @@ index d6b3569..54a7edd 100644
    if (!module_path.empty())
      config.module =
          moderngekko::ModuleSource::DynamicPath(std::move(module_path));
-@@ -385,6 +540,8 @@ int RunMain(int argc, char **argv) {
+@@ -385,6 +551,8 @@ int RunMain(int argc, char **argv) {
          std::move(config), std::move(frontend_config), std::move(options));
    }
  
@@ -6388,7 +6449,7 @@ index d6b3569..54a7edd 100644
    auto created = moderngekko::Runtime::Create(std::move(config));
    if (!created) {
      std::cerr << "initialization failed: " << created.error->message << '\n';
-@@ -409,8 +566,46 @@ int RunMain(int argc, char **argv) {
+@@ -409,8 +577,46 @@ int RunMain(int argc, char **argv) {
    signal_watcher.request_stop();
    if (result.error) {
      std::cerr << "runtime failed: " << result.error->message << '\n';
@@ -6460,10 +6521,10 @@ index f2152dc..b59e7e9 100644
      else if (argument == "--output" && i + 1 < argc)
 diff --git a/tools/release_games.hpp b/tools/release_games.hpp
 new file mode 100644
-index 0000000..b779d53
+index 0000000..b0cdcc9
 --- /dev/null
 +++ b/tools/release_games.hpp
-@@ -0,0 +1,76 @@
+@@ -0,0 +1,86 @@
 +#pragma once
 +
 +#include <array>
@@ -6528,6 +6589,16 @@ index 0000000..b779d53
 +    ids += game.disc_id;
 +  }
 +  return ids;
++}
++
++// A disc's own save state folder (dol_patch.hpp StateDirectory's disc_folder): none for the release's
++// first game, whose states were always in StateSaves, or a build without the list; else its disc ID.
++inline std::string StateFolderFor(std::string_view disc_id)
++{
++  const std::span<const ReleaseGame> games = ReleaseGames();
++  if (games.empty() || disc_id.empty() || games.front().disc_id == disc_id)
++    return {};
++  return std::string(disc_id);
 +}
 +
 +// An extracted game's disc ID (sys/boot.bin's first six bytes), "" if it can't be read.
