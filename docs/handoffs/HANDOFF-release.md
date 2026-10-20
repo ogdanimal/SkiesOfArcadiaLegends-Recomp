@@ -1,6 +1,31 @@
 # Handoff: releases (Windows, Linux, macOS, Android)
 
-## Field speed, game patch ws26 (2026-10-20): for v0.60.0-beta
+## Released (2026-10-20 UTC): v0.60.0-beta
+
+**v0.60.0-beta is the current release** (prerelease, the user's version number; tag on `0eb4012`,
+`main` fast-forwarded to it, release run 39382371726, published 07:10 UTC):
+https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/releases/tag/v0.60.0-beta. Notes:
+`build/notes-0.60.0-beta.md` (local; same layout as 0.51), put on the release by `tools/release.sh`
+(then edited once: the macOS file name needs the `v`). What it carries over 0.51.0: field speed
+(below; game patch ws26), the macOS download (next sections), HD texture archives inside a pack and
+Android's multi-select, and the in-game menu's dead-controls fix (`recompcore-menu-close`).
+
+- The user gave full approval for the whole way through release (2026-10-20 ~00:40 local), version
+  0.60.0-beta, README and notes in the earlier layout. `android-sign` approved by Claude on that
+  approval after checking the run (release.yml on the tag at `0eb4012`, every other job green, only
+  `android-sign` waiting) and the workflow diff since 0.51 (macOS packaging, codegen matrix).
+- Before the tag: validate 39380369446 green on `0eb4012`; PII sweep of the tree clean (only the
+  existing `/home/someone` test placeholders); the macOS zip of `1e7e586` checked on the Mac by the
+  Mac session (below), the Windows and Linux CI packages here.
+- Verified after publishing: SHA256SUMS OK; APK signer `e2c00b0b...` (the pinned one), versionCode
+  420892, versionName 0.60.0-beta, no testOnly / debuggable; both games' modules and both
+  `.dolpatch` files (outputs `c4152e68` / `c3bb09fe`, ws26) in the zip, the tar.gz, the AppImage,
+  the macOS app and the APK; the packages' README says v0.60; 666 64-byte samples of the USA and
+  European original DOLs: 0 hits in 14069 unpacked files.
+- Not checked: the Retroid's own release app (the user's; only the debug test app was used), the
+  release APK on a device, the AppImage on Bazzite / Fedora.
+
+## Field speed, game patch ws26 (2026-10-20): shipped in v0.60.0-beta
 
 User request: speed up cutscenes and traversal like the battle speed; then (same night) full approval
 to release it as **v0.60.0-beta** with the README and release notes in the earlier releases' layout.
@@ -29,7 +54,7 @@ decomp `docs/qol_cheats.md` *Field speed*. Release notes: `~/projects/skies-romh
   WSL can't hold even 1x on the world map, so it stepped to normal, as it should).
 - Linux release tree compiles (WSL). macOS / Android release builds: CI.
 
-## On dev after v0.51.0-beta (2026-10-19): macOS, HD texture archives, codegen in parallel
+## Shipped in v0.60.0-beta (on dev after v0.51.0-beta, 2026-10-19): macOS, HD texture archives, codegen in parallel
 
 For the next release's notes: macOS (below), HD texture packs whose archives were put into one
 folder / `.zip` / `.7z` now import, and Android picks several archives at once (`127b9a1`,
@@ -44,8 +69,9 @@ players).
   in *Refuse anything game-shaped* (both `.dylib` modules required by name) and names macOS in the
   notes. The zip is packed without extended attributes (`ditto --norsrc --noextattr --noqtn`). First
   run: 39341292040.
-- Before the next tag: the macOS job green, the zip checked on the Mac (import, start, a state), and the
-  README's download table (it says macOS comes "from the release after v0.51.0-beta").
+- Done for v0.60.0-beta: the macOS job green, the zip checked on the Mac (import, start, a state;
+  by the Mac session on the `1e7e586` package), and the README's download table no longer says
+  "from the release after v0.51.0-beta".
 - The app is signed ad hoc, not notarized: players allow it once (README). Developer ID signing is in
   the backlog (*macOS release*).
 
@@ -73,9 +99,9 @@ players).
   or uploading locally made codegen for CI to fetch. The repo is public, so GitHub-hosted minutes
   (macOS too) cost nothing.
 
-## Released (2026-10-19 UTC): v0.51.0-beta
+## Earlier release (2026-10-19 UTC): v0.51.0-beta
 
-**v0.51.0-beta is the current release** (prerelease, the user's version number; tag on `992ae4f`,
+**v0.51.0-beta was the current release** (prerelease, the user's version number; tag on `992ae4f`,
 `main` fast-forwarded to it, run 39193654173, published 03:39 UTC):
 https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/releases/tag/v0.51.0-beta. Notes:
 `build/notes-0.51.0-beta.md` (local; same layout as 0.10 / 0.50), put on the release by
