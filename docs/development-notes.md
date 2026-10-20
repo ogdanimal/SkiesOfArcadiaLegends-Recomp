@@ -161,7 +161,7 @@ the frontend side is `recompcore-skies-settings.patch` (`VideoCommon/SkiesMenu.c
 | Hold Z + R / L (analog) | towns, dungeons, world map | zoom out / in |
 | Hold Z + C-stick left/right | world map | turn the camera around the ship (eases back behind when let go); in towns it's the game's own turn |
 | Tap Z | battle | battle speed Normal -> 2x -> 3x -> 4x -> Normal (message on screen, saved) |
-| Hold Z, press X | field (game mode 6 outside a ship battle: cutscenes, towns, dungeons, world map) | field speed Normal -> 2x -> 3x -> Normal (message on screen, saved); neither button reaches the game until both are let go |
+| Hold Z, press X | field (game mode 6 outside a ship battle: cutscenes, towns, dungeons, world map) | field speed Normal -> 1.5x -> 2x -> 3x -> Normal (message on screen, saved); neither button reaches the game until both are let go |
 | Tap Z | elsewhere | the game's own Z (minimap on foot, Map / To Bridge / Save on the world map), sent on release |
 | L3 or R3 | anywhere | Invincible on / off (message on screen, saved); the `[SkiesHotkeys] Invincible` hotkey, not a GameCube button, so Button mapping can move it or give it a key |
 
@@ -184,7 +184,7 @@ in the decomp's `docs/camera.md`. B + X + Start held for half a second is the ga
 | `Encounters` | percent of the encounter chance: 0, 25, 50, 100, 200, 400 (100) | `SkiesMenu.cpp` -> `qol_input` (0x80002EA0) |
 | `Exp`, `Gold`, `MagicExp` | percent of what battles give: 0, 50, 100, 200, 300, 400 (100) | same |
 | `BattleSpeed` | 1-4 (1) | same |
-| `FieldSpeed` | 1-3 (1) | same (ws26: `QOL_SPEED_FIELD` in the speed word) |
+| `FieldSpeed` | percent: 100, 150, 200, 300 (100) | same (ws26: `QOL_SPEED_FIELD` and the speed in quarters in the speed word) |
 | `Invincible` | 0 / 1 (0) | same |
 | `AutoSave` | minutes between auto-saves: 0 (off), 5, 10, 15, 30 (10) | `SkiesMenu.cpp` (namespace `autosave`) |
 | `Language` | European disc only: 0 English, 1 German, 2 French, 3 Spanish (0); at the next boot | `SConfig::GetLanguageAdjustedForRegion` (*The European release*) |
@@ -332,18 +332,26 @@ and battles are untouched. Checked on Windows and the Retroid: `tools/camera-tes
 - Field speed (ws26, 2026-10-20): the same waits skipped in the field (game mode 6: cutscenes, towns,
   dungeons, the world map; a ship battle counts as battle), when the frontend sets `QOL_SPEED_FIELD`
   (0x100) in `qol_input`'s speed word, which it does only outside battle (an earlier DOL takes the word
-  for the battle speed and never sees the flag in a battle). Normal / 2x / 3x, Z+X cycles it (a Z tap
-  in the field is the game's: minimap, world map menu). Measured on Windows (release runner, ws26
-  PGO module, 1x resolution, `tools/qol-test-win.sh ... field`): 2x = 60 game frames a second at
-  1.00x in the opening cutscene (state 01), the Valuan ship (03, 07) and the world map (10); 3x
-  needs the emulated CPU clocked at 2x on the world map (a frame there takes about a retrace, as a
-  ship battle's; 1.5x stayed at 60) and reaches ~88 game frames a second at 0.97x there, while in
-  the ship's corridors and the cutscene it steps down to 2x: the host can't run 90 game frames a
-  second. Hence no 4x. The step-down works as in battle but from 2x (to normal on a device that
-  can't hold 2x) and starts over on every new map (`MAP_ID`), so the world map's limit doesn't stick
-  in towns. A 3x field speed into a 1x battle drops the overclock at the battle's start (checked: the
-  battle runs at 30 game frames a second). Thirteen Z+X presses during the opening cutscene's dialogue
-  left it running (and on the 1x it ended at), and A went on through it.
+  for the battle speed and never sees the flag in a battle). With the flag the low byte is the speed in
+  quarters (6 = 1.5x), and `qol_frame` gives each frame 2, 1 or 0 retraces from a budget (8 a frame,
+  less the quarters for each retrace taken), so it averages 2 / speed: 1.25x is 1,2,1,2,2, 1.5x is
+  1,1,2, 3x is 0,1,1 (the battle's whole steps come out as before: 2x 1,1; 3x 0,1,1; 4x 0,1).
+  Normal / 1.5x / 2x / 3x (`[Skies] FieldSpeed` 100-300), Z+X cycles it (a Z tap in the field is the
+  game's: minimap, world map menu). The step-down in the field starts at 1.25x and goes straight to the
+  quarter the measured emulation speed allows (quarters x speed, at least one less, normal at the
+  lowest), and starts over on every new map (`MAP_ID`), so the world map's limit doesn't stick in
+  towns. The emulated CPU is overclocked only above 2x (speed - 1: 3x = 2.0, as a world map frame
+  takes about a retrace like a ship battle's; 1.5x stayed at 60 frames a second).
+  Measured with `tools/qol-test-win.sh ... field` on Windows (release runner, ws26 PGO module, 1x):
+  1.5x / 2x = 46 / 60 game frames a second at 1.00x on the world map (10) and the Valuan ship (03),
+  2x also in the opening cutscene (01) and 07; 3x ~86 frames at 0.96x on the world map, ~84 on the
+  ship (stepped to 2.5x): a desktop PC can't quite hold 3x in the field, hence no 4x. Battle speed
+  2x / 3x / 4x unchanged (60 / 92 / 118). Retroid Pocket 5 (test app, `[Skies] FieldSpeed` 200, the
+  Dreamcast music on): plain 2x ran 0.85x / 0.72x / 0.71x emulation (ship / world map / cutscene;
+  the CPU thread at 90%, the video thread at 80%), so it settles at 1.5x on the ship and 1.25x on the
+  world map and in the cutscene, all at 1.00x; 1.5x the same. A 3x field speed into a 1x battle
+  drops the overclock at the battle's start (the battle runs at 30 game frames a second). Thirteen
+  Z+X presses during the opening cutscene's dialogue left it running, and A went on through it.
 - Invincible: party HP, MP and Spirit refilled every battle frame (magic and S-moves cost nothing),
   damage to the party zeroed in the damage function `fn_8002DC14` (13 calls and a handler table entry);
   turning it off leaves the stats as they are. Members already knocked out (HP 0) aren't revived. Turned

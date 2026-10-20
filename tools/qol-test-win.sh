@@ -11,7 +11,7 @@ TOOLS=$(dirname "$(readlink -f "$0")")  # before any cd
 #         speed       deck battle (16-deck-battle-ws10): game frames per second (frame counter
 #                     0x803475C0) before and after a Z tap
 #         field       field speed (ws26): STATE (default 10-worldmap-android, flying forward; also
-#                     01-opening-cutscene, 03-valuan-ship-field) at [Skies] FieldSpeed 1-3 set live:
+#                     01-opening-cutscene, 03-valuan-ship-field) at [Skies] FieldSpeed 100 / 150 / 200 / 300 set live:
 #                     game frames per second and the emulation speed; then FieldSpeed after a Z tap
 #                     (the game's: unchanged) and after Z+X (the next speed)
 #         ship        Baltor ship battle (17b-ship-battle-baltor-commands, made with ws15) with
@@ -118,10 +118,10 @@ field)
   [ "${STATE:-10-worldmap-android}" = 10-worldmap-android ] && d press:main_y=1 >/dev/null
   rate() { a=$(word 0x803475C0); s1=$(date +%s.%N); d speed:5 > $A/speed.out; b=$(word 0x803475C0); s2=$(date +%s.%N)
            echo "game frames/s $(echo "($b - $a) / ($s2 - $s1)" | bc -l | cut -c1-5)  mode $(word 0x803475CC)  map $(word 0x80311AC4)  speed word $(d peek:0x80002EB4:4 | awk '{print $2$3$4$5}')  $(tr '\n' ' ' < $A/speed.out)"; }
-  for n in 1 2 3; do
+  for n in 100 150 200 300; do
     d config:Dolphin.Skies.FieldSpeed=$n wait:2 >/dev/null; echo -n "FieldSpeed $n: "; rate
   done
-  d config:Dolphin.Skies.FieldSpeed=1 release wait:1 tap:z:3 wait:1 >/dev/null
+  d config:Dolphin.Skies.FieldSpeed=100 release wait:1 tap:z:3 wait:1 >/dev/null
   echo "after a Z tap: $(grep -i "FieldSpeed" "$U/Config/Dolphin.ini")  speed word $(d peek:0x80002EB4:4 | awk '{print $2$3$4$5}')"
   d hold:z=1:6 hold:z=1,x=1:6 wait:1 >/dev/null
   echo "after Z+X: $(grep -i "FieldSpeed" "$U/Config/Dolphin.ini")  speed word $(d peek:0x80002EB4:4 | awk '{print $2$3$4$5}')" ;;

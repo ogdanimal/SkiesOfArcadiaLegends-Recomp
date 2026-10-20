@@ -2394,7 +2394,7 @@ index 0000000..f3c3d14
 +void DrawMapping(State& state, const fs::path& user_directory, float scale);
 +}  // namespace moderngekko::launcher_controls
 diff --git a/tools/moderngekko_launcher.cpp b/tools/moderngekko_launcher.cpp
-index 7699c3d..512fd91 100644
+index 7699c3d..6278e72 100644
 --- a/tools/moderngekko_launcher.cpp
 +++ b/tools/moderngekko_launcher.cpp
 @@ -1,12 +1,24 @@
@@ -2600,8 +2600,8 @@ index 7699c3d..512fd91 100644
 +                                                       {2, "2x (Z in battle)"},
 +                                                       {3, "3x (Z in battle)"},
 +                                                       {4, "4x (Z in battle)"}}};
-+constexpr std::array<LauncherChoice, 3> FIELD_SPEED_CHOICES{
-+    {{1, "Normal (Z+X)"}, {2, "2x (Z+X)"}, {3, "3x (Z+X)"}}};
++constexpr std::array<LauncherChoice, 4> FIELD_SPEED_CHOICES{
++    {{100, "Normal (Z+X)"}, {150, "1.5x (Z+X)"}, {200, "2x (Z+X)"}, {300, "3x (Z+X)"}}};
 +constexpr std::array<LauncherChoice, 2> HOLD_B_CHOICES{{{0, "Off"}, {1, "No battles while held"}}};
 +constexpr std::array<LauncherChoice, 2> INVINCIBLE_CHOICES{
 +    {{1, "On (L3 / R3)"}, {0, "Off (L3 / R3)"}}};
@@ -3561,7 +3561,7 @@ index 7699c3d..512fd91 100644
 +  SettingValue gold = setting({"Dolphin.ini", "Skies", "Gold"}, 100);
 +  SettingValue magic_exp = setting({"Dolphin.ini", "Skies", "MagicExp"}, 100);
 +  SettingValue battle_speed = setting({"Dolphin.ini", "Skies", "BattleSpeed"}, 1);
-+  SettingValue field_speed = setting({"Dolphin.ini", "Skies", "FieldSpeed"}, 1);
++  SettingValue field_speed = setting({"Dolphin.ini", "Skies", "FieldSpeed"}, 100);
 +  SettingValue invincible = setting({"Dolphin.ini", "Skies", "Invincible"}, 0);
 +  SettingValue hold_b = setting({"Dolphin.ini", "Skies", "HoldB"}, 0);
 +  SettingValue auto_save = setting({"Dolphin.ini", "Skies", "AutoSave"}, 10);

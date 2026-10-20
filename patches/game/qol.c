@@ -36,9 +36,12 @@
  *             not by hooking its call: the game spends much of a frame polling there, and a savestate
  *             made inside patch code returns into whatever a later build put at that address.
  *             With QOL_SPEED_FIELD (ws26) the same goes for the field (game mode 6: towns, dungeons,
- *             the world map and the cutscenes, which all run there); the frontend sets it with the
- *             field speed outside battle and leaves it off in battle, so an earlier build, which
- *             reads the whole word as the battle speed, only ever sees the battle speed in battle.
+ *             the world map and the cutscenes, which all run there), at a speed in quarters (1.25x,
+ *             1.5x...: a device that can't hold 2x there gets what it can); the frontend sets it
+ *             with the field speed outside battle and leaves it off in battle, so an earlier build,
+ *             which reads the whole word as the battle speed, only ever sees the battle speed in
+ *             battle. Each frame takes 2, 1 or 0 retraces (qol_frame), so that on average it takes
+ *             2 / speed: 1x is 2, 1.5x is 1, 1, 2, and 3x is 0, 1, 1.
  *
  * qol_input sits at a fixed address (cave.ld) and is written by the frontend every poll
  * (VideoCommon/SkiesMenu.cpp); with no frontend its magic stays 0 and the game is unchanged. */
@@ -71,16 +74,19 @@ struct qol_input {
 
 __attribute__((section(".qol_input"), used)) struct qol_input qol_input;
 
-/* In qol_input.battle_speed: the speed (low byte) holds in the field too. */
+/* In qol_input.battle_speed: the speed holds in the field too, and the low byte is in quarters
+ * (6 = 1.5x) instead of whole steps. */
 #define QOL_SPEED_FIELD 0x100
-#define QOL_SPEED (qol_input.battle_speed & 0xFF)
+#define QOL_QUARTERS                                                                              \
+  ((qol_input.battle_speed & QOL_SPEED_FIELD) ? (qol_input.battle_speed & 0xFF)                    \
+                                              : (qol_input.battle_speed & 0xFF) * 4)
 
 /* The battle data last scaled (cleared once the game leaves battle), so a battle is scaled once. */
 /* In one struct so they keep the order (and addresses) earlier builds had: the compiler orders
  * separate statics by first use, and a save state made with an earlier build must read each one
  * where that build kept it. */
 static struct {
-  int speed_phase;
+  int speed_phase; /* qol_frame's retrace budget, in retraces times quarters */
   u32 scaled_ground;
   u32 scaled_ship;
 } qol_marks;
@@ -94,6 +100,9 @@ static struct {
  * builds had: a state made with one reads 0 here, so the options wait for the battle's next phase
  * (qol_ship_phase). */
 __attribute__((section(".late_bss"))) static int qol_ship_live;
+/* The retraces this frame takes at speed: 2 (as the game), 1 (the polling loop skipped) or 0
+ * (VIWaitForRetrace skipped too). Set by qol_frame, read by qol_skip_wait later in the frame. */
+__attribute__((section(".late_bss"))) static int qol_frame_retraces;
 
 #define GAME_MODE (*(volatile u32 *)0x803475CC) /* 6 = field / world map, 7 = battle */
 extern int fn_8022A854(int *state); /* the resident files into ARAM: one step, 1 when done */
@@ -294,7 +303,7 @@ TRK_CAVE void qol_ship_phase(int phase, int side) {
 }
 
 TRK_CAVE static int qol_fast(void) {
-  if (!qol_on() || QOL_SPEED < 2)
+  if (!qol_on() || QOL_QUARTERS <= 4)
     return 0;
   return qol_in_battle() || ((qol_input.battle_speed & QOL_SPEED_FIELD) && GAME_MODE == 6);
 }
@@ -334,22 +343,22 @@ TRK_CAVE void qol_frame(void) {
     qol_ship_live = 0;
   if (qol_invincible())
     qol_refill();
-  if (qol_fast())
-    FRAME_START_RETRACE = VIGetRetraceCount() - 2;
+  if (qol_fast()) {
+    /* Each frame earns 2 retraces at 1x (8 in quarters) and takes as many whole ones as it can
+     * afford at this speed, at most the game's 2. */
+    const int quarters = QOL_QUARTERS;
+    qol_speed_phase += 8;
+    qol_frame_retraces = qol_speed_phase >= 2 * quarters ? 2 : qol_speed_phase >= quarters ? 1 : 0;
+    qol_speed_phase -= qol_frame_retraces * quarters;
+    if (qol_frame_retraces < 2)
+      FRAME_START_RETRACE = VIGetRetraceCount() - 2;
+  } else {
+    qol_speed_phase = 0;
+    qol_frame_retraces = 2;
+  }
   dcm_frame();
 }
 
 /* 0x801DC4D8 (qol_wait_retrace in qol.S, which tail-calls VIWaitForRetrace so the game never waits
- * inside patch code): at speed n, n frames take two retraces (n = 2: every frame waits for one).
- * Returns nonzero to skip this frame's wait. */
-TRK_CAVE int qol_skip_wait(void) {
-  if (!qol_fast()) {
-    qol_speed_phase = 0;
-    return 0;
-  }
-  qol_speed_phase += 2;
-  if (qol_speed_phase < QOL_SPEED)
-    return 1;
-  qol_speed_phase -= QOL_SPEED;
-  return 0;
-}
+ * inside patch code): skipped in a frame qol_frame gave no retrace. Returns nonzero to skip it. */
+TRK_CAVE int qol_skip_wait(void) { return qol_fast() && qol_frame_retraces == 0; }

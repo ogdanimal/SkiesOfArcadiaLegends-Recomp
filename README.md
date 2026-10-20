@@ -5,7 +5,7 @@ static recompilation: the game's PowerPC code is translated ahead of time into n
 GameCube's graphics, sound and input come from [Dolphin](https://dolphin-emu.org/)'s hardware code.
 It adds widescreen, 60 fps, camera control, save states and quality-of-life options.
 
-**This is a beta (v0.51).** Please [report](../../issues/new/choose) what you run into.
+**This is a beta (v0.60).** Please [report](../../issues/new/choose) what you run into.
 
 No build contains the game. You need your own copy of the disc.
 
@@ -17,7 +17,7 @@ Get a build from the **[Releases](../../releases)** page:
 |---|---|
 | Windows | `SkiesOfArcadiaLegends-<version>-windows.zip` |
 | Linux | `SkiesOfArcadiaLegends-<version>-linux-x86_64.AppImage` (or `-linux.tar.gz`) |
-| macOS (Apple Silicon) | `SkiesOfArcadiaLegends-<version>-macos.zip` (from the release after v0.51.0-beta) |
+| macOS (Apple Silicon) | `SkiesOfArcadiaLegends-<version>-macos.zip` |
 | Android | `SkiesOfArcadiaLegends-<version>-android.apk` |
 
 Versions ending in `-beta` (or `-rc1`, `-rc2`, ...) are published as prereleases.
@@ -110,7 +110,7 @@ The game's own controls are unchanged; on top of them:
 | Hold Z + C-stick up / down | Tilt the camera |
 | Hold Z + R / L | Zoom out / in |
 | Tap Z in battle | Battle speed: Normal, 2x, 3x, 4x |
-| Hold Z and press X outside battle | Field speed (cutscenes, walking, sailing): Normal, 2x, 3x |
+| Hold Z and press X outside battle | Field speed (cutscenes, walking, sailing): Normal, 1.5x, 2x, 3x |
 | L3 or R3 (a stick click) | Invincible on / off (a key for it can be set in Button mapping) |
 
 Every setting is also in the launcher's **Settings** window, with a short description of each.
@@ -131,9 +131,9 @@ press Start**), or in the launcher's **Settings** window.
 - **Camera control:** hold Z and use the C-stick to tilt, and R / L to zoom (towns, dungeons and the
   world map; on the world map Z + C-stick left / right also turns around the ship).
 - **Battle speed** up to 4x: tap Z during a battle.
-- **Field speed** up to 3x for cutscenes, towns, dungeons and sailing: hold Z and press X outside
-  battle. 2x runs at full speed on a desktop PC; 3x needs a fast one (it steps down to what the
-  machine keeps up with).
+- **Field speed** 1.5x, 2x or 3x for cutscenes, towns, dungeons and sailing: hold Z and press X
+  outside battle. A desktop PC holds 2x everywhere; 3x needs a fast one. Where a device can't keep
+  up, it steps down by itself to what that device holds (a Retroid Pocket 5: about 1.25x-1.5x).
 - **Options:** random encounter rate (off to 4x), Hold B for no random battles, EXP / gold / magic
   EXP (off to 4x), and Invincible.
 - **Romhacks** that change the game's data, such as Maeson's rebalance (see [Romhacks](#romhacks)).
@@ -244,6 +244,8 @@ you can switch to 30 fps. Nothing changes unless you choose it.
 - **Changing the battle speed while a round plays out can freeze the battle.** Change it while you
   choose commands instead.
 - On Android, battles top out at about 2.5x speed on a Snapdragon 865; 3x and 4x settle at 2x.
+- On Android, the field speed tops out at about 1.25x-1.5x on a Snapdragon 865 (1.5x on foot, 1.25x on
+  the world map and in cutscenes).
 - An auto-save can cause a brief hitch on Android.
 
 ## Reporting a Problem

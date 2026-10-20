@@ -1,22 +1,28 @@
 # Handoff: releases (Windows, Linux, macOS, Android)
 
-## Branch `speed` (2026-10-20): field speed, game patch ws26
+## Field speed, game patch ws26 (2026-10-20): for v0.60.0-beta
 
-User request: speed up cutscenes and traversal like the battle speed. Branch `speed` (worktree
-`~/projects/skies-romhack`, off `origin/dev` 87ba4f3), not merged or pushed. **Field speed** (Normal /
-2x / 3x) in the in-game menu, both launchers and `[Skies] FieldSpeed`; hold Z and press X outside
-battle cycles it (a Z tap there is the game's). Game patch **ws26** (`qol.c`: `QOL_SPEED_FIELD`), so
-CI regenerates every module; both release `.dolpatch` files are regenerated. Notes: development-notes
-*QOL* (Field speed), `patches/game/README.md` (ws26), `patches/README.md`
-(`recompcore-field-speed.patch`), decomp `docs/qol_cheats.md` *Field speed*.
+User request: speed up cutscenes and traversal like the battle speed; then (same night) full approval
+to release it as **v0.60.0-beta** with the README and release notes in the earlier releases' layout.
+Built in the worktree `~/projects/skies-romhack` (branch `speed`, off `origin/dev` 87ba4f3), pushed to
+`dev`. **Field speed** (Normal / 1.5x / 2x / 3x) in the in-game menu, both launchers and `[Skies]
+FieldSpeed` (percent); hold Z and press X outside battle cycles it (a Z tap there is the game's). Game
+patch **ws26** (`qol.c`: `QOL_SPEED_FIELD`, speeds in quarters, per-frame retrace budget), so CI
+regenerates every module; both release `.dolpatch` files regenerated. Notes: development-notes *QOL*
+(Field speed), `patches/game/README.md` (ws26), `patches/README.md` (`recompcore-field-speed.patch`),
+decomp `docs/qol_cheats.md` *Field speed*. Release notes: `~/projects/skies-romhack/build/notes-0.60.0-beta.md`.
 
-- Checked on Windows (`C:\dev\SkiesRomhack`, synced from the worktree; release build, ws26 module
-  `build\modules-llvm-pgo-ws26` with the desktop PGO profile; `tools/qol-test-win.sh ... field` with
-  `RUNNER=lib\ModernGekko\build-release\skies-run.exe`): 2x full speed in states 01, 03, 07, 10; 3x
-  ~2.9x on the world map, steps down to 2x on the ship and in the opening cutscene; Z tap unchanged,
-  Z+X cycles; 13 Z+X during the opening cutscene; a 3x field into a 1x battle; the menu row.
-- Not done: Linux / macOS / Android builds (CI), the Retroid (ask first; the field step-down floors at
-  normal there if 2x is too much), the European game in play, the launchers' rows by eye.
+- Windows (`C:\dev\SkiesRomhack`, synced from the worktree; release build, ws26 module
+  `build\modules-llvm-pgo-ws26`; `RUNNER=lib\ModernGekko\build-release\skies-run.exe
+  tools/qol-test-win.sh ... field|speed`): 1.5x / 2x exact at 1.00x (world map, ship), 3x ~2.8x;
+  battle 2x / 3x / 4x unchanged; Z tap unchanged, Z+X cycles; the menu row by eye.
+- Retroid Pocket 5, the debug test app only (`BRAND=1 TEST_ID=1 NAME=ws26 DOL_EU=/nonexistent
+  tools/android-ws-build.sh`, USA module only; the ws26 DOL pushed over its ws25 import; started by
+  tapping Start Game, the branded app doesn't take the dev deep link): 2x settles at 1.5x (ship) /
+  1.25x (world map, cutscene) at 1.00x; the launcher's Gameplay row by eye. The test app was left on
+  that build, with `[Skies] Encounters = 0` and `FieldSpeed` set (`Config/Dolphin.ini.before-fieldspeed`
+  is its earlier file).
+- Linux release tree compiles (WSL). macOS / Android release builds: CI.
 
 ## On dev after v0.51.0-beta (2026-10-19): macOS, HD texture archives, codegen in parallel
 

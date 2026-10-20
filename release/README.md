@@ -4,7 +4,7 @@ A native port of **Skies of Arcadia Legends** (GameCube) for Windows, Linux, mac
 recompilation. It doesn't contain the game: you supply your own copy of the disc, and the game's
 data is read from it.
 
-This is a **beta** (v0.51). Please report what you run into.
+This is a **beta** (v0.60). Please report what you run into.
 
 ## What you need
 
@@ -82,9 +82,9 @@ saves from the Japanese version can't be used.
 - **Camera control:** hold Z and use the C-stick to tilt, and R / L to zoom out / in (towns, dungeons
   and the world map; on the world map Z + C-stick left / right also turns around the ship).
 - **Battle speed** up to 4x: tap Z during a battle.
-- **Field speed** up to 3x for cutscenes, towns, dungeons and sailing: hold Z and press X outside
-  battle. 2x runs at full speed on a desktop PC; 3x needs a fast one (it steps down to what the
-  machine keeps up with).
+- **Field speed** 1.5x, 2x or 3x for cutscenes, towns, dungeons and sailing: hold Z and press X
+  outside battle. A desktop PC holds 2x everywhere; 3x needs a fast one. Where a device can't keep
+  up, it steps down by itself to what that device holds (a Retroid Pocket 5: about 1.25x-1.5x).
 - **Options:** random encounter rate (off to 4x), Hold B for no random battles, EXP / gold / magic
   EXP (off to 4x), and Invincible (press L3 or R3 to toggle).
 - **Romhacks** that change the game's data, such as Maeson's rebalance: see below.
@@ -176,7 +176,7 @@ The game's own controls are unchanged; on top of them:
 | Hold Z + C-stick up / down | tilt the camera |
 | Hold Z + R / L | zoom out / in |
 | Tap Z in battle | battle speed: Normal, 2x, 3x, 4x |
-| Hold Z and press X outside battle | field speed (cutscenes, walking, sailing): Normal, 2x, 3x |
+| Hold Z and press X outside battle | field speed (cutscenes, walking, sailing): Normal, 1.5x, 2x, 3x |
 | L3 or R3 (a stick click) | Invincible on / off (a key for it can be set in Button mapping) |
 
 Every setting is also in the launcher's **Settings** window, with a short description of each.
@@ -186,6 +186,8 @@ Every setting is also in the launcher's **Settings** window, with a short descri
 - **Changing the battle speed while a round plays out can freeze the battle.** Change it while you
   choose commands instead.
 - On Android, battles top out at about 2.5x speed on a Snapdragon 865; 3x and 4x settle at 2x.
+- On Android, the field speed tops out at about 1.25x-1.5x on a Snapdragon 865 (1.5x on foot, 1.25x on
+  the world map and in cutscenes).
 - An auto-save can cause a brief hitch on Android.
 - If you change Picture while the world map's menu (Start) is open, the flight meter and compass keep
   the old shape until you close that menu.
