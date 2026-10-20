@@ -382,6 +382,9 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: ubuntu:22.04
+    defaults:
+      run:
+        shell: bash  # a container job's default is sh, and the steps use bash
     env:
       CC: gcc-12
       CXX: g++-12
