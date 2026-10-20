@@ -48,7 +48,7 @@ index 53badb3c58..256268adda 100644
  // real controller's stick clicks) toggles it.
  extern const Info<int> SKIES_INVINCIBLE;
 diff --git a/Source/Core/VideoCommon/SkiesMenu.cpp b/Source/Core/VideoCommon/SkiesMenu.cpp
-index 63440da8a0..70148fb12f 100644
+index 63440da8a0..c967f2f6f8 100644
 --- a/Source/Core/VideoCommon/SkiesMenu.cpp
 +++ b/Source/Core/VideoCommon/SkiesMenu.cpp
 @@ -104,6 +104,7 @@ enum class Option
@@ -149,7 +149,7 @@ index 63440da8a0..70148fb12f 100644
  namespace qol
  {
  const RegionAddress HOOK_SITE{0x800C207C, 0x800C2430};  // bl fn_8025ECC4 (rand) in the unpatched game
-@@ -935,13 +953,33 @@ const RegionAddress HOOK_ORIGINAL{0x4819CC49, 0x4819EFD5};
+@@ -935,14 +953,48 @@ const RegionAddress HOOK_ORIGINAL{0x4819CC49, 0x4819EFD5};
  constexpr u32 INPUT = 0x80002EA0;          // qol.c's qol_input
  constexpr u32 INPUT_MAGIC = 0x514F4C43;    // 'QOLC'
  const RegionAddress GAME_MODE{0x803475CC, 0x8034ACEC};  // 7 = battle (ship battles: InShipBattle)
@@ -180,14 +180,29 @@ index 63440da8a0..70148fb12f 100644
 +// with (the emulation under 95% for 1.5 s) steps down a whole step, to 2x at the lowest, until it
 +// ends: the Retroid manages about 2.5x. The field steps down from 1.25x on, straight to the quarter
 +// the measured speed says the host holds (the Retroid ran 2x at 0.71x-0.85x: 1.25x-1.5x), to normal
-+// at the lowest, until the map changes (a desktop PC holds 2x everywhere, ~2.9x on the world map).
++// at the lowest, until the map changes or a try a quarter higher holds (a desktop PC holds 2x
++// everywhere, ~2.9x on the world map).
 +int s_speed_cap = 16;
 +Place s_cap_place = Place::Other;
 +u32 s_cap_map = 0;
  Clock::time_point s_slow_since{};
++// A field held down tries a quarter more after this long at full speed, so a passing dip (the
++// world map streaming in) doesn't hold a whole map down; a try that fails doubles the wait.
++constexpr std::chrono::seconds RETRY_FIRST{30};
++constexpr std::chrono::seconds RETRY_MOST{600};
++std::chrono::seconds s_retry_wait = RETRY_FIRST;
++Clock::time_point s_full_since{};
++bool s_retrying = false;  // the cap was raised by a try
++// The field's emulation speed smoothed over about half a second: the reading jitters around its
++// mean (on Android by a few percent), and a mean of 0.97 never stayed under a line for 1.5 s.
++double s_field_emulation = 1.0;
++// Not judged for a moment after a new map: its loading stalls the emulation (0.6x on the Retroid)
++constexpr std::chrono::seconds FIELD_GRACE{3};
++Clock::time_point s_cap_since{};
  bool s_stick_click = false;         // L3 / R3 down at the last poll
  // A ship battle frame takes about a retrace of the emulated CPU's time, so skipping the waits takes
-@@ -961,19 +999,50 @@ bool InBattle(Memory::MemoryManager& memory)
+ // it to 2x and no further. At 3x and 4x the emulated CPU runs speed / 2 times faster while the
+@@ -961,19 +1013,82 @@ bool InBattle(Memory::MemoryManager& memory)
    return memory.Read_U32(GAME_MODE) == 7 || InShipBattle(memory);
  }
  
@@ -230,22 +245,55 @@ index 63440da8a0..70148fb12f 100644
 +    s_speed_cap = 16;
      s_slow_since = {};
 -    return speed;
-   }
--  const int effective = std::min(speed, s_speed_cap);
--  if (effective < 3)
++    s_retry_wait = RETRY_FIRST;
++    s_full_since = {};
++    s_retrying = false;
++    s_field_emulation = 1.0;
++    s_cap_since = Clock::now();
++  }
 +  if (place == Place::Other)
 +    return quarters;
 +  const int effective = std::min(quarters, s_speed_cap);
++  const Clock::time_point now = Clock::now();
++  double emulation = Core::System::GetInstance().GetPerfMetrics().GetSpeed();
++  if (place == Place::Field)
++  {
++    if (now - s_cap_since < FIELD_GRACE)
++      return effective;
++    s_field_emulation += (emulation - s_field_emulation) * 0.03;  // per poll, 60 a second
++    emulation = s_field_emulation;
++  }
++  if (place == Place::Field && effective < quarters)
++  {
++    if (emulation < 0.98)
++    {
++      s_full_since = {};
++    }
++    else if (s_full_since == Clock::time_point{})
++    {
++      s_full_since = now;
++    }
++    else if (now - s_full_since > s_retry_wait)
++    {
++      s_speed_cap = effective + 1;
++      s_retrying = true;
++      s_full_since = {};
++      s_slow_since = {};
++      return std::min(quarters, s_speed_cap);
++    }
+   }
+-  const int effective = std::min(speed, s_speed_cap);
+-  if (effective < 3)
 +  if (effective < (place == Place::Field ? 5 : 12))
      return effective;
-   const Clock::time_point now = Clock::now();
+-  const Clock::time_point now = Clock::now();
 -  if (Core::System::GetInstance().GetPerfMetrics().GetSpeed() >= 0.95)
-+  const double emulation = Core::System::GetInstance().GetPerfMetrics().GetSpeed();
-+  if (emulation >= 0.95)
++  // The field plays on for a long time, so it holds a little closer to full speed
++  if (emulation >= (place == Place::Field ? 0.98 : 0.95))
    {
      s_slow_since = {};
    }
-@@ -983,18 +1052,24 @@ int EffectiveSpeed(Memory::MemoryManager& memory, int speed)
+@@ -983,18 +1098,34 @@ int EffectiveSpeed(Memory::MemoryManager& memory, int speed)
    }
    else if (now - s_slow_since > std::chrono::milliseconds(1500))
    {
@@ -255,10 +303,21 @@ index 63440da8a0..70148fb12f 100644
 +                      std::clamp(static_cast<int>(effective * emulation), 4, effective - 1);
      s_slow_since = {};
 -    OSD::AddMessage(fmt::format("Battle speed: {}x (the most this device keeps up with)", s_speed_cap),
-+    OSD::AddMessage(fmt::format("{} speed: {} (the most this device keeps up with)",
-+                                place == Place::Battle ? "Battle" : "Field",
-+                                QuartersText(s_speed_cap)),
-                     2500);
+-                    2500);
++    s_full_since = {};
++    if (s_retrying)
++    {
++      // A try that didn't hold: quietly back, and wait longer before the next
++      s_retry_wait = std::min(s_retry_wait * 2, RETRY_MOST);
++      s_retrying = false;
++    }
++    else
++    {
++      OSD::AddMessage(fmt::format("{} speed: {} (the most this device keeps up with)",
++                                  place == Place::Battle ? "Battle" : "Field",
++                                  QuartersText(s_speed_cap)),
++                      2500);
++    }
    }
 -  return std::min(speed, s_speed_cap);
 +  return std::min(quarters, s_speed_cap);
@@ -275,7 +334,7 @@ index 63440da8a0..70148fb12f 100644
    memory.Write_U32(INPUT_MAGIC, INPUT);
    // Percentages, held to the menus' range: a hand-edited Dolphin.ini can say anything.
    const auto percent = [](const Config::Info<int>& info, int most) {
-@@ -1004,20 +1079,30 @@ void Write(Memory::MemoryManager& memory)
+@@ -1004,20 +1135,32 @@ void Write(Memory::MemoryManager& memory)
    memory.Write_U32(percent(Config::SKIES_EXP, REWARD_RATES.back()), INPUT + 8);
    memory.Write_U32(percent(Config::SKIES_GOLD, REWARD_RATES.back()), INPUT + 12);
    memory.Write_U32(percent(Config::SKIES_MAGIC_EXP, REWARD_RATES.back()), INPUT + 16);
@@ -302,17 +361,19 @@ index 63440da8a0..70148fb12f 100644
  
 -  const float overclock = InBattle(memory) && speed >= 3 ? std::clamp(speed, 1, 4) / 2.0f : 1.0f;
 +  // A world map frame takes about a retrace of the emulated CPU's time, as a ship battle's does
-+  // (s_overclock), so 3x there needs it clocked at 2x (1.5x stayed at 60 frames a second); up to
-+  // 2x it needs none.
++  // (s_overclock), so 3x there needs it clocked at 2x (1.5x stayed at 60 frames a second), and
++  // from 1.5x a quarter more: frames given one retrace spilled into a second (the European world
++  // map at 1.5x: 37-43 game frames a second at full speed, 45.6 at 1.25x). Not at 1.25x, where the
++  // Retroid settles on the world map: the clock costs it there (its polling runs longer).
 +  const float speed = quarters / 4.0f;
 +  const float overclock = !fast                  ? 1.0f :
-+                          place == Place::Field ? std::max(1.0f, speed - 1.0f) :
++                          place == Place::Field ? (quarters <= 5 ? 1.0f : std::max(1.25f, speed - 1.0f)) :
 +                          speed >= 3            ? speed / 2.0f :
 +                                                  1.0f;
    if (overclock != s_overclock)
    {
      s_overclock = overclock;
-@@ -1054,11 +1139,17 @@ void PollStickClick()
+@@ -1054,11 +1197,17 @@ void PollStickClick()
    s_stick_click = down;
  }
  
@@ -334,7 +395,7 @@ index 63440da8a0..70148fb12f 100644
  }
  }  // namespace qol
  
-@@ -1223,6 +1314,7 @@ GCPadStatus FilterClosed(const GCPadStatus& raw)
+@@ -1223,6 +1372,7 @@ GCPadStatus FilterClosed(const GCPadStatus& raw)
    GCPadStatus out = raw;
    const bool z = raw.button & PAD_TRIGGER_Z;
    const bool start = raw.button & PAD_BUTTON_START;
@@ -342,7 +403,7 @@ index 63440da8a0..70148fb12f 100644
    const Clock::time_point now = Clock::now();
    const float dt = std::clamp(std::chrono::duration<float>(now - camera::s_last_poll).count(), 0.0f, 0.1f);
    camera::s_last_poll = now;
-@@ -1252,6 +1344,23 @@ GCPadStatus FilterClosed(const GCPadStatus& raw)
+@@ -1252,6 +1402,23 @@ GCPadStatus FilterClosed(const GCPadStatus& raw)
      Open();
      return Released(raw);
    }
@@ -366,7 +427,7 @@ index 63440da8a0..70148fb12f 100644
    if (camera_on)
    {
      if (camera::Update(context, raw, s_z_held_back && z, dt))
-@@ -1280,12 +1389,12 @@ GCPadStatus FilterClosed(const GCPadStatus& raw)
+@@ -1280,12 +1447,12 @@ GCPadStatus FilterClosed(const GCPadStatus& raw)
        // Released before Start came (and without moving the camera): in battle that's the battle
        // speed (the game doesn't use Z there), elsewhere the game gets its tap late.
        s_z_held_back = false;
@@ -382,7 +443,7 @@ index 63440da8a0..70148fb12f 100644
      {
        // In battle the game has no use for Z: held back until it's released (a tap: the battle
        // speed) or Start comes (the menu).
-@@ -1649,6 +1758,18 @@ GCPadStatus FilterPad(int pad_num, const GCPadStatus& raw)
+@@ -1649,6 +1816,18 @@ GCPadStatus FilterPad(int pad_num, const GCPadStatus& raw)
                      1500);
      return out;
    }
@@ -401,7 +462,7 @@ index 63440da8a0..70148fb12f 100644
    // Save states run as host jobs: the host thread pauses the emulation at a safe point (a load from
    // in here, the middle of the game's pad read, would pull the CPU state out from under it).
    const StateAction state_action = s_state_action;
-@@ -1836,6 +1957,10 @@ void Draw(float scale)
+@@ -1836,6 +2015,10 @@ void Draw(float scale)
      case Option::BattleSpeed:
        return {"Battle speed", SpeedText(v.battle_speed),
                "Plays battles faster. Tap Z during a battle to switch speeds."};

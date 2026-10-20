@@ -337,19 +337,31 @@ and battles are untouched. Checked on Windows and the Retroid: `tools/camera-tes
   less the quarters for each retrace taken), so it averages 2 / speed: 1.25x is 1,2,1,2,2, 1.5x is
   1,1,2, 3x is 0,1,1 (the battle's whole steps come out as before: 2x 1,1; 3x 0,1,1; 4x 0,1).
   Normal / 1.5x / 2x / 3x (`[Skies] FieldSpeed` 100-300), Z+X cycles it (a Z tap in the field is the
-  game's: minimap, world map menu). The step-down in the field starts at 1.25x and goes straight to the
-  quarter the measured emulation speed allows (quarters x speed, at least one less, normal at the
-  lowest), and starts over on every new map (`MAP_ID`), so the world map's limit doesn't stick in
-  towns. The emulated CPU is overclocked only above 2x (speed - 1: 3x = 2.0, as a world map frame
-  takes about a retrace like a ship battle's; 1.5x stayed at 60 frames a second).
+  game's: minimap, world map menu). The step-down in the field works on the emulation speed smoothed
+  over about half a second (Android's reading jitters by a few percent, and a mean of 0.97 never
+  stayed under a line for 1.5 s): under 0.98 for 1.5 s it goes straight to the quarter that speed
+  allows (quarters x speed, at least one less, normal at the lowest). It isn't judged for 3 s after
+  a new map (loading stalls the emulation, 0.6x on the Retroid), starts over on every new map
+  (`MAP_ID`), and after 30 s without a dip under 0.98 tries a quarter higher (quietly; a try that
+  fails doubles the wait, up to 10 minutes), so a passing dip doesn't hold a whole map down (the
+  world map is one map). Battles keep the old rule (0.95, a whole step, no retry). The emulated CPU
+  is overclocked in the field from 1.5x: 1.25x, or speed - 1 above 2x (3x = 2.0: a world map frame
+  takes about a retrace like a ship battle's; 1.5x stayed at 60 frames a second; at 1.5x without it
+  the European world map's frames given one retrace spilled into a second, 37-43 game frames a second
+  at full speed, 45.6 with it). Not at 1.25x, where the Retroid settles on the world map: there the
+  clock cost it (its polling runs longer).
   Measured with `tools/qol-test-win.sh ... field` on Windows (release runner, ws26 PGO module, 1x):
   1.5x / 2x = 46 / 60 game frames a second at 1.00x on the world map (10) and the Valuan ship (03),
   2x also in the opening cutscene (01) and 07; 3x ~86 frames at 0.96x on the world map, ~84 on the
   ship (stepped to 2.5x): a desktop PC can't quite hold 3x in the field, hence no 4x. Battle speed
-  2x / 3x / 4x unchanged (60 / 92 / 118). Retroid Pocket 5 (test app, `[Skies] FieldSpeed` 200, the
-  Dreamcast music on): plain 2x ran 0.85x / 0.72x / 0.71x emulation (ship / world map / cutscene;
-  the CPU thread at 90%, the video thread at 80%), so it settles at 1.5x on the ship and 1.25x on the
-  world map and in the cutscene, all at 1.00x; 1.5x the same. A 3x field speed into a 1x battle
+  2x / 3x / 4x unchanged (60 / 92 / 118). The CI package of `1e7e586` (Windows) the same, and with the
+  European game 1.5x / 2x = 45 / 60 on the world map (eu-10) and in eu-07. A 3x start on the world
+  map that dipped to 2.25x climbed back a quarter every 30 s to 3x. Retroid Pocket 5 (test app,
+  `[Skies] FieldSpeed` 200, the Dreamcast music on): plain 2x ran 0.85x / 0.72x / 0.71x emulation
+  (ship / world map / cutscene; the CPU thread at 90%, the video thread at 80%); with the final
+  rules it settles at 1.5x on the ship and 1.25x in the cutscene within 4 s of the load, on the world
+  map at normal and 1.25x 30 s later, all at 1.00x, and its tries at 1.75x on the ship came back
+  after 3 s, the next one 60 s later. A 3x field speed into a 1x battle
   drops the overclock at the battle's start (the battle runs at 30 game frames a second). Thirteen
   Z+X presses during the opening cutscene's dialogue left it running, and A went on through it.
 - Invincible: party HP, MP and Spirit refilled every battle frame (magic and S-moves cost nothing),

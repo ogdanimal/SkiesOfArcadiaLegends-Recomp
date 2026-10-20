@@ -18,10 +18,15 @@ decomp `docs/qol_cheats.md` *Field speed*. Release notes: `~/projects/skies-romh
   battle 2x / 3x / 4x unchanged; Z tap unchanged, Z+X cycles; the menu row by eye.
 - Retroid Pocket 5, the debug test app only (`BRAND=1 TEST_ID=1 NAME=ws26 DOL_EU=/nonexistent
   tools/android-ws-build.sh`, USA module only; the ws26 DOL pushed over its ws25 import; started by
-  tapping Start Game, the branded app doesn't take the dev deep link): 2x settles at 1.5x (ship) /
-  1.25x (world map, cutscene) at 1.00x; the launcher's Gameplay row by eye. The test app was left on
-  that build, with `[Skies] Encounters = 0` and `FieldSpeed` set (`Config/Dolphin.ini.before-fieldspeed`
-  is its earlier file).
+  tapping Start Game, the branded app doesn't take the dev deep link; frontend-only rebuilds with
+  `JNILIBS=` around the module): 2x settles at 1.5x (ship) / 1.25x (world map, cutscene) at 1.00x,
+  retries back off; the launcher's Gameplay row by eye. The test app was left on the last of those
+  (`skies-recomp-ws26g-2026-10-20-test.apk`, USA module only), with `[Skies] Encounters = 0` and
+  `FieldSpeed` set (`Config/Dolphin.ini.before-fieldspeed` is its earlier file).
+- The CI package of `1e7e586` checked: Windows (USA and European, `C:\dev\Skies060`), macOS on the
+  Mac by the Mac session (zip, ad hoc signature, ws25 import asks for the disc and re-imports to
+  `c4152e68`, Field speed 2x at 1.00x, Z+X to 3x, save state round trip), Linux on WSL (European:
+  WSL can't hold even 1x on the world map, so it stepped to normal, as it should).
 - Linux release tree compiles (WSL). macOS / Android release builds: CI.
 
 ## On dev after v0.51.0-beta (2026-10-19): macOS, HD texture archives, codegen in parallel
