@@ -144,7 +144,7 @@ To dump every frame instead: put `[Movie] DumpFrames = True` in `build/user/Conf
 
 ## The player build (settings, menu, save states, save import, camera, options, release; 2026-10-10 / 12)
 
-What a player gets on top of the game, and where each piece lives (save states: *Save states and auto-save* below; bringing saves in: *Importing saves*; keyboard and remapping: *Keyboard and button mapping*; the European disc and the Dreamcast music: *The European release* and *Dreamcast music*; HD texture packs: *HD textures*). The game side is the DOL
+What a player gets on top of the game, and where each piece lives (save states: *Save states and auto-save* below; bringing saves in: *Importing saves*; keyboard and remapping: *Keyboard and button mapping*; the European disc and the Dreamcast music: *The European release* and *Dreamcast music*; HD texture packs: *HD textures*; the Japanese Dreamcast art: *Uncensored*). The game side is the DOL
 patch **ws22** (`build/game/GEAE8P-ws22`, SHA-1 `ac40e5cf`; European `GEAP8P-ws22`, `55ab3d55`; history in `patches/game/README.md`), shipped in v0.10.0-beta;
 the frontend side is `recompcore-skies-settings.patch` (`VideoCommon/SkiesMenu.cpp`,
 `Core/SkiesSettings.cpp`) and `moderngekko-local.patch` (launcher, runner). Plans and session logs:
@@ -189,6 +189,7 @@ in the decomp's `docs/camera.md`. B + X + Start held for half a second is the ga
 | `AutoSave` | minutes between auto-saves: 0 (off), 5, 10, 15, 30 (10) | `SkiesMenu.cpp` (namespace `autosave`) |
 | `Language` | European disc only: 0 English, 1 German, 2 French, 3 Spanish (0); at the next boot | `SConfig::GetLanguageAdjustedForRegion` (*The European release*) |
 | `DreamcastMusic` | 1 = the Dreamcast music, 0 = GameCube (0); needs the import | `Core/SkiesMusic.cpp` (*Dreamcast music*) |
+| `Uncensored` | 1 = the Japanese Dreamcast models and textures, 0 = the GameCube's (0); needs the Eternal Arcadia import; per file from its next load | `DiscIO/SkiesUncensor.cpp` (*Uncensored*) |
 
 The bindings and the `Menu` / `Invincible` hotkeys are in `Config/GCPadNew.ini` (`[GCPad1]`,
 `[SkiesHotkeys]`; *Keyboard and button mapping*).
@@ -206,7 +207,7 @@ every boot, so a change in game is written back there too. Any key can be set fr
 windows: a rounded navy window over the dimmed game, **tabs** Saves (Save state, Load state, Auto-save),
 Graphics (Picture, Frame rate, Resolution 1 / 2 / 3 / 4 / 6x, Anti-aliasing = the backend's MSAA modes,
 HD textures (since 2026-10-17; Off with a hint until a pack is imported), V-Sync, Show FPS), Gameplay (Camera, Battle speed, Field speed, Encounters, Hold B, EXP, Gold, Magic EXP, Invincible),
-Language (since 2026-10-18; the European disc's four, a second A restarts the game in a new one), Sound (Volume; Music once a Dreamcast disc is imported), Controls
+Language (since 2026-10-18; the European disc's four, a second A restarts the game in a new one), Sound (Volume), Dreamcast (since 2026-10-20: Music once a Dreamcast disc is imported, Uncensored once the game has converted files), Controls
 (Stick dead zone, Rumble, Button mapping since 0.10); each row a label, a value box (the selected one gold-edged
 with arrows) and the launchers' one-line description; a hint line for the selected row. **L / R** (digital,
 or the analog triggers most of the way) switch tabs from anywhere; **Up** from the first setting (or Down
@@ -431,7 +432,7 @@ window over the dimmed home screen, tabs **Graphics** (Picture, Frame rate, Anti
 **Display** (Screen windowed / fullscreen, Resolution, Show FPS, FPS in title bar, Graphics backend),
 **Gameplay** (Camera, Battle speed, Field speed, Encounters, Hold B, EXP, Gold, Magic EXP, Invincible), **Language** (since
 2026-10-18: English / Deutsch / Français / Español with the European disc, else a line saying the USA disc
-is English only), **Sound** (Volume; Music, Import a Dreamcast disc..., Remove: *Dreamcast music*),
+is English only), **Sound** (Volume), **Dreamcast** (since 2026-10-20: Music, Import a Dreamcast disc..., Remove, Intro music, Uncensored with its conversion state: *Dreamcast music*, *Uncensored*),
 **Controls** (Controller: picking one moves controller 1 to it and keeps the bindings; a table of
 every GameCube input with its controller button and keyboard key, click then press to change,
 right-click / Delete / pad X to unbind, two resets; Stick dead zone, Rumble), **Saves** (Auto-save, the "Start from
@@ -471,7 +472,7 @@ startup and made the re-import check take 39 s (now 0.2 s).
 Android: the branded app imports the disc itself (`recompcore-skies-android-app.patch`,
 handoffs/HANDOFF-android.md) and has the same home screen (art, title, Continue / Start Game / Change Disc /
 Settings) and a Settings window built like the desktop one (`SkiesSettingsPanel.kt`; tabs Graphics,
-Gameplay, Sound, Controls, Saves, Disc, About; no Display tab: Resolution and Show FPS sit under
+Gameplay, Language, Sound, Dreamcast, Controls, Saves, Disc, About; no Display tab: Resolution and Show FPS sit under
 Graphics, with Renderer (Vulkan / OpenGL ES) and, on devices that can load one, GPU driver; About has
 the device info and the licences; *Slower devices and GPU drivers*). Name "Skies of Arcadia Legends",
 app ID `com.skiesofarcadia.recomp` (2026-10-11; before: "Skies Recomp" under an ID with a personal
@@ -1153,16 +1154,19 @@ ws22).
   on the Dreamcast from its beginning; a paused one starts again at its continue. The towns' adaptive
   music sets controller 7 of channels 10-14 every frame (and 17, beside 14: no Dreamcast channel, left
   out): a per-channel table in the block (ws22), sent on change and every 30 polls, not events (6 a
-  frame would overrun the 12-entry ring). The in-game menu's Sound tab has Music (GameCube /
-  Dreamcast; without the import it says to import the disc in the launcher).
+  frame would overrun the 12-entry ring). The in-game menu's Dreamcast tab (Sound until 2026-10-20) has
+  Music (GameCube / Dreamcast; without the import it says to import the disc in the launcher).
 - **Import:** `AudioCommon/DCMusicImport.cpp` reads a GDI (track files beside it) or a CHD (libchdr,
   BSD-3, `lib/libchdr` pinned `607694c`; MAME stores tracks padded to 4 frames, so disc 1's track 3
   starts at CHD frame 45004), checks IP.BIN ("SEGA SEGAKATANA", title with "ARCADIA"; the disc number
   is at +0x2B in "GD-ROMn/m"), and copies `BONITO.DRV`, `ARESNEW.MLT` and `SOUND/M*.MLT` into
   `<user>/DreamcastMusic/` with `sources.txt` (file and region) and `discs.txt`. Desktop: the
-  launcher's Settings, Sound (Music row once imported, "Import a Dreamcast disc..." with a GDI / CHD
-  picker, Remove) and `--import-dc-music IMAGE`; Android: Settings, Sound (CHD only: a GDI's track
-  files can't be opened beside a document the picker hands over), `SkiesNative.importDreamcastMusic`.
+  launcher's Settings, Dreamcast (Sound until 2026-10-20; Music row once imported, "Import a
+  Dreamcast disc..." with a GDI / CHD picker, Remove) and `--import-dc-music IMAGE`; Android:
+  Settings, Dreamcast (CHD only: a GDI's track files can't be opened beside a document the picker
+  hands over), `SkiesNative.importDreamcastMusic`. Since 2026-10-20 the import also takes extra files
+  (`DCMusicImport::ExtraFile`: disc, path, SHA-1, destination) for *Uncensored*, and Remove deletes
+  those too.
 - **Checked in game (WSL, ws22 USA module, `SKIES_DCMUSIC_DUMP` debug dumps on game time against
   Dolphin's DSP dump):** the music muted and played on the Dreamcast; battle start (fade to pause,
   battle music on the other player), victory (fade-stop, fanfare from `ARESNEW` bank 1, the world
@@ -1179,6 +1183,76 @@ ws22).
   `__fastcall` as x86's `regparm(3)` on every non-Windows target, so arm64 builds pass
   `-Dregparm(x)=` (a compile option: CMake drops function-style macros from compile definitions).
   Licences in `release/THIRD-PARTY.md`; packages carry `licenses/libchdr-LICENSE.txt`.
+
+### Uncensored (2026-10-20)
+
+User request: a setting for the art the Western releases changed. Research (GameCube-Research,
+`targets/SkiesOfArcadiaLegends`, *Uncensor*): only the Japanese Dreamcast release, Eternal Arcadia
+(v1.009, Redump track 1 MD5s `2d53dfff…` / `b83bd0f8…`), has the originals. The Japanese GameCube
+disc was censored too (CERO 12+, 2002) and its Pirate Isle and Sailors' Island art matches the USA's.
+The Dreamcast and GameCube share the formats (MLD archives of Ninja chunk models, NJCM / NJTL / POF0 /
+NMDM); the GameCube is big-endian, AKLZ-compressed and has GVR textures instead of PVR.
+
+- **What converts** (`tools/uncensor/`, README there): for each Dreamcast file that differs between
+  the Japanese and US discs, a model is replaced when the US Dreamcast block converts byte for byte
+  into the GameCube one (so Legends didn't remake it) and it names a character texture (`tc…`) or
+  uses a texture the US release added (the tavern sign's `tt04a500/501`); character textures are
+  re-encoded in the GameCube original's format (CMPR, C4 / C8 with their palette, RGB5A3; header,
+  mips and size kept); a Japanese-only texture is added (CMPR, GCIX index = the Dreamcast GBIX index)
+  only when a swapped-in model uses it; US-added textures nothing uses any more are blanked. 70 files
+  on each of GEAE8P, GEAP8P and GEAJ8P: 56 model swaps, 108 texture re-encodes, 3 additions, 2
+  blanks (Dyne `tc0023`, Gilder `tc9015` + his cigar texture, Don `tc0713`, Bellena `tc0406`, the
+  tavern houses, drunk faces / drinks `tc0100`, `tc0113`, `tc0206`, `tc0628-0630`, `tc9034` wine,
+  crew `CR012` / `CR018` in battle).
+- **Same size:** the result is recompressed to exactly the original file's byte count. The game's
+  AKLZ reader (`fn_801C6F1C`, USA) streams the file in 128 KiB pieces through a 4 KiB ring from
+  `0xFEE` and stops when the **input** runs out, and a savestate keeps the disc's file table in RAM:
+  a file of another size, after loading a state, is read at its old place and the game overwrites
+  its own code. The compressor parses optimally (literal 9 bits, reference 17, every candidate in
+  the window; it beats Sega's by up to 4 %), then grows the stream to the exact size by turning a
+  reference into a literal plus a shorter reference (+1 byte) or splitting one (+2).
+- **Pitfalls found:** MLD entry lists also hold global texture IDs (`0x80000000 | n`): a splice must
+  shift only values inside the file (else the village sky went black); battle character archives
+  (`bchara`) don't align their first texture to 32 bytes; identical NPC entries share one GameCube
+  block and the GameCube orders entries differently (pair by table ID and name, duplicates by
+  content).
+- **The manifest** `Data/Sys/Skies/uncensor-manifest.json` (`tools/uncensor/make_manifest.py`, 135 KB
+  compact): per game ID and file, the Dreamcast source (disc, path, SHA-1), the edits in order (`model`
+  with entry / slot and both blocks' SHA-1s, `tex`, `tex_add`, `tex_blank`), the GameCube file's SHA-1
+  and the result's (`dec_sha1` of the decompressed result, `size`). No game data, and the US Dreamcast
+  disc is only needed to make it: players import only Eternal Arcadia.
+- **The converter** `DiscIO/SkiesUncensorConvert.{h,cpp}` (C++20, no Dolphin headers, no exceptions):
+  applies one entry and checks every SHA-1; `tools/uncensor/convert_test.cpp` runs all 210 against the
+  Python reference outputs (all byte-identical decompressed, exact size; 12 s on WSL, 0.3 s worst).
+  CMPR endpoint selection is double-precision power iteration: `fp-contract` is off in that file so
+  ARM builds give the same bytes.
+- **Import and runtime** `DiscIO/SkiesUncensor.{h,cpp}`: the Dreamcast import (`DCMusicImport`, now
+  also walking `FIELD/`, `BCHARA/`, `BATTLE/`) copies the manifest's files from a matching disc into
+  `<user>/DreamcastUncensor/dc/disc1|disc2/`; `Prepare(game_root)` converts the game's files into
+  `<user>/DreamcastUncensor/<disc ID>/<files path>` with a `.src` stamp (the source's size and time),
+  which the launchers run after an import and the runner on a thread at boot when files are missing
+  (a game extracted again). `DirectoryBlob` registers each file and asks `Redirect(path, offset)` on
+  every read: the converted file while `[Skies] Uncensored` is on, decided when a file is read from
+  offset 0 so a load in progress never mixes the two. Same size, so states made either way load.
+- **Settings:** launcher Settings, **Dreamcast** tab (the Dreamcast disc import with Music and Intro
+  music moved from Sound, then Uncensored: a dropdown once files are converted, else Off with what to
+  import, and a line like "70 of 70 files converted"); the in-game menu's Dreamcast tab (Music,
+  Uncensored, Off with a hint until `SkiesUncensor::Available()`); Android's Dreamcast tab
+  (`SkiesNative.describeUncensor`, the import converting right away). `--import-dc-music IMAGE` also
+  copies and converts.
+- **Checked** (WSL, Linux release build of branch `uncensor`, Japanese game GEAJ8P, portable test
+  folder): `--import-dc-music` of the two Eternal Arcadia GDIs copied 66 + 4 files and converted 70
+  in about 5 s; the runner from a savestate made with the original files, warped to Pirate Isle `e`
+  (`me002e.sct` into `0x80305770` (JP), field state 0xF): RAM holds the Japanese Dyne block with
+  `Uncensored = 1` and the GameCube one with 0. Earlier the same files (Python outputs, identical when
+  decompressed) were seen in game on Windows: Dyne smoking in his cabin, the village sky, eight towns
+  warped into. Not yet: Windows / macOS / Android builds of the branch, the import through the GUI.
+- **Not covered:** Vigoro's shirtless model (the Japanese one has 79 bones against 50, so its scene
+  motions would be needed), Gilder's victory pose (`beff/pcwin.mlk`: entries `0x1b77a4` and `0x663dee`
+  of an effect format that the GameCube stores in up to twice the Dreamcast size), the drunk sailor
+  model Legends remade (`tc0102` in `A004AB05`, 0xc300 against 0x8520), and everything that needs a
+  script: the drunk sailor's entry (`0xc21` in `A004A`), the Hamachou party (disc 2), Ramirez's blood
+  (`ME131I.SCT`), the "loqua" text.
 
 ### HD textures (2026-10-17)
 

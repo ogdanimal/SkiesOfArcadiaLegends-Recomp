@@ -21,6 +21,10 @@
   profile needed); then save states per version (`dd9c0f7` after the rebase onto `3f4c4ec`).
 - Draft notes for the next release: `~/projects/SkiesOfArcadiaLegends-Recomp/build/notes-next.md`
   (rewritten 2026-10-20 for the release after 0.60).
+- **Branch `uncensor` (2026-10-20, not pushed):** the Uncensored setting and the Settings, Dreamcast
+  tab (the Dreamcast disc import, Music and Intro music moved from Sound). The user wants it **in the
+  next release**, so hold the tag until it's merged. Worktree `~/projects/skies-uncensor`, off
+  `1e31263`; checked on WSL; Windows / Android / macOS builds next. HANDOFF-uncensor.
 
 ## Released (2026-10-20 UTC): v0.60.0-beta
 

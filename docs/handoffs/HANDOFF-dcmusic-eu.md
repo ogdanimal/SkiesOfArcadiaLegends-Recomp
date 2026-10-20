@@ -1,5 +1,9 @@
 # Handoff: the Dreamcast music option and the European disc (2026-10-17)
 
+> Since 2026-10-20 (branch `uncensor`, HANDOFF-uncensor) the Dreamcast disc import, Music and Intro
+> music are in **Settings → Dreamcast** (launcher, in-game menu, Android), not Sound; the steps below
+> say Sound as they were.
+
 Two player requests: the Dreamcast version's music as an option, and the European disc (GEAP8P) for
 its languages. The details live in `docs/development-notes.md` (*The European release*, *Dreamcast
 music*), `patches/game/README.md` (ws22) and `patches/README.md`; this file is the state and what's

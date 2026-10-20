@@ -143,6 +143,9 @@ press Start**), or in the launcher's **Settings** window.
   button or key (see [Controls](#controls)). On desktop, any controller you press is picked up without setup.
 - **Dreamcast music** (optional): the Dreamcast version's soundtrack, from your own Dreamcast disc
   (see [Dreamcast music](#dreamcast-music)).
+- **Uncensored** (optional): the original Japanese models and textures the Western releases changed
+  (cigars, Bellena's outfit, the tavern sign, the drinks), from your own Eternal Arcadia discs (see
+  [Uncensored](#uncensored)).
 - **HD textures** (optional): a texture pack you downloaded, imported in Settings (see
   [HD textures](#hd-textures)).
 - **Save states:** five slots, plus an auto-save every 10 minutes on the field (the newest three are
@@ -174,11 +177,12 @@ disc, European saves with the European disc, Japanese saves with the Japanese di
 The Dreamcast release of Skies of Arcadia plays the same soundtrack on the Dreamcast's own sound
 chip, and it sounds different from the GameCube version. To hear it here:
 
-1. In the launcher, **Settings → Sound → Import a Dreamcast disc...** and pick your own Skies of
+1. In the launcher, **Settings → Dreamcast → Import a Dreamcast disc...** and pick your own Skies of
    Arcadia Dreamcast disc: a **GDI** (with its track files beside it) or a **CHD**. On Android, use a
-   CHD. Either disc has most of the music; import both for all of it.
-2. Set **Music** to **Dreamcast** (launcher **Settings → Sound**, or the settings menu's Sound tab in
-   game; it switches mid-song).
+   CHD. Either disc has most of the music; import both for all of it. Any region works, Eternal
+   Arcadia (the Japanese release) too.
+2. Set **Music** to **Dreamcast** (launcher **Settings → Dreamcast**, or the settings menu's Dreamcast
+   tab in game; it switches mid-song).
 
 The port runs the Dreamcast's sound driver on an emulated sound chip and plays the songs from your
 disc, in place of the GameCube music. Two of the streamed songs differ on the Dreamcast, the intro's
@@ -190,7 +194,38 @@ GameCube to keep them in step. Music imported with an earlier version has no str
 the disc again. The two discs can come from different regions. Where both have a song, the USA or
 Japanese copy is kept, because the European discs play the story scenes' music slower (made for 50 Hz).
 **Remove** deletes the imported music. Only the sound driver and
-the music are copied from the disc.
+the music are copied from the disc (and, from Eternal Arcadia, the models for [Uncensored](#uncensored)).
+
+### Uncensored
+
+The Western releases changed some of the game's art, and the GameCube versions, Japanese included,
+kept those changes. Only the Japanese Dreamcast release, **Eternal Arcadia**, has the originals.
+With your own Eternal Arcadia discs, **Uncensored** puts them back:
+
+- Dyne's and Gilder's cigars, and Don's cigar and bottle
+- Bellena's outfit in Maramba
+- the Sailors' Island tavern sign (a liquor glass, not a chicken leg)
+- red-faced drunks and their orange drinks in several towns, and the wine at a party
+- the faces and drinks of a few crew members, in town and in battle
+
+To turn it on:
+
+1. In the launcher, **Settings → Dreamcast → Import a Dreamcast disc...** and pick Eternal Arcadia
+   **disc 1**, then **disc 2** (a **GDI** with its track files beside it, or a **CHD**; on Android, a
+   CHD). Version 1.009, the regular release, is the one checked; the @barai edition (v1.003) isn't.
+2. Set **Uncensored** to **On** (launcher **Settings → Dreamcast**, or the settings menu's Dreamcast
+   tab in game). It takes effect from the next area or scene the game loads.
+
+The import copies only the files those models are in, and converts them for the GameCube disc you
+play (USA, European or Japanese) into `DreamcastUncensor` in the data folder. If you import another
+GameCube disc later, its files are converted the next time the game starts. Every file is checked
+first: a different release of a disc, or a romhack that changed one of those files, leaves that file
+as it is. Each converted file has exactly the size of the one it replaces, so your save states work
+with Uncensored on or off. **Remove** (beside the import) deletes the imported Dreamcast files.
+
+Not included yet: Gilder's victory pose and Vigoro's outfit (both need animations converted too),
+and the scenes the Western releases cut or rewrote, such as the drunk sailor in the tavern, Ramirez's
+blood and the "loqua" text (they need the game's scripts changed).
 
 ### HD textures
 

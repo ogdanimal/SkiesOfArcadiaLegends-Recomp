@@ -2528,7 +2528,7 @@ index 0000000..f3c3d14
 +void DrawMapping(State& state, const fs::path& user_directory, float scale);
 +}  // namespace moderngekko::launcher_controls
 diff --git a/tools/moderngekko_launcher.cpp b/tools/moderngekko_launcher.cpp
-index 7699c3d..dd117f0 100644
+index 7699c3d..d8085c8 100644
 --- a/tools/moderngekko_launcher.cpp
 +++ b/tools/moderngekko_launcher.cpp
 @@ -1,12 +1,25 @@
@@ -4335,7 +4335,7 @@ index 7699c3d..dd117f0 100644
        if (ImGui::Button("Host Netplay", ImVec2(180 * scale, 42 * scale)))
        {
          if (ensure_controller())
-@@ -884,213 +2038,1543 @@ int main(int argc, char** argv)
+@@ -884,213 +2038,1551 @@ int main(int argc, char** argv)
            }
          }
        }
@@ -4929,7 +4929,9 @@ index 7699c3d..dd117f0 100644
 +                             moderngekko::frontend::PathUtf8(earlier_user_directory).c_str());
 +          ImGui::PopTextWrapPos();
 +          if (movable)
-+          {
+           {
+-            resolution_index = static_cast<int>(i);
+-            config.resolution = resolutions[i].text;
 +            control_column();
 +            ImGui::BeginDisabled(busy);
 +            if (ImGui::Button("Move It Here"))
@@ -4941,14 +4943,20 @@ index 7699c3d..dd117f0 100644
 +              open_data_prompt = true;
 +            }
 +            ImGui::EndDisabled();
-+          }
-+          else
-+          {
+           }
+           else
+           {
+-            std::lock_guard lock(dialog.mutex);
+-            dialog.error = std::move(error);
 +            describe("It isn't used while portable.txt is here. Delete that folder to free the "
 +                     "space, or remove portable.txt to use it again.");
-+          }
-+        }
-+      }
+           }
+         }
+       }
+-      ImGui::EndCombo();
+-    }
+-    const bool previous_show_fps_in_title = show_fps_in_title;
+-    if (ImGui::Checkbox("Show FPS in window title", &show_fps_in_title))
 +      else
 +      {
 +        describe("Your imported game, saves, save states and settings. Change moves them to another "
@@ -5052,9 +5060,7 @@ index 7699c3d..dd117f0 100644
 +            data_target)
 +        {
 +          if (data_target_holds_data)
-           {
--            resolution_index = static_cast<int>(i);
--            config.resolution = resolutions[i].text;
++          {
 +            std::string error;
 +            if (moderngekko::frontend::PointUserDirectory(*data_target, default_user_directory,
 +                                                          &error))
@@ -5067,11 +5073,9 @@ index 7699c3d..dd117f0 100644
 +              data_message = error;
 +            }
 +            close = true;
-           }
-           else
-           {
--            std::lock_guard lock(dialog.mutex);
--            dialog.error = std::move(error);
++          }
++          else
++          {
 +            data_move.progress.cancel = false;
 +            data_move.progress.done_bytes = 0;
 +            data_move.running = true;
@@ -5089,8 +5093,8 @@ index 7699c3d..dd117f0 100644
 +                  data_move.result = std::move(result);
 +                })
 +                .detach();
-           }
-         }
++          }
++        }
 +        ImGui::SameLine();
 +        if (ImGui::IsWindowAppearing())
 +          ImGui::SetKeyboardFocusHere();
@@ -5102,11 +5106,7 @@ index 7699c3d..dd117f0 100644
 +          data_target.reset();
 +          data_source.reset();
 +        }
-       }
--      ImGui::EndCombo();
--    }
--    const bool previous_show_fps_in_title = show_fps_in_title;
--    if (ImGui::Checkbox("Show FPS in window title", &show_fps_in_title))
++      }
 +      if (close)
 +      {
 +        data_prompt_open = false;
@@ -5413,10 +5413,7 @@ index 7699c3d..dd117f0 100644
 +
 +#ifdef HAVE_DCMUSIC
 +    const auto dc_music_section = [&]
-     {
--      const float progress =
--          std::min(1.0f, static_cast<float>(extraction.completed.load()) / extraction.total.load());
--      ImGui::ProgressBar(progress, ImVec2(-1, 0));
++    {
 +      {
 +        std::lock_guard lock(dc_dialog.mutex);
 +        if (dc_dialog.selected)
@@ -5517,15 +5514,23 @@ index 7699c3d..dd117f0 100644
 +          ImGui::SameLine();
 +          if (ImGui::Button("Remove"))
 +          {
-+            const bool removed = DCMusicImport::Remove(dc_music_directory);
++            // The music and the uncensored models' Dreamcast files and conversions
++            const bool removed =
++                DCMusicImport::Remove(dc_music_directory) && DiscIO::SkiesUncensor::Remove();
 +            std::string error;
 +            if (dc_music.value > 0 && WriteDolphinOption(user_directory, dc_music.key, 0, &error))
 +              dc_music.value = 0;
++            if (uncensored.value > 0 &&
++                WriteDolphinOption(user_directory, uncensored.key, 0, &error))
++            {
++              uncensored.value = 0;
++            }
 +            std::lock_guard lock(dc_import.mutex);
 +            dc_import.described = DCMusicImport::Describe(dc_music_directory);
++            dc_import.uncensor = describe_uncensor(current_game, &dc_import.uncensor_ready);
 +            dc_import.ok = removed;
-+            dc_import.message = removed ? "The Dreamcast music was removed." :
-+                                          "Couldn't remove " + dc_music_directory;
++            dc_import.message = removed ? "The Dreamcast files were removed." :
++                                          "Couldn't remove all of them.";
 +          }
 +        }
 +      }
@@ -5577,7 +5582,10 @@ index 7699c3d..dd117f0 100644
 +
 +    // A disc picked from the home screen's Select Disc is extracted (and played) right away.
 +    if (picked_disc && extract_after_pick && !extraction.running)
-+    {
+     {
+-      const float progress =
+-          std::min(1.0f, static_cast<float>(extraction.completed.load()) / extraction.total.load());
+-      ImGui::ProgressBar(progress, ImVec2(-1, 0));
 +      extract_after_pick = false;
 +      start_extraction();
      }
@@ -6037,7 +6045,7 @@ index 7699c3d..dd117f0 100644
  
      ImGui::Render();
      SDL_SetRenderScale(renderer, io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y);
-@@ -1107,8 +3591,17 @@ int main(int argc, char** argv)
+@@ -1107,8 +3599,17 @@ int main(int argc, char** argv)
    if (launch_mode != LaunchMode::None)
    {
      std::string launch_error;
@@ -6057,7 +6065,7 @@ index 7699c3d..dd117f0 100644
      {
        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Launch failed", launch_error.c_str(), window);
        result = 1;
-@@ -1163,6 +3656,15 @@ int main(int argc, char** argv)
+@@ -1163,6 +3664,15 @@ int main(int argc, char** argv)
            user_directory / "Logs" / MODERNGEKKO_LOG_FILENAME;
        std::error_code log_error;
        std::filesystem::create_directories(log_path.parent_path(), log_error);
@@ -6073,7 +6081,7 @@ index 7699c3d..dd117f0 100644
        SDL_IOStream* log_stream =
            log_error ? nullptr : SDL_IOFromFile(log_path.string().c_str(), "w");
        SDL_Process* process = nullptr;
-@@ -1205,7 +3707,12 @@ int main(int argc, char** argv)
+@@ -1205,7 +3715,12 @@ int main(int argc, char** argv)
          int exit_code = 1;
          const bool waited = SDL_WaitProcess(process, true, &exit_code);
          SDL_DestroyProcess(process);
@@ -6087,7 +6095,7 @@ index 7699c3d..dd117f0 100644
          {
            SDL_ShowWindow(window);
            if (!waited)
-@@ -1263,6 +3770,8 @@ int main(int argc, char** argv)
+@@ -1263,6 +3778,8 @@ int main(int argc, char** argv)
      }
    }
  
@@ -6096,7 +6104,7 @@ index 7699c3d..dd117f0 100644
    ImGui_ImplSDLRenderer3_Shutdown();
    ImGui_ImplSDL3_Shutdown();
    ImGui::DestroyContext();
-@@ -1271,3 +3780,15 @@ int main(int argc, char** argv)
+@@ -1271,3 +3788,15 @@ int main(int argc, char** argv)
    SDL_Quit();
    return result;
  }

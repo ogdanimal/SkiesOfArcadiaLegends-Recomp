@@ -140,7 +140,7 @@ Tool note: `simpleperf record --app <pkg> -e page-faults -g` works on a debuggab
   boots), the USA `17-ship-battle-baltor` on the same APK 1.003 (`build/android/bench/ws22eu-r{1,2}`).
   Picture right. Next: a European Android profile (`pgo/android-eu.profdata`, trained on the device).
   Only one European state exists, so training needs more European states first. Still untried on a
-  device: Settings → Sound → Import a Dreamcast disc (CHD) and a European disc import (release app).
+  device: Settings → Dreamcast (Sound before 2026-10-20) → Import a Dreamcast disc (CHD) and a European disc import (release app).
 - **ws23 (2026-10-17 night):** the debug test app runs `skies-ws23-2026-10-17.apk` with the ws23 DOLs in
   both game folders (`sys/main.dol.ws22` beside them). European states `eu-05-pirate-base`,
   `eu-07-red-alarm`, `eu-10-worldmap` (card saves 3 / 1 / 2 through `[Skies] AutoLoadCard`, one shot)

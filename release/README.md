@@ -100,20 +100,34 @@ Japanese).
 - **Import a save** from Dolphin, a GameCube memory card or another device (see *Bringing your
   saves*).
 - **Dreamcast music** (optional), from your own Dreamcast disc: see below.
+- **Uncensored** (optional), the original Japanese models and textures, from your own Eternal
+  Arcadia discs: see below.
 - **HD textures** (optional), from a texture pack you downloaded: see below.
 
 ### Dreamcast music
 
-**Settings → Sound → Import a Dreamcast disc...** in the launcher takes your own Skies of Arcadia
+**Settings → Dreamcast → Import a Dreamcast disc...** in the launcher takes your own Skies of Arcadia
 Dreamcast disc as a **GDI** (with its track files beside it) or a **CHD** (Android: CHD). Either
 disc has most of the music; import both for all of it (they can be from different regions). Then set **Music** to **Dreamcast**
-(there, or in the settings menu's Sound tab in game). The Dreamcast's sound driver plays the songs
+(there, or in the settings menu's Dreamcast tab in game). The Dreamcast's sound driver plays the songs
 from your disc on an emulated sound chip, in place of the GameCube music. The two streamed songs
 that differ on the Dreamcast (the intro's, disc 1, and a story scene's, disc 2) play the disc's
 recordings too, converted once the first time they're needed. **Intro music** (below the import)
 picks the intro's: the Dreamcast recording is a different cut that doesn't line up with this intro's
 scenes; GameCube keeps them in step. Music imported with an earlier version has no streamed songs:
-import the disc again. **Remove** deletes the imported music.
+import the disc again. **Remove** deletes the imported music and Eternal Arcadia files.
+
+### Uncensored
+
+The Western releases (and every GameCube version) changed some art; only the Japanese Dreamcast
+release, **Eternal Arcadia**, has the originals. Import your own Eternal Arcadia **disc 1** and **disc
+2** the same way (**Settings → Dreamcast**; v1.009, the regular release), then set **Uncensored** to
+**On** there or in the settings menu's Dreamcast tab. It brings back Dyne's and Gilder's cigars, Don's
+cigar and bottle, Bellena's outfit, the tavern sign, and the red-faced drunks and their drinks, from
+the next area or scene the game loads. The models are converted for your GameCube disc into
+`DreamcastUncensor` in the data folder; each file is checked first and keeps its original's size, so
+save states work either way. Not yet: Gilder's victory pose, Vigoro's outfit, and the cut or rewritten
+scenes (the drunk sailor, Ramirez's blood, "loqua").
 
 ### HD textures
 

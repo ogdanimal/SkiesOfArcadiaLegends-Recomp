@@ -46,7 +46,7 @@ index a9e97d3c90..ff4d32dddc 100644
       * Settings, Graphics: unpacks an HD texture pack the player downloaded ([pack], a .7z or .zip
       * path or content URI) into the user directory's Load/Textures/GEA, replacing the previous one.
 diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
-index 84ca2c01a0..0062faccbd 100644
+index 84ca2c01a0..e51fcf83ac 100644
 --- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
 +++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
 @@ -56,8 +56,8 @@ class SkiesSettingsPanel(
@@ -78,7 +78,15 @@ index 84ca2c01a0..0062faccbd 100644
              "Controls" -> {
                  padRow(rows, "Stick dead zone", DEAD_ZONE,
                      arrayOf("Main Stick/Dead Zone", "C-Stick/Dead Zone"), 0, 1,
-@@ -464,7 +465,8 @@ class SkiesSettingsPanel(
+@@ -458,13 +459,15 @@ class SkiesSettingsPanel(
+             line.addView(button("Remove", BUTTON) {
+                 val removed = SkiesNative.removeDreamcastMusic()
+                 writeInt(Settings.FILE_DOLPHIN, "Skies", "DreamcastMusic", 0)
+-                importMessage = if (removed) "The Dreamcast music was removed." else "Couldn't remove it."
++                writeInt(Settings.FILE_DOLPHIN, "Skies", "Uncensored", 0)
++                importMessage = if (removed) "The Dreamcast files were removed." else "Couldn't remove them."
+                 importOk = removed
+                 show()
              })
          }
          describe(rows, "Your own Skies of Arcadia Dreamcast disc, as a CHD file. Either disc has most " +
@@ -88,7 +96,7 @@ index 84ca2c01a0..0062faccbd 100644
          rows.addView(text(imported.ifEmpty { "Nothing imported yet." }, 15f, Color.WHITE).apply {
              setPadding(dp(200f), dp(8f), 0, 0)
          })
-@@ -479,6 +481,22 @@ class SkiesSettingsPanel(
+@@ -479,6 +482,22 @@ class SkiesSettingsPanel(
                      "GameCube's. The Dreamcast recording is a different cut, so it doesn't line up " +
                      "with this intro's scenes.")
          }
@@ -112,7 +120,7 @@ index 84ca2c01a0..0062faccbd 100644
  
      /** Graphics: Vulkan (default) or OpenGL ES, the way out of a Vulkan driver that misbehaves. */
 diff --git a/Source/Android/jni/SkiesImport.cpp b/Source/Android/jni/SkiesImport.cpp
-index 9fa9fa76a5..a775c5908d 100644
+index 9fa9fa76a5..0d26f45484 100644
 --- a/Source/Android/jni/SkiesImport.cpp
 +++ b/Source/Android/jni/SkiesImport.cpp
 @@ -37,6 +37,7 @@
@@ -198,6 +206,18 @@ index 9fa9fa76a5..a775c5908d 100644
  // What's imported, e.g. "Disc 1 (USA): 116 music banks"; "" if nothing.
  JNIEXPORT jstring JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_describeDreamcastMusic(
      JNIEnv* env, jclass)
+@@ -526,8 +574,9 @@ JNIEXPORT jboolean JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_remo
+     JNIEnv* env, jclass)
+ {
+ #ifdef HAVE_DCMUSIC
+-  return DCMusicImport::Remove(File::GetUserPath(D_USER_IDX) + "DreamcastMusic" DIR_SEP) ? JNI_TRUE :
+-                                                                                         JNI_FALSE;
++  // The music and the uncensored models' Dreamcast files and conversions
++  const bool music = DCMusicImport::Remove(File::GetUserPath(D_USER_IDX) + "DreamcastMusic" DIR_SEP);
++  return music && DiscIO::SkiesUncensor::Remove() ? JNI_TRUE : JNI_FALSE;
+ #else
+   return JNI_FALSE;
+ #endif
 diff --git a/Source/Core/AudioCommon/DCMusicImport.cpp b/Source/Core/AudioCommon/DCMusicImport.cpp
 index eae51ebf5a..9deff8868c 100644
 --- a/Source/Core/AudioCommon/DCMusicImport.cpp

@@ -73,3 +73,28 @@ account), `codesign --options runtime` with a timestamp, and `notarytool` submis
 that job. The hardened runtime would also need checking against Dolphin's needs (no JIT is used by the recomp, but
 the fallback interpreter path and MAP_JIT should be confirmed). A macOS PGO profile is a separate,
 smaller step.
+
+## Uncensored, what's left — requested 2026-10-20
+
+The Uncensored setting (development notes, *Uncensored*; HANDOFF-uncensor) covers the art that is a
+straight asset swap. Still to do, from the same Eternal Arcadia discs:
+
+- **Gilder's victory pose** (Japanese: smoke puffs; US and Legends: Willy on his shoulder):
+  `beff/pcwin.mlk` entries `0x1b77a4` and `0x663dee`. The archive is (id, offset, size, -1) on the
+  Dreamcast and (id, offset, size, type 4 / 0x10 / 0) on the GameCube, and the GameCube stores the
+  same effect data in up to twice the size (0x6f0 against 0xe80 for an entry that didn't change), so
+  the Dreamcast-to-GameCube conversion of that effect format comes first. US Legends `bchara/ma005.mld`
+  (Gilder) also has an extra battle motion in slot 17 that the Dreamcast and JP GameCube lack.
+- **Vigoro's shirtless outfit** (Aika's cell, `A116AG02`, and his boss fight): the Japanese model has
+  79 bones against the US / GameCube model's 50, so the scene's motions (NMDM) would come from the
+  Japanese file too; the GameCube model is also a Legends remake (0x8e80 against 0x6600).
+- **The drunk sailor model** Legends remade (`tc0102` in `A004AB05`).
+- **Script work:** the drunk sailor in the Sailors' Island tavern (entry `0xc21` only on the
+  Japanese disc; his English lines are still in `field/me004a.sct`), the Hamachou party (disc 2),
+  Ramirez's blood (`ME131I.SCT`), and the text ("loqua" for rum in about 104 lines across 21 scripts,
+  Salam, the Belleza and Ramirez lines). New English is needed for some; agree the scope first.
+- **Android import of GDI zips:** Android takes only CHDs (a GDI's track files can't be opened beside
+  a picked document); the TOSEC Eternal Arcadia dumps are zipped GDIs, so reading a GDI inside a zip
+  would save players a chdman step.
+- **The @barai edition** (v1.003, HDR-0119): not checked; its files fail the SHA-1 check if they
+  differ, which leaves those files out.
