@@ -116,9 +116,11 @@ Texture packs made for Dolphin work, for example **Skies of Arcadia HD** by Bigh
 `.7z` or `.zip` you downloaded (on desktop, **Import a folder...** an unpacked one) and turns **HD
 textures** on; switch it there or in game. Only the pack's `GEA` textures are copied when it has
 that folder, without its optional extras; else all of its textures. Each import adds to what is
-imported, so a pack in several archives (the **HD Texture Pack 4x Upscaled** comes as six) is
-imported one archive at a time. **Remove** deletes everything imported. On Android, take a pack's
-**PNG** download where there is one: phones can't load DDS (BC7) textures.
+imported, so a pack in several archives (the **HD Texture Pack 4x Upscaled** comes as six) can be
+imported one archive at a time, or all at once: pick them all in the Android picker, or put them in
+one folder or `.zip` / `.7z` and import that. **Remove** deletes everything imported. On Android,
+take a pack's **PNG** download where there is one: most phones can't show BC7 DDS textures (with
+their own driver; a Turnip driver can). BC1 and BC3 DDS textures work.
 
 ### Romhacks
 

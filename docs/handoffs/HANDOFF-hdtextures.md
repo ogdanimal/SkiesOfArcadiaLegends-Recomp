@@ -160,6 +160,10 @@ BC7 DDS, **no `GEA` folder** (`UI/...`, `Characters/...` at the top), and `02_..
 
 ## 2026-10-19: archives inside a pack, several picked at once (Android)
 
+**On `dev` as `127b9a1` (pushed 2026-10-20, rebased past the macOS patches: the series ends `macos`,
+`menu-close`, `hd-textures-nested`; every patch applies to clean submodules and the patch's four
+files are byte-identical to the build tested below). Not in a release yet.**
+
 A Reddit report (Android, v0.50 by its message text): the six 4x `.7z` files put into a self-made
 `GEA` folder and archived. As a `.7z`: "No skies of Arcadia textures in that pack. It needs a GEA
 folder with tex1_ files"; as a `.zip`: "...is the zip broken?". The import never opened archives

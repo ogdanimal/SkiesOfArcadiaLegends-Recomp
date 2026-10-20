@@ -1,6 +1,11 @@
 # Handoff: releases (Windows, Linux, macOS, Android)
 
-## On dev after v0.51.0-beta (2026-10-19): macOS
+## On dev after v0.51.0-beta (2026-10-19): macOS, HD texture archives, codegen in parallel
+
+For the next release's notes: macOS (below), HD texture packs whose archives were put into one
+folder / `.zip` / `.7z` now import, and Android picks several archives at once (`127b9a1`,
+HANDOFF-hdtextures *2026-10-19*), and CI's codegen runs in parallel (next section; nothing for
+players).
 
 - **macOS joins the packages** (HANDOFF-macos): `6d54f6f` (the port, its patches and the Sys /
   Bluetooth pad / keyboard fixes; rebased onto dev, `check-patches` exact) and `04bc86d` (CI). The
