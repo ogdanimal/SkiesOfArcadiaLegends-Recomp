@@ -42,11 +42,13 @@ Linux, unpack the new version and run it; if the launcher asks for your disc onc
 **Select Disc** and pick the same disc image, which updates your earlier import in a few seconds. On
 Android, install the new APK over the old one; the app updates the imported disc by itself.
 
-**The disc is the USA or the European GameCube release** (game ID `GEAE8P` or `GEAP8P`, the original
-release), as RVZ, ISO, GCM, GCZ, WIA or CISO. The European disc has the text in English, German,
-French and Spanish (the **Language** tab in Settings and in the in-game menu, which can restart the
-game in the new language at once) and runs at 60 Hz like the USA one. The Japanese release isn't
-supported. One disc is installed at a time: **Change Disc** replaces it.
+**The disc is the USA, the European or the Japanese GameCube release** (game ID `GEAE8P`, `GEAP8P`
+or `GEAJ8P`, the original release; the Japanese one is *Eternal Arcadia Legends*), as RVZ, ISO, GCM,
+GCZ, WIA or CISO. The European disc has the text in English, German, French and Spanish (the
+**Language** tab in Settings and in the in-game menu, which can restart the game in the new language
+at once) and runs at 60 Hz like the USA one. The Japanese disc is in Japanese, with its Japanese
+voices; the port's own menus stay in English. One disc is installed at a time: **Change Disc**
+replaces it.
 
 **Requirements:**
 
@@ -69,7 +71,7 @@ and on Windows. Slower Android devices may not keep 60 fps (see [Slower devices]
 | **Windows / Linux:** "Failed to create Vulkan device" or a similar message at start | Your graphics driver can't run Vulkan. The game switches to OpenGL by itself and keeps it (**Settings → Display → Graphics backend**). If neither starts, install the latest driver for your graphics card. |
 | **Android:** the game crashes or draws things wrong | **Settings → Graphics → Renderer** switches between Vulkan and OpenGL ES. On Adreno devices, **Settings → Graphics → GPU driver** can load another driver (see [GPU driver](#gpu-driver-android)). |
 | **Windows / Linux / macOS:** "Game files missing" when the game starts | A file of the download (`gGEAE8P_recomp.dll` or the European `gGEAP8P_recomp.dll`; `.so` on Linux; inside the app on macOS) isn't beside the game. Extract the whole zip again and keep its files together; if the file disappears again, your antivirus removed it (allow the folder). |
-| The import refuses your disc | It must be the USA (`GEAE8P`) or European (`GEAP8P`) disc, the original release. The Japanese disc isn't supported. |
+| The import refuses your disc | It must be the USA (`GEAE8P`), European (`GEAP8P`) or Japanese (`GEAJ8P`) disc, the original release. |
 | Battle freezes after changing the battle speed | A known issue: change the speed while you choose commands, not while a round plays out. |
 | You want saves from Dolphin, a GameCube or another device | **Settings → Saves → Import a save**; see [Importing a save](#importing-a-save). |
 | **Android:** installing an update fails or asks you to uninstall first | It was signed with a different key (a self-built APK). Uninstalling **deletes your saves**; back them up first with **Settings → Saves → Back up saves**. |
@@ -163,7 +165,7 @@ it:
 
 A memory card save replaces the file with the same number; the old one is kept beside it as
 `.pre-import.bak`. A save has to be from the same version as your disc: USA saves with the USA
-disc, European saves with the European disc. Saves from the Japanese version can't be used.
+disc, European saves with the European disc, Japanese saves with the Japanese disc.
 
 ### Dreamcast music
 

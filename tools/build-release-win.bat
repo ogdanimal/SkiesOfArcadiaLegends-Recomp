@@ -1,12 +1,12 @@
 @echo off
 rem Branded release build (Windows): the launcher, runner and Sys in lib\ModernGekko\build-release,
-rem configured for Skies (the USA disc GEAE8P and the European GEAP8P, each with its widescreen DOL patch
+rem configured for Skies (the USA disc GEAE8P, the European GEAP8P and the Japanese GEAJ8P, each with its widescreen DOL patch
 rem applied to the players own main.dol and its game ini). Separate from the dev build: the release
 rem runner patches the DOL of any game root it starts. Then package: the modules beside the exes and
 rem the players' zip (see :package below).
-rem usage: tools\build-release-win.bat configure^|build^|package <usa.dll> [europe.dll] [version]
-rem REGIONS=us eu (configure) makes the release take the European disc too; the default is the USA disc
-rem alone, and package then needs only the USA module.
+rem usage: tools\build-release-win.bat configure^|build^|package <usa.dll> [europe.dll] [japan.dll] [version]
+rem REGIONS=us eu jp (configure) makes the release take the European and the Japanese disc too (us eu: the
+rem European one); the default is the USA disc alone, and package then needs only the USA module.
 rem Local Build Tools unless the environment already has MSVC set up (CI: msvc-dev-cmd)
 if not defined VCINSTALLDIR (
   call "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Auxiliary\Build\vcvars64.bat" >nul || exit /b 1
@@ -34,6 +34,17 @@ set SHAS=%SHAS%;%DOL_SHA256_EU%
 set PATCHES=%PATCHES%;%CD%\release\skies-widescreen-eu.dolpatch
 set INIS=%INIS%;%CD%\release\GEAP8P.ini
 :regions_done
+echo %REGIONS% | findstr /c:"jp" >nul || goto regions_jp_done
+for /f "tokens=2" %%h in ('findstr /b /c:"output-sha256 " release\skies-widescreen-jp.dolpatch') do set DOL_SHA256_JP=%%h
+if not defined DOL_SHA256_JP (
+  echo release\skies-widescreen-jp.dolpatch has no output-sha256 line
+  exit /b 1
+)
+set IDS=%IDS%;GEAJ8P
+set SHAS=%SHAS%;%DOL_SHA256_JP%
+set PATCHES=%PATCHES%;%CD%\release\skies-widescreen-jp.dolpatch
+set INIS=%INIS%;%CD%\release\GEAJ8P.ini
+:regions_jp_done
 if "%1"=="configure" (
   cmake -S lib\ModernGekko -B %B% -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DDOLRECOMP_ENABLE_LLVM=OFF ^
     "-DMODERNGEKKO_FRONTEND_NAME=Skies of Arcadia Legends" "-DMODERNGEKKO_LAUNCHER_OUTPUT_NAME=Skies of Arcadia Legends" ^
@@ -51,23 +62,36 @@ if "%1"=="build" (
 if "%1"=="package" goto package
 exit /b 0
 
-rem package USA_MODULE [EUROPE_MODULE] [VERSION]: the modules beside the exes, then the players' zip
+rem package USA_MODULE [EUROPE_MODULE] [JAPAN_MODULE] [VERSION]: the modules beside the exes, then the players' zip
 rem build\SkiesOfArcadiaLegends-VERSION-windows.zip (+ .sha256): the exes, modules, Sys, launcher art, the
 rem Visual C++ runtime DLLs (app-local, so a clean Windows needs no redistributable install), the
 rem player README, COPYING and the third-party notices.
 :package
-if "%~2"=="" (echo usage: tools\build-release-win.bat package USA_MODULE [EUROPE_MODULE] [VERSION] & exit /b 1)
-rem An optional European module (a .dll), then the version
+if "%~2"=="" (echo usage: tools\build-release-win.bat package USA_MODULE [EUROPE_MODULE] [JAPAN_MODULE] [VERSION] & exit /b 1)
+rem Optional European and Japanese modules (.dll files, told apart by their names: gGEAP8P_recomp.dll,
+rem gGEAJ8P_recomp.dll), then the version
+set "MODULE_US=%~2"
 set MODULE_EU=
-set VERSION=%~3
-if /i "%~x3"==".dll" (
-  set "MODULE_EU=%~3"
-  set "VERSION=%~4"
+set MODULE_JP=
+set VERSION=
+shift
+:package_arg
+shift
+if "%~1"=="" goto package_args_done
+if /i "%~x1"==".dll" (
+  echo "%~n1" | findstr /c:"GEAJ8P" >nul
+  if errorlevel 1 (set "MODULE_EU=%~1") else (set "MODULE_JP=%~1")
+) else (
+  set "VERSION=%~1"
 )
+goto package_arg
+:package_args_done
 if "%VERSION%"=="" set VERSION=v0.9.0
-copy /y "%~2" %B%\gGEAE8P_recomp.dll >nul || exit /b 1
+copy /y "%MODULE_US%" %B%\gGEAE8P_recomp.dll >nul || exit /b 1
 if exist %B%\gGEAP8P_recomp.dll del %B%\gGEAP8P_recomp.dll
 if defined MODULE_EU copy /y "%MODULE_EU%" %B%\gGEAP8P_recomp.dll >nul || exit /b 1
+if exist %B%\gGEAJ8P_recomp.dll del %B%\gGEAJ8P_recomp.dll
+if defined MODULE_JP copy /y "%MODULE_JP%" %B%\gGEAJ8P_recomp.dll >nul || exit /b 1
 set P=build\SkiesOfArcadiaLegends-%VERSION%-windows
 if exist %P% rmdir /s /q %P%
 mkdir %P% || exit /b 1
@@ -75,11 +99,13 @@ for %%F in ("Skies of Arcadia Legends.exe" skies-run.exe gGEAE8P_recomp.dll laun
   copy /y "%B%\%%~F" %P%\ >nul || exit /b 1
 )
 if defined MODULE_EU copy /y %B%\gGEAP8P_recomp.dll %P%\ >nul || exit /b 1
+if defined MODULE_JP copy /y %B%\gGEAJ8P_recomp.dll %P%\ >nul || exit /b 1
 xcopy /e /i /q /y %B%\Sys %P%\Sys >nul || exit /b 1
 rem the launcher reads the DOL patch from patches\ beside itself (only our changes, keyed to the original DOL)
 mkdir %P%\patches || exit /b 1
 copy /y release\skies-widescreen.dolpatch %P%\patches\ >nul || exit /b 1
 if defined MODULE_EU copy /y release\skies-widescreen-eu.dolpatch %P%\patches\ >nul || exit /b 1
+if defined MODULE_JP copy /y release\skies-widescreen-jp.dolpatch %P%\patches\ >nul || exit /b 1
 for %%F in (README.md CREDITS.md THIRD-PARTY.md) do copy /y release\%%F %P%\ >nul || exit /b 1
 copy /y COPYING %P%\COPYING.txt >nul || exit /b 1
 copy /y lib\ModernGekko\vendor\dolphin\Externals\licenses.md %P%\THIRD-PARTY-DOLPHIN.md >nul || exit /b 1

@@ -1,0 +1,351 @@
+diff --git a/Source/Android/app/build.gradle.kts b/Source/Android/app/build.gradle.kts
+index fcf34d473b..e537c41ab7 100644
+--- a/Source/Android/app/build.gradle.kts
++++ b/Source/Android/app/build.gradle.kts
+@@ -57,6 +57,7 @@ android {
+         manifestPlaceholders["dolphinExported"] = "true"
+         resValue("string", "skies_dol_sha256", "")
+         resValue("string", "skies_dol_sha256_eu", "")
++        resValue("string", "skies_dol_sha256_jp", "")
+     }
+ 
+     signingConfigs {
+@@ -138,14 +139,16 @@ android {
+     }
+ 
+     // Skies Recomp, the branded app: -PskiesBrand=DIR (DIR/assets holds skies-widescreen.dolpatch and
+-    // skies-GEAE8P.ini, and for the European game skies-widescreen-eu.dolpatch and skies-GEAP8P.ini;
+-    // DIR/dol-sha256.txt and dol-sha256-eu.txt the patched DOLs' SHA-256, DIR/res the launcher icon if
++    // skies-GEAE8P.ini, for the European game skies-widescreen-eu.dolpatch and skies-GEAP8P.ini, for
++    // the Japanese game skies-widescreen-jp.dolpatch and skies-GEAJ8P.ini; DIR/dol-sha256.txt,
++    // dol-sha256-eu.txt and dol-sha256-jp.txt the patched DOLs' SHA-256, DIR/res the launcher icon if
+     // there is one; tools/android-ws-build.sh BRAND=1 makes it) gives the app its own id and
+     // name, makes SkiesLauncherActivity (first-run disc import, Play / Continue) the launcher and
+     // hides Dolphin's game list.
+     providers.gradleProperty("skiesBrand").orNull?.let { brand ->
+         val dolSha256 = file("$brand/dol-sha256.txt").readText().trim()
+         val dolSha256Eu = file("$brand/dol-sha256-eu.txt").takeIf { it.isFile }?.readText()?.trim() ?: ""
++        val dolSha256Jp = file("$brand/dol-sha256-jp.txt").takeIf { it.isFile }?.readText()?.trim() ?: ""
+         defaultConfig {
+             applicationId = "com.skiesofarcadia.recomp"
+             manifestPlaceholders["dolphinLauncherCategory"] = "android.intent.category.DEFAULT"
+@@ -160,6 +163,7 @@ android {
+             }
+             resValue("string", "skies_dol_sha256", dolSha256)
+             resValue("string", "skies_dol_sha256_eu", dolSha256Eu)
++            resValue("string", "skies_dol_sha256_jp", dolSha256Jp)
+             // Its own version: minutes since 2026-01-01 at build time, so every build is a newer
+             // version. With Dolphin's (commit count) unchanged, launchers kept the cached icon.
+             val skiesBuild = ((System.currentTimeMillis() / 60000L) - 29453760L).toInt()
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
+index 9cc277bfa2..ed692d1ecb 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
+@@ -627,14 +627,18 @@ class SkiesLauncherActivity : FragmentActivity() {
+     }
+ 
+     private val userDirectory get() = File(DirectoryInitialization.getUserDirectory())
+-    // The imported game, the USA (GEAE8P) or the European (GEAP8P) one: Games/<disc ID>
++    // The imported game, the USA (GEAE8P), the European (GEAP8P) or the Japanese (GEAJ8P) one: Games/<disc ID>
+     private val gameId get() = SkiesNative.installedGameId(userDirectory.absolutePath)
+     private val gameRoot get() = File(userDirectory, "Games/$gameId")
+     private val mainDol get() = File(gameRoot, "sys/main.dol")
+ 
+     /** The SHA-256 of the build [id]'s module was made from ("" if the APK has no module for it). */
+     private fun dolSha256(id: String): String =
+-        getString(if (id == "GEAP8P") R.string.skies_dol_sha256_eu else R.string.skies_dol_sha256)
++        getString(when (id) {
++            "GEAP8P" -> R.string.skies_dol_sha256_eu
++            "GEAJ8P" -> R.string.skies_dol_sha256_jp
++            else -> R.string.skies_dol_sha256
++        })
+ 
+     // main.dol's size and time when it was last hashed, and the answer: refresh() runs on the UI
+     // thread at every onResume, and the hash only changes when the file does
+@@ -713,7 +717,7 @@ class SkiesLauncherActivity : FragmentActivity() {
+     private fun bundledPatches(): File {
+         val directory = File(cacheDir, "dolpatches")
+         directory.mkdirs()
+-        for (id in listOf("GEAE8P", "GEAP8P")) {
++        for (id in listOf("GEAE8P", "GEAP8P", "GEAJ8P")) {
+             val name = SkiesNative.patchName(id)
+             val patch = File(directory, name)
+             try {
+@@ -809,7 +813,7 @@ class SkiesLauncherActivity : FragmentActivity() {
+         settings?.close()
+         column.descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
+         val game = if (ready) getString(R.string.skies_title) + " [$gameId]" else null
+-        settings = SkiesSettingsPanel(this, screen, game, ready && gameId == "GEAP8P",
++        settings = SkiesSettingsPanel(this, screen, game, ready && gameId == "GEAP8P", ready && gameId == "GEAJ8P",
+             { afterGameClosed { pickDisc.launch(arrayOf("*/*")) } },
+             { pickDriver.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) },
+             { confirmImportSave() }, { startExport() },
+@@ -1241,7 +1245,7 @@ class SkiesLauncherActivity : FragmentActivity() {
+      * Retroid build was tuned with, each only if the player hasn't set it.
+      */
+     private fun installDefaults() {
+-        for (id in listOf("GEAE8P", "GEAP8P")) {
++        for (id in listOf("GEAE8P", "GEAP8P", "GEAJ8P")) {
+             val ini = File(userDirectory, "GameSettings/$id.ini")
+             if (ini.exists()) continue
+             ini.parentFile?.mkdirs()
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt
+index 319ca5ff94..a9e97d3c90 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesNative.kt
+@@ -12,8 +12,8 @@ fun isSkiesBrand(context: Context): Boolean =
+ /** Skies Recomp's first-run disc import (jni/SkiesImport.cpp). */
+ object SkiesNative {
+     /**
+-     * Checks [image] (a path or content URI) is Skies of Arcadia Legends (the USA GEAE8P or the
+-     * European GEAP8P), extracts it to [gamesDirectory]/<disc ID>, patches its main.dol with that
++     * Checks [image] (a path or content URI) is Skies of Arcadia Legends (the USA GEAE8P, the
++     * European GEAP8P or the Japanese GEAJ8P), extracts it to [gamesDirectory]/<disc ID>, patches its main.dol with that
+      * region's DOL patch from [patchDirectory] ([patchName]) and checks the result. Importing one
+      * region removes the other's game folder. Returns "" on success, else a message for the player.
+      * Blocks: call it off the main thread.
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+index 1488962c8e..84ca2c01a0 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+@@ -34,6 +34,8 @@ class SkiesSettingsPanel(
+     private val gameText: String?,
+     /** The European disc is imported: it has the Language tab's four languages. */
+     private val europe: Boolean,
++    /** The Japanese disc is imported: Japanese only. */
++    private val japan: Boolean,
+     private val onChangeDisc: () -> Unit,
+     private val onPickDriver: () -> Unit,
+     private val onImportSave: () -> Unit,
+@@ -268,6 +270,10 @@ class SkiesSettingsPanel(
+                     configRow(rows, "Language", LANGUAGE, dolphin, "Skies", "Language", 0,
+                         "The game's text. In game, the menu (hold Z, press Start) can switch it " +
+                             "and restart the game at once.")
++                } else if (japan) {
++                    describe(rows, "The Japanese disc is in Japanese only. The European disc has " +
++                        "English, German, French and Spanish: import it in the Disc tab to " +
++                        "choose one here.")
+                 } else {
+                     describe(rows, "The USA disc is in English only. The European disc has " +
+                         "English, German, French and Spanish: import it in the Disc tab to " +
+diff --git a/Source/Android/jni/SkiesImport.cpp b/Source/Android/jni/SkiesImport.cpp
+index 3158db2717..b384b4b2e1 100644
+--- a/Source/Android/jni/SkiesImport.cpp
++++ b/Source/Android/jni/SkiesImport.cpp
+@@ -1,6 +1,7 @@
+ // Skies Recomp (the branded Android app): first-run import of the player's own disc. The same steps
+ // as the desktop launcher (ModernGekko tools/moderngekko_launcher.cpp, ExtractDisc): check that the
+-// image is Skies of Arcadia Legends (the USA GEAE8P or the European GEAP8P, revision 0), extract it
++// image is Skies of Arcadia Legends (the USA GEAE8P, the European GEAP8P or the Japanese GEAJ8P,
++// revision 0), extract it
+ // into its game folder (Games/<disc ID>), turn its main.dol into the game build the APK's module for
+ // that disc was made from with the bundled whole-file DOL patch (which checks the input and output
+ // SHA-256 itself), and only then move the folder into place. One game at a time: importing one
+@@ -55,7 +56,8 @@ struct Region
+   const char* name;
+ };
+ constexpr Region REGIONS[] = {{"GEAE8P", "skies-widescreen.dolpatch", "USA"},
+-                              {"GEAP8P", "skies-widescreen-eu.dolpatch", "European"}};
++                              {"GEAP8P", "skies-widescreen-eu.dolpatch", "European"},
++                              {"GEAJ8P", "skies-widescreen-jp.dolpatch", "Japanese"}};
+ 
+ const Region* FindRegion(const std::string& id)
+ {
+@@ -225,8 +227,8 @@ std::string ImportDisc(const std::string& image, const fs::path& games_directory
+   if (!region)
+   {
+     return "That disc is " + (id.empty() ? std::string("unknown") : id) +
+-           ". This port needs Skies of Arcadia Legends for the GameCube: the USA (GEAE8P) or the "
+-           "European (GEAP8P) version.";
++           ". This port needs Skies of Arcadia Legends for the GameCube: the USA (GEAE8P), the "
++           "European (GEAP8P) or the Japanese (GEAJ8P, Eternal Arcadia Legends) version.";
+   }
+   if (volume->GetRevision().value_or(0) != 0)
+     return "That's a later revision of the disc; this port needs the original release.";
+@@ -258,13 +260,13 @@ std::string ImportDisc(const std::string& image, const fs::path& games_directory
+   s_importing = false;
+   return error;
+ }
+-// The game's card saves are always 3 blocks named SA_LEGENDS.000-.002 (the desktop launcher's
+-// SaveGame); for the game imported in the user directory.
++// The game's card saves are always 3 blocks named SA_LEGENDS.000-.002, EA_LEGEND.000-.002 in the
++// Japanese game (the desktop launcher's SaveGame); for the game imported in the user directory.
+ moderngekko::frontend::SaveImportGame SkiesSaves(const fs::path& user_directory)
+ {
+-  moderngekko::frontend::SaveImportGame game{InstalledRegion(user_directory).id,
+-                                             "Skies of Arcadia Legends", "state-skies-import-", 3,
+-                                             "SA_LEGENDS."};
++  const std::string_view id = InstalledRegion(user_directory).id;
++  moderngekko::frontend::SaveImportGame game{id, "Skies of Arcadia Legends", "state-skies-import-",
++                                             3, id == "GEAJ8P" ? "EA_LEGEND." : "SA_LEGENDS."};
+   // The game's state folder, a romhack's own (SkiesNative.useStateFolder sets it)
+   game.state_directory = File::GetUserPath(D_STATESAVES_IDX);
+   return game;
+diff --git a/Source/Core/Core/SkiesInput.cpp b/Source/Core/Core/SkiesInput.cpp
+index c1dcbd5a32..1f775bc87c 100644
+--- a/Source/Core/Core/SkiesInput.cpp
++++ b/Source/Core/Core/SkiesInput.cpp
+@@ -539,7 +539,7 @@ std::vector<std::string> CaptureDevices(Slot slot)
+ void Poll()
+ {
+   const std::string& game = SConfig::GetInstance().GetGameID();
+-  if (game != "GEAE8P" && game != "GEAP8P")
++  if (game != "GEAE8P" && game != "GEAP8P" && game != "GEAJ8P")
+     return;
+   s_owns_keyboard = true;
+   if (!s_devices_hook)
+diff --git a/Source/Core/Core/SkiesMusic.cpp b/Source/Core/Core/SkiesMusic.cpp
+index 9778451cfc..baacb2e16c 100644
+--- a/Source/Core/Core/SkiesMusic.cpp
++++ b/Source/Core/Core/SkiesMusic.cpp
+@@ -26,7 +26,7 @@ namespace SkiesMusic
+ namespace
+ {
+ // patches/game/dcmusic.c's block in MetroTRK's buffers, and the game's sound layer state
+-// (../SkiesOfArcadiaLegends-Decomp/docs/sound.md), USA / Europe.
++// (../SkiesOfArcadiaLegends-Decomp/docs/sound.md), USA / Europe / Japan.
+ struct Addresses
+ {
+   u32 box;          // struct dcm_box
+@@ -43,6 +43,8 @@ constexpr Addresses USA{0x8031A890, 0x80315120, 0x803477E0, 0x803477DC, 0x803154
+                         0x803477D8, 0x803477D4, 0x80315434, 0x803474E0};
+ constexpr Addresses EUROPE{0x8031DE50, 0x803187C0, 0x8034AF08, 0x8034AF04, 0x80318B24,
+                            0x8034AF00, 0x8034AEFC, 0x80318AD4, 0x8034ABF8};
++constexpr Addresses JAPAN{0x8031A310, 0x80314BA0, 0x80347260, 0x8034725C, 0x80314F04,
++                          0x80347258, 0x80347254, 0x80314EB4, 0x80346F60};
+ 
+ constexpr u32 DCM_MAGIC = 0x44434D55;  // 'DCMU'
+ constexpr int BANK_SLOTS = 11;
+@@ -353,7 +355,7 @@ void SendChannelVolumes(Memory::MemoryManager& memory)
+ const Addresses* ForGame()
+ {
+   const std::string& id = SConfig::GetInstance().GetGameID();
+-  return id == "GEAE8P" ? &USA : id == "GEAP8P" ? &EUROPE : nullptr;
++  return id == "GEAE8P" ? &USA : id == "GEAP8P" ? &EUROPE : id == "GEAJ8P" ? &JAPAN : nullptr;
+ }
+ 
+ // A song the patch didn't see start, from a savestate made before it: which pair of its music list
+diff --git a/Source/Core/VideoCommon/SkiesMenu.cpp b/Source/Core/VideoCommon/SkiesMenu.cpp
+index c967f2f6f8..f93577b13b 100644
+--- a/Source/Core/VideoCommon/SkiesMenu.cpp
++++ b/Source/Core/VideoCommon/SkiesMenu.cpp
+@@ -281,9 +281,14 @@ bool IsEurope()
+   return SConfig::GetInstance().GetGameID() == "GEAP8P";
+ }
+ 
++bool IsJapan()
++{
++  return SConfig::GetInstance().GetGameID() == "GEAJ8P";
++}
++
+ bool IsSkies()
+ {
+-  return SConfig::GetInstance().GetGameID() == "GEAE8P" || IsEurope();
++  return SConfig::GetInstance().GetGameID() == "GEAE8P" || IsEurope() || IsJapan();
+ }
+ 
+ // A restart for a new language (European disc): not in a netplay session, which would lose its
+@@ -293,14 +298,16 @@ bool CanRestart()
+   return IsEurope() && !NetPlay::IsNetPlayRunning();
+ }
+ 
+-// A game address (or an instruction word) in the USA release and the European one: the game patch
+-// is the same code at other addresses there (patches/game/GEAP8P.addresses.json). The patch's own
+-// blocks in the low-memory gap are at the same addresses in both.
++// A game address (or an instruction word) in the USA release, the European one and the Japanese
++// one: the game patch is the same code at other addresses there (patches/game/GEAP8P.addresses.json,
++// GEAJ8P.addresses.json). The patch's own blocks in the low-memory gap are at the same addresses in
++// all three.
+ struct RegionAddress
+ {
+   u32 usa;
+   u32 europe;
+-  operator u32() const { return IsEurope() ? europe : usa; }
++  u32 japan;
++  operator u32() const { return IsEurope() ? europe : IsJapan() ? japan : usa; }
+ };
+ 
+ GCPadStatus Released(const GCPadStatus& raw)
+@@ -808,8 +815,8 @@ void Close()
+ // battle's first phase) until its results.
+ bool InShipBattle(Memory::MemoryManager& memory)
+ {
+-  const RegionAddress GAME_MODE{0x803475CC, 0x8034ACEC};
+-  const RegionAddress MAP_ID{0x80311AC4, 0x80315154};
++  const RegionAddress GAME_MODE{0x803475CC, 0x8034ACEC, 0x80347048};
++  const RegionAddress MAP_ID{0x80311AC4, 0x80315154, 0x80311544};
+   constexpr u32 QOL_SHIP_LIVE = 0x80002BA8;
+   const u32 map = memory.Read_U32(MAP_ID);
+   return memory.Read_U32(GAME_MODE) == 6 && map >= 500 && map <= 599 &&
+@@ -822,14 +829,14 @@ bool InShipBattle(Memory::MemoryManager& memory)
+ // towns, dungeons and the world map.
+ namespace camera
+ {
+-const RegionAddress GAME_MODE{0x803475CC, 0x8034ACEC};  // 6 = field / world map
+-const RegionAddress MANAGER{0x80311970, 0x80314FF0};    // +0 mode (2 = follow), +8 eye source
+-const RegionAddress FIELD_CAMERA_EYE{0x80302F94, 0x80306614};  // the field camera object's eye
+-const RegionAddress FIELD_CAMERA_PITCH{0x80302FA0, 0x80306620};
+-const RegionAddress MAP_ID{0x80311AC4, 0x80315154};     // 0x63 = the world map
++const RegionAddress GAME_MODE{0x803475CC, 0x8034ACEC, 0x80347048};  // 6 = field / world map
++const RegionAddress MANAGER{0x80311970, 0x80314FF0, 0x803113F0};    // +0 mode (2 = follow), +8 eye source
++const RegionAddress FIELD_CAMERA_EYE{0x80302F94, 0x80306614, 0x80302A14};  // the field camera object's eye
++const RegionAddress FIELD_CAMERA_PITCH{0x80302FA0, 0x80306620, 0x80302A20};
++const RegionAddress MAP_ID{0x80311AC4, 0x80315154, 0x80311544};     // 0x63 = the world map
+ constexpr u32 WORLD_MAP = 0x63;
+-const RegionAddress HOOK_SITE{0x8022D910, 0x80230BB0};  // bl fn_8022D1F8 in the unpatched game
+-const RegionAddress HOOK_ORIGINAL{0x4BFFF8E9, 0x4BFFF8E9};
++const RegionAddress HOOK_SITE{0x8022D910, 0x80230BB0, 0x8022D494};  // bl fn_8022D1F8 in the unpatched game
++const RegionAddress HOOK_ORIGINAL{0x4BFFF8E9, 0x4BFFF8E9, 0x4BFFF8E9};
+ constexpr u32 INPUT = 0x80002EC0;           // camera.c's cam_input
+ constexpr u32 INPUT_MAGIC = 0x43414D43;     // 'CAMC'
+ 
+@@ -948,12 +955,12 @@ void Write(Memory::MemoryManager& memory, const Context& context, bool enabled)
+ // every retrace or more).
+ namespace qol
+ {
+-const RegionAddress HOOK_SITE{0x800C207C, 0x800C2430};  // bl fn_8025ECC4 (rand) in the unpatched game
+-const RegionAddress HOOK_ORIGINAL{0x4819CC49, 0x4819EFD5};
++const RegionAddress HOOK_SITE{0x800C207C, 0x800C2430, 0x800C2064};  // bl fn_8025ECC4 (rand) in the unpatched game
++const RegionAddress HOOK_ORIGINAL{0x4819CC49, 0x4819EFD5, 0x4819C711};
+ constexpr u32 INPUT = 0x80002EA0;          // qol.c's qol_input
+ constexpr u32 INPUT_MAGIC = 0x514F4C43;    // 'QOLC'
+-const RegionAddress GAME_MODE{0x803475CC, 0x8034ACEC};  // 7 = battle (ship battles: InShipBattle)
+-const RegionAddress MAP_ID{0x80311AC4, 0x80315154};
++const RegionAddress GAME_MODE{0x803475CC, 0x8034ACEC, 0x80347048};  // 7 = battle (ship battles: InShipBattle)
++const RegionAddress MAP_ID{0x80311AC4, 0x80315154, 0x80311544};
+ // In qol_input's speed word (ws26): the speed holds in the field (game mode 6) too. Written only
+ // outside battle, so an earlier game patch, which takes the whole word for the battle speed, never
+ // sees it in a battle.
+@@ -1217,7 +1224,7 @@ void CycleSpeed(Place place)
+ // in progress). Waits for such a moment once it's due.
+ namespace autosave
+ {
+-const RegionAddress GAME_MODE{0x803475CC, 0x8034ACEC};  // 6 = field / world map
++const RegionAddress GAME_MODE{0x803475CC, 0x8034ACEC, 0x80347048};  // 6 = field / world map
+ constexpr double CARD_QUIET_SECONDS = 10.0;
+ 
+ Clock::time_point s_due{};
+@@ -1273,10 +1280,10 @@ namespace autoload
+ const Config::Info<int> AUTO_LOAD_CARD{{Config::System::Main, "Skies", "AutoLoadCard"}, 0};
+ constexpr u32 REQUEST = 0x80002EF0;      // autoload.c's load_request: magic, file, status, error
+ constexpr u32 REQUEST_MAGIC = 0x4C4F4144;  // 'LOAD'
+-const RegionAddress HOOK_SITE{0x801DC350, 0x801DDFDC};  // the title's call, redirected to dl_title
+-const RegionAddress HOOK_ORIGINAL{0x4804C6D1, 0x4804DC89};  // bl fn_80228A20
+-const RegionAddress GAME_MODE{0x803475CC, 0x8034ACEC};
+-const RegionAddress TITLE_STATE{0x80311AE0, 0x80315170};  // lbl_80311AD4[3]
++const RegionAddress HOOK_SITE{0x801DC350, 0x801DDFDC, 0x801DC170};  // the title's call, redirected to dl_title
++const RegionAddress HOOK_ORIGINAL{0x4804C6D1, 0x4804DC89, 0x4804C625};  // bl fn_80228A20
++const RegionAddress GAME_MODE{0x803475CC, 0x8034ACEC, 0x80347048};
++const RegionAddress TITLE_STATE{0x80311AE0, 0x80315170, 0x80311560};  // lbl_80311AD4[3]
+ enum : u32
+ {
+   PENDING = 0,
+@@ -2079,6 +2086,8 @@ void Draw(float scale)
+     {
+       static constexpr std::array<const char*, 4> LANGUAGES{"English", "Deutsch", "Fran\xc3\xa7" "ais",
+                                                             "Espa\xc3\xb1ol"};
++      if (IsJapan())
++        return {"Language", "Japanese", "The Japanese disc is in Japanese only."};
+       if (!IsEurope())
+         return {"Language", "English", "Other languages need the European disc."};
+       if (v.language == opened_language)

@@ -1,4 +1,4 @@
-# Skies of Arcadia Legends (GEAE8P / GEAP8P): static recomp notes
+# Skies of Arcadia Legends (GEAE8P / GEAP8P / GEAJ8P): static recomp notes
 
 This repo is [ModernGekko-Template](https://github.com/ExpansionPak/ModernGekko-Template) applied to
 Skies of Arcadia Legends (USA; the European disc since 2026-10-17, *The European release*). Releases:
@@ -819,6 +819,57 @@ European data.
   CI runs it once per target and region (`TARGETS` / `REGIONS`), each its own job and cache key,
   with the region's DOL patch only (BUILDING *CI and releases*).
 - **Shipped** in v0.10.0-beta (2026-10-17, `61ac70e`).
+
+### The Japanese release (GEAJ8P; 2026-10-20, branch `japan`)
+
+Requested by the user: the Japanese disc, *Eternal Arcadia Legends* (`GEAJ8P`, an ISO; SHA-1
+`bb06f5ba...` for this dump, not checked against Redump). Extracted with `dolphin-tool extract` to
+`../GameCube-Research/targets/SkiesOfArcadiaLegends/jp/disc` (the ISO beside it). Its own build: a
+`main.dol` 1.5 KB *smaller* than the USA one (SHA-1 `74d8ff5d`, SHA-256 `4aa0f3dc`), far closer to the
+USA code than the European build (the text is in the DOL as in the USA, no `.sot` packs); the files
+are the USA ones but for `FontData.jp`, Japanese voices (`sound/cr*`, `e*`, `stv*` and others differ),
+four extra `beff/f2911?f3.mlk`, and no `field/mb*.std`, `list2.txt`, `shop_hrse.mll`. The music banks
+(`m0231`-`m0465`, `m01`-`m04` streams) have the same names as the USA's.
+
+- **Game patch:** ws26 on the Japanese DOL through `patches/game/GEAJ8P.addresses.json` (209 addresses,
+  `tools/dolmatch.py --target GEAJ8P`, which now writes the table itself; on the European DOL it gives
+  the existing table exactly). 663 call sites as in the USA. Differences found: `patches/game/README.md`
+  (*The Japanese release*); the only one the patches feel is the direct card load skipping the
+  Japanese load screen's three bonus-file event flags (`EA_LEGEND_EXTRA`), harmless. Release patch
+  `release/skies-widescreen-jp.dolpatch` (output `d4867b46`); `release/GEAJ8P.ini` (idle PC
+  `0x8023772C`, dual core).
+- **Region:** left as Dolphin sets it, NTSC-J: 60 Hz, the Japanese IPL settings, the font encoding
+  Japanese, card saves in `GC/JAP/Card A` (the launcher, Android and Import a save already look there
+  by the disc ID's region letter). The card file is `EA_LEGEND.nnn`, so Import a save's name check
+  (`SaveGame` / `SkiesSaves`) takes `EA_LEGEND.` for GEAJ8P. Language: Japanese only (the menu's and
+  the launchers' Language tabs say so).
+- **Frontend:** `recompcore-japan.patch` (last in the series): `SkiesMenu.cpp` `RegionAddress{usa,
+  europe, japan}` (game mode `0x80347048`, map `0x80311544`, camera manager `0x803113F0`, field
+  camera `0x80302A14` / `0x80302A20`, title state `0x80311560`; hook sites camera `0x8022D494`
+  (`0x4BFFF8E9`), QOL `0x800C2064` (`0x4819C711`), autoload `0x801DC170` (`0x4804C625`); all
+  high-confidence matches, the same method gives the European column), `SkiesMusic.cpp` `JAPAN`
+  (box `0x8031A310` ...), `SkiesInput.cpp`, Android import (third region). `moderngekko-local.patch`:
+  the launcher's `IsSkies`, Language tab text, `EA_LEGEND.`.
+- **Release plumbing:** `REGIONS` takes `jp` everywhere `eu` was: `tools/build-release-{linux,macos}.sh`
+  and `build-release-win.bat` (package takes the modules by name), `tools/ci-codegen.sh` (`main-jp.dol`,
+  `-jp` outputs and profiles), `tools/android-ws-build.sh` (`DOL_JP` / `PREGEN_JP`, assets,
+  `dol-sha256-jp.txt`), validate.yml (matrix region `jp`, `DOL_SHA256_JP`, `REGIONS: us eu jp`, the
+  modules in every package) and release.yml (the publish check knows the Japanese DOLs and wants the
+  `gGEAJ8P_recomp` module in every package). **CI needs `main-jp.dol` (the original Japanese DOL) in
+  the secrets repo before this runs** (the user's step).
+- **Checked (WSL, 2026-10-20):** dev runner (`build-egl`, Linux module `build/jp-gen26/module-linux`,
+  no PGO): boots to the Japanese opening text, title, new game, rumble prompt, the opening on
+  Alfonso's ship, the first battle won and its results screen, 1.00x (llvmpipe dips while loading),
+  widescreen, no invalid reads; state `build/savestates/jp-01-first-battle-results.sav`. Release
+  build (`REGIONS="us eu jp"`, portable copy `build/rt-jp`): `--extract` of the ISO imports
+  `games/GEAJ8P` with exactly the pinned DOL; the runner boots it; the QOL hook live (`QOLC`), camera
+  control (`CAMC`, Z + C-stick turns the camera); Continue: the user's USA card file 3 converted (game
+  code `GEAJ`, name `EA_LEGEND.002`) auto-loads into Pirate Isle's underground (`load_request` done);
+  save states made in either runner load; the Dreamcast music (European test import) takes the field
+  song (`dcm_box` live, the GameCube song muted). Not done: saving at a save point from the Japanese
+  game (the scripted walk didn't open the save menu; the format is the USA one, statically), a battle
+  at QOL battle speed (no random battles in the opening's areas), Windows, macOS, Android on a device,
+  a Japanese PGO profile.
 
 ### Romhacks (2026-10-18, branch `romhack`)
 

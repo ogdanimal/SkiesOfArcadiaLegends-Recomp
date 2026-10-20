@@ -9,7 +9,8 @@
   "toolchain": ["DolRecomp", "ModernGekko"],
   "original": [
     { "region": "USA", "serial": "GEAE8P", "sha1": "46105320553c858f25fafc5fd357566b505a4940" },
-    { "region": "Europe", "serial": "GEAP8P", "sha1": "30ee1d7777fe51bcd7c4deeb867651d5b6e96e41" }
+    { "region": "Europe", "serial": "GEAP8P", "sha1": "30ee1d7777fe51bcd7c4deeb867651d5b6e96e41" },
+    { "region": "Japan", "serial": "GEAJ8P", "sha1": "bb06f5ba75a8e928a62f7b01c2b375b7e2693309" }
   ],
   "project": "Skies of Arcadia Legends: Recompiled",
   "approach": "DolRecomp static recompilation of the game's PowerPC code, on Dolphin's hardware layer through ModernGekko",
@@ -17,7 +18,7 @@
   "links": [
     { "label": "Releases", "url": "https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/releases" }
   ],
-  "help": ["Testing on Mali and other non-Adreno GPUs", "Support for the Japanese release"],
+  "help": ["Testing on Mali and other non-Adreno GPUs"],
   "tags": ["widescreen", "ultrawide", "60fps", "analog-camera", "save-states", "autosave", "touch-controls", "keyboard", "remapping", "dreamcast-music"],
-  "notes": "Beta. Native Windows, Linux, macOS (Apple Silicon) and Android (arm64) builds with widescreen (16:9 or any screen shape, ultrawide included), 60 fps, camera control, save states, auto-save, save import and backup, keyboard play and button mapping, quality-of-life options and the optional Dreamcast soundtrack (from the player's own Dreamcast disc); an Adreno GPU driver loader on Android. Full speed at 60 fps on a Retroid Pocket 5. Bring your own USA or European GameCube disc; no game data ships in any build."
+  "notes": "Beta. Native Windows, Linux, macOS (Apple Silicon) and Android (arm64) builds with widescreen (16:9 or any screen shape, ultrawide included), 60 fps, camera control, save states, auto-save, save import and backup, keyboard play and button mapping, quality-of-life options and the optional Dreamcast soundtrack (from the player's own Dreamcast disc); an Adreno GPU driver loader on Android. Full speed at 60 fps on a Retroid Pocket 5. Bring your own USA, European or Japanese GameCube disc; no game data ships in any build."
 }

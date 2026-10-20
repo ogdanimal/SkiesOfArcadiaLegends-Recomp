@@ -2,12 +2,12 @@
 # Branded release build (Linux), the counterpart of tools/build-release-win.bat: the launcher
 # (SkiesOfArcadiaLegends; no spaces in a Linux binary name, like the Hybrid Heaven port's), the runner
 # skies-run and Sys in lib/ModernGekko/build-release-linux, configured for Skies (the USA disc GEAE8P
-# and the European GEAP8P, each with its widescreen DOL patch applied to the player's own main.dol and
+# the European GEAP8P and the Japanese GEAJ8P, each with its widescreen DOL patch applied to the player's own main.dol and
 # its game ini; user directory ~/.local/share/Skies of Arcadia Legends). EGL on, as the WSL dev
 # runtime (build-egl).
-#   tools/build-release-linux.sh configure | build | package USA.so [EUROPE.so] [VERSION] | appimage [VERSION]
-# REGIONS="us eu" (configure) makes the release take the European disc too; the default is the USA
-# disc alone, and package then needs only the USA module.
+#   tools/build-release-linux.sh configure | build | package USA.so [EUROPE.so] [JAPAN.so] [VERSION] | appimage [VERSION]
+# REGIONS="us eu jp" (configure) makes the release take the European and the Japanese disc too ("us eu":
+# the European one); the default is the USA disc alone, and package then needs only the USA module.
 # package: build/SkiesOfArcadiaLegends-VERSION-linux.tar.gz (+ .sha256), one top-level folder.
 # appimage: build/SkiesOfArcadiaLegends-VERSION-linux-x86_64.AppImage (+ .sha256) from the folder
 # package made, with the libraries the binaries need from the build machine inside (linuxdeploy;
@@ -27,6 +27,10 @@ configure)
   if [[ " ${REGIONS:-us} " == *" eu "* ]]; then
     IDS+=";GEAP8P" SHAS+=";$(sha release/skies-widescreen-eu.dolpatch)"
     PATCHES+=";$PWD/release/skies-widescreen-eu.dolpatch" INIS+=";$PWD/release/GEAP8P.ini"
+  fi
+  if [[ " ${REGIONS:-us} " == *" jp "* ]]; then
+    IDS+=";GEAJ8P" SHAS+=";$(sha release/skies-widescreen-jp.dolpatch)"
+    PATCHES+=";$PWD/release/skies-widescreen-jp.dolpatch" INIS+=";$PWD/release/GEAJ8P.ini"
   fi
   # Keep the build machine's paths (home directory, user name) out of the binaries
   MAP="-ffile-prefix-map=$PWD/="
@@ -48,10 +52,14 @@ build)
   cp release/launcher-background.png release/CREDITS.md $B/
   ;;
 package)
-  MODULE=${2:?usage: tools/build-release-linux.sh package USA.so [EUROPE.so] [VERSION]}
-  MODULE_EU=
-  # An optional European module (a .so), then the version
-  if [[ ${3:-} == *.so ]]; then MODULE_EU=$3; shift; fi
+  MODULE=${2:?usage: tools/build-release-linux.sh package USA.so [EUROPE.so] [JAPAN.so] [VERSION]}
+  MODULE_EU= MODULE_JP=
+  # Optional European and Japanese modules (.so files, told apart by their names:
+  # gGEAP8P_recomp.so, gGEAJ8P_recomp.so), then the version
+  while [[ ${3:-} == *.so ]]; do
+    if [[ $(basename "$3") == *GEAJ8P* ]]; then MODULE_JP=$3; else MODULE_EU=$3; fi
+    shift
+  done
   VERSION=${3:-v0.9.0}
   NAME=SkiesOfArcadiaLegends-$VERSION-linux
   P=build/$NAME
@@ -59,9 +67,11 @@ package)
   cp $B/SkiesOfArcadiaLegends $B/skies-run $B/launcher-background.png "$P/"
   strip --strip-debug -o "$P/gGEAE8P_recomp.so" "$MODULE"
   [ -n "$MODULE_EU" ] && strip --strip-debug -o "$P/gGEAP8P_recomp.so" "$MODULE_EU"
+  [ -n "$MODULE_JP" ] && strip --strip-debug -o "$P/gGEAJ8P_recomp.so" "$MODULE_JP"
   cp -r $B/Sys "$P/"
   cp release/skies-widescreen.dolpatch "$P/patches/"
   [ -n "$MODULE_EU" ] && cp release/skies-widescreen-eu.dolpatch "$P/patches/"
+  [ -n "$MODULE_JP" ] && cp release/skies-widescreen-jp.dolpatch "$P/patches/"
   cp release/README.md release/CREDITS.md release/THIRD-PARTY.md "$P/"
   cp release/skies-logo.png "$P/icon.png"
   cp COPYING "$P/COPYING.txt"

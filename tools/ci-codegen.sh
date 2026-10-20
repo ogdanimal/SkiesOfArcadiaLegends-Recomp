@@ -5,15 +5,17 @@
 # Linux x86_64 ELF, Android aarch64, macOS arm64 Mach-O) and precompute each module's
 # module_tables.inc so the build jobs never need the DOL (-DMODULE_TABLES_INC).
 #   tools/ci-codegen.sh SECRETS_DIR OUT_DIR
-#     SECRETS_DIR: main.dol (USA, GEAE8P), main-eu.dol (European, GEAP8P), and the targets' profiles
-#                  pgo/PROFILE.profdata, pgo/PROFILE-eu.profdata (codegen-targets.txt names them)
-#     OUT_DIR:     USA: NAME/generated (windows/generated, ...); European: NAME-eu/generated
+#     SECRETS_DIR: main.dol (USA, GEAE8P), main-eu.dol (European, GEAP8P), main-jp.dol (Japanese,
+#                  GEAJ8P), and the targets' profiles pgo/PROFILE.profdata, pgo/PROFILE-eu.profdata,
+#                  pgo/PROFILE-jp.profdata (codegen-targets.txt names them)
+#     OUT_DIR:     USA: NAME/generated (windows/generated, ...); European: NAME-eu/generated;
+#                  Japanese: NAME-jp/generated
 #                  (no DOL in any; checked)
 # pgo/windows.profdata is the desktop profile (trained on Linux with tools/pgo-wsl.sh), used for both
 # x86_64 targets. A build without its profile has no PGO (the profiles are keyed by code addresses,
 # so the USA ones don't fit the European DOL). DOLRECOMP defaults to lib/ModernGekko/build/dolrecomp;
-# TARGETS (default: all of codegen-targets.txt) and REGIONS (default "us eu", or "us" when the
-# secrets have no main-eu.dol) limit the run. CI runs it once per target and region.
+# TARGETS (default: all of codegen-targets.txt) and REGIONS (default: "us" and each of "eu" / "jp"
+# whose main-eu.dol / main-jp.dol the secrets have) limit the run. CI runs it once per target and region.
 # The repository files the output depends on (for a cache key), besides the secrets, the target's
 # line in tools/codegen-targets.txt and the region's release/skies-widescreen*.dolpatch:
 # CACHE_INPUTS: tools/ci-codegen.sh tools/applydolpatch.py lib/ModernGekko/vendor/dolphin/module-template/gen_module_tables.py patches/dolrecomp-*.patch
@@ -59,8 +61,9 @@ region() {  # region ORIGINAL_DOL DOLPATCH SUFFIX
 grep -v '^#' tools/codegen-targets.txt | grep . > "$WORK/targets"
 TARGETS=" ${TARGETS:-$(cut -d" " -f1 "$WORK/targets" | tr "\n" " ")} "
 if [ -z "${REGIONS:-}" ]; then
-  REGIONS="us eu"
-  [ -f "$SECRETS/main-eu.dol" ] || { REGIONS=us; echo "(no main-eu.dol: the USA game only)"; }
+  REGIONS=us
+  [ -f "$SECRETS/main-eu.dol" ] && REGIONS+=" eu" || echo "(no main-eu.dol: no European game)"
+  [ -f "$SECRETS/main-jp.dol" ] && REGIONS+=" jp" || echo "(no main-jp.dol: no Japanese game)"
 fi
 REGIONS=" $REGIONS "
 for t in $TARGETS; do
@@ -68,6 +71,7 @@ for t in $TARGETS; do
 done
 [[ $REGIONS == *" us "* ]] && region "$SECRETS/main.dol" release/skies-widescreen.dolpatch ""
 [[ $REGIONS == *" eu "* ]] && region "$SECRETS/main-eu.dol" release/skies-widescreen-eu.dolpatch -eu
+[[ $REGIONS == *" jp "* ]] && region "$SECRETS/main-jp.dol" release/skies-widescreen-jp.dolpatch -jp
 # No copy of a DOL (original or patched) may leave this step.
 # (Listings go to files first: `find | grep -q` under pipefail can fail on find's SIGPIPE.)
 find "$OUT" -type f -size +1M -exec sh -c 'if command -v sha256sum >/dev/null; then sha256sum "$@"; else shasum -a 256 "$@"; fi' sh {} + > "$WORK/sums"

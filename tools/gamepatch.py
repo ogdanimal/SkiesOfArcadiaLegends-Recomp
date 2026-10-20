@@ -6,7 +6,7 @@ usage: tools/gamepatch.py SPEC.json [SPEC.json ...] [--dol IN] [--out-root DIR]
   SPEC     patches/game/*.json: sources (C / .S, built with clang for the Gekko), symbols, and
            call redirections (see patches/game/README.md)
   --dol    the original DOL (default extracted/SkiesOfArcadiaLegends/sys/main.dol): the USA Rev 0
-           one or the European one (by SHA-1), unless --any-dol
+           one, the European one or the Japanese one (by SHA-1), unless --any-dol
   --out-root  game root to write (default build/game/GEAE8P-patched): sys/ is copied with the
            patched main.dol, files/ is a symlink to the original; patch.elf (for disassembly) and
            patches.txt (symbols and patched sites) go beside them
@@ -28,12 +28,13 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LLVM = os.environ.get("LLVM_BIN", "/usr/lib/llvm-20/bin")
 CLANG = os.environ.get("PATCH_CC", "clang-20")
 DOL_SHA1 = "8c0e278126fa3b0173400fdb632038172743cc13"  # GEAE8P (USA Rev 0) main.dol
-# The patches are written against the USA DOL. For the European one (GEAP8P) every game address in
-# the sources, specs and cave.ld (0x80xxxxxx, fn_80xxxxxx, lbl_80xxxxxx) is translated with
-# patches/game/GEAP8P.addresses.json (tools/dolmatch.py) before building.
+# The patches are written against the USA DOL. For the European one (GEAP8P) and the Japanese one
+# (GEAJ8P) every game address in the sources, specs and cave.ld (0x80xxxxxx, fn_80xxxxxx,
+# lbl_80xxxxxx) is translated with patches/game/<ID>.addresses.json (tools/dolmatch.py) before building.
 REGIONS = {
     DOL_SHA1: ("GEAE8P", None),
     "295a9fc982072bce60734eb6bdb60aec4182b702": ("GEAP8P", "GEAP8P.addresses.json"),
+    "74d8ff5da244b7f7b653b7340b845a11db7a4732": ("GEAJ8P", "GEAJ8P.addresses.json"),
 }
 # MetroTRK's message handlers, dead without a debugger: the second code area (cave.ld), in USA
 # addresses (translated like the rest for another region).
@@ -216,7 +217,7 @@ def main():
     original = open(args.dol, "rb").read()
     sha1 = hashlib.sha1(original).hexdigest()
     if sha1 not in REGIONS and not args.any_dol:
-        sys.exit(f"{args.dol} isn't the USA Rev 0 (SHA-1 {DOL_SHA1}) or European main.dol")
+        sys.exit(f"{args.dol} isn't the USA Rev 0 (SHA-1 {DOL_SHA1}), European or Japanese main.dol")
     region = Region(sha1)
     args.out_root = args.out_root or os.path.join(ROOT, f"build/game/{region.game_id}-patched")
     trk_cave = (region.address(TRK_CAVE[0]), region.address(TRK_CAVE[1]))

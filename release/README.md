@@ -8,9 +8,11 @@ This is a **beta** (v0.60). Please report what you run into.
 
 ## What you need
 
-- Your own dump of the **USA** or the **European** GameCube disc (game ID `GEAE8P` or `GEAP8P`, the
-  original release). The European disc has English, German, French and Spanish (the **Language** tab
-  in Settings and in the in-game menu, which can restart the game in the new language at once). The Japanese release isn't supported; the import checks the game.
+- Your own dump of the **USA**, the **European** or the **Japanese** GameCube disc (game ID `GEAE8P`,
+  `GEAP8P` or `GEAJ8P`, the original release; the Japanese one is *Eternal Arcadia Legends*). The
+  European disc has English, German, French and Spanish (the **Language** tab in Settings and in the
+  in-game menu, which can restart the game in the new language at once); the Japanese disc is in
+  Japanese (the port's own menus stay in English). The import checks the game.
 - As RVZ, ISO, GCM, GCZ, WIA or CISO.
 - **Windows:** 64-bit Windows 10 or 11.
 - **Linux:** 64-bit (x86_64) with glibc 2.38 or newer (Ubuntu 24.04, Fedora 39, Bazzite or
@@ -68,8 +70,8 @@ it. It asks first, then opens a file picker. It takes:
 
 A memory card save replaces the file with the same number here; the one it replaces is kept beside
 it as a `.pre-import.bak` file (`.pre-import.2.bak` and so on if you import over it again). A save state is added to the ones you have. **Continue** then starts
-from what you imported. A save has to be from the same version as your disc (USA or European);
-saves from the Japanese version can't be used.
+from what you imported. A save has to be from the same version as your disc (USA, European or
+Japanese).
 
 ## What it adds
 

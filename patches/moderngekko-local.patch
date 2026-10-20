@@ -2467,7 +2467,7 @@ index 0000000..f3c3d14
 +void DrawMapping(State& state, const fs::path& user_directory, float scale);
 +}  // namespace moderngekko::launcher_controls
 diff --git a/tools/moderngekko_launcher.cpp b/tools/moderngekko_launcher.cpp
-index 7699c3d..9907efa 100644
+index 7699c3d..fd28926 100644
 --- a/tools/moderngekko_launcher.cpp
 +++ b/tools/moderngekko_launcher.cpp
 @@ -1,12 +1,24 @@
@@ -2554,7 +2554,7 @@ index 7699c3d..9907efa 100644
 +// Skies of Arcadia Legends' options, which the runtime applies live (Core/SkiesSettings.cpp):
 +// [Skies] in the user directory's Config/Dolphin.ini. -1 = not set yet; the runtime then derives
 +// the value on its first boot (16:9 from the widescreen DOL, the frame rate from the old switches).
-+// The USA and the European game.
++// The USA, the European and the Japanese game.
 +bool IsSkies(std::string_view disc_id)
  {
 -#ifdef MODERNGEKKO_REQUIRED_DISC_ID
@@ -2565,7 +2565,7 @@ index 7699c3d..9907efa 100644
 -  if (metadata.dol_sha256 != MODERNGEKKO_REQUIRED_DOL_SHA256)
 -    return "main DOL does not match the pinned release";
 -#endif
-+  return disc_id == "GEAE8P" || disc_id == "GEAP8P";
++  return disc_id == "GEAE8P" || disc_id == "GEAP8P" || disc_id == "GEAJ8P";
 +}
 +
 +// A Dolphin setting in the user directory's Config/<file>, [<section>] <key>.
@@ -2905,7 +2905,7 @@ index 7699c3d..9907efa 100644
    if (!file)
    {
      if (error)
-@@ -246,9 +477,150 @@ bool WriteDefaultGame(const fs::path& user_directory, const fs::path& release_di
+@@ -246,9 +477,152 @@ bool WriteDefaultGame(const fs::path& user_directory, const fs::path& release_di
      stored = relative;
  #endif
    file << stored.string() << '\n';
@@ -2985,8 +2985,9 @@ index 7699c3d..9907efa 100644
 +  return newest;
 +}
 +
-+// The game's file number (1..99) of a card save on card A, from its name ("...SA_LEGENDS.000.gci"
-+// is file 1); 0 when it isn't one the in-game auto-load can pick (card B, another name).
++// The game's file number (1..99) of a card save on card A, from its name ("...SA_LEGENDS.000.gci",
++// in the Japanese game "...EA_LEGEND.000.gci", is file 1); 0 when it isn't one the in-game
++// auto-load can pick (card B, another name).
 +int CardSaveFile(const fs::path& path)
 +{
 +  if (path.parent_path().filename() != "Card A")
@@ -3018,7 +3019,8 @@ index 7699c3d..9907efa 100644
 +}
 +
 +// What Import a save accepts for `game_id` (the string must outlive the result). Skies' card saves
-+// are always 3 blocks named SA_LEGENDS.000-.002, so anything else is refused, not left unloadable.
++// are always 3 blocks named SA_LEGENDS.000-.002 (EA_LEGEND.000-.002 in the Japanese game), so
++// anything else is refused, not left unloadable.
 +moderngekko::frontend::SaveImportGame SaveGame(std::string_view game_id)
 +{
 +  moderngekko::frontend::SaveImportGame game{game_id, MODERNGEKKO_FRONTEND_NAME,
@@ -3026,7 +3028,7 @@ index 7699c3d..9907efa 100644
 +  if (IsSkies(game_id))
 +  {
 +    game.save_blocks = 3;
-+    game.save_name_prefix = "SA_LEGENDS.";
++    game.save_name_prefix = game_id == "GEAJ8P" ? "EA_LEGEND." : "SA_LEGENDS.";
 +  }
 +  return game;
 +}
@@ -3056,7 +3058,7 @@ index 7699c3d..9907efa 100644
  std::vector<fs::path> FindDiscImages()
  {
    std::vector<fs::path> images;
-@@ -259,7 +631,9 @@ std::vector<fs::path> FindDiscImages()
+@@ -259,7 +633,9 @@ std::vector<fs::path> FindDiscImages()
    fs::recursive_directory_iterator iterator(documents,
                                              fs::directory_options::skip_permission_denied, ec);
    const fs::recursive_directory_iterator end;
@@ -3067,7 +3069,7 @@ index 7699c3d..9907efa 100644
    {
      if (iterator.depth() > 4)
        iterator.disable_recursion_pending();
-@@ -268,7 +642,7 @@ std::vector<fs::path> FindDiscImages()
+@@ -268,7 +644,7 @@ std::vector<fs::path> FindDiscImages()
        std::string extension = iterator->path().extension().string();
        std::ranges::transform(extension, extension.begin(),
                               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
@@ -3076,7 +3078,7 @@ index 7699c3d..9907efa 100644
          images.push_back(iterator->path());
      }
      iterator.increment(ec);
-@@ -290,16 +664,14 @@ std::optional<fs::path> PrepareDisc(const fs::path& image, const fs::path& user_
+@@ -290,16 +666,14 @@ std::optional<fs::path> PrepareDisc(const fs::path& image, const fs::path& user_
      return std::nullopt;
    }
    const std::string source_id = source->GetGameID(source->GetGamePartition());
@@ -3097,7 +3099,7 @@ index 7699c3d..9907efa 100644
      return std::nullopt;
    }
    const fs::path output = user_directory / "Setup" / "SonicRidersTE-2.4.6.1.iso";
-@@ -372,13 +744,13 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+@@ -372,13 +746,13 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
      return fail("Dolphin could not read the game partition filesystem");
  
    std::string disc_id = volume->GetGameID(partition);
@@ -3117,7 +3119,7 @@ index 7699c3d..9907efa 100644
  #ifdef MODERNGEKKO_PORTABLE_DEFAULT_GAME
    const fs::path games_directory = release_directory;
    const fs::path output = games_directory / "Game";
-@@ -387,28 +759,34 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+@@ -387,28 +761,34 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
    const fs::path output = games_directory / disc_id;
  #endif
    std::error_code ec;
@@ -3167,7 +3169,7 @@ index 7699c3d..9907efa 100644
    fs::create_directories(staging / "files", ec);
    if (ec)
      return fail("can't create extraction directory: " + ec.message());
-@@ -423,47 +801,57 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+@@ -423,47 +803,57 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
      return fail("Dolphin failed while extracting the disc system data");
    }
  
@@ -3243,7 +3245,7 @@ index 7699c3d..9907efa 100644
    std::string error;
    if (!WriteDefaultGame(user_directory, release_directory, output, &error))
      return fail(error);
-@@ -472,6 +860,13 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
+@@ -472,6 +862,13 @@ bool ExtractDisc(const fs::path& image, const fs::path& user_directory,
      std::lock_guard lock(state->mutex);
      state->finished_game = output;
      state->status = "Extraction complete";
@@ -3257,7 +3259,7 @@ index 7699c3d..9907efa 100644
    }
    state->running = false;
    return true;
-@@ -487,23 +882,93 @@ void SDLCALL FileDialogCallback(void* userdata, const char* const* filelist, int
+@@ -487,23 +884,93 @@ void SDLCALL FileDialogCallback(void* userdata, const char* const* filelist, int
      state->selected = filelist[0];
  }
  
@@ -3356,7 +3358,7 @@ index 7699c3d..9907efa 100644
    for (int i = 1; i < argc; ++i)
    {
      if (std::string_view(argv[i]) == "-X11" || std::string_view(argv[i]) == "--x11")
-@@ -512,10 +977,131 @@ int main(int argc, char** argv)
+@@ -512,10 +979,131 @@ int main(int argc, char** argv)
        use_wayland = true;
      else if (std::string_view(argv[i]) == "--extract" && i + 1 < argc)
        extract_only = argv[++i];
@@ -3489,7 +3491,7 @@ index 7699c3d..9907efa 100644
    if (extract_only)
    {
      ExtractionState extraction;
-@@ -529,7 +1115,39 @@ int main(int argc, char** argv)
+@@ -529,7 +1117,39 @@ int main(int argc, char** argv)
        std::cout << extraction.status << ": " << *extraction.finished_game << '\n';
      return success ? 0 : 1;
    }
@@ -3529,7 +3531,7 @@ index 7699c3d..9907efa 100644
    auto config = moderngekko::frontend::LoadConfig(user_directory, true);
    if (!config)
    {
-@@ -546,9 +1164,18 @@ int main(int argc, char** argv)
+@@ -546,9 +1166,18 @@ int main(int argc, char** argv)
    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD))
      return 1;
  
@@ -3550,7 +3552,7 @@ index 7699c3d..9907efa 100644
                                          SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
    if (!window)
    {
-@@ -578,19 +1205,101 @@ int main(int argc, char** argv)
+@@ -578,19 +1207,101 @@ int main(int argc, char** argv)
    ImGui::GetStyle().FontScaleDpi = scale;
    ImGui_ImplSDL3_InitForSDLRenderer(window, renderer);
    ImGui_ImplSDLRenderer3_Init(renderer);
@@ -3657,7 +3659,7 @@ index 7699c3d..9907efa 100644
    const auto& resolutions = moderngekko::frontend::SupportedResolutions();
    const auto& graphics_backends =
        moderngekko::frontend::SupportedGraphicsBackends();
-@@ -605,6 +1314,48 @@ int main(int argc, char** argv)
+@@ -605,6 +1316,48 @@ int main(int argc, char** argv)
    int netplay_port = config.netplay_port;
    bool automatic_buffer = config.netplay_buffer == "auto";
    int manual_buffer = automatic_buffer ? 5 : std::stoi(config.netplay_buffer);
@@ -3706,7 +3708,7 @@ index 7699c3d..9907efa 100644
    int resolution_index = 0;
    for (std::size_t i = 0; i < resolutions.size(); ++i)
    {
-@@ -621,17 +1372,162 @@ int main(int argc, char** argv)
+@@ -621,17 +1374,162 @@ int main(int argc, char** argv)
    // StateSaves is Dolphin's own state directory, so states written in-game land
    // here without any extra configuration and show up on the next launch.
    //
@@ -3876,7 +3878,7 @@ index 7699c3d..9907efa 100644
    std::vector<ControllerOption> controllers = EnumerateControllers();
    bool controller_profile_exists = moderngekko::frontend::ControllerConfigExists(user_directory);
    std::vector<std::string> configured_controllers =
-@@ -640,11 +1536,22 @@ int main(int argc, char** argv)
+@@ -640,11 +1538,22 @@ int main(int argc, char** argv)
        configured_controllers.empty() ? config.controller : configured_controllers.front();
    int controller_index = FindController(controllers, selected_controller);
    std::string controller_status;
@@ -3901,7 +3903,7 @@ index 7699c3d..9907efa 100644
      {
        std::lock_guard lock(dialog.mutex);
        dialog.error = std::move(message);
-@@ -652,13 +1559,13 @@ int main(int argc, char** argv)
+@@ -652,13 +1561,13 @@ int main(int argc, char** argv)
      }
      std::string error;
      if (!moderngekko::frontend::SaveConfig(user_directory, resolutions[resolution_index].text,
@@ -3917,7 +3919,7 @@ index 7699c3d..9907efa 100644
      configured_controllers = {selected_controller};
      config.controller = selected_controller;
      config.controllers = configured_controllers;
-@@ -673,25 +1580,48 @@ int main(int argc, char** argv)
+@@ -673,25 +1582,48 @@ int main(int argc, char** argv)
      if (moderngekko::frontend::ControllerConfigExists(user_directory))
      {
        controller_profile_exists = true;
@@ -3972,7 +3974,7 @@ index 7699c3d..9907efa 100644
      return select_controller(controller_index);
    };
    const auto refresh_controllers = [&]
-@@ -726,13 +1656,22 @@ int main(int argc, char** argv)
+@@ -726,13 +1658,22 @@ int main(int argc, char** argv)
      Join,
    };
    bool done = false;
@@ -3995,7 +3997,7 @@ index 7699c3d..9907efa 100644
        ImGui_ImplSDL3_ProcessEvent(&event);
        if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED)
          done = true;
-@@ -744,6 +1683,7 @@ int main(int argc, char** argv)
+@@ -744,6 +1685,7 @@ int main(int argc, char** argv)
      }
      if (controllers_changed)
        refresh_controllers();
@@ -4003,7 +4005,7 @@ index 7699c3d..9907efa 100644
  
      {
        std::lock_guard lock(dialog.mutex);
-@@ -751,6 +1691,72 @@ int main(int argc, char** argv)
+@@ -751,6 +1693,72 @@ int main(int argc, char** argv)
        {
          selected_image = std::move(dialog.selected);
          dialog.selected.reset();
@@ -4076,7 +4078,7 @@ index 7699c3d..9907efa 100644
        }
      }
      {
-@@ -758,9 +1764,16 @@ int main(int argc, char** argv)
+@@ -758,9 +1766,16 @@ int main(int argc, char** argv)
        if (extraction.finished_game)
        {
          current_game = *extraction.finished_game;
@@ -4096,7 +4098,7 @@ index 7699c3d..9907efa 100644
          extraction.finished_game.reset();
          if (ensure_controller())
          {
-@@ -774,18 +1787,79 @@ int main(int argc, char** argv)
+@@ -774,18 +1789,79 @@ int main(int argc, char** argv)
      ImGui_ImplSDL3_NewFrame();
      ImGui::NewFrame();
      const ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -4188,7 +4190,7 @@ index 7699c3d..9907efa 100644
        if (!launcher_savestates.empty())
        {
          ImGui::TextUnformatted("Start from savestate");
-@@ -820,6 +1894,24 @@ int main(int argc, char** argv)
+@@ -820,6 +1896,24 @@ int main(int argc, char** argv)
          ImGui::TextDisabled("Solo play only.");
          ImGui::Spacing();
        }
@@ -4213,7 +4215,7 @@ index 7699c3d..9907efa 100644
        if (ImGui::Button("Play", ImVec2(180 * scale, 42 * scale)))
        {
          if (ensure_controller())
-@@ -828,7 +1920,9 @@ int main(int argc, char** argv)
+@@ -828,7 +1922,9 @@ int main(int argc, char** argv)
            done = true;
          }
        }
@@ -4224,7 +4226,7 @@ index 7699c3d..9907efa 100644
        if (ImGui::Button("Host Netplay", ImVec2(180 * scale, 42 * scale)))
        {
          if (ensure_controller())
-@@ -884,213 +1978,1496 @@ int main(int argc, char** argv)
+@@ -884,213 +1980,1502 @@ int main(int argc, char** argv)
            }
          }
        }
@@ -5808,6 +5810,12 @@ index 7699c3d..9907efa 100644
 +                              "The game's text. In game, the menu (hold Z, press Start) can switch "
 +                              "it and restart the game at once.");
 +                }
++                else if (current_metadata && current_metadata.metadata->disc_id == "GEAJ8P")
++                {
++                  ImGui::TextWrapped("The Japanese disc is in Japanese only. The European disc has "
++                                     "English, German, French and Spanish: import it in the Disc "
++                                     "tab to choose one here.");
++                }
 +                else
 +                {
 +                  ImGui::TextWrapped("The USA disc is in English only. The European disc has "
@@ -5878,7 +5886,7 @@ index 7699c3d..9907efa 100644
  
      ImGui::Render();
      SDL_SetRenderScale(renderer, io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y);
-@@ -1107,8 +3484,17 @@ int main(int argc, char** argv)
+@@ -1107,8 +3492,17 @@ int main(int argc, char** argv)
    if (launch_mode != LaunchMode::None)
    {
      std::string launch_error;
@@ -5898,7 +5906,7 @@ index 7699c3d..9907efa 100644
      {
        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Launch failed", launch_error.c_str(), window);
        result = 1;
-@@ -1163,6 +3549,15 @@ int main(int argc, char** argv)
+@@ -1163,6 +3557,15 @@ int main(int argc, char** argv)
            user_directory / "Logs" / MODERNGEKKO_LOG_FILENAME;
        std::error_code log_error;
        std::filesystem::create_directories(log_path.parent_path(), log_error);
@@ -5914,7 +5922,7 @@ index 7699c3d..9907efa 100644
        SDL_IOStream* log_stream =
            log_error ? nullptr : SDL_IOFromFile(log_path.string().c_str(), "w");
        SDL_Process* process = nullptr;
-@@ -1205,7 +3600,12 @@ int main(int argc, char** argv)
+@@ -1205,7 +3608,12 @@ int main(int argc, char** argv)
          int exit_code = 1;
          const bool waited = SDL_WaitProcess(process, true, &exit_code);
          SDL_DestroyProcess(process);
@@ -5928,7 +5936,7 @@ index 7699c3d..9907efa 100644
          {
            SDL_ShowWindow(window);
            if (!waited)
-@@ -1263,6 +3663,8 @@ int main(int argc, char** argv)
+@@ -1263,6 +3671,8 @@ int main(int argc, char** argv)
      }
    }
  
@@ -5937,7 +5945,7 @@ index 7699c3d..9907efa 100644
    ImGui_ImplSDLRenderer3_Shutdown();
    ImGui_ImplSDL3_Shutdown();
    ImGui::DestroyContext();
-@@ -1271,3 +3673,15 @@ int main(int argc, char** argv)
+@@ -1271,3 +3681,15 @@ int main(int argc, char** argv)
    SDL_Quit();
    return result;
  }

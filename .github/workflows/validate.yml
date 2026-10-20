@@ -18,9 +18,10 @@
 #
 # Required secrets:
 #   SOAL_SECRETS_REPO_WITH_PAT -> https://x-access-token:<PAT>@github.com/<owner>/<secrets repo>.git
-#       holding main.dol (the ORIGINAL USA DOL), main-eu.dol (the ORIGINAL European DOL; SHA-256s
-#       below) and pgo/windows.profdata, pgo/android.profdata (optionally pgo/windows-eu.profdata,
-#       pgo/android-eu.profdata, pgo/macos.profdata, pgo/macos-eu.profdata) at its root
+#       holding main.dol (the ORIGINAL USA DOL), main-eu.dol (the ORIGINAL European DOL), main-jp.dol
+#       (the ORIGINAL Japanese DOL; SHA-256s below) and pgo/windows.profdata, pgo/android.profdata
+#       (optionally pgo/windows-eu.profdata, pgo/android-eu.profdata, pgo/macos.profdata,
+#       pgo/macos-eu.profdata and the -jp ones) at its root
 #   SOAL_ARTIFACT_KEY          -> any long random string (encrypts the codegen artifact)
 #   RELEASE_KEYSTORE_BASE64, RELEASE_STORE_PASSWORD, RELEASE_KEY_PASSWORD, RELEASE_KEY_ALIAS
 #       -> release signing (tools/make-release-key.sh); release mode only, and only in the
@@ -62,9 +63,11 @@ env:
   DOL_SHA256: 87c240acb746c5a09e95dd84021f78643eaa6721d8edc96ed87d3b6b3bcbae54
   # The European disc (GEAP8P): its original main.dol is main-eu.dol in the secrets repo
   DOL_SHA256_EU: d0e9fc91bd477d5cf1da24261de4c606893979ada0a7fef3c741c0c2470d96c3
-  # Both games in every package: one release takes either disc (tools/ci-codegen.sh, the
+  # The Japanese disc (GEAJ8P, Eternal Arcadia Legends): main-jp.dol in the secrets repo
+  DOL_SHA256_JP: 4aa0f3dcb835fd6b16d14cbaaadea22d3fad3e6e048a070159333c4787c2fb59
+  # The three games in every package: one release takes any of the discs (tools/ci-codegen.sh, the
   # build-release scripts and tools/android-ws-build.sh read it)
-  REGIONS: us eu
+  REGIONS: us eu jp
   LLVM_VERSION: 20.1.8
   # Ubuntu 26.04's own build (the release pocket, signed by Ubuntu), the one the shipped codegen was
   # made with locally; apt refuses if it's gone rather than installing another
@@ -87,11 +90,11 @@ jobs:
       fail-fast: false  # the others still finish and are cached for the rerun
       matrix:
         target: [windows, linux, android, macos]  # tools/codegen-targets.txt
-        region: [us, eu]                          # env.REGIONS
+        region: [us, eu, jp]                      # env.REGIONS
     env:
       # The output's name (codegen/NAME/generated) and the region's DOL patch
-      NAME: ${{ matrix.target }}${{ matrix.region == 'eu' && '-eu' || '' }}
-      DOLPATCH: release/skies-widescreen${{ matrix.region == 'eu' && '-eu' || '' }}.dolpatch
+      NAME: ${{ matrix.target }}${{ matrix.region != 'us' && format('-{0}', matrix.region) || '' }}
+      DOLPATCH: release/skies-widescreen${{ matrix.region != 'us' && format('-{0}', matrix.region) || '' }}.dolpatch
       TARGET: ${{ matrix.target }}
       REGION: ${{ matrix.region }}
     steps:
@@ -218,7 +221,11 @@ jobs:
             git clone -q --depth 1 "https://${REST#*@}" "$RUNNER_TEMP/s"
           # Only this job's DOL and profile
           mkdir -p "$RUNNER_TEMP/secrets/pgo"
-          if [ "$REGION" = eu ]; then DOL=main-eu.dol SUM=$DOL_SHA256_EU SUFFIX=-eu; else DOL=main.dol SUM=$DOL_SHA256 SUFFIX=; fi
+          case "$REGION" in
+            eu) DOL=main-eu.dol SUM=$DOL_SHA256_EU SUFFIX=-eu ;;
+            jp) DOL=main-jp.dol SUM=$DOL_SHA256_JP SUFFIX=-jp ;;
+            *) DOL=main.dol SUM=$DOL_SHA256 SUFFIX= ;;
+          esac
           cp "$RUNNER_TEMP/s/$DOL" "$RUNNER_TEMP/secrets/"
           PROFILE=pgo/$(grep -E "^$TARGET[[:space:]]" tools/codegen-targets.txt | awk '{print $2}')$SUFFIX.profdata
           # The USA Windows and Android profiles must be there; the others are optional (without one
@@ -304,7 +311,7 @@ jobs:
       - name: Download codegen
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: run-codegen-windows*  # the USA and European game
+          pattern: run-codegen-windows*  # the USA, European and Japanese game
 
       - name: Decrypt codegen
         shell: bash
@@ -341,6 +348,9 @@ jobs:
           set GAME_ID=GEAP8P
           set MODULE_TABLES_INC=%CD%\codegen\windows-eu\generated\module_tables.inc
           call tools\module-win.bat %CD%\codegen\windows-eu\generated %CD%\build\module-eu || exit /b 1
+          set GAME_ID=GEAJ8P
+          set MODULE_TABLES_INC=%CD%\codegen\windows-jp\generated\module_tables.inc
+          call tools\module-win.bat %CD%\codegen\windows-jp\generated %CD%\build\module-jp || exit /b 1
 
       - name: Build and package the launcher and runner
         shell: cmd
@@ -350,7 +360,7 @@ jobs:
           if "%VNAME%"=="" (set VERSION=dev-%GITHUB_SHA:~0,7%) else (set VERSION=v%VNAME%)
           call tools\build-release-win.bat configure || exit /b 1
           call tools\build-release-win.bat build || exit /b 1
-          call tools\build-release-win.bat package build\module\gGEAE8P_recomp.dll build\module-eu\gGEAP8P_recomp.dll %VERSION% || exit /b 1
+          call tools\build-release-win.bat package build\module\gGEAE8P_recomp.dll build\module-eu\gGEAP8P_recomp.dll build\module-jp\gGEAJ8P_recomp.dll %VERSION% || exit /b 1
 
       - name: Upload build
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -380,7 +390,7 @@ jobs:
       - name: Download codegen
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: run-codegen-linux*  # the USA and European game
+          pattern: run-codegen-linux*  # the USA, European and Japanese game
 
       - name: Decrypt codegen
         shell: bash  # -o pipefail
@@ -406,6 +416,8 @@ jobs:
             tools/module-linux.sh codegen/linux/generated build/module-linux
           GAME_ID=GEAP8P MODULE_TABLES_INC=codegen/linux-eu/generated/module_tables.inc \
             tools/module-linux.sh codegen/linux-eu/generated build/module-linux-eu
+          GAME_ID=GEAJ8P MODULE_TABLES_INC=codegen/linux-jp/generated/module_tables.inc \
+            tools/module-linux.sh codegen/linux-jp/generated build/module-linux-jp
 
       - name: Build and package the launcher and runner
         env:
@@ -415,7 +427,7 @@ jobs:
           tools/build-release-linux.sh configure
           tools/build-release-linux.sh build
           tools/build-release-linux.sh package build/module-linux/gGEAE8P_recomp.so \
-            build/module-linux-eu/gGEAP8P_recomp.so "$VERSION"
+            build/module-linux-eu/gGEAP8P_recomp.so build/module-linux-jp/gGEAJ8P_recomp.so "$VERSION"
           tools/build-release-linux.sh appimage "$VERSION"
 
       - name: Upload build
@@ -449,7 +461,7 @@ jobs:
       - name: Download codegen
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: run-codegen-macos*  # the USA and European game
+          pattern: run-codegen-macos*  # the USA, European and Japanese game
 
       # Homebrew's OpenSSL 3 (on the runner image), not the system LibreSSL: the same enc as the
       # codegen jobs
@@ -481,6 +493,8 @@ jobs:
             tools/module-macos.sh codegen/macos/generated build/module-macos
           GAME_ID=GEAP8P MODULE_TABLES_INC=codegen/macos-eu/generated/module_tables.inc \
             tools/module-macos.sh codegen/macos-eu/generated build/module-macos-eu
+          GAME_ID=GEAJ8P MODULE_TABLES_INC=codegen/macos-jp/generated/module_tables.inc \
+            tools/module-macos.sh codegen/macos-jp/generated build/module-macos-jp
           rm -rf codegen
 
       - name: Build and package the launcher and runner
@@ -491,7 +505,7 @@ jobs:
           tools/build-release-macos.sh configure
           tools/build-release-macos.sh build
           tools/build-release-macos.sh package build/module-macos/gGEAE8P_recomp.dylib \
-            build/module-macos-eu/gGEAP8P_recomp.dylib "$VERSION"
+            build/module-macos-eu/gGEAP8P_recomp.dylib build/module-macos-jp/gGEAJ8P_recomp.dylib "$VERSION"
 
       - name: Upload build
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -523,7 +537,7 @@ jobs:
       - name: Download codegen
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: run-codegen-android*  # the USA and European game
+          pattern: run-codegen-android*  # the USA, European and Japanese game
 
       - name: Decrypt codegen
         shell: bash  # -o pipefail
@@ -547,7 +561,7 @@ jobs:
 
       - name: Build the module
         run: |
-          NAME=ci PREGEN=codegen/android PREGEN_EU=codegen/android-eu MODULE_ONLY=1 \
+          NAME=ci PREGEN=codegen/android PREGEN_EU=codegen/android-eu PREGEN_JP=codegen/android-jp MODULE_ONLY=1 \
             NDK=$ANDROID_HOME/ndk/29.0.14206865 tools/android-ws-build.sh
 
       - name: Upload the module

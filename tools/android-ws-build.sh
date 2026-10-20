@@ -11,7 +11,9 @@
 # The European game (GEAP8P) gets a module of its own beside the USA one when its DOL is there:
 # DOL_EU (default build/game/GEAP8P-NAME/sys/main.dol) or, in CI, PREGEN_EU=DIR; no PGO until there is
 # a European profile (build/android/pgo/skies-android-eu.profdata). BRAND=1 then also bundles
-# release/skies-widescreen-eu.dolpatch and release/GEAP8P.ini.
+# release/skies-widescreen-eu.dolpatch and release/GEAP8P.ini. The Japanese game (GEAJ8P) likewise: DOL_JP
+# (default build/game/GEAJ8P-NAME/sys/main.dol) or PREGEN_JP=DIR, profile skies-android-jp.profdata,
+# release/skies-widescreen-jp.dolpatch and release/GEAJ8P.ini.
 # MODULE_ONLY=1 stops after the native module(s) (build/android/jniLibs-NAME); JNILIBS=DIR builds only the
 # APK, around a module built that way (CI: the job that decrypts the generated code builds the module,
 # and Gradle with its downloaded dependencies runs in a job of its own that never sees that code or the
@@ -29,9 +31,12 @@ PREFIX_MAP="-ffile-prefix-map=$PWD/="
 NAME=${NAME:-ws}
 DOL=${DOL:-build/game/GEAE8P-$NAME/sys/main.dol}
 DOL_EU=${DOL_EU:-build/game/GEAP8P-$NAME/sys/main.dol}
-EU=0
+DOL_JP=${DOL_JP:-build/game/GEAJ8P-$NAME/sys/main.dol}
+EU=0 JP=0
 { [ -n "${PREGEN_EU:-}" ] || [ -f "$DOL_EU" ]; } && EU=1
+{ [ -n "${PREGEN_JP:-}" ] || [ -f "$DOL_JP" ]; } && JP=1
 [ -n "${JNILIBS:-}" ] && { [ -f "$JNILIBS/arm64-v8a/libgGEAP8P_recomp.so" ] && EU=1 || EU=0; }
+[ -n "${JNILIBS:-}" ] && { [ -f "$JNILIBS/arm64-v8a/libgGEAJ8P_recomp.so" ] && JP=1 || JP=0; }
 APK=$A/apk/skies-$NAME-$(date +%F).apk
 BRAND_ARGS=()
 if [ "${BRAND:-0}" = 1 ]; then
@@ -43,6 +48,10 @@ if [ "${BRAND:-0}" = 1 ]; then
   if [ $EU = 1 ]; then
     cp release/skies-widescreen-eu.dolpatch $B/assets/skies-widescreen-eu.dolpatch
     cp release/GEAP8P.ini $B/assets/skies-GEAP8P.ini
+  fi
+  if [ $JP = 1 ]; then
+    cp release/skies-widescreen-jp.dolpatch $B/assets/skies-widescreen-jp.dolpatch
+    cp release/GEAJ8P.ini $B/assets/skies-GEAJ8P.ini
   fi
   cp release/launcher-background.png $B/assets/skies-background.png
   # The GPL and the notices travel with the APK too
@@ -63,6 +72,15 @@ if [ "${BRAND:-0}" = 1 ]; then
     fi
     grep -q "output-sha256 $(cat $B/dol-sha256-eu.txt)" $B/assets/skies-widescreen-eu.dolpatch ||
       { echo "release/skies-widescreen-eu.dolpatch doesn't make $DOL_EU"; exit 1; }
+  fi
+  if [ $JP = 1 ]; then
+    if [ -n "${PREGEN_JP:-}" ] || [ -n "${JNILIBS:-}" ]; then
+      sed -n 's/^output-sha256 //p' release/skies-widescreen-jp.dolpatch > $B/dol-sha256-jp.txt
+    else
+      sha256sum $DOL_JP | cut -d' ' -f1 > $B/dol-sha256-jp.txt
+    fi
+    grep -q "output-sha256 $(cat $B/dol-sha256-jp.txt)" $B/assets/skies-widescreen-jp.dolpatch ||
+      { echo "release/skies-widescreen-jp.dolpatch doesn't make $DOL_JP"; exit 1; }
   fi
   # The launcher icon and banner (tools/make-skies-icon.sh); without them the app would show Dolphin's
   [ -f release/android-icon/mipmap-xxxhdpi/skies_launcher.png ] && [ -f release/android-icon/drawable-xhdpi/skies_banner.png ] ||
@@ -112,6 +130,9 @@ rm -rf $A/jniLibs-$NAME
 module GEAE8P "$DOL" "${PREGEN:-}" $A/pgo/skies-android-gp.profdata
 if [ $EU = 1 ]; then
   module GEAP8P "$DOL_EU" "${PREGEN_EU:-}" $A/pgo/skies-android-eu.profdata
+fi
+if [ $JP = 1 ]; then
+  module GEAJ8P "$DOL_JP" "${PREGEN_JP:-}" $A/pgo/skies-android-jp.profdata
 fi
 fi
 if [ "${MODULE_ONLY:-0}" = 1 ]; then

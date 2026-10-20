@@ -3,11 +3,12 @@
 How to build Skies of Arcadia Legends: Recompiled from source. Players don't need any of this: the
 [Releases](../../releases) page has ready builds (see the [README](README.md)).
 
-You need your own **USA** (`GEAE8P`) or **European** (`GEAP8P`) disc; a release build carries both
-games' modules, so building one needs both DOLs. Nothing from the game is in this repository; the
-build reads `main.dol` from your disc, applies the port's game patch to it
-([`release/skies-widescreen.dolpatch`](release/skies-widescreen.dolpatch), European
-[`release/skies-widescreen-eu.dolpatch`](release/skies-widescreen-eu.dolpatch)) and recompiles the
+You need your own **USA** (`GEAE8P`), **European** (`GEAP8P`) or **Japanese** (`GEAJ8P`) disc; a
+release build carries all three games' modules, so building one needs the three DOLs. Nothing from
+the game is in this repository; the build reads `main.dol` from your disc, applies the port's game
+patch to it ([`release/skies-widescreen.dolpatch`](release/skies-widescreen.dolpatch), European
+[`release/skies-widescreen-eu.dolpatch`](release/skies-widescreen-eu.dolpatch), Japanese
+[`release/skies-widescreen-jp.dolpatch`](release/skies-widescreen-jp.dolpatch)) and recompiles the
 result.
 
 The pipeline, in short:
@@ -15,7 +16,7 @@ The pipeline, in short:
 1. **DolRecomp** ([`lib/ModernGekko/vendor/dolphin/DolRecomp`](https://github.com/ExpansionPak/DolRecomp))
    translates the patched `main.dol` into native objects (LLVM backend, with a PGO profile) or C.
 2. The **module template** links them into the game module (`gGEAE8P_recomp.dll` / `.so`; the
-   European one is `gGEAP8P_recomp`).
+   European one is `gGEAP8P_recomp`, the Japanese one `gGEAJ8P_recomp`).
 3. **ModernGekko** ([`lib/ModernGekko`](https://github.com/ExpansionPak/ModernGekko)) is the runtime
    and launcher: Dolphin's hardware code (video, audio, DSP, input, memory cards) around the module.
 
@@ -92,23 +93,25 @@ JDK 17.
 ## 3. Generate the code
 
 The game patch is applied to your disc's original `main.dol` (USA SHA-256 `87c240ac...`, European
-`d0e9fc91...`), giving the patched DOL the launcher also makes on import:
+`d0e9fc91...`, Japanese `4aa0f3dc...`), giving the patched DOL the launcher also makes on import:
 
 ```sh
 python3 -I tools/applydolpatch.py /path/to/original/main.dol release/skies-widescreen.dolpatch main.dol
 python3 -I tools/applydolpatch.py /path/to/european/main.dol release/skies-widescreen-eu.dolpatch main-eu.dol
+python3 -I tools/applydolpatch.py /path/to/japanese/main.dol release/skies-widescreen-jp.dolpatch main-jp.dol
 ```
 
 `tools/ci-codegen.sh` is the release recipe: from a folder holding `main.dol` (the USA original),
-`main-eu.dol` (the European original; without it, the USA game alone) and the PGO profiles
+`main-eu.dol` (the European original), `main-jp.dol` (the Japanese original; without either, the
+games it has) and the PGO profiles
 `pgo/windows.profdata` (desktop, used for both x86_64 targets), `pgo/android.profdata` and optionally
 `pgo/macos.profdata`, it patches each DOL, runs DolRecomp for each target in
 `tools/codegen-targets.txt` (Windows, Linux, Android, macOS; one line each: the LLVM triple, CPU and
 profile) and precomputes each module's tables, so the module builds below never need the DOL. The
 USA game goes to `windows/`, `linux/`, `android/` and `macos/`, the European one to `windows-eu/` and
-so on, built without PGO unless `pgo/windows-eu.profdata` / `pgo/android-eu.profdata` /
-`pgo/macos-eu.profdata` exist (the profiles are keyed by code addresses, which differ between the two
-games). A target without its profile is built without PGO:
+so on, the Japanese one to `windows-jp/` and so on, built without PGO unless `pgo/windows-eu.profdata`
+/ `pgo/android-eu.profdata` / `pgo/macos-eu.profdata` (`-jp` likewise) exist (the profiles are keyed
+by code addresses, which differ between the games). A target without its profile is built without PGO:
 
 ```sh
 cmake -S lib/ModernGekko/vendor/dolphin/DolRecomp -B build/dolrecomp -G Ninja \
@@ -121,7 +124,7 @@ On macOS, configure DolRecomp with `-DLLVM_DIR=/path/to/LLVM-20.1.8-macOS-ARM64/
 -DCMAKE_PREFIX_PATH=$PWD/build/zstd-install` and run the codegen with `TARGETS="macos"`.
 
 `TARGETS` takes any of the targets in `tools/codegen-targets.txt` (`windows linux android macos`, the
-default: all four), `REGIONS` `us` and / or `eu`. That file has each target's LLVM triple, CPU and
+default: all four), `REGIONS` any of `us`, `eu` and `jp`. That file has each target's LLVM triple, CPU and
 PGO profile. The profiles are trained with
 `tools/pgo-wsl.sh` (desktop) and on the device (Android); see
 [development notes, *Performance*](docs/development-notes.md#performance).
@@ -135,16 +138,19 @@ MODULE_TABLES_INC=codegen/linux/generated/module_tables.inc \
   tools/module-linux.sh codegen/linux/generated build/module-linux
 MODULE_TABLES_INC=codegen/linux-eu/generated/module_tables.inc GAME_ID=GEAP8P \
   tools/module-linux.sh codegen/linux-eu/generated build/module-linux-eu
-REGIONS="us eu" tools/build-release-linux.sh configure
+MODULE_TABLES_INC=codegen/linux-jp/generated/module_tables.inc GAME_ID=GEAJ8P \
+  tools/module-linux.sh codegen/linux-jp/generated build/module-linux-jp
+REGIONS="us eu jp" tools/build-release-linux.sh configure
 tools/build-release-linux.sh build
 tools/build-release-linux.sh package build/module-linux/gGEAE8P_recomp.so \
-  build/module-linux-eu/gGEAP8P_recomp.so v0.60.0-beta
+  build/module-linux-eu/gGEAP8P_recomp.so build/module-linux-jp/gGEAJ8P_recomp.so v0.60.0-beta
 ```
 
 This makes `build/SkiesOfArcadiaLegends-v0.60.0-beta-linux.tar.gz`: the launcher
-`SkiesOfArcadiaLegends`, the runner `skies-run`, both modules and Dolphin's `Sys` folder. Without
-`REGIONS="us eu"` at configure the release takes the USA disc alone, and `package` needs only the
-USA module. Dolphin's libraries (bzip2, zstd, zlib and the rest) are its own bundled copies, linked
+`SkiesOfArcadiaLegends`, the runner `skies-run`, the three modules and Dolphin's `Sys` folder.
+Without `REGIONS="us eu jp"` at configure the release takes the USA disc alone, and `package` needs
+only the USA module (`REGIONS="us eu"`: the USA and European games; `package` tells the optional
+modules apart by their names). Dolphin's libraries (bzip2, zstd, zlib and the rest) are its own bundled copies, linked
 in (`USE_SYSTEM_LIBS=OFF`), so the package doesn't need the build machine's distribution.
 
 ```sh
@@ -166,15 +172,18 @@ tools\module-win.bat %CD%\codegen\windows\generated %CD%\build\module
 set MODULE_TABLES_INC=%CD%\codegen\windows-eu\generated\module_tables.inc
 set GAME_ID=GEAP8P
 tools\module-win.bat %CD%\codegen\windows-eu\generated %CD%\build\module-eu
+set MODULE_TABLES_INC=%CD%\codegen\windows-jp\generated\module_tables.inc
+set GAME_ID=GEAJ8P
+tools\module-win.bat %CD%\codegen\windows-jp\generated %CD%\build\module-jp
 set GAME_ID=
-set REGIONS=us eu
+set REGIONS=us eu jp
 tools\build-release-win.bat configure
 tools\build-release-win.bat build
-tools\build-release-win.bat package build\module\gGEAE8P_recomp.dll build\module-eu\gGEAP8P_recomp.dll v0.60.0-beta
+tools\build-release-win.bat package build\module\gGEAE8P_recomp.dll build\module-eu\gGEAP8P_recomp.dll build\module-jp\gGEAJ8P_recomp.dll v0.60.0-beta
 ```
 
 This makes `build\SkiesOfArcadiaLegends-v0.60.0-beta-windows.zip` (`Skies of Arcadia Legends.exe`,
-`skies-run.exe`, both modules, `Sys`, the app-local Visual C++ runtime). `REGIONS` works as on
+`skies-run.exe`, the three modules, `Sys`, the app-local Visual C++ runtime). `REGIONS` works as on
 Linux.
 
 ### macOS
@@ -184,21 +193,23 @@ MODULE_TABLES_INC=codegen/macos/generated/module_tables.inc \
   tools/module-macos.sh codegen/macos/generated build/module-macos
 MODULE_TABLES_INC=codegen/macos-eu/generated/module_tables.inc GAME_ID=GEAP8P \
   tools/module-macos.sh codegen/macos-eu/generated build/module-macos-eu
-REGIONS="us eu" tools/build-release-macos.sh configure
+MODULE_TABLES_INC=codegen/macos-jp/generated/module_tables.inc GAME_ID=GEAJ8P \
+  tools/module-macos.sh codegen/macos-jp/generated build/module-macos-jp
+REGIONS="us eu jp" tools/build-release-macos.sh configure
 tools/build-release-macos.sh build
 tools/build-release-macos.sh package build/module-macos/gGEAE8P_recomp.dylib \
-  build/module-macos-eu/gGEAP8P_recomp.dylib VERSION
+  build/module-macos-eu/gGEAP8P_recomp.dylib build/module-macos-jp/gGEAJ8P_recomp.dylib VERSION
 ```
 
 This makes `build/SkiesOfArcadiaLegends-VERSION-macos.zip`: `Skies of Arcadia Legends.app` (the
-launcher, `skies-run` and both modules in `Contents/MacOS`; `Sys`, the DOL patches and the launcher
+launcher, `skies-run` and the modules in `Contents/MacOS`; `Sys`, the DOL patches and the launcher
 background in `Contents/Resources`) and the documents. The app is signed ad hoc (Apple Silicon runs
 nothing unsigned), not with a Developer ID, so Gatekeeper asks before the first start (see the
 [README](README.md#getting-started)). The macOS codegen is built without PGO until there is a
 `pgo/macos.profdata` (none trained yet: the desktop profile was trained on x86_64 and the Android one
 on Android's target). `REGIONS` works as on Linux. CI runs these steps in validate.yml's `macos` job
-(a `macos-15` runner with Xcode 26 selected, Homebrew's Ninja), from the `macos us` / `macos eu`
-codegen jobs' `codegen/macos{,-eu}`. The script builds Dolphin's own zstd, lz4, LZO and libusb
+(a `macos-15` runner with Xcode 26 selected, Homebrew's Ninja), from the `macos us` / `macos eu` /
+`macos jp` codegen jobs' `codegen/macos{,-eu,-jp}`. The script builds Dolphin's own zstd, lz4, LZO and libusb
 (`USE_SYSTEM_*=OFF`; the runner has Homebrew's), and `package` stops if the launcher or runner links
 anything in `/opt/homebrew` or `/usr/local`, which a player's Mac doesn't have.
 
@@ -212,8 +223,8 @@ This makes a debug-signed branded APK in `build/android/apk/`. It has the releas
 (`com.skiesofarcadia.recomp`) but another signature, so it can't update a release install; `TEST_ID=1`
 builds it as `com.skiesofarcadia.recomp.test` ("Skies of Arcadia Legends (test)"), which installs
 beside the release app and never touches its data. `PREGEN_EU=codegen/android-eu` (or
-a European patched DOL at `DOL_EU`) adds the European module and its patch; without it the APK takes
-the USA disc alone. `RELEASE=1 VERSION=x.y.z` builds a
+a European patched DOL at `DOL_EU`) adds the European module and its patch, `PREGEN_JP=codegen/android-jp`
+(or `DOL_JP`) the Japanese one; without them the APK takes the USA disc alone. `RELEASE=1 VERSION=x.y.z` builds a
 minified APK, built unsigned by Gradle and then signed with the release key by `tools/sign-apk.sh`
 (`tools/make-release-key.sh`; it refuses an APK not signed with that key). `SIGN=0` stops at the
 unsigned APK, as CI does: there a separate `android-sign` job signs it, so Gradle and the build's
@@ -243,7 +254,7 @@ helpers in `tools/`:
 | [`docs/development-notes.md`](docs/development-notes.md) | how it all works, measurements, known issues; *The player build* lists every control and setting |
 | [`patches/README.md`](patches/README.md) | the patches to ModernGekko, RecompCore and DolRecomp |
 | [`patches/game/README.md`](patches/game/README.md) | the game patch built into the DOL (widescreen, camera, options) |
-| [`docs/handoffs/`](docs/handoffs/) | status and history per area: release, code review, settings, desktop, Android, macOS, input, the European disc and Dreamcast music, HD textures |
+| [`docs/handoffs/`](docs/handoffs/) | status and history per area: release, code review, settings, desktop, Android, macOS, input, the European disc and Dreamcast music, the Japanese disc, HD textures |
 
 ## 5. CI and releases
 
@@ -274,7 +285,7 @@ Secrets (in the `ci` environment, and `release` for signing; none at repository 
 
 | Secret | What |
 |---|---|
-| `SOAL_SECRETS_REPO_WITH_PAT` | `https://x-access-token:<PAT>@github.com/<owner>/<secrets repo>.git`: `main.dol` (USA original, SHA-256 `87c240ac...`), `main-eu.dol` (European original, `d0e9fc91...`) and `pgo/windows.profdata`, `pgo/android.profdata` at its root (`pgo/macos.profdata` and the European profiles `pgo/*-eu.profdata` optional) |
+| `SOAL_SECRETS_REPO_WITH_PAT` | `https://x-access-token:<PAT>@github.com/<owner>/<secrets repo>.git`: `main.dol` (USA original, SHA-256 `87c240ac...`), `main-eu.dol` (European original, `d0e9fc91...`), `main-jp.dol` (Japanese original, `4aa0f3dc...`) and `pgo/windows.profdata`, `pgo/android.profdata` at its root (`pgo/macos.profdata` and the European and Japanese profiles `pgo/*-eu.profdata`, `pgo/*-jp.profdata` optional) |
 | `SOAL_ARTIFACT_KEY` | any long random string (encrypts the codegen artifact) |
 | `RELEASE_KEYSTORE_BASE64`, `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_PASSWORD`, `RELEASE_KEY_ALIAS` | Android release signing (`tools/make-release-key.sh`, then `tools/set-release-secrets.sh`) |
 

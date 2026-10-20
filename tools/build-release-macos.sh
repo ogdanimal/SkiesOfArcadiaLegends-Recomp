@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Branded release build (macOS, Apple Silicon), the counterpart of tools/build-release-linux.sh: the
 # launcher, the runner skies-run and Sys in lib/ModernGekko/build-release-macos, configured for Skies
-# (the USA disc GEAE8P and the European GEAP8P, each with its widescreen DOL patch applied to the
-# player's own main.dol and its game ini), packaged as "Skies of Arcadia Legends.app". Metal is the
+# (the USA disc GEAE8P, the European GEAP8P and the Japanese GEAJ8P, each with its widescreen DOL patch
+# applied to the player's own main.dol and its game ini), packaged as "Skies of Arcadia Legends.app". Metal is the
 # graphics backend (Vulkan would need MoltenVK, which needs a full Xcode to build); OpenGL is the
 # fallback.
-#   tools/build-release-macos.sh configure | build | package USA.dylib [EUROPE.dylib] [VERSION]
-# REGIONS="us eu" (configure) makes the release take the European disc too; the default is the USA
-# disc alone, and package then needs only the USA module.
+#   tools/build-release-macos.sh configure | build | package USA.dylib [EUROPE.dylib] [JAPAN.dylib] [VERSION]
+# REGIONS="us eu jp" (configure) makes the release take the European and the Japanese disc too ("us eu":
+# the European one); the default is the USA disc alone, and package then needs only the USA module.
 # package: build/SkiesOfArcadiaLegends-VERSION-macos.zip (+ .sha256), the .app and the documents.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -22,6 +22,10 @@ configure)
   if [[ " ${REGIONS:-us} " == *" eu "* ]]; then
     IDS+=";GEAP8P" SHAS+=";$(sha release/skies-widescreen-eu.dolpatch)"
     PATCHES+=";$PWD/release/skies-widescreen-eu.dolpatch" INIS+=";$PWD/release/GEAP8P.ini"
+  fi
+  if [[ " ${REGIONS:-us} " == *" jp "* ]]; then
+    IDS+=";GEAJ8P" SHAS+=";$(sha release/skies-widescreen-jp.dolpatch)"
+    PATCHES+=";$PWD/release/skies-widescreen-jp.dolpatch" INIS+=";$PWD/release/GEAJ8P.ini"
   fi
   # Keep the build machine's paths (home directory, user name) out of the binaries
   MAP="-ffile-prefix-map=$PWD/="
@@ -42,10 +46,14 @@ build)
   cp release/launcher-background.png release/CREDITS.md $B/
   ;;
 package)
-  MODULE=${2:?usage: tools/build-release-macos.sh package USA.dylib [EUROPE.dylib] [VERSION]}
-  MODULE_EU=
-  # An optional European module (a .dylib), then the version
-  if [[ ${3:-} == *.dylib ]]; then MODULE_EU=$3; shift; fi
+  MODULE=${2:?usage: tools/build-release-macos.sh package USA.dylib [EUROPE.dylib] [JAPAN.dylib] [VERSION]}
+  MODULE_EU= MODULE_JP=
+  # Optional European and Japanese modules (.dylib files, told apart by their names:
+  # gGEAP8P_recomp.dylib, gGEAJ8P_recomp.dylib), then the version
+  while [[ ${3:-} == *.dylib ]]; do
+    if [[ $(basename "$3") == *GEAJ8P* ]]; then MODULE_JP=$3; else MODULE_EU=$3; fi
+    shift
+  done
   VERSION=${3:-v0.50.0-beta}
   NAME=SkiesOfArcadiaLegends-$VERSION-macos
   P=build/$NAME
@@ -61,10 +69,12 @@ package)
   fi
   strip -S -x -o "$APP/Contents/MacOS/gGEAE8P_recomp.dylib" "$MODULE"
   [ -n "$MODULE_EU" ] && strip -S -x -o "$APP/Contents/MacOS/gGEAP8P_recomp.dylib" "$MODULE_EU"
+  [ -n "$MODULE_JP" ] && strip -S -x -o "$APP/Contents/MacOS/gGEAJ8P_recomp.dylib" "$MODULE_JP"
   cp -R $B/Sys "$APP/Contents/Resources/"
   cp release/launcher-background.png release/CREDITS.md "$APP/Contents/Resources/"
   cp release/skies-widescreen.dolpatch "$APP/Contents/Resources/patches/"
   [ -n "$MODULE_EU" ] && cp release/skies-widescreen-eu.dolpatch "$APP/Contents/Resources/patches/"
+  [ -n "$MODULE_JP" ] && cp release/skies-widescreen-jp.dolpatch "$APP/Contents/Resources/patches/"
   # The icon, from the logo
   ICONSET=$(mktemp -d)/skies.iconset; mkdir -p "$ICONSET"
   for size in 16 32 128 256 512; do

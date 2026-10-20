@@ -4,7 +4,7 @@ Changes to the game itself, written in C (and a little assembly) and built into 
 `main.dol` by `tools/gamepatch.py`. The shipping spec is `widescreen.json` (widescreen, camera
 control and the QOL options together); the current build is **ws26** (`build/game/GEAE8P-ws26`, DOL
 SHA-1 `357c1821`, SHA-256 `c4152e68`; the European one `GEAP8P-ws26`, SHA-1 `3b973331`, SHA-256
-`c3bb09fe`; ws26 = ws25 + field speed, branch `speed`; ws25 = ws24 + Hold B, branch `romhack`), and `release/skies-widescreen.dolpatch` (`skies-widescreen-eu.dolpatch`) turns a player's own
+`c3bb09fe`; the Japanese one `GEAJ8P-ws26`, SHA-1 `27a4261c`, SHA-256 `d4867b46`; ws26 = ws25 + field speed, branch `speed`; ws25 = ws24 + Hold B, branch `romhack`), and `release/skies-widescreen.dolpatch` (`skies-widescreen-eu.dolpatch`, `skies-widescreen-jp.dolpatch`) turns a player's own
 `main.dol` into it (`tools/mkdolpatch.py`). Because they're part of the DOL, the recompiled module runs them
 as ordinary game code: desktop and Android alike, with no mod loader and no runtime cost beyond the
 code itself. The research behind each one is in the decomp's `docs/` (`../SkiesOfArcadiaLegends-Decomp`).
@@ -44,9 +44,31 @@ the title's state table has rewritten handlers in slots 2 and 10-13 (the same 19
 1 and 0x12 hold), and the European game has 23 more
 `TextPrint` callers (caught by `redirect_calls` like the rest).
 
+### The Japanese release (GEAJ8P)
+
+The same for the Japanese `main.dol` (*Eternal Arcadia Legends*, SHA-1 `74d8ff5d...`, SHA-256
+`4aa0f3dc...`, 3,165,120 bytes): `GEAJ8P.addresses.json`, made by `tools/dolmatch.py --target GEAJ8P`
+(it writes `build/jp/`, the table itself as `build/jp/GEAJ8P.addresses.json`: every address the
+sources use, comments included because `gamepatch.py` translates those too, with a confident match;
+run on the European DOL the same way it gives exactly the 209 entries of `GEAP8P.addresses.json`).
+The Japanese build is much closer to the USA one than the European: 7104 of 7117 functions matched
+(5474 by signature), data shifted by about -0x560 to -0x590, the text in the DOL as in the USA. Every
+redirect target has the same number of callers except `VIWaitForRetrace` (6, USA 7; the patched site
+in `fn_801DC420` is there), every struct field the patches use keeps its offset, and the functions
+they use match instruction for instruction but two: `fn_801A4070` (the card read: Japan also probes
+card files `EA_LEGEND_EXTRA #00`-`#02` at mount, `fn_801A3BB4`, into the task's work +0x270) and
+`fn_801A4354` (the save's data into the game's: shorter, called the same way from the load screen
+with the payload at +0x1440). After that call the Japanese load screen sets or clears three event
+flags (2852, 1096, 2850) by which of the three extra files the card has (promotional bonus saves);
+the patch's direct load (`autoload.c`) skips that step, so a Continue keeps the flags the save holds.
+The card file is `EA_LEGEND.%03d` (USA `SA_LEGENDS.%03d`), 0x6000 bytes (3 blocks) as in the USA.
+MetroTRK's handlers are at `0x80254398`-`0x80256B24`; the idle PC `0x8023772C` (`release/GEAJ8P.ini`).
+
 ```sh
 tools/gamepatch.py patches/game/widescreen.json --dol <european disc>/sys/main.dol \
   --out-root build/game/GEAP8P-ws26
+tools/gamepatch.py patches/game/widescreen.json --dol <japanese disc>/sys/main.dol \
+  --out-root build/game/GEAJ8P-ws26
 ```
 
 ```sh
@@ -59,9 +81,12 @@ python3 tools/mkdolpatch.py --fst extracted/SkiesOfArcadiaLegends/sys/fst.bin \
   release/skies-widescreen.dolpatch patches/game/GEAE8P.known             # release patch
 python3 tools/mkdolpatch.py --fst <european disc>/sys/fst.bin <european disc>/sys/main.dol \
   build/game/GEAP8P-ws26/sys/main.dol release/skies-widescreen-eu.dolpatch   # European release patch
+python3 tools/mkdolpatch.py --fst <japanese disc>/sys/fst.bin <japanese disc>/sys/main.dol \
+  build/game/GEAJ8P-ws26/sys/main.dol release/skies-widescreen-jp.dolpatch   # Japanese release patch
 ```
 
-The Android build picks up the European game from `DOL_EU` (default `build/game/GEAP8P-NAME/sys/main.dol`).
+The Android build picks up the European game from `DOL_EU` (default `build/game/GEAP8P-NAME/sys/main.dol`)
+and the Japanese one from `DOL_JP` (`build/game/GEAJ8P-NAME/sys/main.dol`).
 
 `mkdolpatch.py` also writes both DOLs' code hashes (header and text sections), the original's data
 hash and (with `--fst`) its file table's hash (a romhack's save states get a folder of their own:
@@ -75,7 +100,7 @@ The release builds take the DOL's SHA-256 from the patch's `output-sha256` line
 `tools/android-ws-build.sh`), so after `mkdolpatch.py` run `configure` and `build` there again. The release runner refuses any other DOL (a data romhack of the original aside), so test a new build
 with the dev runner (`lib\ModernGekko\build\moderngekko-run.exe`).
 
-`gamepatch.py` checks that the input is the USA Rev 0 `main.dol` (or, with `--dol`, the European one), compiles the sources with clang for
+`gamepatch.py` checks that the input is the USA Rev 0 `main.dol` (or, with `--dol`, the European or the Japanese one), compiles the sources with clang for
 the Gekko (`-mcpu=750`, `-Os`, no small-data), links them into the low-memory gap at `0x80001900`
 (`cave.ld`: code and constants up to `0x80002A00`, data from there to `0x80002F00`, with
 `ws_hud_aspect` fixed at `0x80002E9C`, `qol_input` at `0x80002EA0`, `cam_input` at `0x80002EC0` and `load_request` at `0x80002EF0` for the frontend), rewrites the listed call sites and adds the code and data as new DOL sections. That gap is nearly full (ws13: code 0xFD0 of 0x1100 bytes, data 0x4E4 of 0x500), so there's a second code area: functions marked `section(".trkcave")` go to `0x802548E8`-`0x80257074` (10 KB), over MetroTRK's message handlers, which only run with a debugger attached (`__start` starts MetroTRK only when `0x800030E8` is 2 or 3; the handlers are reached only through its dispatch table). `gamepatch.py` writes that code into the DOL's text in place; it's code only (data still goes in the gap). It
