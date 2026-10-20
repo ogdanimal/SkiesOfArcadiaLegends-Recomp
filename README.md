@@ -271,9 +271,13 @@ again on it. **Move Back to the Default** returns it. Picking a folder that alre
 data (from another install, or after reinstalling) uses it as it is. If the folder isn't there at
 start (a drive not connected), the launcher asks: try again or use the default folder.
 
-- **Portable (Windows and Linux):** an empty file named `portable.txt` beside the program keeps
-  everything in a `User` folder beside it, for example on a USB drive. Copy that folder along when you
-  update to a new version. (Linux: the `.tar.gz` only; the AppImage can't hold a file beside it.)
+- **Portable (Windows and Linux, since v0.50.0):** an empty file named `portable.txt` beside the
+  program keeps everything in a `User` folder beside it, for example on a USB drive. Copy that folder
+  along when you update to a new version. (Linux: the `.tar.gz` only; the AppImage can't hold a file
+  beside it.) It has to be in the same folder as `Skies of Arcadia Legends.exe`, not the folder above
+  (Settings → Disc → Data folder says so); a `portable.txt.txt` (Windows hiding the extension) counts
+  too. Data you had before adding it stays where it was: the first start in portable mode offers to
+  move it in, and Settings → Disc → Data folder offers it until a game is imported there.
 - **Android (11 or later):** Change offers internal storage, an SD card or another folder, and asks for **All files
   access** first (the game reads its files by name, which Android allows outside the app's own storage
   only with it). Moved out, the data stays when the app is uninstalled and a file manager can reach it.

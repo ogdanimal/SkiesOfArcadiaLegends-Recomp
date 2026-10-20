@@ -50,7 +50,8 @@ Legends` (macOS) or in the app's own storage (Android). Uninstalling the Android
 **Settings → Disc → Data folder → Change...** moves them to a folder or drive of your choice; the
 launcher starts again on it. On Android (11 or later) it asks for All files access first (the game reads its files
 by name there), and the data then stays when the app is uninstalled. On Windows and Linux, an empty
-`portable.txt` beside the program keeps everything in a `User` folder beside it instead.
+`portable.txt` beside the program keeps everything in a `User` folder beside it instead; the first start
+in portable mode offers to move the data you already have into it.
 
 ### Bringing your saves
 

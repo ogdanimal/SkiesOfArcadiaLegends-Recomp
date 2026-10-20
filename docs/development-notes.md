@@ -652,6 +652,27 @@ through `jni/SkiesImport.cpp` (`recompcore-data-folder.patch`), the Android app:
   `RunLauncher`; the launcher keeps no Dolphin globals: every reader takes `user_directory`). Disabled
   while a disc or Dreamcast-music import runs. `--move-data-folder DIR` does the same without the window
   (tests). Portable shows the folder with Change disabled.
+- **Portable mode, [issue #6](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/6)
+  (2026-10-20):** "portable.txt still puts 1.5 GB in AppData". Not reproduced on v0.60.0 (command-line
+  and GUI extract, two minutes of play, Latin/Japanese folder names, another working directory: all in
+  `User\`, AppData only had Windows' own files); it fails silently only with `portable.txt.txt` (Explorer
+  hiding extensions), `portable.txt` in the zip's outer folder, a pre-0.50 release, or data left from
+  before the file was added. So: `portable.txt.txt` counts (`PORTABLE_MARKER_TXT_TXT`); not portable
+  with one in the folder above (`MisplacedPortableMarker`) → a red line under Data folder; portable with
+  data in the moved or default folder (`EarlierUserDirectory`) → the line names it, with **Move It
+  Here** while the portable folder holds only its first start's `config.ini` (`HoldsOnlyFirstStartFiles`),
+  and at the portable folder's very first start Settings opens on the Disc tab with the prompt.
+  `MoveUserDirectoryIntoPortable`: the first start's `config.ini` set aside (put back if the move
+  fails), `MoveUserDirectory`, then its pointer and the emptied default folder removed, so nothing stays
+  outside. `--move-earlier-data` does it without the window (tests). A folder the launcher can't write
+  (`CheckUserDirectoryWritable`: a portable copy in Program Files) gets a "Data folder" box saying so
+  and what to do, instead of "Invalid ... config.ini". Tested: unit test; Linux release build (CLI move,
+  the prompt opening by itself, Move Here → restart, the XDG folder gone); Windows release build in
+  copies of the v0.60.0 zip with `LOCALAPPDATA` redirected (`C:\dev\SkiesIssue6`): `portable.txt.txt`,
+  the outer-folder line, the unwritable box, a real install moved in by the prompt (rename, 1.4 GB),
+  Start Game from it, the note once a game is there. One unrelated Windows extraction failed once
+  with "can't move the new game folder into place: Access is denied" and worked on the retry (likely
+  a scanner holding the new files; the rename has no retry).
 - **Android:** the pointer lives in app storage (`getExternalFilesDir`), the desktop format;
   `DirectoryInitialization` takes `SkiesDataFolder.userDirectory`: the moved folder when it can be used
   (All files access granted and the folder there), app storage when nothing was moved, and for a moved
