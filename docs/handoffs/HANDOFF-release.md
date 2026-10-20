@@ -81,7 +81,9 @@ players).
   locally), so a cache miss held every build up for 1.5-2 hours (earlier misses: 52, 73, 90, 90 min).
   `04bc86d`'s run 39341292040 was such a miss (codegen 105 min): it changed `tools/ci-codegen.sh`, a
   cache input. Its `macos` job failed (macos-15's Xcode 16.4 libc++ has no `std::jthread`); `a8d0007`
-  selects Xcode 26, and run 39354677233 was all green (codegen cached, 1 min).
+  selects Xcode 26, and run 39354677233 was all green (codegen cached, 1 min). The zips of `127b9a1`
+  and `b62186d` didn't start on the Mac (Homebrew's zstd etc. from the runner, linked by path);
+  `87ba4f3` builds the bundled ones and fails the package on such a link (HANDOFF-macos).
 - Now: `codegen` is a matrix, one job per target and region
   (8 at once, `fail-fast: false`). The targets' settings moved from the script to
   `tools/codegen-targets.txt` (NAME PROFILE CPU TRIPLE ARGS); each job's cache key has its target's

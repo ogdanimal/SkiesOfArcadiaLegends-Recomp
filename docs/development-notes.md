@@ -2301,6 +2301,11 @@ rights: BUILDING *macOS*.
   3.23 / 2.90× (01–04, 1×, no SDL hint in the config): 01/02 match the table above. 04 ran just as low
   for the v0.50-based build in the same session (back to back: 2.92 / 2.94 vs 2.91 / 2.91), so that's
   spread between sessions, not the dev changes; 03's camera varies (see the table's notes).
+  The runner image has Homebrew's zstd, lz4, lzo and libusb, which Dolphin's `USE_SYSTEM_LIBS=AUTO`
+  linked by path, so the first CI zips (`127b9a1`, `b62186d`) stopped in dyld on a Mac without
+  Homebrew; `87ba4f3` builds Dolphin's own (`USE_SYSTEM_*=OFF`) and the package step refuses any
+  `/opt/homebrew` or `/usr/local` link. That CI zip ran 3.05 / 4.63× (01 / 02, 1×) on the M4, and the
+  v0.60.0-beta candidate's (`1e7e586`) Field speed 2x held 1.00x at 60 fps.
 
 ## Known issues
 

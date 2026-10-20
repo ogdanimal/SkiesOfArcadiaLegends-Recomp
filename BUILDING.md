@@ -198,7 +198,9 @@ nothing unsigned), not with a Developer ID, so Gatekeeper asks before the first 
 `pgo/macos.profdata` (none trained yet: the desktop profile was trained on x86_64 and the Android one
 on Android's target). `REGIONS` works as on Linux. CI runs these steps in validate.yml's `macos` job
 (a `macos-15` runner with Xcode 26 selected, Homebrew's Ninja), from the `macos us` / `macos eu`
-codegen jobs' `codegen/macos{,-eu}`.
+codegen jobs' `codegen/macos{,-eu}`. The script builds Dolphin's own zstd, lz4, LZO and libusb
+(`USE_SYSTEM_*=OFF`; the runner has Homebrew's), and `package` stops if the launcher or runner links
+anything in `/opt/homebrew` or `/usr/local`, which a player's Mac doesn't have.
 
 ### Android
 

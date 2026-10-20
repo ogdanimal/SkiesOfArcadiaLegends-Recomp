@@ -1,9 +1,10 @@
 # Handoff: the macOS port (Apple Silicon)
 
-**Status (2026-10-19): on `dev` (`6d54f6f` the port and its fixes, `04bc86d` CI); not in a release
-yet.** Builds, boots and plays both discs at full speed; benchmarked (NOTES *macOS*); the Sys path,
-Bluetooth pad and keyboard bugs are fixed; CI builds the app zip (validate.yml `macos`, first run
-39341292040) and release.yml ships it with the next tag. Worked on from a Mac session (Apple Silicon,
+**Status (2026-10-20): released in v0.60.0-beta (tag on `0eb4012`; the port `6d54f6f`, CI `04bc86d`,
+CI fixes `a8d0007` and `87ba4f3`).** Builds, boots and plays both discs at full speed; benchmarked
+(NOTES *macOS*); the Sys path, Bluetooth pad and keyboard bugs are fixed; CI builds the app zip
+(validate.yml `macos`) and release.yml ships it. The CI zips of `87ba4f3` and `1e7e586` were
+installed and played on the Mac (*Checked*). Worked on from a Mac session (Apple Silicon,
 macOS 26.3, Command Line Tools only, no Homebrew) in the main checkout
 `~/Projects/SkiesOfArcadiaLegends-Recomp`, with answers from the Windows/WSL session. Build
 steps: BUILDING *macOS*; patches: `patches/README.md` (`moderngekko-macos`, `recompcore-macos`,
@@ -38,6 +39,13 @@ Through `skies-run --automation-dir` (`tools/drive.py`) with a scratch `HOME`, a
 | Save state save + load (`save:` / `load:`) | works, keeps running at 1.00x |
 | Module | `fallback=0`, `smc_failed=0` over 470M native calls |
 | Launcher → game (user) | imports the disc, starts the game; profile gets the Skies layout + `SDL/0/DualSense Edge Wireless Controller` |
+
+The CI zips (2026-10-19/20, scratch `HOME`): `dev-87ba4f3` installed in `/Applications` — launcher
+"Start Game / Ready", import ~3 s, states 01 / 02 at 3.05 / 4.63× (1×, limiter off). `dev-1e7e586`
+(the v0.60.0-beta candidate) over a ws25 import: the launcher asks for the disc once more, the
+re-import makes the ws26 DOL (`c4152e68`); Field speed in the menu, 2x = 60 fps at 1.00x on the M4,
+Z+X to 3x (saved) without a step-down; menu save state Slot 1 and load back. The CI zips of `127b9a1`
+and `b62186d` didn't start (Homebrew libraries, *Found and fixed*).
 | Quit from the Dock / Apple Event quit | clean exit (was an abort, below) |
 
 Not measured: headroom with the limiter off (`EmulationSpeed = 0`). A window behind other windows runs
@@ -67,6 +75,13 @@ visible.
 - Scripts for bash 3.2 and BSD tools: `tools/apply-patches.sh` / `ci-codegen.sh` (empty arrays under
   `set -u`, `realpath -m`, `nproc`, `sha256sum`).
 
+- **CI zip linked the runner's Homebrew (2026-10-19, `87ba4f3`):** the `macos-15` image has
+  Homebrew's zstd, lz4, lzo and libusb, and Dolphin's `USE_SYSTEM_LIBS=AUTO` took them, so the
+  launcher and runner loaded `/opt/homebrew/opt/*/lib/*.dylib` and stopped in dyld on a Mac without
+  Homebrew (this Mac's builds never showed it). `build-release-macos.sh` sets
+  `USE_SYSTEM_ZSTD/LZ4/LZO/LIBUSB=OFF` (Dolphin's Externals, static) and `package` fails if
+  `otool -L` shows `/opt/homebrew` or `/usr/local`.
+
 ## Open
 
 1. ~~**Left doesn't register in the in-game settings menu**~~ **Fixed 2026-10-19** (`recompcore-macos.patch`,
@@ -79,11 +94,13 @@ visible.
    with `BackgroundInput = False` ignores input until it's dismissed). SDL disables system gestures for
    bound buttons on open and re-enables them on close. README says to avoid it; a real fix would be
    to keep the gestures disabled for the session.
-3. ~~**Input Monitoring**~~ not needed since 2026-10-19 (item 1); README's tips still say where to allow it.
+3. ~~**Input Monitoring**~~ not needed since 2026-10-19 (item 1); README no longer mentions it.
 4. **Launcher by hand**: Select Disc / Change Disc, Settings tabs, Controls remapping, the data folder
-   move (SDL's folder picker), Continue from a card save — the user started the game from it once.
+   move (SDL's folder picker), Continue from a card save — the user started the game from it once;
+   the update prompt ("needs your disc once more") seen on the `1e7e586` zip, the import done with
+   `--extract` (the same code) rather than the button.
 5. **Release**: CI builds it since 2026-10-19 (validate.yml `macos` job on `macos-15` with Xcode 26
-   selected, `a8d0007`: 16.4's libc++ has no `std::jthread`; the codegen matrix's `macos us` /
+   selected, `a8d0007`: 16.4's libc++ has no `std::jthread`; bundled libraries only, `87ba4f3`; the codegen matrix's `macos us` /
    `macos eu` jobs make `codegen/macos{,-eu}` on Linux, the job links the modules and packages the
    app; release.yml ships the zip and checks it like the other packages). No Developer ID signing or notarization (backlog
    *macOS release*). PGO profile for macOS not trained (`--profile-generate` run on the Mac, like
