@@ -1,5 +1,14 @@
 # Handoff: Android build of the Skies recomp (2026-10-05, updated 2026-10-18)
 
+## The Japanese disc (2026-10-20, branch `japan`): test APK built, not on a device
+
+`build/android/apk/skies-recomp-jp26-2026-10-20-test.apk` in `~/projects/skies-romhack` (the test
+app's ID; the USA ws26 module from `jniLibs-ws26g` and a Japanese ws26 module without PGO, made by a
+copy of `android-ws-build.sh`'s `module()` steps, then `JNILIBS=` for the APK; the Japanese patch,
+`skies-GEAJ8P.ini` and `dol-sha256-jp.txt` inside). Next, with the user's go-ahead for the Retroid:
+import the ISO in the test app, a speed check like the European one (Europe ran 0.93 without its own
+profile), then a Japanese PGO profile if needed (states: HANDOFF-japan). HANDOFF-japan.
+
 ## Status (2026-10-18): romhacks and Hold B (ws25, merged into `dev`)
 
 HANDOFF-romhacks: checked on the Retroid with the **test app** only (`BRAND=1 TEST_ID=1 NAME=ws25`

@@ -1,5 +1,19 @@
 # Handoff: releases (Windows, Linux, macOS, Android)
 
+## After v0.60.0-beta (2026-10-20)
+
+- **On `origin/dev`:** `4bd2c05`, credits for cleartonic (the Hold B idea), Maeson (the rebalance
+  romhack support was made for) and Shoopkid (the HD texture pack the import was tested with) in
+  README, release/README and release/CREDITS.md (docs only: no CI run).
+- **Branch `japan`, not pushed** (worktree `~/projects/skies-romhack`, on `4bd2c05`): the Japanese
+  disc (GEAJ8P, `f55f594`, docs `9c00386`) and a fix for every release since 0.10.0-beta: Import a
+  save put European card saves in `GC/EUR`, which the European game (run as NTSC-U) never reads
+  (`3f0bc95`). HANDOFF-japan. Before it goes to `dev`: the user adds `main-jp.dol` to the secrets repo
+  (validate.yml now builds the `jp` region and fails without it); every package then carries three
+  modules. Checked on WSL and Windows; Android test APK built, not run on a device; macOS not built.
+- Draft notes for the next release: `~/projects/SkiesOfArcadiaLegends-Recomp/build/notes-next.md`
+  (rewritten 2026-10-20 for the release after 0.60).
+
 ## Released (2026-10-20 UTC): v0.60.0-beta
 
 **v0.60.0-beta is the current release** (prerelease, the user's version number; tag on `0eb4012`,
@@ -381,6 +395,8 @@ PulseAudio client library; the AppImage has its own.
   instrumented build (HANDOFF-android *European PGO profile*, Progress).
 - The Retroid's app version: check HANDOFF-android before assuming (it ran the 0.9.1 release app with
   the user's data on 2026-10-17; release APKs install over each other, same key). Ask before updating it.
+- The Japanese disc (branch `japan`, top of this file): `main-jp.dol` into the secrets repo, then
+  merge; a Japanese Android PGO profile probably, as Europe's (ask before using the device).
 - Unscheduled requests (dual audio, ...): `docs/backlog.md`.
 
 Other sessions on this repo (2026-10-17): DC music + European disc (shares the main checkout; commit

@@ -18,7 +18,13 @@ exclamations under story text boxes), so this swaps that set of clips.
      release).
   3. Whether anything in the US game assumes English clip lengths (text box waits, lip flaps,
      battle timing).
-- Not started; no Japanese disc on hand yet.
+- Not started. **The Japanese GameCube disc is on hand since 2026-10-20** (the user's ISO,
+  `../GameCube-Research/targets/SkiesOfArcadiaLegends/jp`; the port now runs it as a game of its own,
+  HANDOFF-japan). First facts for question 1: its files have the USA names, and the ones that differ
+  in content are the voice and sound banks (`sound/cr*` 52 files, `e*` 509, `stv*` 144, `k*` / `ko*`
+  100, `b*` 165, `f*` 58, plus 114 `.dsp` streams and clips), while the music banks (`m0231`-`m0465`)
+  match the USA's; so the clips are likely the same layout under the same names. Not yet compared
+  bank by bank (sample counts, lengths).
 
 ## Remember controllers by identity, not name — idea 2026-10-17
 

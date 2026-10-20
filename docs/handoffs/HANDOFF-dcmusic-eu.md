@@ -57,6 +57,11 @@ synced 2026-10-17: the branded release (`lib\ModernGekko\build-release`, `REGION
 
 ## Open (after v0.10.0-beta)
 
+0. **Import a save for the European disc (fixed 2026-10-20 on branch `japan`, `3f0bc95`, not on
+   `dev` yet):** card saves went to `GC/EUR`, but this game runs as NTSC-U, so Dolphin reads
+   `GC/USA`: an imported European save never loaded (Continue's auto-load failed). Now `GC/USA`.
+   Saves imported with 0.10.0-0.60.0 stay in `GC/EUR` unused; importing them again fixes it.
+
 1. **European speed on the Retroid:** measured 2026-10-17 evening, **0.93 (55 fps)** in the
    European ship battle against 1.003 for the USA one on the same APK (HANDOFF-android.md, top), so a
    European Android profile is needed: train it on ws23 (the game patch changed after the

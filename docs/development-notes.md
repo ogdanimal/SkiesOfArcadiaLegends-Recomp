@@ -825,7 +825,7 @@ European data.
 ### The Japanese release (GEAJ8P; 2026-10-20, branch `japan`)
 
 Requested by the user: the Japanese disc, *Eternal Arcadia Legends* (`GEAJ8P`, an ISO; SHA-1
-`bb06f5ba...` for this dump, not checked against Redump). Extracted with `dolphin-tool extract` to
+`bb06f5ba...`, the Redump entry's: `../GameCube-Research/targets/SkiesOfArcadiaLegends/README.md`). Extracted with `dolphin-tool extract` to
 `../GameCube-Research/targets/SkiesOfArcadiaLegends/jp/disc` (the ISO beside it). Its own build: a
 `main.dol` 1.5 KB *smaller* than the USA one (SHA-1 `74d8ff5d`, SHA-256 `4aa0f3dc`), far closer to the
 USA code than the European build (the text is in the DOL as in the USA, no `.sot` packs); the files

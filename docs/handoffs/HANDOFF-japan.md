@@ -7,8 +7,12 @@ it in `jp/disc`). How it works: `docs/development-notes.md` (*The Japanese relea
 
 ## State
 
-Branch `japan`, worktree `~/projects/skies-romhack` (off `dev` a087b2e; its submodules are worktrees
-of the main checkout's with the patches applied). Committed locally, **not pushed, not merged**.
+Branch `japan`, worktree `~/projects/skies-romhack` (its submodules are worktrees of the main
+checkout's with the patches applied), rebased on `origin/dev` `4bd2c05` (the credits, pushed
+2026-10-20): `f55f594` the Japanese disc, `3f0bc95` the European Import a save fix, `9c00386` and
+later docs. **Not pushed, not merged.** The ISO matches Redump (disc SHA-1 `bb06f5ba...`; the
+research notes' regions table); research notes: `../GameCube-Research/targets/SkiesOfArcadiaLegends`
+(*Japanese release*, `jp-address-map.md`).
 
 | Where | What |
 |---|---|
