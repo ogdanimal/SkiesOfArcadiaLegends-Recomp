@@ -25,6 +25,26 @@ Android's multi-select, and the in-game menu's dead-controls fix (`recompcore-me
 - Not checked: the Retroid's own release app (the user's; only the debug test app was used), the
   release APK on a device, the AppImage on Bazzite / Fedora.
 
+## On dev after v0.60.0-beta (2026-10-20): portable mode fixes (issue #6), unreleased
+
+[Issue #6](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/6) (Windows): "with
+portable.txt, installing the game still puts ~1.5 GB in AppData". Not reproduced on v0.60.0; the
+launcher changes that came of it are on `dev` as `3f4c4ec` (pushed after a PII sweep of the tree and
+history: no new hits; validate run 39474645790 green: codegen for all 8 targets, Windows, Linux, macOS, Android). Details and tests: development-notes *Data folder*
+(the *Portable mode, issue #6* item); draft release-notes entry in `build/notes-next.md` (local).
+
+- The reply on the issue is **not posted** (draft: check Settings → Disc → Data folder for
+  *Portable*, file name extensions, the file beside `Skies of Arcadia Legends.exe` not in the zip's
+  top folder, data left from before, which version; and that the next release handles the first
+  three by itself).
+- Branch `japan` (`~/projects/skies-romhack`) also rewrites `patches/moderngekko-local.patch`:
+  regenerate it when it rebases onto `dev` (fresh worktree, local patch only; the macOS patch applies
+  after it, and its context includes `user_directory.hpp`'s header comment).
+- The main checkout's `lib/ModernGekko` working copy is **behind the committed patches** (found
+  2026-10-20 with `tools/check-patches.sh`: the macOS hunks, field speed in the launcher and
+  `recompcore-field-speed`, DolRecomp's `fp_fixups.cpp`, ...). CI and releases build from `patches/`,
+  so only local builds from the main checkout are affected; re-apply before building there.
+
 ## Field speed, game patch ws26 (2026-10-20): shipped in v0.60.0-beta
 
 User request: speed up cutscenes and traversal like the battle speed; then (same night) full approval

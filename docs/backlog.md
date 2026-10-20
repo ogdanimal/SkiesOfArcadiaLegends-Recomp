@@ -29,6 +29,14 @@ name. Doing the same would mean our own field beside Dolphin's `Device` (the lau
 `SkiesInput::Follow` resolve it to the current `SDL/<n>/<name>`). Not needed while the game follows
 whichever pad is pressed and the launcher matches by label; worth it if more name reports come in.
 
+## Retry the extracted game's rename on Windows — 2026-10-20
+
+Once in about six Windows extractions (2026-10-20, issue #6 tests) the last step failed with "can't
+publish extracted game: can't move the new game folder into place: Access is denied"; the same
+extraction worked when run again. Likely a scanner (Defender) still holding the 1.4 GB of new files
+when `ReplaceDirectory` renames the staging folder into `games/<id>`. A short retry loop (a few tries
+over a few seconds) on that rename would hide it from players. Not reported by players yet.
+
 ## World map meter / compass keep the old shape after a Picture change in the world map menu — 2026-10-17
 
 First reported as "widescreen stretches the world map's flight meter and compass"; re-diagnosed the

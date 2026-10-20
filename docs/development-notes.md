@@ -672,7 +672,8 @@ through `jni/SkiesImport.cpp` (`recompcore-data-folder.patch`), the Android app:
   the outer-folder line, the unwritable box, a real install moved in by the prompt (rename, 1.4 GB),
   Start Game from it, the note once a game is there. One unrelated Windows extraction failed once
   with "can't move the new game folder into place: Access is denied" and worked on the retry (likely
-  a scanner holding the new files; the rename has no retry).
+  a scanner holding the new files; the rename has no retry: `docs/backlog.md`). On `dev` as `3f4c4ec`,
+  validate 39474645790 green.
 - **Android:** the pointer lives in app storage (`getExternalFilesDir`), the desktop format;
   `DirectoryInitialization` takes `SkiesDataFolder.userDirectory`: the moved folder when it can be used
   (All files access granted and the folder there), app storage when nothing was moved, and for a moved

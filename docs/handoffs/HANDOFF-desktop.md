@@ -6,6 +6,20 @@ frame limiter off, and record it in the development-notes.md *Platforms* table. 
 [HANDOFF-android.md](HANDOFF-android.md). The top *Status* and *State of the tree* were checked against
 both trees late on 2026-10-06; older sections are kept as history and say so where they're superseded.
 
+## Status (2026-10-20): portable mode fixes (issue #6), on `dev` `3f4c4ec`
+
+`portable.txt.txt` counts, a `portable.txt` one folder up is named under Settings → Disc → Data
+folder, earlier data is offered into the portable folder (by itself at its first start, then **Move It
+Here**), and an unwritable data folder gets its own message box (development-notes *Data folder*,
+HANDOFF-release top). Windows: release build in `C:\dev\SkiesDataDir` (only the files the patches
+change were copied in from the main checkout, so it carries that checkout's stale state: no field
+speed in the launcher), tested in copies of the v0.60.0 zip under `C:\dev\SkiesIssue6\new\<case>`
+with `LOCALAPPDATA=<case>\lad`. Scripts in `C:\dev\SkiesIssue6\tools`: `start.ps1 -Case NAME
+[-LArgs "ARGS"] [-Wait]` (not `$Args`: PowerShell reserves it), `click.ps1 -Exe PATHPART -X -Y`
+(window-relative, DPI-aware; it brings the window forward), `wshot.ps1` (one window by `PrintWindow`, no
+focus needed), `shot.ps1` (whole screen, for message boxes), `keys.ps1`, `since.ps1 -Since TIME` (files
+written under AppData, Documents, Saved Games and WER since then). Linux: `--move-earlier-data`.
+
 ## Status (2026-10-17, night): data folder (branch `datadir`, merged into `dev` 2026-10-18)
 
 Settings → Disc → Data folder and portable mode in the launcher and runner (HANDOFF-datadir,

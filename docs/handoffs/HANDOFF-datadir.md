@@ -5,6 +5,10 @@ patches applied). Committed on `datadir` (feature, then docs); **merged into `de
 `f273541` feature, then docs). How it works and what was tested:
 [development notes, *Data folder*](../development-notes.md#data-folder-2026-10-17).
 
+**Follow-up 2026-10-20 (issue #6, `dev` `3f4c4ec`):** `portable.txt.txt`, the misplaced-file line,
+moving earlier data into the portable folder, the unwritable-folder box; development notes *Data
+folder* (the *Portable mode, issue #6* item).
+
 ## What's in it
 
 - `patches/moderngekko-local.patch`: `tools/user_directory.{hpp,cpp}` (lookup, move, pointer),
