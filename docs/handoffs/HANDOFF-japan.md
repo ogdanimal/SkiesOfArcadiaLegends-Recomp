@@ -39,14 +39,15 @@ the Dreamcast music. Details: development notes.
 1. **Secrets repo:** add the original Japanese `main.dol` as `main-jp.dol` (SHA-256 `4aa0f3dc...`)
    before CI runs this branch; validate.yml now builds the `jp` region and fails without it. (The
    user's step; it's their private repo.)
-2. **Windows / macOS:** not built here. The scripts take a third module; a Windows release build of
-   the branch and a boot of the Japanese disc are the next checks.
+2. **Windows: done** (development notes: import, Continue, 1.000x on the world map, battle at 2x at
+   full speed; `C:\dev\SkiesRomhack\build\rt-jp-win`, module `build\modules-llvm-jp26`, no PGO).
+   **macOS:** not built (the Mac session; `tools/build-release-macos.sh` takes the third module).
 3. **Android:** test APK `build/android/apk/skies-recomp-jp26-*-test.apk` (USA ws26 + Japanese
    modules, no Japanese PGO). Not installed: ask before using the Retroid. Likely needs a Japanese
    Android PGO profile for 60 fps, as Europe did (0.93 without one).
-4. **In game, not yet seen:** a save at a save point written by the Japanese game (the scripted walk
-   didn't open the save menu), a battle at QOL battle speed, the in-game menu's Language row (ImGui,
-   not in screenshots), a ship battle.
+4. **In game, not yet seen:** a save written by the Japanese game itself (early in the story only at
+   save points; the scripted walk didn't open the menu), the in-game menu's Language row (ImGui, not
+   in screenshots), a ship battle. Battle speed: done (WSL and Windows).
 5. **Known difference:** Continue (the patch's direct card load) skips the Japanese load screen's
    bonus-file check (`EA_LEGEND_EXTRA #00`-`#02` on the card set or clear event flags 2852, 1096,
    2850), so the flags stay as the save has them. Loading through the title's own Continue menu

@@ -868,10 +868,17 @@ four extra `beff/f2911?f3.mlk`, and no `field/mb*.std`, `list2.txt`, `shop_hrse.
   control (`CAMC`, Z + C-stick turns the camera); Continue: the user's USA card file 3 converted (game
   code `GEAJ`, name `EA_LEGEND.002`) auto-loads into Pirate Isle's underground (`load_request` done);
   save states made in either runner load; the Dreamcast music (European test import) takes the field
-  song (`dcm_box` live, the GameCube song muted). Not done: saving at a save point from the Japanese
-  game (the scripted walk didn't open the save menu; the format is the USA one, statically), a battle
-  at QOL battle speed (no random battles in the opening's areas), Windows, macOS, Android on a device,
-  a Japanese PGO profile.
+  song (`dcm_box` live, the GameCube song muted); Continue from file 2 (world map), a random battle
+  with Z cycling the battle speed 1 / 2 / 3 (`qol_input.battle_speed`), won with Invincible at 2x:
+  results, back on the map (without Invincible Vyse alone lost: a game over, the title). **Windows**
+  (2026-10-20, `C:\dev\SkiesRomhack`: release build `REGIONS=us eu jp`, module
+  `build\modules-llvm-jp26` from `tools/module-llvm-win.sh` without PGO, package `vjp-test` with the
+  USA ws26 module and the Japanese one, portable copy `build\rt-jp-win`): the launcher's `--extract`
+  of the ISO over `\\wsl.localhost` (pinned DOL), Continue to the world map, 1.000x flying (n=20),
+  a battle at 2x at 0.999x (59.8 game frames a second), Japanese text and the widescreen HUD. Not
+  done: saving from the Japanese game itself (early in the story only at save points; the scripted
+  walk didn't open the save menu there; the format is the USA one, statically), macOS, Android on a
+  device, a Japanese PGO profile.
 
 ### Romhacks (2026-10-18, branch `romhack`)
 
