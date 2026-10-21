@@ -1,5 +1,30 @@
 # Handoff: releases (Windows, Linux, macOS, Android)
 
+## Released (2026-10-21 UTC): v0.80.0-beta
+
+**v0.80.0-beta is the current release** (prerelease, the user's version number: "a big release,
+following releases most likely incremental"; tag on `616d635`, `main` fast-forwarded to it, release run
+39619750781, published 15:13 UTC):
+https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/releases/tag/v0.80.0-beta. Notes:
+`build/notes-0.80.0-beta.md` (local), put on the release by `tools/release.sh`. What it carries over
+0.60.0: the Japanese disc, Uncensored (with Gilder's victory pose and Vigoro), the Settings Dreamcast
+tab, the Dreamcast music's reverb (issue #8; the notes thank aro-1790, as the user asked), save states
+per version, the European card-save import fix, portable mode (#6), Linux on glibc 2.35+.
+
+- Before the tag: validate 39615788682 green on `616d635` (started by hand: the version bump was
+  docs only); the version strings (README, release/README, BUILDING, the bug template) bumped first;
+  PII sweep of the tree clean. `android-sign` approved by Claude after checking the run (tag at
+  `616d635`, every other job green, the workflow diff since v0.60.0 only the Japanese disc).
+- After: SHA256SUMS match all five downloads; the APK carries the 73-file Uncensored manifest per game,
+  2161 `Sys` assets and three modules, signed with the same certificate as v0.60.0's
+  (`e2c00b0b…a92f`), so it installs over it. Not done: installing it over a real v0.60.0 install on a
+  device (the update path, `Sys` extracted again, was checked with the debug-signed test app).
+- Issues answered after the release (the user's go-ahead): #4 (Japanese disc) and #6 (portable)
+  closed, #8 answered and left open (DSF rips undecided). #7 (super attacks at battle speed) is a known
+  issue, worked on in its own session; #3 and #5 open.
+- Still to do: comment `/retest` on AppImage/appimage.github.io#10524 (the 22.04 build is in this
+  release).
+
 ## After v0.60.0-beta (2026-10-20)
 
 - **On `origin/dev`:** `4bd2c05`, credits for cleartonic (the Hold B idea), Maeson (the rebalance
