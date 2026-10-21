@@ -2528,7 +2528,7 @@ index 0000000..f3c3d14
 +void DrawMapping(State& state, const fs::path& user_directory, float scale);
 +}  // namespace moderngekko::launcher_controls
 diff --git a/tools/moderngekko_launcher.cpp b/tools/moderngekko_launcher.cpp
-index 7699c3d..5ca402b 100644
+index 7699c3d..e1706dc 100644
 --- a/tools/moderngekko_launcher.cpp
 +++ b/tools/moderngekko_launcher.cpp
 @@ -1,12 +1,25 @@
@@ -4337,7 +4337,7 @@ index 7699c3d..5ca402b 100644
        if (ImGui::Button("Host Netplay", ImVec2(180 * scale, 42 * scale)))
        {
          if (ensure_controller())
-@@ -884,213 +2040,1560 @@ int main(int argc, char** argv)
+@@ -884,213 +2040,1561 @@ int main(int argc, char** argv)
            }
          }
        }
@@ -5569,7 +5569,8 @@ index 7699c3d..5ca402b 100644
 +          setting_row("Uncensored", "##uncensored", uncensored, UNCENSORED_CHOICES,
 +                      "The original Japanese Dreamcast models and textures the Western releases "
 +                      "changed: Dyne's and Gilder's cigars, Bellena's outfit, the tavern sign, the "
-+                      "drinks. Switches in game too, from the next area or scene.");
++                      "drinks, Gilder's victory pose, Vigoro's outfit in Aika's cell. Switches in "
++                      "game too, from the next area or scene.");
 +        }
 +        else
 +        {
@@ -6056,7 +6057,7 @@ index 7699c3d..5ca402b 100644
  
      ImGui::Render();
      SDL_SetRenderScale(renderer, io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y);
-@@ -1107,8 +3610,17 @@ int main(int argc, char** argv)
+@@ -1107,8 +3611,17 @@ int main(int argc, char** argv)
    if (launch_mode != LaunchMode::None)
    {
      std::string launch_error;
@@ -6076,7 +6077,7 @@ index 7699c3d..5ca402b 100644
      {
        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Launch failed", launch_error.c_str(), window);
        result = 1;
-@@ -1163,6 +3675,15 @@ int main(int argc, char** argv)
+@@ -1163,6 +3676,15 @@ int main(int argc, char** argv)
            user_directory / "Logs" / MODERNGEKKO_LOG_FILENAME;
        std::error_code log_error;
        std::filesystem::create_directories(log_path.parent_path(), log_error);
@@ -6092,7 +6093,7 @@ index 7699c3d..5ca402b 100644
        SDL_IOStream* log_stream =
            log_error ? nullptr : SDL_IOFromFile(log_path.string().c_str(), "w");
        SDL_Process* process = nullptr;
-@@ -1205,7 +3726,12 @@ int main(int argc, char** argv)
+@@ -1205,7 +3727,12 @@ int main(int argc, char** argv)
          int exit_code = 1;
          const bool waited = SDL_WaitProcess(process, true, &exit_code);
          SDL_DestroyProcess(process);
@@ -6106,7 +6107,7 @@ index 7699c3d..5ca402b 100644
          {
            SDL_ShowWindow(window);
            if (!waited)
-@@ -1263,6 +3789,8 @@ int main(int argc, char** argv)
+@@ -1263,6 +3790,8 @@ int main(int argc, char** argv)
      }
    }
  
@@ -6115,7 +6116,7 @@ index 7699c3d..5ca402b 100644
    ImGui_ImplSDLRenderer3_Shutdown();
    ImGui_ImplSDL3_Shutdown();
    ImGui::DestroyContext();
-@@ -1271,3 +3799,15 @@ int main(int argc, char** argv)
+@@ -1271,3 +3800,15 @@ int main(int argc, char** argv)
    SDL_Quit();
    return result;
  }
