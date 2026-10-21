@@ -1283,7 +1283,16 @@ NMDM); the GameCube is big-endian, AKLZ-compressed and has GVR textures instead 
   `0x8031063C` = `0x638C` for Vyse, Aika and Gilder): Gilder alone freezes at victory variant 26
   even with the original files (the same failed allocation), so test with three members (Vyse and
   Aika at 0 HP still act). States in the WSL test folder `~/projects/skies-uncensor-e2e/states`
-  (`jp-09` world map with Gilder, `jp-12` the battle), scripts in its `tools/`.
+  (`jp-09` world map with Gilder, `jp-12` the battle), scripts in its `tools/`. **Seeing the pose
+  every time** (`tools/victory12.sh GAME`): Vyse and Aika only stand at 0 HP because of the
+  **Invincible** cheat; with it off (`config:Dolphin.Skies.Invincible=0`) they don't count for the
+  victory, so from `jp-12` Vyse and Aika use Focus, Gilder attacks, the battle ends in the first
+  round and the victory is Gilder's, variant 26 (the smoke), three runs of three with different
+  input timing: the variant comes from the state.
+- **Checked in a normal build (2026-10-20, WSL, Linux release build):** the import of disc 1 copied
+  `BEFF/PCWIN.MLK` and `BCHARA/MA0050.STD` and converted both (byte-identical to the reference,
+  `pcwin.mlk` padded to 761,016 decompressed); the original Japanese game with `Uncensored = 1`
+  played Gilder's smoke pose (seen by the user).
 - **Not covered:** Vigoro's shirtless model (the Japanese one has 79 bones against 50, so its scene
   motions would be needed), the drunk sailor model Legends remade (`tc0102` in `A004AB05`, 0xc300
   against 0x8520), and everything that needs a script: the drunk sailor's entry (`0xc21` in `A004A`),

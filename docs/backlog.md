@@ -79,11 +79,6 @@ smaller step.
 The Uncensored setting (development notes, *Uncensored*; HANDOFF-uncensor) covers the art that is a
 straight asset swap. Still to do, from the same Eternal Arcadia discs:
 
-- **Gilder's victory pose** (Japanese: smoke puffs; US and Legends: Willy on his shoulder): works in
-  game from the Python converters (development notes, *Uncensored*: `pcwin.mlk` entries 1800100 and
-  6700526 + the end of `bchara/ma0050.std`; victory variant 26 only). Left: the C++ port (two new
-  manifest ops, see HANDOFF-uncensor *Next*), the decompressed-size padding, and a check in a normal
-  build (variant 26 is picked rarely; a test build can swap actions 26 and 27).
 - **Vigoro's shirtless outfit** (Aika's cell, `A116AG02`, and his boss fight): the Japanese model has
   79 bones against the US / GameCube model's 50, so the scene's motions (NMDM) would come from the
   Japanese file too; the GameCube model is also a Legends remake (0x8e80 against 0x6600).

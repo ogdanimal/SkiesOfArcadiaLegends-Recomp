@@ -10,7 +10,8 @@ the state and what's left.
 ## State
 
 Branch `uncensor`, worktree `~/projects/skies-uncensor` (off `origin/dev` `1e31263`), **not pushed,
-not merged**: `a0d1c85` the feature, `31dc26e` docs, then the docs of the victory-pose work.
+not merged**: `a0d1c85` the feature, `31dc26e` docs, `e7100f0` victory-pose docs, `379cda7` the victory pose
+in the converter, then its docs.
 
 | Where | What |
 |---|---|
@@ -55,52 +56,41 @@ imported, plus the victory-pose test copies (below).
 How it works and every finding: development notes, *Uncensored* (the bullets *Gilder's victory pose*,
 *Decompressed size*, *Testing battles by poking the party*).
 
-- Files: `beff/pcwin.mlk` entries 1800100 and 6700526 converted whole from the Japanese disc's
-  `BEFF/PCWIN.MLK` (`uncensor/victory/mld2gc.py`), and `bchara/ma0050.std` with the Japanese records
-  from 979 on (`std2gc.py`, `build(..., tail=979)`). Both GameCube files are identical on the three
-  discs, so one result serves all.
-- Verified: `test_mlk.py` (all 37 unchanged entries match up to texture pixels), `std2gc.py` (968 US
-  records reproduce, the rebuilt file is identical to the one tested), both recompress to the
-  original's exact size and decode to their stated size. In game, the smoke only shows in victory
-  variant 26, which the game rarely picks: confirmed with `ma0050_swap2627.std` (actions 26 and 27
-  swapped, a **test build only**) on the three-member battle state.
-- Not done: pad to the original decompressed size (the `pcwin.mlk` that worked is 715,992 against
-  761,016; smaller ones crashed), the C++ port, the manifest entries, a check in a normal build.
-- WSL test copies in `~/projects/skies-uncensor-e2e/User/games`: `GEAJ8P` original, `GEAJ8P-unc`
-  (both converted files, my 64x64 smoke textures: the version that worked), `-unc2` (Sega's 8x8
-  textures from `pcp09.mlk`, unpadded: crashes at battle load), `-unc3`/`-unc4` (padded variants,
-  load fine), `-unc5` (Sega's native `pcp09` entry 200501 in the slot), `-unc6` (spawn mode 5),
-  `-unc7` (original `pcwin.mlk` + the Japanese script), `-swap` (the 26/27 swap). All but `GEAJ8P`
-  and `-unc` can be deleted (they're hard-link copies; ask the user first).
-- Test tools (`~/projects/skies-uncensor-e2e/tools`): `jprun.sh GAME [STATE]`, `ringcap.sh` (rolling
-  200-frame capture until `cap/stop`), `autofight12.sh GAME` (the `jp-12` battle, Attack until it
-  ends, half speed), `snaptrace.py` (RAM snapshot tracer; too noisy, not useful so far). The
+- In the app since `379cda7`: manifest ops `mlk_entry` (entries 1800100 and 6700526 of
+  `beff/pcwin.mlk`, converted whole from the Japanese `BEFF/PCWIN.MLK`), `std_records`
+  (`bchara/ma0050.std`: GameCube records, the Japanese ones from 979 on) and `pad` (zero-pad to the
+  original decompressed size: smaller `pcwin.mlk` files crashed). Reference `tools/uncensor/victory.py`
+  (`make_manifest.py OUT --victory-only` merges it in about a minute); C++ `MldToGc`, `MlkReplace`,
+  `StdRebuild`; `convert_test` 216 of 216. Both GameCube files are identical on the three discs.
+- **Checked in a normal build (WSL, Japanese game, `Uncensored = 1`):** the disc 1 import picked up
+  `BEFF/` and converted both files (identical to the reference); the user saw Gilder smoke.
+- **Seeing it every time:** `tools/victory12.sh GAME` in the test folder (from `jp-12`, Invincible
+  off live, Vyse and Aika at 0 HP Focus, Gilder attacks and wins in round one): Gilder's pose,
+  variant 26, three runs of three. With **Invincible** on (the test folder's `Dolphin.ini` has it on), the
+  0-HP members stay eligible and the pose usually goes to them.
+- Not checked: the USA or European disc in game (no state with Gilder in a battle; the files are the
+  same as on the Japanese disc and convert byte-identically).
+- WSL test copies in `~/projects/skies-uncensor-e2e/User/games`: `GEAJ8P` original (the one to use
+  now), `GEAJ8P-unc`, `-unc2`…`-unc7`, `-swap`, `-swap-padded`: experiments from before the port,
+  hard-link copies; ask the user before deleting them.
+- Test tools (`~/projects/skies-uncensor-e2e/tools`): `jprun.sh GAME [STATE]`, `victory12.sh GAME`,
+  `autofight12.sh GAME` (the `jp-12` battle, Attack until it ends, half speed), `ramdump.sh OUT`
+  (24 MiB of RAM through `peek`), `snaptrace.py`. **No rolling captures** (`ringcap.sh` is not to
+  be used; the user objected): one screenshot at a known moment, deleted after reading. The
   automation config key for speed is `config:Dolphin.Core.EmulationSpeed=0.5`.
 
 ## Next
 
-1. **Victory pose into the app:**
-   - Converter (C++, `SkiesUncensorConvert`): an `mlk_entry` op (convert one Japanese MLK entry with
-     the `mld2gc` rules; NJCM through the existing block conversion, NMDM, texlists, PVR to GVR with
-     the existing CMPR / RGB5A3 encoders plus RGB565; rebuild the archive, pad to 32 / 8) and an
-     `std_records` op (the output record list: GameCube record *i* or Japanese record *k* converted
-     with a layout string of `H` / `W` / `B` per word, shipped in the manifest: it's structure, not
-     game data); then zero-pad to the original decompressed size and recompress to the exact size.
-   - `make_manifest.py`: emit those ops for `beff/pcwin.mlk` and `bchara/ma0050.std` (Dreamcast
-     sources `BEFF/PCWIN.MLK`, `BCHARA/MA0050.STD` from disc 1; add them to the import's file list),
-     regenerate the reference outputs, extend `convert_test.cpp`, regenerate the patch.
-   - Check in a normal build: battles with Gilder until variant 26 plays (or the swap build), on the
-     USA disc too.
-2. **The user's Windows check** of the Dreamcast tab (still open): picker import of both discs in
+1. **The user's Windows check** of the Dreamcast tab (still open): picker import of both discs in
    `C:\dev\SkiesUncensor\app`, Uncensored on, Dyne's cabin, the Sailors' Island tavern sign; USA and
    European games too.
-3. **Android:** APK of the branch on the Retroid (ask the user first): CHD import of both discs
+2. **Android:** APK of the branch on the Retroid (ask the user first): CHD import of both discs
    (convert the GDIs with chdman), conversion time on the device, the Dreamcast tab, the CMPR output
    on ARM (the converter's `dec_sha1` check fails the file if `fp-contract` changed the arithmetic).
-4. **macOS** build (the Mac session).
-5. **Vigoro** (79 bones against 50: his scene motions from the Japanese file too) — ask the user
+3. **macOS** build (the Mac session).
+4. **Vigoro** (79 bones against 50: his scene motions from the Japanese file too) — ask the user
    whether it blocks the release. Then the script work (backlog).
-6. Push, merge, release (HANDOFF-release says to hold the tag until this is merged); draft notes in
+5. Push, merge, release (HANDOFF-release says to hold the tag until this is merged); draft notes in
    the main checkout's `build/notes-next.md`.
 
 ## Notes for whoever continues

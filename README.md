@@ -207,6 +207,8 @@ With your own Eternal Arcadia discs, **Uncensored** puts them back:
 - the Sailors' Island tavern sign (a liquor glass, not a chicken leg)
 - red-faced drunks and their orange drinks in several towns, and the wine at a party
 - the faces and drinks of a few crew members, in town and in battle
+- Gilder's victory pose: he smokes instead of holding Willy on his shoulder (one of his three
+  poses, so not after every battle)
 
 To turn it on:
 
@@ -223,9 +225,9 @@ first: a different release of a disc, or a romhack that changed one of those fil
 as it is. Each converted file has exactly the size of the one it replaces, so your save states work
 with Uncensored on or off. **Remove** (beside the import) deletes the imported Dreamcast files.
 
-Not included yet: Gilder's victory pose and Vigoro's outfit (both need animations converted too),
-and the scenes the Western releases cut or rewrote, such as the drunk sailor in the tavern, Ramirez's
-blood and the "loqua" text (they need the game's scripts changed).
+Not included yet: Vigoro's outfit (it needs animations converted too), and the scenes the Western
+releases cut or rewrote, such as the drunk sailor in the tavern, Ramirez's blood and the "loqua" text
+(they need the game's scripts changed).
 
 ### HD textures
 
