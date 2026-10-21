@@ -106,3 +106,11 @@ Reddit (r/recomps v0.60.0-beta thread, Unleaded_95): texture filtering options, 
 the lowest 16:9 one offered (640x528 shown on a 4K display) for an original-resolution look on 16:9:
 640x360 or 768x432. **Done on branch `gfx`** (development notes, *Texture filtering, anisotropic
 filtering, scaling*): 640x528 is already the original, so Sharp scaling answers the second part.
+
+## AppImage update information — suggested 2026-10-21
+
+The AppImage catalog's test (AppImage/appimage.github.io#10524) passed on v0.80.0-beta (glibc 2.34),
+with two warnings: no update information (embed it with `appimagetool -u "gh-releases-zsync|ogdanimal|SkiesOfArcadiaLegends-Recomp|latest|SkiesOfArcadiaLegends-*-x86_64.AppImage.zsync"`
+and publish the `.zsync` beside the AppImage, so AppImageUpdate works), and a "mostly dark" window: its
+screenshot shows the launcher without the background art, which loads within 3 s under Xvfb here
+(software GL), so likely the bot's sandbox; the launcher's own dark look is by design.
