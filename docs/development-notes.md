@@ -394,7 +394,12 @@ and battles are untouched. Checked on Windows and the Retroid: `tools/camera-tes
   dolpatches' outputs; USA run, Invincible, Frame rate 60, the same two states): Sacri's window 29-31
   game frames a second at 2x and at 4x, outside 57-66 (2x) and 116-122 (4x); interpolation off at the
   fast battle, on as the flag rose, off as it fell; Cutlass Fury at 4x the flag up ~14.3 s with
-  interpolation on for it; 1x never set; fallback 0, smc_failed 0. Android not run.
+  interpolation on for it; 1x never set; fallback 0, smc_failed 0. Retroid Pocket 5 (the test app,
+  ws28 test APK, the USA disc imported into it from `Download/skies.rvz` beside its Japanese one; the
+  import's DOL `7af78727`; the same two states over adb): Sacri's window 31 game frames a second at 2x
+  and 30 at 4x, the enemy's Focus after it 63 (2x) and 60 at "4x" (the device's limit, the frontend
+  steps it down); interpolation on for 8.4 s / 8.1 s across the window; Cutlass Fury at 4x with
+  interpolation on 14.5 s. The party acted first in both device runs.
 - Field speed (ws26, 2026-10-20): the same waits skipped in the field (game mode 6: cutscenes, towns,
   dungeons, the world map; a ship battle counts as battle), when the frontend sets `QOL_SPEED_FIELD`
   (0x100) in `qol_input`'s speed word, which it does only outside battle (an earlier DOL takes the word
