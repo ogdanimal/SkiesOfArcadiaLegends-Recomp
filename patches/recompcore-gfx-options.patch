@@ -1,0 +1,154 @@
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+index afc37366cc..ea754e10b2 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+@@ -71,6 +71,11 @@ class SkiesSettingsPanel(
+         val RESOLUTION = choices(1 to "Native (480p)", 2 to "2x (720p)", 3 to "3x (1080p)",
+             4 to "4x (1440p)", 6 to "6x (4K)")
+         val MSAA = choices(1 to "Off", 2 to "2x MSAA", 4 to "4x MSAA", 8 to "8x MSAA")
++        // Dolphin's TextureFilteringMode, AnisotropicFilteringMode (-1 = the game's own) and
++        // OutputResamplingMode values, as in the launcher and the in-game menu
++        val TEXTURE_FILTER = choices(0 to "Original", 2 to "Smooth", 1 to "Sharp")
++        val ANISOTROPY = choices(-1 to "Off", 1 to "2x", 2 to "4x", 3 to "8x", 4 to "16x")
++        val SCALING = choices(0 to "Default", 5 to "Sharp", 6 to "Smooth", 4 to "Bicubic")
+         val CAMERA = choices(1 to "Hold Z to move", 0 to "Original")
+         val SPEED = choices(1 to "Normal (Z in battle)", 2 to "2x (Z in battle)",
+             3 to "3x (Z in battle)", 4 to "4x (Z in battle)")
+@@ -236,6 +241,17 @@ class SkiesSettingsPanel(
+                     "Higher is sharper but needs more power. 3x matches a 1080p screen.")
+                 configRow(rows, "Anti-aliasing", MSAA, gfx, "Settings", "MSAA", 1,
+                     "Smooths jagged edges. Higher settings need more power.")
++                configRow(rows, "Texture filtering", TEXTURE_FILTER, gfx, "Enhancements",
++                    "ForceTextureFiltering", 0,
++                    "Original draws textures as the game sets them; Smooth always blends their " +
++                        "pixels; Sharp shows them as crisp pixels.")
++                configRow(rows, "Anisotropic filtering", ANISOTROPY, gfx, "Enhancements",
++                    "MaxAnisotropy", -1,
++                    "Keeps textures seen at a slant sharp, like the deck and the ground into " +
++                        "the distance.")
++                configRow(rows, "Scaling", SCALING, gfx, "Enhancements", "OutputResampling", 0,
++                    "How the picture is scaled to the screen. Sharp keeps a low Resolution " +
++                        "crisp on a large screen.")
+                 texturePackRows(rows)
+                 boolRow(rows, "V-Sync", gfx, "Hardware", "VSync",
+                     "Stops screen tearing. Can add a little input delay.")
+diff --git a/Source/Core/VideoCommon/SkiesMenu.cpp b/Source/Core/VideoCommon/SkiesMenu.cpp
+index f04f0a4e0c..da496f95c7 100644
+--- a/Source/Core/VideoCommon/SkiesMenu.cpp
++++ b/Source/Core/VideoCommon/SkiesMenu.cpp
+@@ -92,6 +92,9 @@ enum class Option
+   FrameRate,
+   Resolution,
+   Antialiasing,
++  TextureFilter,
++  Anisotropy,
++  Scaling,
+   Camera,
+   DeadZone,
+   Rumble,
+@@ -116,9 +119,10 @@ enum class Option
+ // The menu's tabs, laid out like the launchers' Settings windows (tools/moderngekko_launcher.cpp,
+ // SkiesSettingsPanel.kt), with Saves first since in game that's the one used most. L / R switch tabs.
+ constexpr std::array SAVES_ROWS{Option::SaveState, Option::LoadState, Option::AutoSave};
+-constexpr std::array GRAPHICS_ROWS{Option::Picture,    Option::Hud,          Option::FrameRate,
+-                                   Option::Resolution, Option::Antialiasing, Option::HdTextures,
+-                                   Option::VSync,      Option::ShowFps};
++constexpr std::array GRAPHICS_ROWS{
++    Option::Picture,      Option::Hud,           Option::FrameRate,  Option::Resolution,
++    Option::Antialiasing, Option::TextureFilter, Option::Anisotropy, Option::Scaling,
++    Option::HdTextures,   Option::VSync,         Option::ShowFps};
+ constexpr std::array GAMEPLAY_ROWS{Option::Camera,     Option::BattleSpeed, Option::FieldSpeed,
+                                    Option::Encounters, Option::HoldB,       Option::Exp,
+                                    Option::Gold,       Option::MagicExp,    Option::Invincible};
+@@ -163,6 +167,10 @@ constexpr std::array DEAD_ZONES{0, 5, 10, 15, 20, 25, 30};
+ 
+ // Internal resolution: the EFB scales the desktop launcher offers (tools/frontend_config.cpp).
+ constexpr std::array EFB_SCALES{1, 2, 3, 4, 6};
++// The launchers' choices (Dolphin's enum values; tools/moderngekko_launcher.cpp, SkiesSettingsPanel.kt)
++constexpr std::array TEXTURE_FILTERS{0, 2, 1};
++constexpr std::array ANISOTROPIES{-1, 1, 2, 3, 4};
++constexpr std::array SCALINGS{0, 5, 6, 4};
+ // [Skies] Widescreen in menu order: 16:9, Match screen, the original 4:3.
+ constexpr std::array PICTURES{1, 2, 0};
+ // [Skies] Hud in menu order: the screen's edges, a 21:9 area, a 16:9 area, the original 4:3.
+@@ -175,6 +183,9 @@ struct Values
+   int frame_mode = 0;
+   int efb_scale = 1;
+   int msaa = 1;
++  int texture_filter = 0;  // Dolphin's TextureFilteringMode: 0 the game's, 1 nearest, 2 linear
++  int anisotropy = -1;     // AnisotropicFilteringMode: -1 the game's, 0-4 = 1x-16x
++  int scaling = 0;         // OutputResamplingMode
+   int camera = 1;
+   int encounters = 100;
+   int hold_b = 0;  // no random battles while B is held
+@@ -391,6 +402,9 @@ Values ReadValues()
+   values.frame_mode = frame_mode < 0 ? 0 : frame_mode;
+   values.efb_scale = Config::Get(Config::GFX_EFB_SCALE);
+   values.msaa = static_cast<int>(Config::Get(Config::GFX_MSAA));
++  values.texture_filter = static_cast<int>(Config::Get(Config::GFX_ENHANCE_FORCE_TEXTURE_FILTERING));
++  values.anisotropy = static_cast<int>(Config::Get(Config::GFX_ENHANCE_MAX_ANISOTROPY));
++  values.scaling = static_cast<int>(Config::Get(Config::GFX_ENHANCE_OUTPUT_RESAMPLING));
+   values.camera = Config::Get(Config::SKIES_CAMERA_CONTROL) != 0 ? 1 : 0;
+   values.encounters = Config::Get(Config::SKIES_ENCOUNTERS);
+   values.hold_b = Config::Get(Config::SKIES_HOLD_B) != 0 ? 1 : 0;
+@@ -443,6 +457,24 @@ void Apply(const Values& values, const Values& before)
+     Config::SetBase(Config::GFX_MSAA, static_cast<u32>(values.msaa));
+     changed = true;
+   }
++  if (values.texture_filter != before.texture_filter)
++  {
++    Config::SetBase(Config::GFX_ENHANCE_FORCE_TEXTURE_FILTERING,
++                    static_cast<TextureFilteringMode>(values.texture_filter));
++    changed = true;
++  }
++  if (values.anisotropy != before.anisotropy)
++  {
++    Config::SetBase(Config::GFX_ENHANCE_MAX_ANISOTROPY,
++                    static_cast<AnisotropicFilteringMode>(values.anisotropy));
++    changed = true;
++  }
++  if (values.scaling != before.scaling)
++  {
++    Config::SetBase(Config::GFX_ENHANCE_OUTPUT_RESAMPLING,
++                    static_cast<OutputResamplingMode>(values.scaling));
++    changed = true;
++  }
+   if (values.camera != before.camera)
+   {
+     Config::SetBase(Config::SKIES_CAMERA_CONTROL, values.camera);
+@@ -646,6 +678,15 @@ void Change(Option option, int direction, bool wrap)
+     v.msaa = Step(modes, v.msaa, direction, wrap);
+     break;
+   }
++  case Option::TextureFilter:
++    v.texture_filter = Step(TEXTURE_FILTERS, v.texture_filter, direction, wrap);
++    break;
++  case Option::Anisotropy:
++    v.anisotropy = Step(ANISOTROPIES, v.anisotropy, direction, wrap);
++    break;
++  case Option::Scaling:
++    v.scaling = Step(SCALINGS, v.scaling, direction, wrap);
++    break;
+   case Option::Camera:
+     v.camera = v.camera ? 0 : 1;
+     break;
+@@ -2021,6 +2062,19 @@ void Draw(float scale)
+     case Option::Antialiasing:
+       return {"Anti-aliasing", MsaaText(v.msaa),
+               "Smooths jagged edges. Higher settings need a faster graphics chip."};
++    case Option::TextureFilter:
++      return {"Texture filtering",
++              v.texture_filter == 2 ? "Smooth" : v.texture_filter == 1 ? "Sharp" : "Original",
++              "Smooth blends textures' pixels; Sharp shows them as crisp pixels."};
++    case Option::Anisotropy:
++      return {"Anisotropic filtering",
++              v.anisotropy < 1 ? std::string("Off") : fmt::format("{}x", 1 << v.anisotropy),
++              "Keeps textures seen at a slant sharp."};
++    case Option::Scaling:
++      return {"Scaling",
++              v.scaling == 5 ? "Sharp" : v.scaling == 6 ? "Smooth" : v.scaling == 4 ? "Bicubic" :
++                                                                          "Default",
++              "How the picture fits the screen. Sharp keeps a low Resolution crisp."};
+     case Option::VSync:
+       return {"V-Sync", OnOff(v.vsync), "Stops screen tearing. Can add a little input delay."};
+     case Option::ShowFps:

@@ -2538,7 +2538,7 @@ index 0000000..f3c3d14
 +void DrawMapping(State& state, const fs::path& user_directory, float scale);
 +}  // namespace moderngekko::launcher_controls
 diff --git a/tools/moderngekko_launcher.cpp b/tools/moderngekko_launcher.cpp
-index 7699c3d..e1706dc 100644
+index 7699c3d..e424df3 100644
 --- a/tools/moderngekko_launcher.cpp
 +++ b/tools/moderngekko_launcher.cpp
 @@ -1,12 +1,25 @@
@@ -3780,7 +3780,7 @@ index 7699c3d..e1706dc 100644
    const auto& resolutions = moderngekko::frontend::SupportedResolutions();
    const auto& graphics_backends =
        moderngekko::frontend::SupportedGraphicsBackends();
-@@ -605,6 +1366,49 @@ int main(int argc, char** argv)
+@@ -605,6 +1366,55 @@ int main(int argc, char** argv)
    int netplay_port = config.netplay_port;
    bool automatic_buffer = config.netplay_buffer == "auto";
    int manual_buffer = automatic_buffer ? 5 : std::stoi(config.netplay_buffer);
@@ -3788,10 +3788,16 @@ index 7699c3d..e1706dc 100644
 +  constexpr DolphinOption SKIES_HUD{"Dolphin.ini", "Skies", "Hud"};
 +  constexpr DolphinOption SKIES_FRAME_MODE{"Dolphin.ini", "Skies", "FrameMode"};
 +  constexpr DolphinOption GFX_MSAA{"GFX.ini", "Settings", "MSAA"};
++  constexpr DolphinOption GFX_TEXTURE_FILTERING{"GFX.ini", "Enhancements", "ForceTextureFiltering"};
++  constexpr DolphinOption GFX_ANISOTROPY{"GFX.ini", "Enhancements", "MaxAnisotropy"};
++  constexpr DolphinOption GFX_RESAMPLING{"GFX.ini", "Enhancements", "OutputResampling"};
 +  int skies_widescreen = ReadDolphinOption(user_directory, SKIES_WIDESCREEN);
 +  int skies_hud = ReadDolphinOption(user_directory, SKIES_HUD);
 +  int skies_frame_mode = ReadDolphinOption(user_directory, SKIES_FRAME_MODE);
 +  int msaa = ReadDolphinOption(user_directory, GFX_MSAA);
++  int texture_filtering = ReadDolphinOption(user_directory, GFX_TEXTURE_FILTERING);
++  int anisotropy = ReadDolphinOption(user_directory, GFX_ANISOTROPY);
++  int resampling = ReadDolphinOption(user_directory, GFX_RESAMPLING);
 +  // The rest of the in-game menu's settings, for the branded launcher's Settings window. Each is
 +  // {file, section, key, current value (-1 = not set), the game's default}.
 +  struct SettingValue
@@ -3830,7 +3836,7 @@ index 7699c3d..e1706dc 100644
    int resolution_index = 0;
    for (std::size_t i = 0; i < resolutions.size(); ++i)
    {
-@@ -621,17 +1425,165 @@ int main(int argc, char** argv)
+@@ -621,17 +1431,165 @@ int main(int argc, char** argv)
    // StateSaves is Dolphin's own state directory, so states written in-game land
    // here without any extra configuration and show up on the next launch.
    //
@@ -4003,7 +4009,7 @@ index 7699c3d..e1706dc 100644
    std::vector<ControllerOption> controllers = EnumerateControllers();
    bool controller_profile_exists = moderngekko::frontend::ControllerConfigExists(user_directory);
    std::vector<std::string> configured_controllers =
-@@ -640,11 +1592,22 @@ int main(int argc, char** argv)
+@@ -640,11 +1598,22 @@ int main(int argc, char** argv)
        configured_controllers.empty() ? config.controller : configured_controllers.front();
    int controller_index = FindController(controllers, selected_controller);
    std::string controller_status;
@@ -4028,7 +4034,7 @@ index 7699c3d..e1706dc 100644
      {
        std::lock_guard lock(dialog.mutex);
        dialog.error = std::move(message);
-@@ -652,13 +1615,13 @@ int main(int argc, char** argv)
+@@ -652,13 +1621,13 @@ int main(int argc, char** argv)
      }
      std::string error;
      if (!moderngekko::frontend::SaveConfig(user_directory, resolutions[resolution_index].text,
@@ -4044,7 +4050,7 @@ index 7699c3d..e1706dc 100644
      configured_controllers = {selected_controller};
      config.controller = selected_controller;
      config.controllers = configured_controllers;
-@@ -673,7 +1636,28 @@ int main(int argc, char** argv)
+@@ -673,7 +1642,28 @@ int main(int argc, char** argv)
      if (moderngekko::frontend::ControllerConfigExists(user_directory))
      {
        controller_profile_exists = true;
@@ -4074,7 +4080,7 @@ index 7699c3d..e1706dc 100644
        if (configured_controllers.empty())
        {
          std::lock_guard lock(dialog.mutex);
-@@ -686,12 +1670,14 @@ int main(int argc, char** argv)
+@@ -686,12 +1676,14 @@ int main(int argc, char** argv)
        controller_status = "Using existing " + std::string(CONTROLLER_PROFILE_NAME);
        return true;
      }
@@ -4089,7 +4095,7 @@ index 7699c3d..e1706dc 100644
      return select_controller(controller_index);
    };
    const auto refresh_controllers = [&]
-@@ -726,13 +1712,22 @@ int main(int argc, char** argv)
+@@ -726,13 +1718,22 @@ int main(int argc, char** argv)
      Join,
    };
    bool done = false;
@@ -4112,7 +4118,7 @@ index 7699c3d..e1706dc 100644
        ImGui_ImplSDL3_ProcessEvent(&event);
        if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED)
          done = true;
-@@ -744,6 +1739,7 @@ int main(int argc, char** argv)
+@@ -744,6 +1745,7 @@ int main(int argc, char** argv)
      }
      if (controllers_changed)
        refresh_controllers();
@@ -4120,7 +4126,7 @@ index 7699c3d..e1706dc 100644
  
      {
        std::lock_guard lock(dialog.mutex);
-@@ -751,6 +1747,72 @@ int main(int argc, char** argv)
+@@ -751,6 +1753,72 @@ int main(int argc, char** argv)
        {
          selected_image = std::move(dialog.selected);
          dialog.selected.reset();
@@ -4193,7 +4199,7 @@ index 7699c3d..e1706dc 100644
        }
      }
      {
-@@ -758,9 +1820,22 @@ int main(int argc, char** argv)
+@@ -758,9 +1826,22 @@ int main(int argc, char** argv)
        if (extraction.finished_game)
        {
          current_game = *extraction.finished_game;
@@ -4219,7 +4225,7 @@ index 7699c3d..e1706dc 100644
          extraction.finished_game.reset();
          if (ensure_controller())
          {
-@@ -774,18 +1849,79 @@ int main(int argc, char** argv)
+@@ -774,18 +1855,79 @@ int main(int argc, char** argv)
      ImGui_ImplSDL3_NewFrame();
      ImGui::NewFrame();
      const ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -4311,7 +4317,7 @@ index 7699c3d..e1706dc 100644
        if (!launcher_savestates.empty())
        {
          ImGui::TextUnformatted("Start from savestate");
-@@ -820,6 +1956,24 @@ int main(int argc, char** argv)
+@@ -820,6 +1962,24 @@ int main(int argc, char** argv)
          ImGui::TextDisabled("Solo play only.");
          ImGui::Spacing();
        }
@@ -4336,7 +4342,7 @@ index 7699c3d..e1706dc 100644
        if (ImGui::Button("Play", ImVec2(180 * scale, 42 * scale)))
        {
          if (ensure_controller())
-@@ -828,7 +1982,9 @@ int main(int argc, char** argv)
+@@ -828,7 +1988,9 @@ int main(int argc, char** argv)
            done = true;
          }
        }
@@ -4347,7 +4353,7 @@ index 7699c3d..e1706dc 100644
        if (ImGui::Button("Host Netplay", ImVec2(180 * scale, 42 * scale)))
        {
          if (ensure_controller())
-@@ -884,213 +2040,1561 @@ int main(int argc, char** argv)
+@@ -884,213 +2046,1585 @@ int main(int argc, char** argv)
            }
          }
        }
@@ -4504,7 +4510,8 @@ index 7699c3d..e1706dc 100644
 +      }
 +      describe("Show the frame rate in the game window's title bar (windowed only).");
 +    };
-+    // The Skies rows (Picture, HUD, Frame rate, Anti-aliasing), or a subset by row index
++    // The Skies rows (Picture, HUD, Frame rate, Anti-aliasing, Texture filtering, Anisotropic
++    // filtering, Scaling), or a subset by row index
 +    const auto skies_video_rows = [&](int first, int last)
 +    {
 +      if (background || (current_metadata && IsSkies(current_metadata.metadata->disc_id)))
@@ -4522,6 +4529,14 @@ index 7699c3d..e1706dc 100644
 +            {{0, "30 fps (original)"}, {1, "60 fps (interpolated)"}}};
 +        static constexpr std::array<Choice, 4> msaa_modes{
 +            {{1, "Off"}, {2, "2x MSAA"}, {4, "4x MSAA"}, {8, "8x MSAA"}}};
++        // Dolphin's TextureFilteringMode, AnisotropicFilteringMode (-1 = the game's own) and
++        // OutputResamplingMode values
++        static constexpr std::array<Choice, 3> texture_filters{
++            {{0, "Original"}, {2, "Smooth"}, {1, "Sharp"}}};
++        static constexpr std::array<Choice, 5> anisotropies{
++            {{-1, "Off"}, {1, "2x"}, {2, "4x"}, {3, "8x"}, {4, "16x"}}};
++        static constexpr std::array<Choice, 4> resamplings{
++            {{0, "Default"}, {5, "Sharp"}, {6, "Smooth"}, {4, "Bicubic"}}};
 +        const auto option = [&](const char* label, const char* id, const DolphinOption& key,
 +                                int* value, int unset, const auto& choices,
 +                                const char* description)
@@ -4578,6 +4593,21 @@ index 7699c3d..e1706dc 100644
 +        if (first <= 3 && last >= 3)
 +          option("Anti-aliasing", "##msaa", GFX_MSAA, &msaa, 1, msaa_modes,
 +                 "Smooths jagged edges. Higher settings need a faster graphics card.");
++        if (first <= 4 && last >= 4)
++          option("Texture filtering", "##texture_filtering", GFX_TEXTURE_FILTERING,
++                 &texture_filtering, 0, texture_filters,
++                 "Original draws textures as the game sets them; Smooth always blends their "
++                 "pixels; Sharp shows them as crisp pixels.");
++        if (first <= 5 && last >= 5)
++          option("Anisotropic filtering", "##anisotropy", GFX_ANISOTROPY, &anisotropy, -1,
++                 anisotropies,
++                 "Keeps textures seen at a slant sharp, like the deck and the ground into the "
++                 "distance.");
++        if (first <= 6 && last >= 6)
++          option("Scaling", "##resampling", GFX_RESAMPLING, &resampling, 0, resamplings,
++                 "How the picture is scaled to your screen. Sharp keeps a low Resolution crisp on "
++                 "a large screen (the original 640x528 on a 4K display); Smooth suits a picture "
++                 "larger than the screen.");
 +      }
 +    };
 +    const auto video_section = [&]
@@ -4586,7 +4616,7 @@ index 7699c3d..e1706dc 100644
 +      fullscreen_row();
 +      resolution_row();
 +      title_fps_row();
-+      skies_video_rows(0, 3);
++      skies_video_rows(0, 6);
 +    };
 +#ifdef MODERNGEKKO_GAMECUBE_CONTROLLERS
 +    // Controller 1 and its bindings. In game, controller 1 also moves to any controller pressed and
@@ -5939,7 +5969,7 @@ index 7699c3d..e1706dc 100644
 +          ImGui::PushItemWidth(440.0f * ui_scale);
 +          tab("Graphics", [&]
 +              {
-+                skies_video_rows(0, 3);
++                skies_video_rows(0, 6);
 +                setting_row("V-Sync", "##vsync", vsync, ON_OFF,
 +                            "Stops screen tearing. Can add a little input delay.");
 +                if (background || (current_metadata && IsSkies(current_metadata.metadata->disc_id)))
@@ -6067,7 +6097,7 @@ index 7699c3d..e1706dc 100644
  
      ImGui::Render();
      SDL_SetRenderScale(renderer, io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y);
-@@ -1107,8 +3611,17 @@ int main(int argc, char** argv)
+@@ -1107,8 +3641,17 @@ int main(int argc, char** argv)
    if (launch_mode != LaunchMode::None)
    {
      std::string launch_error;
@@ -6087,7 +6117,7 @@ index 7699c3d..e1706dc 100644
      {
        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Launch failed", launch_error.c_str(), window);
        result = 1;
-@@ -1163,6 +3676,15 @@ int main(int argc, char** argv)
+@@ -1163,6 +3706,15 @@ int main(int argc, char** argv)
            user_directory / "Logs" / MODERNGEKKO_LOG_FILENAME;
        std::error_code log_error;
        std::filesystem::create_directories(log_path.parent_path(), log_error);
@@ -6103,7 +6133,7 @@ index 7699c3d..e1706dc 100644
        SDL_IOStream* log_stream =
            log_error ? nullptr : SDL_IOFromFile(log_path.string().c_str(), "w");
        SDL_Process* process = nullptr;
-@@ -1205,7 +3727,12 @@ int main(int argc, char** argv)
+@@ -1205,7 +3757,12 @@ int main(int argc, char** argv)
          int exit_code = 1;
          const bool waited = SDL_WaitProcess(process, true, &exit_code);
          SDL_DestroyProcess(process);
@@ -6117,7 +6147,7 @@ index 7699c3d..e1706dc 100644
          {
            SDL_ShowWindow(window);
            if (!waited)
-@@ -1263,6 +3790,8 @@ int main(int argc, char** argv)
+@@ -1263,6 +3820,8 @@ int main(int argc, char** argv)
      }
    }
  
@@ -6126,7 +6156,7 @@ index 7699c3d..e1706dc 100644
    ImGui_ImplSDLRenderer3_Shutdown();
    ImGui_ImplSDL3_Shutdown();
    ImGui::DestroyContext();
-@@ -1271,3 +3800,15 @@ int main(int argc, char** argv)
+@@ -1271,3 +3830,15 @@ int main(int argc, char** argv)
    SDL_Quit();
    return result;
  }
