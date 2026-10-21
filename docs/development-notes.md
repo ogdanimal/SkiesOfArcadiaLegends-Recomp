@@ -1321,7 +1321,9 @@ NMDM); the GameCube is big-endian, AKLZ-compressed and has GVR textures instead 
   redone first: it predated the Vigoro conversion. Then on **Windows** (the test app, all three
   games: the European addresses above confirmed) and on **Android** (Retroid Pocket 5, test app:
   disc 1 imported again through the picker, 73 files, `a116ag02.mld` identical to the reference; the
-  scene from `jp-02` the same way, full speed): the same result on each.
+  scene from `jp-02` the same way, full speed) and on **macOS** (arm64, the Mac session: disc 1
+  imported again, converted in 0.5 s, the Japanese game from a card save's state): the same result
+  on each.
 - **Test APKs packed an old `Sys`:** `jni/CMakeLists.txt` copies `Data/Sys` into the app's assets
   only when CMake configures, which a reused build folder skips, so the first Vigoro test APK had the
   previous manifest, and a fresh local folder got no `Sys` at all on its first build;
