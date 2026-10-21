@@ -9,7 +9,8 @@
     "autoload.c",
     "dcmusic.c",
     "cutscene.c",
-    "cutscene.S"
+    "cutscene.S",
+    "pal60.c"
   ],
   "symbols": {
     "FontIsReady": "0x801E34AC",
@@ -41,6 +42,12 @@
     "sndSeqSetMidiCtrl": "0x8026DD4C"
   },
   "redirect_sites": [
+    {
+      "site": "0x801F72A8",
+      "target": "memcpy",
+      "to": "pal_script_copy",
+      "why": "fn_801F7158 (the script loader): a script's code into its buffer, the European 50 Hz cutscene timing made 60 Hz (pal60.c)"
+    },
     {
       "site": "0x8021882C",
       "target": "sndSeqPlayEx",

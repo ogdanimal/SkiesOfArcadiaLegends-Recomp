@@ -1879,6 +1879,32 @@ and saves `Hud`. Android: the Settings row compiles (`compileDebugKotlin`), not 
 launcher row built, not looked at. Not checked: Windows, the field party status and dungeon minimap
 (right-edge anchors, same code path), the European DOL (same sources, no new game address).
 
+### European intro in sync with its music (2026-10-21, branch `cutscene`, issue #3)
+
+A comment on issue #3 (GLEclipseGaming): with the European disc the intro's picture and music drift
+apart. The European game has no 50 Hz compensation in code (at 50 Hz it runs 5/6 speed; the port runs
+it at 60 Hz, `eu-boot.md` in the research checkout), but three of its scripts were retimed for 50 Hz:
+the scenes set to a streamed song, `me299a` (the intro, `m01`) and `me298a` / `me250a` (`m03`). Their
+waits and motion times are `x / 1.2` (expression words `0x04000000 x 0x04000000 0x3F99999A 0x13`,
+271-306 instructions each, 1016 in all), where the USA and Japanese scripts have `x`; no other script
+of any release has the expression (all 258 scripts of each disc, decompressed, checked). The song files
+are byte-identical on every disc, so at 60 Hz the European picture ran 1.2 times as fast as the music.
+Besides those, the European scripts differ from the USA ones only in expression lengths and an extra
+`Switch` block in the intro.
+
+`patches/game/pal60.c`: the script loader `fn_801F7158` (one caller) copies the decompressed code into
+its buffer with one `memcpy` (`0x801F72A8`, `redirect_sites`); `pal_script_copy` makes each 1.2 there
+1.0, so the script keeps its size and `x / 1.0` is the USA's `x`. A save state made before the fix
+keeps the old script until the next load. Checked on WSL (JIT, cold boot, muted, the game frame of
+each camera shot of the intro, `cs_shot`): shots common to both releases come at 0.84 of the USA frame
+unpatched (1 / 1.2; the whole intro 3178 frames against 3753) and at the USA frame patched (within
+0.6 %, the polling step; 3775). The `m03` scenes use the same mechanism and were not played.
+
+Still open for the European disc: its voice streams (`B702NNNN`, `KO00NN`, `f71000NN`) are
+time-stretched to 1.2 times the USA length for 50 Hz, so spells and Special Moves (which wait for
+their stream, voice and effects pre-mixed) should lag their animation at 60 Hz too; not fixed (the
+stream files would need shortening, with a new size).
+
 ### Cutscene shots framed for widescreen (2026-10-21, branch `cutscene`, issue #10)
 
 Issue #10 (Renatodep): in the opening "you see the Valuan ship on the side". The cutscenes are
