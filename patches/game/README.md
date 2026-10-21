@@ -2,9 +2,9 @@
 
 Changes to the game itself, written in C (and a little assembly) and built into a copy of
 `main.dol` by `tools/gamepatch.py`. The shipping spec is `widescreen.json` (widescreen, camera
-control and the QOL options together); the current build is **ws28** (`build/game/GEAE8P-ws28`, DOL
-SHA-1 `f1e39fc0`, SHA-256 `7af78727`; the European one `GEAP8P-ws28`, SHA-1 `836ab729`, SHA-256
-`caaf2dd9`; the Japanese one `GEAJ8P-ws28`, SHA-1 `c95115f8`, SHA-256 `74f0fedc`; ws28 = ws27 + ship battles' spells and special attacks at normal speed and `qol_normal_speed` for the frontend, branch `smove`; ws27 = ws26 + spells and special attacks at normal speed, branch `smove`; ws26 = ws25 + field speed, branch `speed`; ws25 = ws24 + Hold B, branch `romhack`), and `release/skies-widescreen.dolpatch` (`skies-widescreen-eu.dolpatch`, `skies-widescreen-jp.dolpatch`) turns a player's own
+control and the QOL options together); the current build is **ws29** (`build/game/GEAE8P-ws29`, DOL
+SHA-1 `2926f2c1`, SHA-256 `ac356927`; the European one `GEAP8P-ws29`, SHA-1 `a868b179`, SHA-256
+`8e4cf16c`; the Japanese one `GEAJ8P-ws29`, SHA-1 `397da037`, SHA-256 `715a237a`; ws29 = ws28 + cutscene shots framed for widescreen (issue #10) and the European intro in sync with its music (issue #3), branch `cutscene`; ws28 = ws27 + ship battles' spells and special attacks at normal speed and `qol_normal_speed` for the frontend, branch `smove`; ws27 = ws26 + spells and special attacks at normal speed, branch `smove`; ws26 = ws25 + field speed, branch `speed`; ws25 = ws24 + Hold B, branch `romhack`), and `release/skies-widescreen.dolpatch` (`skies-widescreen-eu.dolpatch`, `skies-widescreen-jp.dolpatch`) turns a player's own
 `main.dol` into it (`tools/mkdolpatch.py`). Because they're part of the DOL, the recompiled module runs them
 as ordinary game code: desktop and Android alike, with no mod loader and no runtime cost beyond the
 code itself. The research behind each one is in the decomp's `docs/` (`../SkiesOfArcadiaLegends-Decomp`).
@@ -68,23 +68,23 @@ MetroTRK's handlers are at `0x80254398`-`0x80256B24`; the idle PC `0x8023772C` (
 
 ```sh
 tools/gamepatch.py patches/game/widescreen.json --dol <european disc>/sys/main.dol \
-  --out-root build/game/GEAP8P-ws28
+  --out-root build/game/GEAP8P-ws29
 tools/gamepatch.py patches/game/widescreen.json --dol <japanese disc>/sys/main.dol \
-  --out-root build/game/GEAJ8P-ws28
+  --out-root build/game/GEAJ8P-ws29
 ```
 
 ```sh
-tools/gamepatch.py patches/game/widescreen.json --out-root build/game/GEAE8P-ws28
-DOL=build/game/GEAE8P-ws28/sys/main.dol tools/module-llvm-win.sh llvm-pgo-ws28 \
+tools/gamepatch.py patches/game/widescreen.json --out-root build/game/GEAE8P-ws29
+DOL=build/game/GEAE8P-ws29/sys/main.dol tools/module-llvm-win.sh llvm-pgo-ws29 \
   --profile-use build/modules-llvm-pgo-gp/GEAE8P/pgo/merged.profdata      # Windows module
-NAME=ws28 tools/android-ws-build.sh                                       # Android module + APK
+NAME=ws29 tools/android-ws-build.sh                                       # Android module + APK
 python3 tools/mkdolpatch.py --fst extracted/SkiesOfArcadiaLegends/sys/fst.bin \
-  extracted/SkiesOfArcadiaLegends/sys/main.dol build/game/GEAE8P-ws28/sys/main.dol \
+  extracted/SkiesOfArcadiaLegends/sys/main.dol build/game/GEAE8P-ws29/sys/main.dol \
   release/skies-widescreen.dolpatch patches/game/GEAE8P.known             # release patch
 python3 tools/mkdolpatch.py --fst <european disc>/sys/fst.bin <european disc>/sys/main.dol \
-  build/game/GEAP8P-ws28/sys/main.dol release/skies-widescreen-eu.dolpatch   # European release patch
+  build/game/GEAP8P-ws29/sys/main.dol release/skies-widescreen-eu.dolpatch   # European release patch
 python3 tools/mkdolpatch.py --fst <japanese disc>/sys/fst.bin <japanese disc>/sys/main.dol \
-  build/game/GEAJ8P-ws28/sys/main.dol release/skies-widescreen-jp.dolpatch   # Japanese release patch
+  build/game/GEAJ8P-ws29/sys/main.dol release/skies-widescreen-jp.dolpatch   # Japanese release patch
 ```
 
 The Android build picks up the European game from `DOL_EU` (default `build/game/GEAP8P-NAME/sys/main.dol`)
@@ -135,6 +135,7 @@ and a module built from the same DOL.
 | ws26 | `357c1821` (Europe `3b973331`) | Field speed (2026-10-20): `QOL_SPEED_FIELD` (0x100) in `qol_input.battle_speed` makes `qol_fast` true in game mode 6 too, with the low byte in quarters (`QOL_QUARTERS`; whole steps without the flag), and `qol_frame` paces each frame at 2, 1 or 0 retraces from a budget (`qol_frame_retraces` in `.late_bss`; `qol_skip_wait` skips VIWaitForRetrace at 0), so cutscenes, towns, dungeons and the world map run at the frontend's field speed, 1.25x and 1.5x included (the battle's whole steps pace as before); no earlier variable moved and no new game address. The frontend sets the flag only outside battle, so ws25 and earlier, reading the whole word, see only the battle speed in a battle |
 | ws27 | `f62abf95` (Europe `b9f1c990`, Japan `6f644635`) | Spells and special attacks at normal speed (2026-10-21, issue #7): `qol_fast` is false in a ground or deck battle (mode 7, battle state 4-7) while any unit's action task (`lbl_80309700[0..11]`, the task's first word) runs `fn_80085064` (the party's spell / S-move action, command types 1 and 2) or `fn_80087074` (the enemies' spell / special action, types 1 and 0xC). Each spell and S-move plays one pre-mixed stream (`KO00NN`) and waits for its end, so at speed the animation ended seconds before the sound. Measured on Windows: Cutlass Fury's animation 10.1 s at 1x, 2x and 4x (was 5.0 s / 2.5 s at 2x / 4x), its stream ending 1.7 s after it as at 1x; Antonio's special 7.3 s at 1x and 4x; plain attacks unchanged (an enemy attack 1.0 s at 4x, 4.2-6.3 s at 1x). Ship battles keep the speed. No new data: states from ws26 load. |
 | ws28 | `f1e39fc0` (Europe `836ab729`, Japan `c95115f8`) | Ship battles' spells and special attacks at normal speed (2026-10-21): a ship battle turn plays its phases on a frame timeline (`lbl_803472E0`; `lbl_803472DC` 1.0 while it plays), each phase's record (`lbl_803472A4`) giving the frames of the side acting first (+0xC..+0x14) and second (+0x14..end); `lbl_80306E38` holds the two sides' actions in that order (0x90 each, entries of 0x10: +0 kind, +1 side, +5 weapon slot, +8 id). `qol_fast` is false while the acting side has magic (kind 5), a crew special (7), an enemy special attack (8, ids 3-7: Hull Ram, Red Ray, Fist of Grendel, Boulder Throw, Stomp) or the party fires an S-Cannon (kind 4 from the weapon slot holding the Harpoon Cannon 0x1AE or the MoonStone Cannon 0x1AF, `0x803063F0 + 0x298 + slot * 0x22 + 0x12`). `qol_normal_speed` (`0x80002BDC`, its own `.late_bss_ws28` section after `.late_bss`, so ws27's variables keep their addresses) is 1 while a battle at speed plays one of these, ground or ship; the frontend keeps frame interpolation on then (`recompcore-battle-specials.patch`). Measured on Windows from a random encounter (`me550a`), Aika's Sacri: 29.8-30.1 game frames a second in its window at 2x and 4x whichever side acted first, the enemy's Focus in the same phase 60 (2x) / 121 (4x); 1x unchanged; ground battles unchanged (Cutlass Fury at 4x held normal speed for its whole action). No new data in older variables: states from ws27 load. |
+| ws29 | `2926f2c1` (Europe `a868b179`, Japan `397da037`) | Cutscene shots framed for widescreen (2026-10-21, issue #10): `cutscene.c` / `cutscene.S` (the script VM's camera commands noted in `cs_shot`, listed shots zoomed by picture aspect / listed aspect; the opening's two shots listed for all three discs), and the European intro and the two `m03` scenes in sync with their music at 60 Hz (issue #3, `pal60.c`: `pal_script_copy` makes the European scripts' `x / 1.2` timings `x / 1.0` as they load). `cs_shot` (`0x80002BE0`, 0x38 bytes) is in its own `.late_bss_ws29` after `.late_bss_ws28`, so every ws28 variable keeps its address (`qol_normal_speed` still `0x80002BDC`; checked with `llvm-nm` on all three discs). The MetroTRK code area grew to `0x80257AF8`: ws29 uses 0x2810 of its 0x3210 bytes (the gap: code 0x10C8 of 0x1100, data 0x500 of 0x500). States from ws28 load. |
 
 A module only matches the DOL it was built from: an unpatched module with a patched DOL (or the
 reverse) fails verification for the patched code and runs it in the interpreter, but only where the

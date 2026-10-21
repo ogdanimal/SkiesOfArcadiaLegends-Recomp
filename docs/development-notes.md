@@ -1926,7 +1926,8 @@ where 4:3 has it. 4:3 never zooms. Listed: `0x90763369` (the bridge, 1.36, botto
 poke `test_key` / `test_map` / `test_aspect` to try an aspect live, or hash the command's words from a
 SPICE dump (`SpiceSCT`, built on Linux with a Windows.h stub, `rawWords` = the command's words).
 
-The MetroTRK code area grows to `0x80257AF8` (`cave.ld`): ws28 + this needed 0x277C of 0x278C. The
+The MetroTRK code area grows to `0x80257AF8` (`cave.ld`): ws28 + this needed 0x277C of the old 0x278C;
+ws29 (with `pal60.c`) uses 0x2810 of 0x3210. The
 added functions (`fn_80257074`-`fn_80257A20`) are reached only by `InitMetroTRK` (checked from every
 non-MetroTRK function and data pointer; dolmatch: same range and offsets in Europe and Japan).
 
