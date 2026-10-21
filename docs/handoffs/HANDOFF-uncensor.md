@@ -66,7 +66,7 @@ How it works and every finding: development notes, *Uncensored* (the bullets *Gi
   `BEFF/` and converted both files (identical to the reference); the user saw Gilder smoke.
 - **Seeing it every time:** `tools/victory12.sh GAME` in the test folder (from `jp-12`, Invincible
   off live, Vyse and Aika at 0 HP Focus, Gilder attacks and wins in round one): Gilder's pose,
-  variant 26, three runs of three. With **Invincible** on (the test folder's `Dolphin.ini` has it on), the
+  variant 26, four runs of four. With **Invincible** on (the test folder's `Dolphin.ini` has it on), the
   0-HP members stay eligible and the pose usually goes to them.
 - Not checked: the USA or European disc in game (no state with Gilder in a battle; the files are the
   same as on the Japanese disc and convert byte-identically).

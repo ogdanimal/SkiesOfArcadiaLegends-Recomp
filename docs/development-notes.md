@@ -1287,7 +1287,7 @@ NMDM); the GameCube is big-endian, AKLZ-compressed and has GVR textures instead 
   every time** (`tools/victory12.sh GAME`): Vyse and Aika only stand at 0 HP because of the
   **Invincible** cheat; with it off (`config:Dolphin.Skies.Invincible=0`) they don't count for the
   victory, so from `jp-12` Vyse and Aika use Focus, Gilder attacks, the battle ends in the first
-  round and the victory is Gilder's, variant 26 (the smoke), three runs of three with different
+  round and the victory is Gilder's, variant 26 (the smoke), four runs of four with different
   input timing: the variant comes from the state.
 - **Checked in a normal build (2026-10-20, WSL, Linux release build):** the import of disc 1 copied
   `BEFF/PCWIN.MLK` and `BCHARA/MA0050.STD` and converted both (byte-identical to the reference,
