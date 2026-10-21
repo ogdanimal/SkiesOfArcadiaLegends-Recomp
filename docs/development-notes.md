@@ -1125,6 +1125,23 @@ ws22).
   timing master (their end starts the next pair), and the segment lengths match: `M0460` segments 9,
   0-3 are 3.733 / 19.870 / 13.253 / 13.264 / 13.259 s on the Dreamcast against 3.72 / 19.92 / 13.28 /
   13.18 / 13.28 s start to start in the game (frame resolution), so lists stay in step.
+- **Reverb (2026-10-21, issue #8):** the driver plays through the AICA's DSP only once the game
+  selects an effects program (`sdSndSetFxPrg(prg, out)`: host command 0x84 with the program in
+  byte 2, then 0x82 with the output set; dc-manatee's `host_protocol.md` and `docs/notes/fx_format.md`).
+  The port never sent it, so every voice's effect send went into a DSP with no program and silent
+  outputs (EFSDL 0), and the music played dry, as the reporter heard against the DSF rips in
+  Highly Theoretical. Skies has one program and one output set, both in `ARESNEW.MLT` (SFPB
+  `ares2_1st.FPD`, ring buffer code 2 = 64 KB, SFPW 0x10040 bytes at 0x18000; SFOB version 2, EFREG
+  0-7 at level 15 panned left / right in turn); no song MLT carries FX data, so each player sends
+  `sdSndSetFxPrg(0, 0)` once after `ARESNEW.MLT` (`recompcore-dcmusic-fx.patch`). Our `sdSndStopAll`
+  (bytes 6 and 7 zero) keeps it. Checked offline with a render tool around the same Highly
+  Theoretical calls (`GameCube-Research/.../dcfx/render.cpp`): the program loads (86 COEF, 346 MPRO
+  words), the outputs open (EFSDL 15), no driver error; the town theme `M0231` comes out 0.8 dB
+  louder and wider (side signal +56%, left/right correlation 0.84 to 0.66). Cost: Highly
+  Theoretical runs its DSP dynarec only on 32-bit x86, so 64-bit builds interpret it: a chip renders
+  at 17x real time instead of 28x on the WSL PC, 9.9x instead of 15.5x on the Retroid Pocket 5; the
+  game's speed on the Retroid was unchanged (Pirate Isle, 0.994 without, 0.999 / 0.995 with). The
+  user compared both on Windows (Pirate Isle village) and preferred the reverb ("sounds right").
 - **Engine:** `AudioCommon/DCMusic.cpp`. Two players, each its own emulated AICA with the driver
   (`DCMusic::PLAYERS`): a paused song (`MusicPause`: the field or world music during a battle) keeps
   its chip, frozen (not rendered at all), while the battle music and the fanfare play on the other,

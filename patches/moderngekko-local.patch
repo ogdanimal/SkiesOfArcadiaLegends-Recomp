@@ -326,7 +326,7 @@ index 0adc855..77d385d 100644
  
  struct RuntimeError
 diff --git a/src/runtime/dolphin_runtime.cpp b/src/runtime/dolphin_runtime.cpp
-index f9b5405..c8d5bc9 100644
+index f9b5405..eae9f34 100644
 --- a/src/runtime/dolphin_runtime.cpp
 +++ b/src/runtime/dolphin_runtime.cpp
 @@ -2,6 +2,7 @@
@@ -423,7 +423,7 @@ index f9b5405..c8d5bc9 100644
    Config::SetBase(Config::GFX_SHADER_CACHE, true);
    Config::SetBase(Config::GFX_SHADER_COMPILATION_MODE,
                    ShaderCompilationMode::AsynchronousUberShaders);
-@@ -674,13 +714,14 @@ RuntimeCreateResult Runtime::Create(RuntimeConfig config) {
+@@ -674,20 +714,23 @@ RuntimeCreateResult Runtime::Create(RuntimeConfig config) {
    if (impl->config.headless) {
      impl->config.audio.backend = BACKEND_NULLSOUND;
    } else if (impl->config.audio.backend.empty() ||
@@ -441,7 +441,17 @@ index f9b5405..c8d5bc9 100644
          });
      impl->config.audio.backend =
          preferred != preferred_backends.end() ? *preferred : BACKEND_NULLSOUND;
-@@ -700,11 +741,15 @@ RuntimeCreateResult Runtime::Create(RuntimeConfig config) {
+   }
+   Config::SetBase(Config::MAIN_AUDIO_BACKEND, impl->config.audio.backend);
++  // --mute is for this run only: the current layer, which isn't saved (in the base layer the
++  // runner's save on exit made the player's volume 0 for good)
+   if (impl->config.audio.mute)
+-    Config::SetBase(Config::MAIN_AUDIO_VOLUME, 0);
++    Config::SetCurrent(Config::MAIN_AUDIO_VOLUME, 0);
+   Config::SetBase(Config::MAIN_INPUT_BACKGROUND_INPUT,
+                   impl->config.input.background_input);
+ 
+@@ -700,11 +743,15 @@ RuntimeCreateResult Runtime::Create(RuntimeConfig config) {
      recomp_source = StaticRecompModuleSource::Attached(
          reinterpret_cast<const StaticRecompModuleDesc *>(
              impl->config.module.descriptor));
@@ -462,7 +472,7 @@ index f9b5405..c8d5bc9 100644
    jit.SetStaticRecompModuleSource(std::move(recomp_source));
  
    s_runtime_active = true;
-@@ -730,6 +775,10 @@ Runtime::~Runtime() {
+@@ -730,6 +777,10 @@ Runtime::~Runtime() {
      m_impl->automation_registered = false;
    }
    m_impl->state_hook = {};
@@ -473,7 +483,7 @@ index f9b5405..c8d5bc9 100644
    if (m_impl->controllers_initialized)
      UICommon::ShutdownControllers();
    if (m_impl->ui_initialized)
-@@ -823,6 +872,11 @@ RuntimeRunResult Runtime::Run() {
+@@ -823,6 +874,11 @@ RuntimeRunResult Runtime::Run() {
    Core::Shutdown(Core::System::GetInstance());
    m_impl->booted = false;
    m_impl->running = false;
