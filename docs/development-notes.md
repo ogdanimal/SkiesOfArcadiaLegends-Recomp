@@ -344,8 +344,8 @@ and battles are untouched. Checked on Windows and the Retroid: `tools/camera-tes
   dispatcher `fn_8008B9E0`, types 1 and 0xC; their AI `fn_8008A424` makes rule codes 500+ type 1 with
   id - 500, other codes type 0xC). Every enemy action then switches to `fn_80087054` (wait, then end);
   the party's S-move holds its step 13 until the stream ends. Always on (the user's choice), spells
-  included; ship battles keep the speed (not looked at). The frontend doesn't know: its interpolation
-  stays held and its overclock on, so these play at 30 fps at speed. Measured on Windows (ws27 module,
+  included; ship battles followed in ws28 (next entry). The frontend didn't know until ws28: its
+  interpolation stayed held (30 fps at speed) and its overclock on. Measured on Windows (ws27 module,
   release runner): Cutlass Fury's animation 10.1 / 10.1 / 10.4 s at 1x / 2x / 4x, the stream ending 1.7
   s after it at each; Antonio's special (`19-retroid-antonio-start.sav`, unit 4, type 0xC, id 5) 7.3 s
   at 1x and at 4x; plain attacks keep the speed (enemy attacks 1.0 s at 4x, 4.2-6.3 s at 1x). Retroid
@@ -356,6 +356,40 @@ and battles are untouched. Checked on Windows and the Retroid: `tools/camera-tes
   Aika's command too before the round started. Tools: the game state read through automation `peek`
   (the task list from `*0x803475A8`, linked by +4; the command records; the stream channels), audio
   dumps (`[DSP] DumpAudio`).
+- Ship battles' spells and special attacks at normal speed, at 60 fps (ws28, 2026-10-21): ship battles
+  play no streams (every caller of the `KO` / `B702` battle streams is ground battle code), so their
+  spells and specials are sound effects on a frame timeline that nothing waits for; at speed the
+  effects ran behind the picture. A turn plays its phases on that timeline (`lbl_803472E0`, a float
+  frame, 500 per phase; `lbl_803472DC` 1.0 while it plays), each phase's record (`lbl_803472A4`, 0x58)
+  holding its windows: set-up from +0x8, the side acting first from +0xC to +0x14, the turn-around, the
+  second side from +0x18 (the patch counts it from +0x14) to the end. `lbl_80306E38` holds the two
+  sides' actions **in acting order** (0x90 each; 0x10 per action: +0 kind, +1 side, +5 weapon slot, +8
+  id), so window k reads record k: a first version read them by side and slowed the enemy's Focus
+  instead of Aika's Sacri whenever the enemy acted first (which side does changes from turn to turn).
+  `qol_fast` is false while the acting side has magic (kind 5), a crew member's special (7), an enemy's
+  special attack (8, ids 3-7: Hull Ram, Red Ray, Fist of Grendel, Boulder Throw, Stomp) or the party
+  fires an S-Cannon (kind 4 from the slot holding the Harpoon Cannon 0x1AE or MoonStone Cannon 0x1AF;
+  the party's weapons are at `0x803063F0 + 0x298`, 0x22 each, item id +0x12). Kinds and ids from the
+  banner function `fn_80159D48`; decomp `docs/qol_cheats.md` *Ship battles*. The patch also sets
+  `qol_normal_speed` (`0x80002BDC`, a `.late_bss_ws28` section after `.late_bss` in `cave.ld`, so the
+  variables ws27 had keep their addresses) while a battle at speed plays one of these, ground or ship,
+  and the frontend keeps frame interpolation on then (`recompcore-battle-specials.patch`); the
+  overclock stays as the speed set it. While the speed holds interpolation off, the frontend now asks
+  for off every poll: `SkiesSettings.cpp` asks for the Frame rate setting on every state load and
+  option change, which had turned interpolation on in a fast battle (seen while testing). It comes
+  back on only if it was on when the hold began or the setting changed meanwhile, so a device whose
+  second EFB doesn't fit doesn't try again at every spell. Measured on Windows (release runner, ws28
+  module) from a random encounter: from the Baltor state, the map changed to `me550a` (the Black
+  Pirates; maps 550+ are the sky's random battles, no tutorial: the Baltor state's command menu is
+  locked by Drachma's tutorial), saved as `ship550-magic.sav` with Aika's Magic picked
+  (`C:\dev\SkiesUncensor\app\User`). Aika's Sacri, its window: 29.8-30.1 game frames a second at
+  2x and 4x, whichever side acted first (both orders seen in four 2x runs); the enemy's Focus in the
+  same phase 60 at 2x, 121 at 4x; the rest of the turn at speed; 1x unchanged (the flag never set).
+  Interpolation (Frame rate 60): off at the fast battle, on for Sacri, off after it, staying off at
+  the next command input. Ground battles unchanged: Cutlass Fury at 4x held normal speed for its whole
+  action (14.8 s by 0.3 s polling), interpolation on for it. Not seen live: the S-Cannon (offered only
+  on a phase marked C!, which came at random and not in the time tested), crew specials and the
+  enemies' special attacks (the code path is the same comparison as magic). Android and macOS not run.
 - Field speed (ws26, 2026-10-20): the same waits skipped in the field (game mode 6: cutscenes, towns,
   dungeons, the world map; a ship battle counts as battle), when the frontend sets `QOL_SPEED_FIELD`
   (0x100) in `qol_input`'s speed word, which it does only outside battle (an earlier DOL takes the word

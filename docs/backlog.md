@@ -94,7 +94,10 @@ straight asset swap. Still to do, from the same Eternal Arcadia discs:
 
 **Done 2026-10-21 (game patch ws27, `dev` `c18ddc4`):** spells and special attacks (party and enemies)
 play at normal speed, always on (the user's choice); development notes *Spells and special attacks at
-normal speed*.
+normal speed*. Ship battles followed in ws28 (2026-10-21, branch `smove`): their magic, crew specials,
+enemy special attacks and the S-Cannon at normal speed too, and frame interpolation stays on for all of
+these at speed (they showed at 30 fps before); development notes *Ship battles' spells and special
+attacks*. Not seen live yet: the S-Cannon, crew specials and enemy special attacks in a ship battle.
 
 Issue #7 (bobbleyaga) and on Reddit (r/recomps v0.60.0-beta thread, Unleaded_95): every super attack,
 the party's and the enemies', plays its sound past the animation, or the game waits for the sound,

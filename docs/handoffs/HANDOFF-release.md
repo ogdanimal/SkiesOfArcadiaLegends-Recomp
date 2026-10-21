@@ -15,13 +15,19 @@ On `origin/dev` for the next release (draft notes: the main checkout's `build/no
   States made with earlier builds load and battle under ws27 (checked by that session).
   `release/*.dolpatch` are ws27 already (`c18ddc4`; USA output `bd2d267f…`); release.yml pins only
   the original DOLs, which don't change.
+- **Ship battles' spells and specials (game patch ws28, branch `smove`, 2026-10-21):** the same
+  normal speed in ship battles (magic, crew specials, enemy special attacks, the S-Cannon), and frame
+  interpolation stays on for spells and specials at speed (new `recompcore-battle-specials.patch`).
+  `release/*.dolpatch` are ws28 (USA output `7af78727…`); the *Updating from 0.80* note holds as it is
+  (the patch changes either way). Windows-checked (development notes *Ship battles' spells and special
+  attacks*); Android, macOS and Linux not run.
 - **AppImage catalog** (#10524): v0.80.0-beta passed; the bot's screenshot lacked the background art
   (its sandbox; it loads in 3 s under Xvfb here), answered on the PR; a maintainer merges it. Update
   information (zsync) is in the backlog.
 - **Issues since the release:** #7 fixed on `dev` (ws27; close it with the next release), #11 new
   (ship tutorial's command grid stretched; backlog, README Known Issues); #3, #5 and #8 (DSF part)
   open.
-- **Shared Windows tree:** `C:\dev\SkiesRomhack` is ws27 now (the #7 session configured it); re-sync
+- **Shared Windows tree:** `C:\dev\SkiesRomhack` is ws28 now (the #7 session configured it); re-sync
   `release\` and reconfigure before a build from another branch.
 
 ## Released (2026-10-21 UTC): v0.80.0-beta
