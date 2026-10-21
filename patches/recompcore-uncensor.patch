@@ -120,7 +120,7 @@ index 84ca2c01a0..e51fcf83ac 100644
  
      /** Graphics: Vulkan (default) or OpenGL ES, the way out of a Vulkan driver that misbehaves. */
 diff --git a/Source/Android/jni/SkiesImport.cpp b/Source/Android/jni/SkiesImport.cpp
-index 9fa9fa76a5..0d26f45484 100644
+index 9fa9fa76a5..fd799f239b 100644
 --- a/Source/Android/jni/SkiesImport.cpp
 +++ b/Source/Android/jni/SkiesImport.cpp
 @@ -37,6 +37,7 @@
@@ -177,10 +177,11 @@ index 9fa9fa76a5..0d26f45484 100644
    SetStatus("");
    s_importing = false;
    return ToJString(env, error);
-@@ -510,6 +536,28 @@ JNIEXPORT jstring JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_impor
+@@ -510,7 +536,29 @@ JNIEXPORT jstring JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_impor
  #endif
  }
  
+-// What's imported, e.g. "Disc 1 (USA): 116 music banks"; "" if nothing.
 +// Settings, Dreamcast: what the Uncensored setting has for the installed game, as {converted file
 +// count, a line to show}; {"0", ""} when there's no game it knows.
 +JNIEXPORT jobjectArray JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_describeUncensor(
@@ -203,9 +204,10 @@ index 9fa9fa76a5..0d26f45484 100644
 +  return SpanToJStringArray(env, std::span<const std::string>(answer));
 +}
 +
- // What's imported, e.g. "Disc 1 (USA): 116 music banks"; "" if nothing.
++// What's imported, e.g. "Skies of Arcadia disc 1 (USA): 116 music banks"; "" if nothing.
  JNIEXPORT jstring JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_describeDreamcastMusic(
      JNIEnv* env, jclass)
+ {
 @@ -526,8 +574,9 @@ JNIEXPORT jboolean JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesNative_remo
      JNIEnv* env, jclass)
  {
@@ -219,7 +221,7 @@ index 9fa9fa76a5..0d26f45484 100644
    return JNI_FALSE;
  #endif
 diff --git a/Source/Core/AudioCommon/DCMusicImport.cpp b/Source/Core/AudioCommon/DCMusicImport.cpp
-index eae51ebf5a..9deff8868c 100644
+index eae51ebf5a..5481cf5929 100644
 --- a/Source/Core/AudioCommon/DCMusicImport.cpp
 +++ b/Source/Core/AudioCommon/DCMusicImport.cpp
 @@ -9,6 +9,7 @@
@@ -336,6 +338,56 @@ index eae51ebf5a..9deff8868c 100644
    std::string list;
    for (const auto& [name, r] : sources)
      list += name + ' ' + r + '\n';
+@@ -451,8 +494,9 @@ std::string Import(const std::string& image, const std::string& music_dir, std::
+ 
+   if (summary)
+   {
+-    *summary = fmt::format("Disc {} ({}): {} music banks, {} streamed song{}", disc, region, banks,
+-                           streams, streams == 1 ? "" : "s");
++    *summary = fmt::format("{} disc {} ({}): {} music banks, {} streamed song{}",
++                           region == "Japan" ? "Eternal Arcadia" : "Skies of Arcadia", disc, region,
++                           banks, streams, streams == 1 ? "" : "s");
+     if (kept)
+       *summary += fmt::format(" ({} kept from an NTSC disc)", kept);
+   }
+@@ -467,12 +511,23 @@ std::string Describe(const std::string& music_dir)
+   std::string discs;
+   File::ReadFileToString(music_dir + "discs.txt", discs);
+   std::istringstream in(discs);
+-  std::vector<std::string> parts;
++  // Which discs, by release: "Eternal Arcadia discs 1 and 2 (Japan), Skies of Arcadia disc 1 (USA)"
++  std::map<std::string, std::set<int>> by_region;
+   int disc;
+   std::string region;
+   while (in >> disc >> region)
+-    parts.push_back(fmt::format("disc {} ({})", disc, region));
+-  std::sort(parts.begin(), parts.end());
++    by_region[region].insert(disc);
++  std::vector<std::string> parts;
++  for (const char* r : {"USA", "Europe", "Japan"})
++  {
++    const auto it = by_region.find(r);
++    if (it == by_region.end())
++      continue;
++    parts.push_back(fmt::format("{} disc{} {} ({})",
++                                it->first == "Japan" ? "Eternal Arcadia" : "Skies of Arcadia",
++                                it->second.size() > 1 ? "s" : "", fmt::join(it->second, " and "),
++                                it->first));
++  }
+   int banks = 0;
+   std::array<bool, 5> tracks{};
+   for (const auto& [name, r] : ReadSources(music_dir))
+@@ -483,9 +538,7 @@ std::string Describe(const std::string& music_dir)
+       ++banks;
+   }
+   const auto streams = std::count(tracks.begin(), tracks.end(), true);
+-  std::string text = parts.empty() ? "Imported" : fmt::format("{}", fmt::join(parts, " and "));
+-  if (!text.empty())
+-    text[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(text[0])));
++  const std::string text = parts.empty() ? "Imported" : fmt::format("{}", fmt::join(parts, ", "));
+   // An import from before the streamed songs were copied: importing the disc again adds them.
+   if (streams == 0)
+     return fmt::format("{}: {} music banks (import again for the streamed songs)", text, banks);
 diff --git a/Source/Core/AudioCommon/DCMusicImport.h b/Source/Core/AudioCommon/DCMusicImport.h
 index 3bbb0827ee..3316f7f19e 100644
 --- a/Source/Core/AudioCommon/DCMusicImport.h

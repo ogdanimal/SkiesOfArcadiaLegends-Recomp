@@ -2528,7 +2528,7 @@ index 0000000..f3c3d14
 +void DrawMapping(State& state, const fs::path& user_directory, float scale);
 +}  // namespace moderngekko::launcher_controls
 diff --git a/tools/moderngekko_launcher.cpp b/tools/moderngekko_launcher.cpp
-index 7699c3d..d8085c8 100644
+index 7699c3d..365a068 100644
 --- a/tools/moderngekko_launcher.cpp
 +++ b/tools/moderngekko_launcher.cpp
 @@ -1,12 +1,25 @@
@@ -3428,7 +3428,7 @@ index 7699c3d..d8085c8 100644
    for (int i = 1; i < argc; ++i)
    {
      if (std::string_view(argv[i]) == "-X11" || std::string_view(argv[i]) == "--x11")
-@@ -512,10 +988,170 @@ int main(int argc, char** argv)
+@@ -512,10 +988,172 @@ int main(int argc, char** argv)
        use_wayland = true;
      else if (std::string_view(argv[i]) == "--extract" && i + 1 < argc)
        extract_only = argv[++i];
@@ -3577,6 +3577,8 @@ index 7699c3d..d8085c8 100644
 +                 (skipped ? ", " + std::to_string(skipped) + " didn't match" : std::string());
 +    }
 +    (error.empty() ? std::cout : std::cerr) << (error.empty() ? summary : error) << '\n';
++    if (error.empty())
++      std::cout << "Imported: " << DCMusicImport::Describe(dc_music_directory) << '\n';
 +    return error.empty() ? 0 : 1;
 +  }
 +#endif
@@ -3600,7 +3602,7 @@ index 7699c3d..d8085c8 100644
    if (extract_only)
    {
      ExtractionState extraction;
-@@ -529,7 +1165,39 @@ int main(int argc, char** argv)
+@@ -529,7 +1167,39 @@ int main(int argc, char** argv)
        std::cout << extraction.status << ": " << *extraction.finished_game << '\n';
      return success ? 0 : 1;
    }
@@ -3640,7 +3642,7 @@ index 7699c3d..d8085c8 100644
    auto config = moderngekko::frontend::LoadConfig(user_directory, true);
    if (!config)
    {
-@@ -546,9 +1214,18 @@ int main(int argc, char** argv)
+@@ -546,9 +1216,18 @@ int main(int argc, char** argv)
    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD))
      return 1;
  
@@ -3661,7 +3663,7 @@ index 7699c3d..d8085c8 100644
                                          SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
    if (!window)
    {
-@@ -578,19 +1255,101 @@ int main(int argc, char** argv)
+@@ -578,19 +1257,101 @@ int main(int argc, char** argv)
    ImGui::GetStyle().FontScaleDpi = scale;
    ImGui_ImplSDL3_InitForSDLRenderer(window, renderer);
    ImGui_ImplSDLRenderer3_Init(renderer);
@@ -3768,7 +3770,7 @@ index 7699c3d..d8085c8 100644
    const auto& resolutions = moderngekko::frontend::SupportedResolutions();
    const auto& graphics_backends =
        moderngekko::frontend::SupportedGraphicsBackends();
-@@ -605,6 +1364,49 @@ int main(int argc, char** argv)
+@@ -605,6 +1366,49 @@ int main(int argc, char** argv)
    int netplay_port = config.netplay_port;
    bool automatic_buffer = config.netplay_buffer == "auto";
    int manual_buffer = automatic_buffer ? 5 : std::stoi(config.netplay_buffer);
@@ -3818,7 +3820,7 @@ index 7699c3d..d8085c8 100644
    int resolution_index = 0;
    for (std::size_t i = 0; i < resolutions.size(); ++i)
    {
-@@ -621,17 +1423,165 @@ int main(int argc, char** argv)
+@@ -621,17 +1425,165 @@ int main(int argc, char** argv)
    // StateSaves is Dolphin's own state directory, so states written in-game land
    // here without any extra configuration and show up on the next launch.
    //
@@ -3991,7 +3993,7 @@ index 7699c3d..d8085c8 100644
    std::vector<ControllerOption> controllers = EnumerateControllers();
    bool controller_profile_exists = moderngekko::frontend::ControllerConfigExists(user_directory);
    std::vector<std::string> configured_controllers =
-@@ -640,11 +1590,22 @@ int main(int argc, char** argv)
+@@ -640,11 +1592,22 @@ int main(int argc, char** argv)
        configured_controllers.empty() ? config.controller : configured_controllers.front();
    int controller_index = FindController(controllers, selected_controller);
    std::string controller_status;
@@ -4016,7 +4018,7 @@ index 7699c3d..d8085c8 100644
      {
        std::lock_guard lock(dialog.mutex);
        dialog.error = std::move(message);
-@@ -652,13 +1613,13 @@ int main(int argc, char** argv)
+@@ -652,13 +1615,13 @@ int main(int argc, char** argv)
      }
      std::string error;
      if (!moderngekko::frontend::SaveConfig(user_directory, resolutions[resolution_index].text,
@@ -4032,7 +4034,7 @@ index 7699c3d..d8085c8 100644
      configured_controllers = {selected_controller};
      config.controller = selected_controller;
      config.controllers = configured_controllers;
-@@ -673,7 +1634,28 @@ int main(int argc, char** argv)
+@@ -673,7 +1636,28 @@ int main(int argc, char** argv)
      if (moderngekko::frontend::ControllerConfigExists(user_directory))
      {
        controller_profile_exists = true;
@@ -4062,7 +4064,7 @@ index 7699c3d..d8085c8 100644
        if (configured_controllers.empty())
        {
          std::lock_guard lock(dialog.mutex);
-@@ -686,12 +1668,14 @@ int main(int argc, char** argv)
+@@ -686,12 +1670,14 @@ int main(int argc, char** argv)
        controller_status = "Using existing " + std::string(CONTROLLER_PROFILE_NAME);
        return true;
      }
@@ -4077,7 +4079,7 @@ index 7699c3d..d8085c8 100644
      return select_controller(controller_index);
    };
    const auto refresh_controllers = [&]
-@@ -726,13 +1710,22 @@ int main(int argc, char** argv)
+@@ -726,13 +1712,22 @@ int main(int argc, char** argv)
      Join,
    };
    bool done = false;
@@ -4100,7 +4102,7 @@ index 7699c3d..d8085c8 100644
        ImGui_ImplSDL3_ProcessEvent(&event);
        if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED)
          done = true;
-@@ -744,6 +1737,7 @@ int main(int argc, char** argv)
+@@ -744,6 +1739,7 @@ int main(int argc, char** argv)
      }
      if (controllers_changed)
        refresh_controllers();
@@ -4108,7 +4110,7 @@ index 7699c3d..d8085c8 100644
  
      {
        std::lock_guard lock(dialog.mutex);
-@@ -751,6 +1745,72 @@ int main(int argc, char** argv)
+@@ -751,6 +1747,72 @@ int main(int argc, char** argv)
        {
          selected_image = std::move(dialog.selected);
          dialog.selected.reset();
@@ -4181,7 +4183,7 @@ index 7699c3d..d8085c8 100644
        }
      }
      {
-@@ -758,9 +1818,22 @@ int main(int argc, char** argv)
+@@ -758,9 +1820,22 @@ int main(int argc, char** argv)
        if (extraction.finished_game)
        {
          current_game = *extraction.finished_game;
@@ -4207,7 +4209,7 @@ index 7699c3d..d8085c8 100644
          extraction.finished_game.reset();
          if (ensure_controller())
          {
-@@ -774,18 +1847,79 @@ int main(int argc, char** argv)
+@@ -774,18 +1849,79 @@ int main(int argc, char** argv)
      ImGui_ImplSDL3_NewFrame();
      ImGui::NewFrame();
      const ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -4299,7 +4301,7 @@ index 7699c3d..d8085c8 100644
        if (!launcher_savestates.empty())
        {
          ImGui::TextUnformatted("Start from savestate");
-@@ -820,6 +1954,24 @@ int main(int argc, char** argv)
+@@ -820,6 +1956,24 @@ int main(int argc, char** argv)
          ImGui::TextDisabled("Solo play only.");
          ImGui::Spacing();
        }
@@ -4324,7 +4326,7 @@ index 7699c3d..d8085c8 100644
        if (ImGui::Button("Play", ImVec2(180 * scale, 42 * scale)))
        {
          if (ensure_controller())
-@@ -828,7 +1980,9 @@ int main(int argc, char** argv)
+@@ -828,7 +1982,9 @@ int main(int argc, char** argv)
            done = true;
          }
        }
@@ -4335,7 +4337,7 @@ index 7699c3d..d8085c8 100644
        if (ImGui::Button("Host Netplay", ImVec2(180 * scale, 42 * scale)))
        {
          if (ensure_controller())
-@@ -884,213 +2038,1551 @@ int main(int argc, char** argv)
+@@ -884,213 +2040,1555 @@ int main(int argc, char** argv)
            }
          }
        }
@@ -4675,7 +4677,8 @@ index 7699c3d..d8085c8 100644
 +    };
 +#endif
 +    const auto netplay_section = [&]
-+    {
+     {
+-      for (std::size_t i = 0; i < resolutions.size(); ++i)
 +      ImGui::Spacing();
 +      ImGui::TextUnformatted("Netplay");
 +      ImGui::SetNextItemWidth(220 * scale);
@@ -4687,18 +4690,17 @@ index 7699c3d..d8085c8 100644
 +      netplay_port = std::clamp(netplay_port, 1, 65535);
 +      ImGui::Checkbox("Automatic input buffer", &automatic_buffer);
 +      if (!automatic_buffer)
-+      {
+       {
+-        const bool selected = resolution_index == static_cast<int>(i);
+-        if (ImGui::Selectable(resolutions[i].text, selected))
 +        ImGui::SetNextItemWidth(180 * scale);
 +        ImGui::SliderInt("Buffer frames", &manual_buffer, 1, 20);
 +      }
 +    };
 +    const auto disc_section = [&]
-     {
--      for (std::size_t i = 0; i < resolutions.size(); ++i)
++    {
 +      if (background)
-       {
--        const bool selected = resolution_index == static_cast<int>(i);
--        if (ImGui::Selectable(resolutions[i].text, selected))
++      {
 +        // The branded window: the game already imported, and Change Disc to import another copy
 +        // (picking it imports and starts it, like Select Disc on the home screen).
 +        row_label("Game");
@@ -5355,10 +5357,7 @@ index 7699c3d..d8085c8 100644
          ImGui::SameLine();
 -        if (ImGui::Button("Extract and Play"))
 +        if (ImGui::Button("Import a folder..."))
-         {
--          extraction.completed = 0;
--          extraction.total = 1;
--          extraction.running = true;
++        {
 +          const char* downloads_folder = SDL_GetUserFolder(SDL_FOLDER_DOWNLOADS);
 +          const std::string downloads = downloads_folder ? std::string(downloads_folder) :
 +                                                           PathToString(DocumentsDirectory());
@@ -5366,7 +5365,10 @@ index 7699c3d..d8085c8 100644
 +                                   false);
 +        }
 +        if (!described.empty())
-+        {
+         {
+-          extraction.completed = 0;
+-          extraction.total = 1;
+-          extraction.running = true;
 +          ImGui::SameLine();
 +          if (ImGui::Button("Remove##texture_pack"))
            {
@@ -5539,7 +5541,11 @@ index 7699c3d..d8085c8 100644
 +               "Arcadia, the Japanese release, also has the uncensored models.");
 +      control_column();
 +      ImGui::PushTextWrapPos(ImGui::GetContentRegionMax().x);
-+      ImGui::TextDisabled("%s", described.empty() ? "Nothing imported yet." : described.c_str());
++      // What's imported, by disc, in full colour so it reads as the answer to "which disc?"
++      if (described.empty())
++        ImGui::TextDisabled("Nothing imported yet.");
++      else
++        ImGui::TextWrapped("%s", described.c_str());
 +      if (!message.empty())
 +      {
 +        control_column();
@@ -6045,7 +6051,7 @@ index 7699c3d..d8085c8 100644
  
      ImGui::Render();
      SDL_SetRenderScale(renderer, io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y);
-@@ -1107,8 +3599,17 @@ int main(int argc, char** argv)
+@@ -1107,8 +3605,17 @@ int main(int argc, char** argv)
    if (launch_mode != LaunchMode::None)
    {
      std::string launch_error;
@@ -6065,7 +6071,7 @@ index 7699c3d..d8085c8 100644
      {
        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Launch failed", launch_error.c_str(), window);
        result = 1;
-@@ -1163,6 +3664,15 @@ int main(int argc, char** argv)
+@@ -1163,6 +3670,15 @@ int main(int argc, char** argv)
            user_directory / "Logs" / MODERNGEKKO_LOG_FILENAME;
        std::error_code log_error;
        std::filesystem::create_directories(log_path.parent_path(), log_error);
@@ -6081,7 +6087,7 @@ index 7699c3d..d8085c8 100644
        SDL_IOStream* log_stream =
            log_error ? nullptr : SDL_IOFromFile(log_path.string().c_str(), "w");
        SDL_Process* process = nullptr;
-@@ -1205,7 +3715,12 @@ int main(int argc, char** argv)
+@@ -1205,7 +3721,12 @@ int main(int argc, char** argv)
          int exit_code = 1;
          const bool waited = SDL_WaitProcess(process, true, &exit_code);
          SDL_DestroyProcess(process);
@@ -6095,7 +6101,7 @@ index 7699c3d..d8085c8 100644
          {
            SDL_ShowWindow(window);
            if (!waited)
-@@ -1263,6 +3778,8 @@ int main(int argc, char** argv)
+@@ -1263,6 +3784,8 @@ int main(int argc, char** argv)
      }
    }
  
@@ -6104,7 +6110,7 @@ index 7699c3d..d8085c8 100644
    ImGui_ImplSDLRenderer3_Shutdown();
    ImGui_ImplSDL3_Shutdown();
    ImGui::DestroyContext();
-@@ -1271,3 +3788,15 @@ int main(int argc, char** argv)
+@@ -1271,3 +3794,15 @@ int main(int argc, char** argv)
    SDL_Quit();
    return result;
  }
