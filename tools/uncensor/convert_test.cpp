@@ -48,10 +48,27 @@ static FileOps ParseEntry(const picojson::object& o)
       op.kind = Op::Kind::TexAdd;
     else if (k == "tex_blank")
       op.kind = Op::Kind::TexBlank;
+    else if (k == "mlk_entry")
+      op.kind = Op::Kind::MlkEntry;
+    else if (k == "std_records")
+      op.kind = Op::Kind::StdRecords;
+    else if (k == "pad")
+      op.kind = Op::Kind::Pad;
     else
       throw std::runtime_error("unknown op " + k);
     op.name = str("name"), op.after = str("after"), op.gc_sha1 = str("gc_sha1"), op.jp_sha1 = str("jp_sha1");
     op.gc_entry = num("gc_entry"), op.slot = num("slot"), op.jp_entry = num("jp_entry");
+    op.id = num("id"), op.tex_index = num("tex_index");
+    if (p.count("records"))
+      for (const auto& r : p.at("records").get<picojson::array>())
+      {
+        const auto& a = r.get<picojson::array>();
+        op.runs.push_back({a[0].get<std::string>() == "jp", uint32_t(a[1].get<double>()),
+                           uint32_t(a[2].get<double>())});
+      }
+    if (p.count("layouts"))
+      for (const auto& [key, lay] : p.at("layouts").get<picojson::object>())
+        op.layouts[key] = lay.get<std::string>();
     e.ops.push_back(std::move(op));
   }
   return e;

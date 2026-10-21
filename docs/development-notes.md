@@ -1250,7 +1250,7 @@ NMDM); the GameCube is big-endian, AKLZ-compressed and has GVR textures instead 
   app `C:\dev\SkiesUncensor\app`): `--import-dc-music` of both GDIs converted 70 of 70 for each of
   GEAE8P, GEAP8P and GEAJ8P, all 210 byte-identical to the Python reference. Not yet: the GUI picker
   import, macOS / Android builds.
-- **Gilder's victory pose (2026-10-20, working in Python, not yet in the C++ converter):** not an
+- **Gilder's victory pose (2026-10-20):** not an
   effect format after all. `beff/pcwin.mlk` (identical on all three GameCube discs) is an archive of
   (id, offset, size, type) whose entries are small whole MLDs; the type is only the padding Sega
   added (the loader `fn_8006E244` reads id, offset and size). The Japanese pose needs entries
@@ -1261,15 +1261,19 @@ NMDM); the GameCube is big-endian, AKLZ-compressed and has GVR textures instead 
   its **action**, and actions 26, 27 and 28 are the three victory variants the game picks from. Only
   variant 26 differs: Willy in the US, the smoke in Japan (twelve spawns of effect 1800100, type 3
   records). The other two (pistol spin, hand to the mouth) are the same in both, which is what tests
-  kept showing until a test build swapped the labels of 26 and 27; then the puffs drew. Converters
-  in `GameCube-Research/targets/SkiesOfArcadiaLegends/uncensor/victory/`: `mld2gc.py` converts a whole
+  kept showing until a test build swapped the labels of 26 and 27; then the puffs drew. Converter:
+  `tools/uncensor/victory.py` (first written in the research folder's `uncensor/victory/`): `mld_to_gc` converts a whole
   Dreamcast MLD (header, entries, lists, texlists, NJCM via `block2gc`, NMDM = all 32-bit words but
   the type/interpolation pair, PVR to GVR: ARGB4444 to RGB5A3, plain RGB565 stays RGB565, the rest
-  CMPR) and matches the 37 unchanged entries byte for byte up to the texture pixels; `std2gc.py`
+  CMPR) and matches the 37 unchanged entries byte for byte up to the texture pixels; `std_plan`
   keeps the GameCube's records up to 978 and converts the Japanese ones with a per-type word layout
   (16-bit pair, 32-bit word or kept bytes) learned from the US Dreamcast and GameCube files (968 US
   records reproduce exactly). Sega's tools: entry names are 16 bytes and the words after them get
-  swapped anyway; a texture name's terminator can overwrite the `P` of the next `POF0`.
+  swapped anyway; a texture name's terminator can overwrite the `P` of the next `POF0`. In the
+  manifest as three ops: `mlk_entry` (entry id, GCIX index), `std_records` (runs of GameCube or
+  Japanese records, and the word layouts of the record types it converts: structure, not game data)
+  and `pad`; the C++ port (`MldToGc`, `MlkReplace`, `StdRebuild`) matches the Python for all three
+  discs (`convert_test`, now 216 files).
 - **Decompressed size:** a converted file must not decompress smaller than the original. A
   `pcwin.mlk` of 651,480 bytes (original 761,016) made a later `malloc(0xA0)` for a file handle fail
   at battle load (`fn_801C63EC`, its assert, then writes through NULL); padded with zeros to the

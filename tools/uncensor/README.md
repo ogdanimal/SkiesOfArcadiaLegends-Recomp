@@ -38,10 +38,13 @@ For each Dreamcast file that differs between the Japanese and US discs and has a
   input exhaustion, and a save state keeps the disc's file table, so a different size would be read at
   the wrong place.
 
-Gilder's victory pose is a different kind of conversion (whole small MLDs inside `beff/pcwin.mlk` and
-records of his battle script `bchara/ma0050.std`): its converters are still Python only, in
-`$SKIES_RESEARCH/uncensor/victory/` (`mld2gc.py`, `std2gc.py`, `test_mlk.py`), not in the manifest yet
-(development notes, *Uncensored*).
+Gilder's victory pose is a different kind of conversion (`victory.py`): two entries of the effects
+archive `beff/pcwin.mlk` are whole small MLDs, converted from the Japanese archive (`mlk_entry`), and
+his battle script `bchara/ma0050.std` gets the Japanese victory records (`std_records`: runs of
+GameCube or converted Japanese records, with each converted record type's word layout learned from
+the US Dreamcast and GameCube files). Both are zero-padded to the original's decompressed size
+(`pad`): a smaller `pcwin.mlk` ran the battle loader out of memory. `python3 victory.py` checks the
+converters against the US Dreamcast to GameCube pairs.
 
 Not covered (need motion or script work): Vigoro's shirtless model (79 bones against 50), the drunk
 sailor and other characters only the Japanese disc places (script), Ramirez's blood (script), the
@@ -51,6 +54,7 @@ drunk sailor model Legends remade.
 
 ```sh
 python3 make_manifest.py OUTDIR            # all three games; OUTDIR/<usa|eu|jp>/... + uncensor-manifest.json
+python3 make_manifest.py OUTDIR --victory-only   # only the victory pose, merged into OUTDIR's manifest (1 min)
 python3 inventory.py OUTDIR                # what converts and why not (report.tsv)
 g++ -std=c++20 -O2 -I ../../lib/ModernGekko/vendor/dolphin/Source/Core \
     -I ../../lib/ModernGekko/vendor/dolphin/Externals/picojson convert_test.cpp \
