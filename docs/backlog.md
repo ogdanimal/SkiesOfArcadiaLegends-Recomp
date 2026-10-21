@@ -104,4 +104,5 @@ sync, may be related).
 
 Reddit (r/recomps v0.60.0-beta thread, Unleaded_95): texture filtering options, and resolutions below
 the lowest 16:9 one offered (640x528 shown on a 4K display) for an original-resolution look on 16:9:
-640x360 or 768x432.
+640x360 or 768x432. **Done on branch `gfx`** (development notes, *Texture filtering, anisotropic
+filtering, scaling*): 640x528 is already the original, so Sharp scaling answers the second part.

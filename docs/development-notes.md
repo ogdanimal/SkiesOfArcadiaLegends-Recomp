@@ -1761,6 +1761,26 @@ Checked 2026-10-17 night (USA ws22, no ultrawide monitor here):
   `press:z=1 wait:0.6 press:z=1,start=1` opens the menu; a `tap:start` after `press:z` doesn't.) The
   branded app's Settings row (Kotlin) is compiled in but not looked at.
 
+### Texture filtering, anisotropic filtering, scaling (2026-10-21, branch `gfx`)
+
+Requested on Reddit (r/recomps, v0.60.0-beta thread): texture filtering options, and resolutions
+"lower" than 640x528 for an original-resolution look on 16:9 (640x360 or 768x432). The Resolution
+setting is Dolphin's integer EFB scale and 1x (640x528) is the GameCube's own picture, whatever the
+aspect, so there is nothing lower; what blurs it on a 4K screen is the bilinear scaling to the
+window. Three Graphics rows now expose Dolphin's own settings (launcher: `moderngekko-local.patch`;
+in-game menu and Android: `recompcore-gfx-options.patch`), stored in `GFX.ini [Enhancements]`:
+
+| Row | Choices | Dolphin |
+|---|---|---|
+| Texture filtering | Original / Smooth / Sharp | `ForceTextureFiltering` Default / Linear / Nearest (0 / 2 / 1) |
+| Anisotropic filtering | Off / 2x / 4x / 8x / 16x | `MaxAnisotropy` Default / Force2x-16x (-1 / 1-4) |
+| Scaling | Default / Sharp / Smooth / Bicubic | `OutputResampling` Default / SharpBilinear / AreaSampling / CatmullRom (0 / 5 / 6 / 4) |
+
+All three apply live (Dolphin reads them each frame). Checked on Windows (a test copy at 1x in an
+853x480 window, set through the automation's `config:` and screenshotted): Sharp scaling visibly
+crisper than Default, Sharp texture filtering pixel-crisp textures. The in-game menu's Graphics tab
+has 11 rows now (the menu shrinks to fit its tallest tab), so its three descriptions are one line.
+
 ### HUD placement: edges, 21:9, 16:9 or the original layout (2026-10-17 night, branch `hud`)
 
 User request: on an ultrawide the HUD at the screen's edges is far apart, so the player picks where it
