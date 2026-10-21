@@ -1,0 +1,29 @@
+diff --git a/Source/Core/AudioCommon/DCMusic.cpp b/Source/Core/AudioCommon/DCMusic.cpp
+index b49e802746..b1e7d75ba4 100644
+--- a/Source/Core/AudioCommon/DCMusic.cpp
++++ b/Source/Core/AudioCommon/DCMusic.cpp
+@@ -54,6 +54,8 @@ enum : u8
+   CMD_MIDI_STOP = 0x02,
+   CMD_STOP_ALL = 0x80,
+   CMD_MASTER_VOL = 0x81,
++  CMD_FX_OUT = 0x82,
++  CMD_FX_PRG = 0x84,
+   CMD_MIDI_SEND_MES = 0x86,
+ };
+ 
+@@ -117,6 +119,15 @@ public:
+     Render(nullptr, AICA_RATE / 4);
+     if (!DownloadUnits(common))
+       return false;
++    // The reverb: sdSndSetFxPrg(0, 0) loads ARESNEW.MLT's DSP program (its only one, "ares2_1st")
++    // and opens the DSP's outputs with its only output set. Without it the voices' effect sends
++    // went into a DSP with no program and silent outputs (issue #8). The sd library sends 0x84,
++    // then 0x82 in the same record; sdSndStopAll as sent here (bytes 6 and 7 zero) keeps both.
++    Record fx{};
++    fx[0] = CMD_FX_PRG;
++    m_pending.push_back(fx);
++    fx[0] = CMD_FX_OUT;
++    m_pending.push_back(fx);
+     Record master{};
+     master[0] = CMD_MASTER_VOL;
+     master[2] = 0xF0;
