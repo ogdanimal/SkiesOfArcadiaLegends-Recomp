@@ -21,10 +21,12 @@
   profile needed); then save states per version (`dd9c0f7` after the rebase onto `3f4c4ec`).
 - Draft notes for the next release: `~/projects/SkiesOfArcadiaLegends-Recomp/build/notes-next.md`
   (rewritten 2026-10-20 for the release after 0.60).
-- **Branch `uncensor` (2026-10-20, not pushed):** the Uncensored setting and the Settings, Dreamcast
-  tab (the Dreamcast disc import, Music and Intro music moved from Sound). The user wants it **in the
-  next release**, so hold the tag until it's merged. Worktree `~/projects/skies-uncensor`, off
-  `1e31263`; checked on WSL; Windows / Android / macOS builds next. HANDOFF-uncensor.
+- **Uncensored merged into `dev` (`f07f81e`, 2026-10-21; validate 39606694304):** the Uncensored
+  setting (Gilder's victory pose and Vigoro included) and the Settings, Dreamcast tab (the Dreamcast
+  disc import, Music and Intro music moved from Sound). The user wants it in the next release.
+  Checked on WSL, Windows, macOS and the Retroid Pocket 5 (HANDOFF-uncensor). Before the tag: the CI
+  packages, and the release-signed Android update over v0.60.0 (`Sys` must be extracted again:
+  `f655178`). The draft notes cover it.
 
 ## Released (2026-10-20 UTC): v0.60.0-beta
 

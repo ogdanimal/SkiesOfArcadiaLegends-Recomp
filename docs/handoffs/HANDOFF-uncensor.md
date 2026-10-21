@@ -9,9 +9,11 @@ the state and what's left.
 
 ## State
 
-Branch `uncensor`, worktree `~/projects/skies-uncensor` (off `origin/dev` `1e31263`), **not pushed,
-not merged**: `a0d1c85` the feature, `31dc26e` docs, `e7100f0` victory-pose docs, `379cda7` the victory pose
-in the converter, then its docs.
+**Merged into `dev` (`f07f81e`, 2026-10-21, a fast-forward of 19 commits; validate run
+39606694304).** Branch `uncensor`, worktree `~/projects/skies-uncensor` (off `origin/dev` `1e31263`):
+`a0d1c85` the feature, `379cda7` the victory pose, `d499181` Vigoro, `f655178` Android's `Sys` on
+updates, `ddd55e0` the log line, `3652283` the description, `cb90d3e` the Android build script, and
+their docs.
 
 | Where | What |
 |---|---|
@@ -27,7 +29,7 @@ working copies of the scripts, `uncensor/manifest/` the reference outputs the C+
 checkout's root. Linux release build: `lib/ModernGekko/build-release-linux` (`REGIONS="us eu jp"`);
 portable test folder `~/projects/skies-uncensor-e2e` (binaries **copied**: a symlinked launcher
 resolves to the build folder and ignores `portable.txt`), Japanese game extracted there, both discs
-imported, plus the victory-pose test copies (below).
+imported (73 files).
 
 ## Checked
 
@@ -47,7 +49,7 @@ imported, plus the victory-pose test copies (below).
   three games extracted with `--extract`, **no Dreamcast import yet** (left for the user's picker
   test); the GDIs in `C:\dev\SkiesUncensor\discs`. A scratch copy `app-cli` got the CLI import: 70 of
   70 for GEAE8P, GEAP8P and GEAJ8P, all 210 byte-identical to `uncensor/manifest/`. The user's picker
-  test was interrupted by the victory-pose work and hasn't been reported.
+  import in `app` (2026-10-21): development notes, *Before the release*.
 - **Gilder's victory pose (Python only):** the user saw Gilder smoke in game (WSL, Japanese game, test
   build). See *Victory pose* below.
 
@@ -55,9 +57,9 @@ imported, plus the victory-pose test copies (below).
   tab names the imported discs by release ("Eternal Arcadia discs 1 and 2 (Japan): …", full colour;
   the import message too; `--import-dc-music` prints it), `2730326` the disc import above Music
   (Android too), `edcd0a1` a Language row per disc (Japanese / English, desktop and Android; the
-  in-game menu had it). The Android side isn't built yet. The Windows test app
-  `C:\dev\SkiesUncensor\app` has this launcher, the matching runner and the 72-file manifest
-  (previous exes kept as `*.before-6815b0c`); still no Dreamcast import there.
+  in-game menu had it). The Windows test app `C:\dev\SkiesUncensor\app` now has the launcher and
+  runner of `3652283` (the earlier ones kept as `*.before-6815b0c`) and the user's picker import of
+  both discs.
 
 ## Victory pose (2026-10-20, night)
 
@@ -84,9 +86,11 @@ How it works and every finding: development notes, *Uncensored* (the bullets *Gi
   files, `a116ag02.mld` identical to the reference).
 - Not checked: the USA or European disc in game (no state with Gilder in a battle; the files are the
   same as on the Japanese disc and convert byte-identically).
-- WSL test copies in `~/projects/skies-uncensor-e2e/User/games`: `GEAJ8P` original (the one to use
-  now), `GEAJ8P-unc`, `-unc2`…`-unc7`, `-swap`, `-swap-padded`: experiments from before the port,
-  hard-link copies; ask the user before deleting them.
+- The WSL test copies from before the port (`GEAJ8P-unc*`, `-swap*`) were deleted with the user's
+  approval (2026-10-21), and so were the Eternal Arcadia CHDs (`~/projects/ea-chd`, the Retroid's
+  Download folder) and the old test APKs. Still there: `C:\dev\SkiesRecomp\build\mac-transfer` (the two
+  Eternal Arcadia zips the Mac fetched; on C:, so explained and approved twice before any delete) and
+  the Mac's `build/test-unc`, `test-ea`, `test-vig`.
 - Test tools (`~/projects/skies-uncensor-e2e/tools`): `jprun.sh GAME [STATE]`, `victory11.sh GAME`
   (the real victory test), `victory12.sh GAME` (from a state holding the files), `uncram.py`,
   `wintour.sh GAME STATE` / `winrun.sh` / `winwarp.sh` / `winram.sh` (the Windows test app),
@@ -100,12 +104,12 @@ How it works and every finding: development notes, *Uncensored* (the bullets *Gi
 
 ## Next
 
-1. **Gilder's pose from the import path, by eye:** `victory11.sh` a few times while watching (the
-   variant is the game's pick).
-2. Optional: the Retroid Nova, a Windows picker import by the user (the CLI import and the Mac's
-   are done).
-3. Push, merge, release (HANDOFF-release says to hold the tag until this is merged); draft notes in
-   the main checkout's `build/notes-next.md`. Then the script work (backlog).
+1. **CI on `dev`** (validate 39606694304): the four packages carry
+   `Sys/Skies/uncensor-manifest.json` (73 files per game) and start; then the **release-signed Android
+   update over v0.60.0** (the update path was only checked with the debug-signed test app).
+2. Release (HANDOFF-release; draft notes in the main checkout's `build/notes-next.md`).
+3. Optional: Gilder's pose from the import path by eye (`victory11.sh`, the variant is the game's
+   pick); the Retroid Nova. Then the script work (backlog).
 
 ## Notes for whoever continues
 
