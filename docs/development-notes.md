@@ -1950,8 +1950,20 @@ fits the USA envelope at scale 0.99-1.0 (r up to 0.999).
 
 Checked on Windows by ear (the user, 2026-10-21; a test copy of the European game with the
 streams and banks replaced by the prototype's output, `C:\dev\SkiesLang`): "converted is much
-better than original eu", and with the banks too "definitely works better". In game on WSL
-(JIT, prototype files): Cutlass Fury's stream 818-832 frames converted against 933-1150 original.
+better than original eu", and with the banks too "definitely works better"; the app's own output
+(this patch, WSL) in the same copy: "that was perfect". In game on WSL (JIT): Cutlass Fury's stream
+818-832 frames with the prototype's files, 709-821 with the app's, against 933-1150 original.
+
+Platforms (2026-10-21, a fresh cache each, the European disc booted without a state):
+
+| Platform | Made | Result |
+|---|---|---|
+| Linux (WSL, dev runtime `build-egl`) | 18 s, speed 1.00 | the reference |
+| Windows (MSVC, `tools\build-win.bat` in a copy of the branch's sources) | 53 s | banks and all 446 stream files byte-identical to Linux |
+| macOS (arm64, the Mac session; patch applied last on its ws28 tree) | < 10 s, speed 1.00 | banks identical; stream names and header counts identical |
+| Android (Retroid Pocket 5, test app built from this branch with the ws28 modules) | 21 s, speed 1.00 | banks identical; 434 streams identical, 12 differ after rounding (same length, loudness envelope r = 1.0000) |
+
+On Android the copies go to the app's external cache (`Android/data/<app>/cache/SkiesPal60`).
 
 ### Cutscene shots framed for widescreen (2026-10-21, branch `cutscene`, issue #10)
 
