@@ -27,6 +27,8 @@
   Checked on WSL, Windows, macOS and the Retroid Pocket 5 (HANDOFF-uncensor). Before the tag: the CI
   packages, and the release-signed Android update over v0.60.0 (`Sys` must be extracted again:
   `f655178`). The draft notes cover it.
+- **Dreamcast music reverb (issue #8) on `dev` `e7cafe4`** (validate 39612368720): the release notes
+  must thank the reporter, aro-1790 (the user's request, 2026-10-21); the draft notes do.
 
 ## Released (2026-10-20 UTC): v0.60.0-beta
 
