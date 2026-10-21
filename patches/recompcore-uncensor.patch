@@ -544,10 +544,10 @@ index 9b4cf47ae4..e348c2f199 100644
      }
 diff --git a/Source/Core/DiscIO/SkiesUncensor.cpp b/Source/Core/DiscIO/SkiesUncensor.cpp
 new file mode 100644
-index 0000000000..709a8785ba
+index 0000000000..45adf9d6f0
 --- /dev/null
 +++ b/Source/Core/DiscIO/SkiesUncensor.cpp
-@@ -0,0 +1,408 @@
+@@ -0,0 +1,414 @@
 +// Copyright 2026 Dolphin Emulator Project
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +
@@ -569,6 +569,7 @@ index 0000000000..709a8785ba
 +#include "Common/CommonPaths.h"
 +#include "Common/FileUtil.h"
 +#include "Common/IOFile.h"
++#include "Common/Logging/Log.h"
 +#include "Common/StringUtil.h"
 +#include "Core/Config/SkiesSettings.h"
 +#include "DiscIO/SkiesUncensorConvert.h"
@@ -945,7 +946,12 @@ index 0000000000..709a8785ba
 +    return physical_path;
 +  bool& use = r.using_converted[physical_path];
 +  if (offset_in_file == 0)
++  {
 +    use = Config::Get(Config::SKIES_UNCENSORED) != 0;
++    // One line per load of a file, so a log shows which art the game actually got
++    if (use)
++      NOTICE_LOG_FMT(DISCIO, "Uncensored: {} from {}", physical_path, it->second.converted);
++  }
 +  return use ? it->second.converted : physical_path;
 +}
 +
