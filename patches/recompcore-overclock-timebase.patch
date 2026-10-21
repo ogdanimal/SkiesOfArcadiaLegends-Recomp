@@ -1,0 +1,75 @@
+diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.h b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.h
+index 341258012d..02758ebb08 100644
+--- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.h
++++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.h
+@@ -150,6 +150,20 @@ private:
+   void SyncIn();   // Dolphin PowerPCState -> m_guest
+   void SyncOut();  // m_guest -> Dolphin PowerPCState
+   void AdvanceGuestTimebase(u64 cpu_cycles);
++  // Charges are CPU cycles, which run faster than the emulated clock when the CPU is overclocked:
++  // the timebase advances by charge * (1 / overclock) bus cycles, as Dolphin's GetTicks() counts
++  // them. Without it the guest's mftb ran ahead inside a native burst and jumped back at the next
++  // SyncIn (a MusyX stream stalled and its battle waited for good at an overclock of 1.5 or more).
++  u64 GuestTimebaseCycles(u64 cpu_cycles)
++  {
++    if (m_timebase_oc_inverted == 1.0f)
++      return cpu_cycles;
++    const double cycles = static_cast<double>(cpu_cycles) * m_timebase_oc_inverted +
++                          m_timebase_cycle_fraction;
++    const u64 whole = static_cast<u64>(cycles);
++    m_timebase_cycle_fraction = cycles - static_cast<double>(whole);
++    return whole;
++  }
+ 
+   // CPUState hooks (module -> chassis environment). `cpu->external_user_data`
+   // is the StaticRecompCore*.
+@@ -189,6 +203,8 @@ private:
+   u64 m_native_exceptions = 0;
+   u64 m_hook_fallback_instructions = 0;
+   u64 m_timebase_cycle_remainder = 0;
++  float m_timebase_oc_inverted = 1.0f;     // CoreTiming's 1 / overclock, read at SyncIn
++  double m_timebase_cycle_fraction = 0.0;  // the part of a bus cycle not yet counted
+   std::unordered_map<u32, u64> m_dispatch_samples;
+   std::unordered_map<u32, u64> m_fallback_samples;  // STATICRECOMP_FALLBACK_SAMPLES
+   bool m_collect_fallback_samples = false;
+diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Run.cpp b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Run.cpp
+index 2b8e63aaf1..c2abb98b06 100644
+--- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Run.cpp
++++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Run.cpp
+@@ -184,7 +184,8 @@ void StaticRecompCore::Run()
+           const u64 effective_charge = static_cast<u64>(charge > 0 ? charge : 1);
+           ppc.downcount -= static_cast<int>(effective_charge);
+           m_charged_cycles += effective_charge;
+-          const u64 total_cycles = m_timebase_cycle_remainder + effective_charge;
++          const u64 total_cycles =
++              m_timebase_cycle_remainder + GuestTimebaseCycles(effective_charge);
+           m_guest.timebase += total_cycles / SystemTimers::TIMER_RATIO;
+           m_timebase_cycle_remainder = total_cycles % SystemTimers::TIMER_RATIO;
+ 
+diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Sync.cpp b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Sync.cpp
+index e8d0287008..7ab1562dc6 100644
+--- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Sync.cpp
++++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Sync.cpp
+@@ -39,7 +39,7 @@ void StaticRecompCore::SetPPCStateFromGuestState(const CPUState& s, PowerPC::Pow
+ 
+ void StaticRecompCore::AdvanceGuestTimebase(u64 cpu_cycles)
+ {
+-  const u64 total_cycles = m_timebase_cycle_remainder + cpu_cycles;
++  const u64 total_cycles = m_timebase_cycle_remainder + GuestTimebaseCycles(cpu_cycles);
+   m_guest.timebase += total_cycles / SystemTimers::TIMER_RATIO;
+   m_timebase_cycle_remainder = total_cycles % SystemTimers::TIMER_RATIO;
+ }
+@@ -75,9 +75,12 @@ void StaticRecompCore::SyncIn()
+   // Dolphin materializes TB lazily on read (spr[TL/TU] is a stale cache);
+   // GetFakeTimeBase() is the live value, matching the interpreter's mftb.
+   m_guest.timebase = m_system.GetSystemTimers().GetFakeTimeBase();
+-  const auto& core_timing = m_system.GetCoreTiming();
++  auto& core_timing = m_system.GetCoreTiming();
+   m_timebase_cycle_remainder =
+       (core_timing.GetTicks() - core_timing.GetFakeTBStartTicks()) % SystemTimers::TIMER_RATIO;
++  const float oc_inverted = core_timing.GetGlobals().last_OC_factor_inverted;
++  m_timebase_oc_inverted = oc_inverted > 0.0f ? oc_inverted : 1.0f;
++  m_timebase_cycle_fraction = 0.0;
+   m_guest.reserve_addr = ppc.reserve_address;
+   m_guest.reserve_valid = ppc.reserve;
+   m_guest.exception = 0;
