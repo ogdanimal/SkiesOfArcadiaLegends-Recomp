@@ -2708,7 +2708,28 @@ rights: BUILDING *macOS*.
   the projection in the recorded lists or make the game record them again. The HD textures merge was
   held for the "stretch", which normal play doesn't have.
 
-- **A battle can freeze when the battle speed changes during a round (open, 2026-10-11):** the user
+- **A battle can freeze when the battle speed changes during a round (fixed 2026-10-21, `recompcore-overclock-timebase.patch`):**
+  the cause was the emulated-CPU overclock, not the speed change. Every spell and S-move plays one
+  pre-mixed stereo stream from the disc, `SOUND/KO00NN_L/R.dsp` (NN = the skill id: 0-35 the spells,
+  2.5-13 s; 36-59 the S-moves, 10-33 s; Cutlass Fury is `KO0036`, 11.6 s), and the action's last step
+  waits for that stream to end. With the overclock at 1.5 or more (battle speed 3x = 1.5, 4x = 2.0;
+  field speed 3x = 2.0) the stream started, went silent within a few seconds and never ended: MusyX's
+  `streamInfo` (`0x8032C730`) kept `last` at 0, so the game's refill callback (`fn_802163FC`) was never
+  called again, the two channels in `lbl_80314B80` stayed "playing" (state 4) and the battle waited for
+  good. The whole DSP mix went quiet with it (audio dumps, `[DSP] DumpAudio`). Measured on the Windows
+  test copy with Cutlass Fury (`smove-us.sav`): overclock 1.1 and 1.25 fine, 1.5 and 2.0 froze, also at
+  battle speed 1x; battle speed 4x with the overclock off played it; **Dolphin's JIT
+  (`MODERNGEKKO_STATICRECOMP=0`) with overclock 2.0 played it**. The static recomp core advanced the
+  guest timebase by the module's cycle charges inside a native burst, and those are CPU cycles, which
+  run faster than the emulated clock under an overclock: `mftb` ran ahead, then jumped back at the next
+  `SyncIn` (which takes Dolphin's `GetFakeTimeBase`). The patch advances it by charge / overclock, as
+  Dolphin's `GetTicks()` counts it. With it, 3x and 4x play the whole stream and the battle goes on (and
+  1x is unchanged: the animation ends 10.0 s after the stream starts, 10.1 s before). The user's frozen
+  state from the Retroid (`18-retroid-battle-softlock.sav`) is this: `KO0036` stuck in both channels,
+  Antonio's special (unit 4, type 0xC) waiting. Such a state stays frozen (the stall is in it). Tools:
+  `sndrun.py` / `stall.py` style runs (load, commands, `[DSP] DumpAudio` on, game state logged with the
+  retrace count).
+- **Before (2026-10-11):** the user
   hit it on the Retroid (Antonio fight, several Z taps, the 2x step-down kicking in): the round stops
   with a damage number on screen while the game keeps running at 60 fps. Reproduced on Windows from the
   user's state at the fight's start (`build/savestates/19-retroid-antonio-start.sav`; the frozen one is

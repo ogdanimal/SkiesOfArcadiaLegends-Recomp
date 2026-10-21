@@ -201,8 +201,6 @@ Every setting is also in the launcher's **Settings** window, with a short descri
 
 ## Known issues
 
-- **Changing the battle speed while a round plays out can freeze the battle.** Change it while you
-  choose commands instead.
 - On Android, battles top out at about 2.5x speed on a Snapdragon 865; 3x and 4x settle at 2x.
 - On Android, the field speed tops out at about 1.25x-1.5x on a Snapdragon 865 (1.5x on foot, 1.25x on
   the world map and in cutscenes).

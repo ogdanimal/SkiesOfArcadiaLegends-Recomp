@@ -72,7 +72,6 @@ and on Windows. Slower Android devices may not keep 60 fps (see [Slower devices]
 | **Android:** the game crashes or draws things wrong | **Settings → Graphics → Renderer** switches between Vulkan and OpenGL ES. On Adreno devices, **Settings → Graphics → GPU driver** can load another driver (see [GPU driver](#gpu-driver-android)). |
 | **Windows / Linux / macOS:** "Game files missing" when the game starts | A file of the download (`gGEAE8P_recomp.dll`, the European `gGEAP8P_recomp.dll` or the Japanese `gGEAJ8P_recomp.dll`; `.so` on Linux; inside the app on macOS) isn't beside the game. Extract the whole zip again and keep its files together; if the file disappears again, your antivirus removed it (allow the folder). |
 | The import refuses your disc | It must be the USA (`GEAE8P`), European (`GEAP8P`) or Japanese (`GEAJ8P`) disc, the original release. |
-| Battle freezes after changing the battle speed | A known issue: change the speed while you choose commands, not while a round plays out. |
 | You want saves from Dolphin, a GameCube or another device | **Settings → Saves → Import a save**; see [Importing a save](#importing-a-save). |
 | **Android:** installing an update fails or asks you to uninstall first | It was signed with a different key (a self-built APK). Uninstalling **deletes your saves**; back them up first with **Settings → Saves → Back up saves**. |
 | **SteamOS / Linux through Steam:** the Steam Controller works in menus but not in the game | Steam may have it on its desktop (mouse and keyboard) layout. Hold Start, or pick a gamepad layout in the game's controller settings in Steam. |
@@ -283,8 +282,6 @@ you can switch to 30 fps. Nothing changes unless you choose it.
 
 ## Known Issues
 
-- **Changing the battle speed while a round plays out can freeze the battle.** Change it while you
-  choose commands instead.
 - At a battle speed above Normal, a special attack's sound keeps playing after its animation has
   ended ([#7](../../issues/7)).
 - On Android, battles top out at about 2.5x speed on a Snapdragon 865; 3x and 4x settle at 2x.

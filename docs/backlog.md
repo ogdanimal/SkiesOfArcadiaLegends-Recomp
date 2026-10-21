@@ -97,8 +97,21 @@ the party's and the enemies', plays its sound past the animation, or the game wa
 "worse when increasing battle speeds", with or without V-Sync. Battle speed skips the game's
 end-of-frame waits, so the animation runs 2-4x while the sound hardware keeps real time. #7 asks, in
 order: Normal speed during a special attack (a toggle), the sound sped up, or the sound cut when the
-animation ends. Whether it also drifts at Normal speed is being measured (issue #3, the intro's A/V
-sync, may be related).
+animation ends.
+
+**Measured (2026-10-21, Windows test copy, Cutlass Fury, audio dumps + game state):** a spell's or an
+S-move's sound is one pre-mixed stereo stream, `SOUND/KO00NN_L/R.dsp` (NN = the skill id; voice and
+effects together, no sound effects started during it), and the action's last step waits for the stream
+to end. The animation after the stream starts: 10.1 s at 1x, 5.0 s at 2x, 3.3 s at 3x, 2.5 s at 4x; the
+stream is 11.6 s, so at 4x the battle sits about 8.6 s with the animation over (the Reddit "I'll still
+have to wait until the audio finishes"). No drift at 1x. So "the sound sped up" can only mean the whole
+stream faster (higher pitch, or a time-stretch), and "cut when the animation ends" loses most of it at
+4x. What runs it: the party's dispatcher `fn_80086C68` puts `fn_80085064` on the unit's task
+(`lbl_80309700[unit]`) for command type 1 (magic) and 2 (S-move) in `lbl_80309174[unit]` (0x20 each:
++0 type, +6 skill id; 3 = attack, `fn_80086308`); the enemies' `fn_8008B9E0` puts `fn_80087074` there for
+type 1 (their magic, rule codes 500+) and 0xC (their specials, `fn_8008A424`); `lbl_80347334` is the
+unit acting. At 3x / 4x the stream used to stall and freeze the battle (the overclock; fixed, development
+notes *A battle can freeze*).
 
 ## Texture filtering and lower resolutions — requested 2026-10-21
 
