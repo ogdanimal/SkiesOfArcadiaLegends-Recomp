@@ -90,7 +90,11 @@ straight asset swap. Still to do, from the same Eternal Arcadia discs:
 - **The @barai edition** (v1.003, HDR-0119): not checked; its files fail the SHA-1 check if they
   differ, which leaves those files out.
 
-## Super attacks out of sync with their sound at battle speed — reported 2026-10-21
+## Super attacks out of sync with their sound at battle speed — reported 2026-10-21, done (ws27)
+
+**Done 2026-10-21 (game patch ws27, branch `smove`):** spells and special attacks (party and enemies)
+play at normal speed, always on (the user's choice); development notes *Spells and special attacks at
+normal speed*.
 
 Issue #7 (bobbleyaga) and on Reddit (r/recomps v0.60.0-beta thread, Unleaded_95): every super attack,
 the party's and the enemies', plays its sound past the animation, or the game waits for the sound,

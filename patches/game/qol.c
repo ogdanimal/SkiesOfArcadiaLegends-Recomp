@@ -42,6 +42,12 @@
  *             which reads the whole word as the battle speed, only ever sees the battle speed in
  *             battle. Each frame takes 2, 1 or 0 retraces (qol_frame), so that on average it takes
  *             2 / speed: 1x is 2, 1.5x is 1, 1, 2, and 3x is 0, 1, 1.
+ *             A spell or a special attack (the party's S-moves, the enemies' specials) plays at
+ *             normal speed (ws27, issue #7): its sound is one pre-mixed stream the action waits for,
+ *             so at speed the animation ended long before the sound. It's running while a unit's
+ *             action task (lbl_80309700[unit]) is the party's spell / S-move action (fn_80085064,
+ *             command types 1 and 2) or the enemies' spell / special action (fn_80087074, types 1
+ *             and 0xC); attacks, items and the rest keep the speed.
  *
  * qol_input sits at a fixed address (cave.ld) and is written by the frontend every poll
  * (VideoCommon/SkiesMenu.cpp); with no frontend its magic stays 0 and the game is unchanged. */
@@ -58,6 +64,8 @@ extern u32 VIGetRetraceCount(void);
 extern void fn_8002DC14(unsigned char *action, int target); /* battle damage */
 extern void fn_8014419C(int phase, int side); /* ship battle: a phase's HP changes */
 extern void fn_801453D0(void); /* ship battle: allocates its data into lbl_8034727C */
+extern void fn_80085064(void *task); /* the party's spell / S-move action */
+extern void fn_80087074(void *task); /* the enemies' spell / special action */
 
 #define QOL_MAGIC 0x514F4C43 /* 'QOLC' */
 
@@ -128,6 +136,8 @@ extern int fn_8022A854(int *state); /* the resident files into ARAM: one step, 1
 #define GROUND_BATTLE_DATA (*(unsigned char *volatile *)0x80347390)
 #define SHIP_BATTLE_DATA (*(unsigned char *volatile *)0x8034727C)
 #define BATTLE_UNITS ((unsigned char *volatile *)0x80309DE4) /* [0..3]: the party */
+/* lbl_80309700: each battle unit's action task (12; the task's first word is the function it runs) */
+#define ACTION_TASKS ((void *volatile *)0x80309700)
 #define MAP_ID (*(volatile int *)0x80311AC4)
 #define SHIP_PARTY ((unsigned char *)0x803063F0) /* the party's side of a ship battle */
 #define PARTY_RECORDS ((unsigned char *)0x8030B7F4) /* 0x5C each; MP +0xD, max +0xE */
@@ -302,10 +312,27 @@ TRK_CAVE void qol_ship_phase(int phase, int side) {
   fn_8014419C(phase, side);
 }
 
+/* A ground or deck battle running a spell or a special attack, whose sound is a stream it waits for. */
+TRK_CAVE static int qol_special_action(void) {
+  if (GAME_MODE != 7 || BATTLE_STATE < 4 || BATTLE_STATE > 7)
+    return 0;
+  for (int i = 0; i < 12; i++) {
+    void *const task = ACTION_TASKS[i];
+    if (!qol_ram(task))
+      continue;
+    void *const run = *(void *volatile *)task;
+    if (run == (void *)fn_80085064 || run == (void *)fn_80087074)
+      return 1;
+  }
+  return 0;
+}
+
 TRK_CAVE static int qol_fast(void) {
   if (!qol_on() || QOL_QUARTERS <= 4)
     return 0;
-  return qol_in_battle() || ((qol_input.battle_speed & QOL_SPEED_FIELD) && GAME_MODE == 6);
+  if (qol_in_battle())
+    return !qol_special_action();
+  return (qol_input.battle_speed & QOL_SPEED_FIELD) && GAME_MODE == 6;
 }
 
 /* Once a frame, from ws_frame_end just before fn_801DC420 (end of frame): out of battle the

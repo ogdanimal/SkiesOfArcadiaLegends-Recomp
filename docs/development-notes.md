@@ -330,6 +330,28 @@ and battles are untouched. Checked on Windows and the Retroid: `tools/camera-tes
   not listened to yet). The runtime turns frame
   interpolation off while a battle runs fast, and steps a battle down (to 2x at the lowest) when the
   emulation stays under 95% for 1.5 s.
+- Spells and special attacks at normal speed (ws27, 2026-10-21, issue #7 and Reddit): a spell's or an
+  S-move's sound is one pre-mixed stereo stream (`SOUND/KO00NN_L/R.dsp`, NN = the skill id, voice and
+  effects together; an enemy special plays a voice stream, `B702NNNN`), and the action waits for it to
+  end, so at speed the animation was over seconds before the sound (Cutlass Fury: animation 10.1 s at
+  1x, 5.0 s at 2x, 2.5 s at 4x, the stream 11.6 s; at 4x the battle sat ~8.6 s). Speeding the sound up
+  would mean the whole recording (pitch or a time-stretch): there are no separate effects to time.
+  So `qol_fast` is false in a ground or deck battle while any unit's action task (`lbl_80309700[unit]`,
+  the task's first word is its function) runs the party's spell / S-move action `fn_80085064` (the
+  party dispatcher `fn_80086C68` puts it there for command types 1 and 2 in `lbl_80309174[unit]`,
+  0x20 each: +0 type, +6 skill id) or the enemies' spell / special action `fn_80087074` (their
+  dispatcher `fn_8008B9E0`, types 1 and 0xC; their AI `fn_8008A424` makes rule codes 500+ type 1 with
+  id - 500, other codes type 0xC). Every enemy action then switches to `fn_80087054` (wait, then end);
+  the party's S-move holds its step 13 until the stream ends. Always on (the user's choice), spells
+  included; ship battles keep the speed (not looked at). The frontend doesn't know: its interpolation
+  stays held and its overclock on, so these play at 30 fps at speed. Measured on Windows (ws27 module,
+  release runner): Cutlass Fury's animation 10.1 / 10.1 / 10.4 s at 1x / 2x / 4x, the stream ending 1.7
+  s after it at each; Antonio's special (`19-retroid-antonio-start.sav`, unit 4, type 0xC, id 5) 7.3 s
+  at 1x and at 4x; plain attacks keep the speed (enemy attacks 1.0 s at 4x, 4.2-6.3 s at 1x). Before,
+  the earlier research (2026-10-21) found nothing by diffing memory because the test states needed
+  Aika's command too before the round started. Tools: the game state read through automation `peek`
+  (the task list from `*0x803475A8`, linked by +4; the command records; the stream channels), audio
+  dumps (`[DSP] DumpAudio`).
 - Field speed (ws26, 2026-10-20): the same waits skipped in the field (game mode 6: cutscenes, towns,
   dungeons, the world map; a ship battle counts as battle), when the frontend sets `QOL_SPEED_FIELD`
   (0x100) in `qol_input`'s speed word, which it does only outside battle (an earlier DOL takes the word
