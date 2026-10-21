@@ -1318,7 +1318,14 @@ NMDM); the GameCube is big-endian, AKLZ-compressed and has GVR textures instead 
   map); bit N is byte N / 8, mask `1 << (N % 8)` (SALSA's reading). Poking both and warping into `me116a` plays the scene: the log shows
   `field/a116ag02.mld` served converted, and Vigoro wears his blue armour (with Uncensored off, the
   black top); the whole scene plays to the end with no errors. The test folder's import had to be
-  redone first: it predated the Vigoro conversion.
+  redone first: it predated the Vigoro conversion. Then on **Windows** (the test app, all three
+  games: the European addresses above confirmed) and on **Android** (Retroid Pocket 5, test app:
+  disc 1 imported again through the picker, 73 files, `a116ag02.mld` identical to the reference; the
+  scene from `jp-02` the same way, full speed): the same result on each.
+- **Test APKs packed an old `Sys`:** `jni/CMakeLists.txt` copies `Data/Sys` into the app's assets
+  only when CMake configures, which a reused build folder skips, so the first Vigoro test APK had the
+  previous manifest, and a fresh local folder got no `Sys` at all on its first build;
+  `tools/android-ws-build.sh` now copies `Data/Sys` itself before Gradle (CI's APKs were fine).
 - **Checked 2026-10-21:** Windows test app (all three games imported, 216 then 219 files identical to
   the reference; each game warped through Pirate Isle `e`, the tavern, Maramba and three more areas:
   the log shows the 6 converted area files served, no errors); macOS arm64 (the Mac session: build,

@@ -152,6 +152,11 @@ if [ "${RELEASE:-0}" = 1 ]; then
   rm -rf $V/Source/Android/app/build/intermediates/apk/release
 fi
 [ -n "${VERSION:-}" ] && SIGN_ARGS+=(-PskiesVersionName=$VERSION)
+# The app's Sys assets are copied by jni/CMakeLists.txt when CMake configures, which a reused build
+# folder skips (an APK then packs an old Data/Sys: on 2026-10-21 one without the newest Uncensored
+# manifest) and a fresh one does after Gradle has packed the assets (an APK without Sys): copy them here
+ASSETS=$V/Source/Android/app/src/main/assets
+rm -rf $ASSETS/Sys && mkdir -p $ASSETS && cp -r $V/Data/Sys $ASSETS/ && rm -rf $ASSETS/Sys/Themes
 # The injected ABI builds arm64 only, but on its own it also marks the APK android:testOnly, which
 # only adb install -t accepts (players' installs failed with "App not installed"); testOnly=false undoes that
 cd $V/Source/Android && ./gradlew :app:$TASK \

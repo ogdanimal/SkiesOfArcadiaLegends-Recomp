@@ -76,7 +76,9 @@ How it works and every finding: development notes, *Uncensored* (the bullets *Gi
   shows the converted data renders, not the import path. The import path: `victory11.sh` (from
   `jp-11`, a battle walked into) serves `ma0050.std` and `pcwin.mlk` converted (log), on WSL and on
   the Retroid; which variant those victories played wasn't seen.
-- **Vigoro checked in game (2026-10-21, WSL):** `vigoro.sh` (development notes, *Vigoro checked in
+- **Vigoro checked in game (2026-10-21):** WSL (`vigoro.sh`), Windows (`winvigoro.sh GAME STATE`,
+  all three games) and the Retroid Pocket 5 (test APK `unc3`, picker import of disc 1 again); macOS
+  waits for disc 1 to reach the Mac again. WSL: `vigoro.sh` (development notes, *Vigoro checked in
   game*): `a116ag02.mld` served converted, Vigoro in his blue armour (the black top with Uncensored
   off), the scene plays to the end. The test folder's import was redone with the current build (73
   files, `a116ag02.mld` identical to the reference).
