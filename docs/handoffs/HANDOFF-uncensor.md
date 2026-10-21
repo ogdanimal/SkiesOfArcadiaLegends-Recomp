@@ -51,6 +51,14 @@ imported, plus the victory-pose test copies (below).
 - **Gilder's victory pose (Python only):** the user saw Gilder smoke in game (WSL, Japanese game, test
   build). See *Victory pose* below.
 
+- **Launcher tweaks (2026-10-20, late, the user approved them on Windows):** `6815b0c` the Dreamcast
+  tab names the imported discs by release ("Eternal Arcadia discs 1 and 2 (Japan): …", full colour;
+  the import message too; `--import-dc-music` prints it), `2730326` the disc import above Music
+  (Android too), `edcd0a1` a Language row per disc (Japanese / English, desktop and Android; the
+  in-game menu had it). The Android side isn't built yet. The Windows test app
+  `C:\dev\SkiesUncensor\app` has this launcher, the matching runner and the 72-file manifest
+  (previous exes kept as `*.before-6815b0c`); still no Dreamcast import there.
+
 ## Victory pose (2026-10-20, night)
 
 How it works and every finding: development notes, *Uncensored* (the bullets *Gilder's victory pose*,
