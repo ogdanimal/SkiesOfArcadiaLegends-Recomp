@@ -1246,13 +1246,44 @@ NMDM); the GameCube is big-endian, AKLZ-compressed and has GVR textures instead 
   (`me002e.sct` into `0x80305770` (JP), field state 0xF): RAM holds the Japanese Dyne block with
   `Uncensored = 1` and the GameCube one with 0. Earlier the same files (Python outputs, identical when
   decompressed) were seen in game on Windows: Dyne smoking in his cabin, the village sky, eight towns
-  warped into. Not yet: Windows / macOS / Android builds of the branch, the import through the GUI.
+  warped into. Windows release build of the branch (2026-10-20, `C:\dev\SkiesRomhack`, portable test
+  app `C:\dev\SkiesUncensor\app`): `--import-dc-music` of both GDIs converted 70 of 70 for each of
+  GEAE8P, GEAP8P and GEAJ8P, all 210 byte-identical to the Python reference. Not yet: the GUI picker
+  import, macOS / Android builds.
+- **Gilder's victory pose (2026-10-20, working in Python, not yet in the C++ converter):** not an
+  effect format after all. `beff/pcwin.mlk` (identical on all three GameCube discs) is an archive of
+  (id, offset, size, type) whose entries are small whole MLDs; the type is only the padding Sega
+  added (the loader `fn_8006E244` reads id, offset and size). The Japanese pose needs entries
+  1800100 (`e1800100`: one quad and six ARGB4444 VQ smoke frames, `e0200502-507`; the US holds Willy,
+  `mc9015`) and 6700526 (`ob9001`, the pistol: same model, a different motion), plus the end of
+  Gilder's battle script `bchara/ma0050.std`. That script is a table of typed records (u16 type, 3,
+  0, size, offset; each type a fixed size, `fn_8003617C`; records 8-aligned); a record's first u16 is
+  its **action**, and actions 26, 27 and 28 are the three victory variants the game picks from. Only
+  variant 26 differs: Willy in the US, the smoke in Japan (twelve spawns of effect 1800100, type 3
+  records). The other two (pistol spin, hand to the mouth) are the same in both, which is what tests
+  kept showing until a test build swapped the labels of 26 and 27; then the puffs drew. Converters
+  in `GameCube-Research/targets/SkiesOfArcadiaLegends/uncensor/victory/`: `mld2gc.py` converts a whole
+  Dreamcast MLD (header, entries, lists, texlists, NJCM via `block2gc`, NMDM = all 32-bit words but
+  the type/interpolation pair, PVR to GVR: ARGB4444 to RGB5A3, plain RGB565 stays RGB565, the rest
+  CMPR) and matches the 37 unchanged entries byte for byte up to the texture pixels; `std2gc.py`
+  keeps the GameCube's records up to 978 and converts the Japanese ones with a per-type word layout
+  (16-bit pair, 32-bit word or kept bytes) learned from the US Dreamcast and GameCube files (968 US
+  records reproduce exactly). Sega's tools: entry names are 16 bytes and the words after them get
+  swapped anyway; a texture name's terminator can overwrite the `P` of the next `POF0`.
+- **Decompressed size:** a converted file must not decompress smaller than the original. A
+  `pcwin.mlk` of 651,480 bytes (original 761,016) made a later `malloc(0xA0)` for a file handle fail
+  at battle load (`fn_801C63EC`, its assert, then writes through NULL); padded with zeros to the
+  original size the same data loads.
+- **Testing battles by poking the party** (Japanese game: party list `0x8030B59C`, count
+  `0x8030B228`, records `0x8030B274` + 0x5C each with current HP at +0x18, join flags
+  `0x8031063C` = `0x638C` for Vyse, Aika and Gilder): Gilder alone freezes at victory variant 26
+  even with the original files (the same failed allocation), so test with three members (Vyse and
+  Aika at 0 HP still act). States in the WSL test folder `~/projects/skies-uncensor-e2e/states`
+  (`jp-09` world map with Gilder, `jp-12` the battle), scripts in its `tools/`.
 - **Not covered:** Vigoro's shirtless model (the Japanese one has 79 bones against 50, so its scene
-  motions would be needed), Gilder's victory pose (`beff/pcwin.mlk`: entries `0x1b77a4` and `0x663dee`
-  of an effect format that the GameCube stores in up to twice the Dreamcast size), the drunk sailor
-  model Legends remade (`tc0102` in `A004AB05`, 0xc300 against 0x8520), and everything that needs a
-  script: the drunk sailor's entry (`0xc21` in `A004A`), the Hamachou party (disc 2), Ramirez's blood
-  (`ME131I.SCT`), the "loqua" text.
+  motions would be needed), the drunk sailor model Legends remade (`tc0102` in `A004AB05`, 0xc300
+  against 0x8520), and everything that needs a script: the drunk sailor's entry (`0xc21` in `A004A`),
+  the Hamachou party (disc 2), Ramirez's blood (`ME131I.SCT`), the "loqua" text.
 
 ### HD textures (2026-10-17)
 

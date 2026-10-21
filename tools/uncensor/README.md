@@ -38,9 +38,14 @@ For each Dreamcast file that differs between the Japanese and US discs and has a
   input exhaustion, and a save state keeps the disc's file table, so a different size would be read at
   the wrong place.
 
-Not covered (need motion or script work): Vigoro's shirtless model (79 bones against 50), Gilder's
-victory pose (`beff/pcwin.mlk`, an effect format), the drunk sailor and other characters only the
-Japanese disc places (script), Ramirez's blood (script), the drunk sailor model Legends remade.
+Gilder's victory pose is a different kind of conversion (whole small MLDs inside `beff/pcwin.mlk` and
+records of his battle script `bchara/ma0050.std`): its converters are still Python only, in
+`$SKIES_RESEARCH/uncensor/victory/` (`mld2gc.py`, `std2gc.py`, `test_mlk.py`), not in the manifest yet
+(development notes, *Uncensored*).
+
+Not covered (need motion or script work): Vigoro's shirtless model (79 bones against 50), the drunk
+sailor and other characters only the Japanese disc places (script), Ramirez's blood (script), the
+drunk sailor model Legends remade.
 
 ## Running
 
