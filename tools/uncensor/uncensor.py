@@ -12,10 +12,11 @@ import hashlib, os, struct, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from aklz import decompress
 from aklzc import compress
-from mldsplice import Mld, tex_replace
+from mldsplice import Mld, tex_replace, _rebuild_archive
 from block2gc import block_to_gc
 from pvr import decode
 from gvr import reencode_like, new_cmpr
+from victory import motion_block_to_gc
 
 def entry_keys(m):
     keys={}
@@ -60,6 +61,23 @@ def obj_count(m,i):
 # Only character textures are taken from the Japanese disc: same-name area textures (tt*) differ
 # by re-encoding or carry translated text.
 CONTENT_PREFIXES=('tc',)
+
+# Characters swapped whole (model, motions and textures) although Legends remade the GameCube model:
+# Vigoro in Aika's cell, whose Japanese model has 79 bones against the Western 50, so its motions
+# come from the Japanese file too. Dreamcast file name -> entry indices.
+WHOLE_CHARACTERS={'A116AG02.MLD': {2}}
+
+def motion_extent(m, entry_index, k):
+    """Motion k of an entry: its NMDM / POF0 chunks, padded to 32 like the next block's start."""
+    p=m.u(m.entries()[entry_index]+0x1c); b=m.u(p+4+4*k); end=b
+    while end+8<=len(m.d) and bytes(m.d[end:end+4]) in (b'NMDM',b'POF0'):
+        end+=8+m.u(end+4); end=(end+3)&~3
+    while end%32: end+=4
+    return b,end
+
+def motion_slots(m, entry_index):
+    p=m.u(m.entries()[entry_index]+0x1c)
+    return [k for k in range(m.u(p)) if m.u(p+4+4*k)] if p else []
 
 def sha1(b): return hashlib.sha1(b).hexdigest()
 
@@ -106,7 +124,8 @@ def run(jpf, usf, gcf, outf, raw=False, log=print, allow=None, ops=None):
         if jb==ub: continue
         if block_to_gc(jb)==bytes(gc.d[c:c+csz]):
             log(f'  entry {i} slot {k}: shares a block already replaced'); continue
-        if block_to_gc(ub)!=bytes(gc.d[c:c+csz]):
+        whole=i in WHOLE_CHARACTERS.get(os.path.basename(jpf).upper(),())
+        if block_to_gc(ub)!=bytes(gc.d[c:c+csz]) and not whole:
             log(f'  entry {i} slot {k}: GameCube block is not the US Dreamcast one, skipped'); continue
         who=owners(block_textures(ub)+block_textures(jb))
         # Besides characters: models that use a texture the US localisation added (the tavern sign's
@@ -119,10 +138,44 @@ def run(jpf, usf, gcf, outf, raw=False, log=print, allow=None, ops=None):
         ops.append({'op':'model','gc_entry':gi,'slot':k,'gc_sha1':sha1(bytes(gc.d[c:c+csz])),'jp_entry':ji,'jp_sha1':sha1(jb)})
         gc.replace(c,csz,block_to_gc(jb)); changed+=1; needed|=set(block_textures(jb))
         log(f'  entry {i} slot {k}: model replaced ({bsz:#x} -> {asz:#x}) {who}')
+    swapped=set()
+    for i,gi in sorted(pairs):
+        if i not in WHOLE_CHARACTERS.get(os.path.basename(jpf).upper(),()): continue
+        ji=jidx[i]
+        if motion_slots(jp,ji)!=motion_slots(gc,gi):
+            log(f'  entry {i}: motion slots differ, skipped'); continue
+        for k in motion_slots(jp,ji):
+            a0,a1=motion_extent(jp,ji,k); g0,g1=motion_extent(gc,gi,k)
+            jb=bytes(jp.d[a0:a1])
+            ops.append({'op':'motion','gc_entry':gi,'slot':k,'gc_sha1':sha1(bytes(gc.d[g0:g1])),'jp_entry':ji,'jp_sha1':sha1(jb)})
+            conv=motion_block_to_gc(jb); gc.replace(g0,g1-g0,conv); changed+=1
+            log(f'  entry {i} motion {k}: replaced ({g1-g0:#x} -> {len(conv):#x})')
+        # The Western model's own textures (only it used them) become the Japanese model's, in the
+        # same archive slots: adding them and blanking the old ones wouldn't fit the original's size
+        b,bsz=us.obj_block(i,0); ub=bytes(us.d[b:b+bsz])
+        jtex={r[0] for r in jp.tex_records()}; gtex=[r[0] for r in gc.tex_records()]
+        old=[n for n in gtex if n in block_textures(ub) and n not in jtex]
+        new=[n for n in sorted(needed) if n not in gtex]
+        if len(old)!=len(new):
+            log(f'  entry {i}: {len(old)} Western textures for {len(new)} Japanese ones, not swapped'); continue
+        jblob={r[0]:bytes(jp.d[r[2]:r[2]+r[3]]) for r in jp.tex_records()}
+        for o,n in zip(old,new):
+            blob=jblob[n]; p=blob.find(b'PVRT'); img,info=decode(blob[p:]); q=blob.find(b'GBIX')
+            gv=new_cmpr(img, struct.unpack_from('<I',blob,q+8)[0] if q>=0 else 0)
+            orig=[bytes(gc.d[r[2]:r[2]+r[3]]) for r in gc.tex_records() if r[0]==o][0]
+            ops.append({'op':'tex_swap','name':o,'new_name':n,'gc_sha1':sha1(orig),'jp_sha1':sha1(blob)})
+            def edit(table, blobs, o=o, n=n, gv=gv):
+                for t,r in enumerate(table):
+                    if r[:0x20].split(b'\0')[0].decode()==o:
+                        rec=bytearray(r); rec[:0x20]=n.encode().ljust(0x20,b'\0'); struct.pack_into('>I',rec,0x28,len(gv))
+                        table[t]=bytes(rec); blobs[t]=gv
+            _rebuild_archive(gc, edit); swapped|={o,n}; changed+=1
+            log(f'  texture {o} -> {n}: swapped ({info[2]}x{info[3]})')
     jt={r[0]:bytes(jp.d[r[2]:r[2]+r[3]]) for r in jp.tex_records()}
     ut={r[0]:bytes(us.d[r[2]:r[2]+r[3]]) for r in us.tex_records()}
     order=[r[0] for r in jp.tex_records()]
     for idx,name in enumerate(order):
+        if name in swapped: continue
         blob=jt[name]
         if name in ut and ut[name]==blob: continue
         if name in ut and not name.startswith(CONTENT_PREFIXES): continue
@@ -159,7 +212,7 @@ def run(jpf, usf, gcf, outf, raw=False, log=print, allow=None, ops=None):
                     a,s=gc.obj_block(gi,k); used|=set(block_textures_be(bytes(gc.d[a:a+s])))
         for name in sorted(set(r[0] for r in us.tex_records())-set(r[0] for r in jp.tex_records())):
             recs=[r for r in gc.tex_records() if r[0]==name]
-            if not recs or name in used: continue
+            if not recs or name in used or name in swapped: continue
             dp,sz=recs[0][2],recs[0][3]; p=bytes(gc.d[dp:dp+sz]).find(b'GVRT')
             if p<0: continue
             gc.d[dp+p+16:dp+sz]=bytes(sz-p-16)

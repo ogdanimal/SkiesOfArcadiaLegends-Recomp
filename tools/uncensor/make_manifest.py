@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Build the uncensor manifest the recomp applies at import (no game data: names, indices, SHA-1s).
 
-usage: make_manifest.py OUTDIR [REGION...] [--victory-only]   (regions: usa eu jp; default all)
+usage: make_manifest.py OUTDIR [REGION...] [--victory-only] [--only=NAME]   (regions: usa eu jp; default all)
 --victory-only: only Gilder's victory pose (victory.py), merged into OUTDIR's existing manifest
+--only=NAME: only the Dreamcast files whose path contains NAME (e.g. A116AG02), merged likewise
 Writes OUTDIR/<region>/<gc path> (reference outputs, for testing the C++ port) and
 OUTDIR/uncensor-manifest.json:
   {"version": 1, "games": {"GEAE8P": {"<gc path>": {"gc_sha1", "out_sha1", "size", "dc_disc",
@@ -12,6 +13,8 @@ ops, applied in order to the decompressed GameCube file (see uncensor.run):
   {"op": "tex", "name", "gc_sha1", "jp_sha1"}                             re-encode a texture in place
   {"op": "tex_add", "name", "after", "jp_sha1"}                           add a Japanese-only texture
   {"op": "tex_blank", "name"}                                             zero an unused texture's pixels
+  {"op": "motion", "gc_entry", "slot", "gc_sha1", "jp_entry", "jp_sha1"}   replace a motion block
+  {"op": "tex_swap", "name", "new_name", "gc_sha1", "jp_sha1"}           a texture slot gets a Japanese one
   {"op": "mlk_entry" | "std_records" | "pad", ...}                        the victory pose (victory.py)"""
 import hashlib, io, contextlib, json, multiprocessing as mp, os, sys
 HERE = os.path.dirname(os.path.abspath(__file__)); sys.path.insert(0, HERE)
@@ -64,14 +67,15 @@ def victory_jobs(region, outdir):
 
 if __name__ == '__main__':
     victory_only = '--victory-only' in sys.argv
-    args = [a for a in sys.argv[1:] if a != '--victory-only']
+    only = next((a.split('=', 1)[1] for a in sys.argv if a.startswith('--only=')), None)
+    args = [a for a in sys.argv[1:] if not a.startswith('--')]
     outdir = os.path.abspath(args[0]); regions = args[1:] or ['usa', 'eu', 'jp']
-    files = [] if victory_only else differing()
+    files = [] if victory_only else [f for f in differing() if only is None or only.upper() in f[2].upper()]
     jobs = [(r, j, u, rel, outdir) for r in regions for j, u, rel in files]
     man = {'version': 1, 'games': {GAME[r]: {} for r in regions}}; errors = []
-    if victory_only:
+    if victory_only or only:
         man = json.load(open(os.path.join(outdir, 'uncensor-manifest.json')))
-    for r in regions:
+    for r in (regions if only is None else []):
         for region, grel, entry, err in victory_jobs(r, outdir):
             man['games'].setdefault(GAME[region], {})[grel.replace(os.sep, '/')] = entry
             print(region, grel, len(entry['ops']), 'ops', flush=True)

@@ -54,9 +54,13 @@ static FileOps ParseEntry(const picojson::object& o)
       op.kind = Op::Kind::StdRecords;
     else if (k == "pad")
       op.kind = Op::Kind::Pad;
+    else if (k == "motion")
+      op.kind = Op::Kind::Motion;
+    else if (k == "tex_swap")
+      op.kind = Op::Kind::TexSwap;
     else
       throw std::runtime_error("unknown op " + k);
-    op.name = str("name"), op.after = str("after"), op.gc_sha1 = str("gc_sha1"), op.jp_sha1 = str("jp_sha1");
+    op.name = str("name"), op.after = str("after"), op.new_name = str("new_name"), op.gc_sha1 = str("gc_sha1"), op.jp_sha1 = str("jp_sha1");
     op.gc_entry = num("gc_entry"), op.slot = num("slot"), op.jp_entry = num("jp_entry");
     op.id = num("id"), op.tex_index = num("tex_index");
     if (p.count("records"))
