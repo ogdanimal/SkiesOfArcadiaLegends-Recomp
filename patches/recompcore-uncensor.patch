@@ -164,6 +164,24 @@ index 84ca2c01a0..f8513ed197 100644
      }
  
      /** Graphics: Vulkan (default) or OpenGL ES, the way out of a Vulkan driver that misbehaves. */
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/utils/DirectoryInitialization.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/utils/DirectoryInitialization.kt
+index b09e140615..6ebcfb4ea2 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/utils/DirectoryInitialization.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/utils/DirectoryInitialization.kt
+@@ -139,7 +139,12 @@ object DirectoryInitialization {
+         val sysDirectory = File(context.filesDir, "Sys")
+ 
+         val preferences = PreferenceManager.getDefaultSharedPreferences(context)
+-        val revision = NativeLibrary.GetGitRevision()
++        // The recomp's releases all build on one Dolphin revision (its changes are patches), so a new
++        // Sys file (Skies/uncensor-manifest.json) would never reach an updated install: the app's
++        // own install time is part of the version too
++        @Suppress("DEPRECATION")
++        val installed = context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime
++        val revision = NativeLibrary.GetGitRevision() + ":" + installed
+         if (preferences.getString("sysDirectoryVersion", "") != revision) {
+             // There is no extracted Sys directory, or there is a Sys directory from another
+             // version of Dolphin that might contain outdated files. Let's (re-)extract Sys.
 diff --git a/Source/Android/jni/SkiesImport.cpp b/Source/Android/jni/SkiesImport.cpp
 index 9fa9fa76a5..fd799f239b 100644
 --- a/Source/Android/jni/SkiesImport.cpp
