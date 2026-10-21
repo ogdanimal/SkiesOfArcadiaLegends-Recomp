@@ -1900,10 +1900,58 @@ each camera shot of the intro, `cs_shot`): shots common to both releases come at
 unpatched (1 / 1.2; the whole intro 3178 frames against 3753) and at the USA frame patched (within
 0.6 %, the polling step; 3775). The `m03` scenes use the same mechanism and were not played.
 
-Still open for the European disc: its voice streams (`B702NNNN`, `KO00NN`, `f71000NN`) are
-time-stretched to 1.2 times the USA length for 50 Hz, so spells and Special Moves (which wait for
-their stream, voice and effects pre-mixed) should lag their animation at 60 Hz too; not fixed (the
-stream files would need shortening, with a new size).
+### European 50 Hz audio (2026-10-21, branch `pal60`, issue #3)
+
+The rest of the European release's 50 Hz changes are in its sound, found by comparing the
+European and USA `sound/` folders (the Dreamcast PAL release had the same: Riggles' 2025 60 Hz
+patch re-timed its cutscenes and restored the USA sound effects). The USA and Japanese discs need
+none of this.
+
+- **Streams.** 223 of the 310 stream pairs are time-stretched (pitch kept) to 1.2 times the USA
+  length: the spells' and S-moves' `KO00NN` (voice and effects pre-mixed; the action waits for
+  the stream's end, *Spells and special attacks* in the decomp's `qol_cheats.md`), battle voices
+  `B702NNNN`, field voices `f71000NN` and three victory lines. Fitting each European loudness
+  envelope to the USA one (time scale and offset) gave 1.20 for most; 13 were re-edited (S-moves
+  `KO0036`-`KO0056`, some `f71000NN`, `B7023000`, `B7024700`), longer than 1.2 times, Cutlass Fury
+  (`KO0036`) with a ~2.5 s fade-out tail; the rest (25 `B702`, 54 victory lines, 2 field voices,
+  the songs `m01`-`m04`) are the USA files. At 60 Hz the European Cutlass Fury stream ran 978 game frames
+  (16.3 s; the USA one is 11.6 s).
+- **Sound banks.** In all 279 enemy banks (`e6*.info`) and `m5100000.info`, every sequence's
+  tempo is 5/6 of the USA one (the MusyX song header's initial tempo at `+0x10`, the tempo table
+  at the offset in `+0xC`, `{tick, tempo}` pairs whose `0xFFFFFFFF` terminator holds a tempo too,
+  and a few tempo fields elsewhere): 120 → 100, 250 → 208, 60 → 50. The `.samp` data, the field,
+  voice (`stv`), crew (`cr`) and common banks and the music banks (4216 tempos) are unchanged.
+  Two banks have 4 other changed bytes (`e6k006`, `e6p001`, not tempos), left as they are.
+- **The game stops a stream at its header's nibble count**, not at the file's end: `PcmPrepare`
+  (`fn_802159E0`) sets the descriptor's end (`+0xC`) to `(nibbles >> 1) & ~0x1F` and the refill
+  (`fn_80216744`) zero-fills past it. So a shortened stream can keep its file's size.
+
+`recompcore-pal60.patch` (`DiscIO/SkiesStreams.{h,cpp}`, `DiscIO/SkiesPal60Data.inc`): the
+extracted disc registers the files `SkiesPal60Data.inc` names, and the game's first read of a sound
+file starts a background pass that makes 60 Hz copies in `Cache/SkiesPal60/`, served in place of
+the originals (the banks first, then the `KO` streams, then the rest):
+
+- a stream pair is checked by its header sample counts, decoded, shortened by its factor (WSOLA:
+  30 ms Hann frames at half overlap, each placed where it best continues the last within ±7.5 ms,
+  picked on the sum of both channels), cut with a 0.25 s fade at the USA length for the re-edits
+  (their factor matches the end of their sound to the USA's: Cutlass Fury 1.286, 11.57 s against
+  11.58 s), and re-encoded with its own coefficient pairs into a copy of the original file, its
+  header's sample and nibble counts (and loop end) shortened;
+- a bank is checked by its size and SHA-1, and each listed tempo field (a big-endian `u32`) is
+  multiplied by 1.2: 2586 of the 2772 come out as the USA value, the other 186 one off (Europe's
+  rounding).
+
+The table holds names, sample counts, factors, SHA-1 prefixes and field positions: no game data.
+Same sizes, so the disc layout and save states are unchanged. A stream or bank already loaded
+when its copy becomes ready keeps the European timing until the game reads it again (first run
+only). The re-encoding is lossless for unchanged audio (120-131 dB against the original decode)
+and ~30 dB for the shortened audio, the format's usual level. Offline check: each shortened stream
+fits the USA envelope at scale 0.99-1.0 (r up to 0.999).
+
+Checked on Windows by ear (the user, 2026-10-21; a test copy of the European game with the
+streams and banks replaced by the prototype's output, `C:\dev\SkiesLang`): "converted is much
+better than original eu", and with the banks too "definitely works better". In game on WSL
+(JIT, prototype files): Cutlass Fury's stream 818-832 frames converted against 933-1150 original.
 
 ### Cutscene shots framed for widescreen (2026-10-21, branch `cutscene`, issue #10)
 
