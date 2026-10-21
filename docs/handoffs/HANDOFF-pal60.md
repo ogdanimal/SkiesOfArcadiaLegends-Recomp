@@ -48,11 +48,18 @@ at 60 Hz. Its data was made for 50 Hz in three places, all fixed now, and only f
   files (Android: 12 streams differ by rounding only). Table in the development notes. Before the rebase.
 - Intro (game patch), ws29: WSL, JIT, cold boot, the game frame at each intro camera shot (`cs_shot`),
   European against USA ws29: 0.993-1.005 of the USA frames over the 11 longer stretches (unpatched
-  0.84; the first, 48 frames, reads 0.917: the polling step). Not played: the `m03` scenes; not on
-  Windows / Android with a rebuilt module.
+  0.84; the first, 48 frames, reads 0.917: the polling step). Windows, the ws29 European static module
+  (LLVM, no PGO: no European profile yet; `C:\dev\SkiesRecomp\build\modules-ws29-eu`) with the `pal60`
+  MSVC runner, muted, automated: boots, and the same shots within about 1 % of the USA frames
+  (the intro ends at 3763 against 3752). Not played: the `m03` scenes; not by ear on Windows; not on
+  Android with a rebuilt module.
 - #10, ws29: WSL, JIT, a New Game on the European and Japanese discs: the bridge (`0x90763369`) zooms
   1.307 and Fina's ship (`0xE6946063`) 1.288 on both, as on the USA disc (WSL, JIT + static module,
   before the rebase); screenshots: no deck ends at the edges, no waiting ship.
+- The moon shots in the movie that plays when Start isn't pressed (Fina's ship crossing the full moon over
+  the cloud sea, then the purple moon over the snow) show only the ship's sparkle trail, not the ship:
+  the same in the original (the user checked, 2026-10-21). Not a bug. That stretch has no script
+  camera commands (`cs_shot` logs nothing between the intro, map 299, and the map 297 demo).
 - One European JIT run ended by itself after about 10 minutes (no signal, no error, no OOM kill);
   the rerun didn't. Possibly another session stopping `moderngekko-run`; not confirmed.
 
@@ -60,10 +67,10 @@ at 60 Hz. Its data was made for 50 Hz in three places, all fixed now, and only f
 
 1. When `smove` reaches dev: check `cutscene` still fast-forwards from it (if `smove` changed, rebase
    again and redo the ws29 checks above), then merge.
-2. Modules with the ws29 DOLs: Windows LLVM + PGO (`tools/module-llvm-win.sh`, patch README), Android
-   (`NAME=ws29 tools/android-ws-build.sh`). Then: the European intro on Windows (launch through
-   `C:\dev\sync-controls.bat`) and the Retroid (ask first), one `m03` scene (`me298a` / `me250a`) on
-   the European disc, a ws28 state loading on ws29.
+2. Android with the ws29 DOLs (`NAME=ws29 tools/android-ws-build.sh`), then the European intro on the
+   Retroid (ask first). Windows: the European intro by ear (`C:\dev\SkiesPal60\run-eu-ws29.bat`), one
+   `m03` scene (`me298a` / `me250a`) on the European disc, a ws28 state loading on ws29. The release
+   modules come from CI; local ones are for testing only.
 3. Release notes: the draft is `build/notes-next.md` in the main checkout (entries added
    2026-10-21). Thank the issue #3 reporters (Renatodep, GLEclipseGaming) and #10's (Renatodep).
    The release re-patches the discs (ws29).
@@ -75,7 +82,10 @@ at 60 Hz. Its data was made for 50 Hz in three places, all fixed now, and only f
 
 - `C:\dev\SkiesLang`: the European game and a copy with the converted sound (`games\GEAP8P-60`),
   the three `test-*.bat` launchers, the user's controls (`C:\dev\sync-controls.bat`).
-- `C:\dev\SkiesPal60`: the branch's sources and an MSVC dev build (`run-eu.bat`).
+- `C:\dev\SkiesPal60`: the branch's sources (from before the ws28 rebase) and an MSVC dev build
+  (`run-eu.bat`); ws29: `run-eu-ws29.bat` (syncs the controls, then the European game in `GEAP8P-ws29`:
+  `sys` with the ws29 DOL, `files` a junction to `C:\dev\SkiesLang\games\GEAP8P\files`, the module from
+  `C:\dev\SkiesRecomp\build\modules-ws29-eu`, user folder `ud`). `ud-ws29` / `auto-ws29`: the automated run's.
 - Retroid Pocket 5, test app `com.skiesofarcadia.recomp.test`: the `pal60` APK
   (`build/android/apk/skies-recomp-pal60-2026-10-21-test.apk`, the ws28 modules), with
   `Games/GEAP8P` beside `Games/GEAE8P` (the app boots the USA one first; move it aside for the

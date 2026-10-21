@@ -1899,6 +1899,8 @@ keeps the old script until the next load. Checked on WSL (JIT, cold boot, muted,
 each camera shot of the intro, `cs_shot`): shots common to both releases come at 0.84 of the USA frame
 unpatched (1 / 1.2; the whole intro 3178 frames against 3753) and at the USA frame patched (within
 0.6 %, the polling step; 3775). The `m03` scenes use the same mechanism and were not played.
+Again with ws29 (after ws28): WSL JIT 0.993-1.005 of the USA ws29 frames; Windows, the European
+static module (LLVM, no PGO) with the MSVC runner, within about 1 % (the intro ends at 3763, USA 3752).
 
 ### European 50 Hz audio (2026-10-21, branch `pal60`, issue #3)
 
