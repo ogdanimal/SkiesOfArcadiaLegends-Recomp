@@ -209,7 +209,7 @@ With your own Eternal Arcadia discs, **Uncensored** puts them back:
 - the faces and drinks of a few crew members, in town and in battle
 - Gilder's victory pose: he smokes instead of holding Willy on his shoulder (one of his three
   poses, so not after every battle)
-- Vigoro without his top in Aika's cell at the Grand Fortress
+- Vigoro's own outfit in Aika's cell at the Grand Fortress (the West gave him a black sleeveless top)
 
 To turn it on:
 

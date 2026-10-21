@@ -1301,16 +1301,24 @@ NMDM); the GameCube is big-endian, AKLZ-compressed and has GVR textures instead 
   played Gilder's smoke pose (seen by the user).
 - **Vigoro in Aika's cell (2026-10-21):** only `A116AG02` (the Grand Fortress prison scene, event
   `e6g002` of `me116a.sct`, Gilder in the party) differs: the West gave Vigoro a model of his own,
-  `tc9014` (a black top), where the Japanese scene uses his regular shirtless `tc9003`. The Japanese
-  model has 79 bones against 50 and Legends remade the GameCube one (0x8e80 against 0x6600), so
-  entry 2 is swapped whole (`uncensor.py` `WHOLE_CHARACTERS`): the model, its five motions (op
+  `tc9014` (a black sleeveless top), where the Japanese scene uses his regular outfit `tc9003` (the
+  blue armour). The Japanese model has 79 bones against 50 and Legends remade the GameCube one
+  (0x8e80 against 0x6600), so entry 2 is swapped whole (`uncensor.py` `WHOLE_CHARACTERS`): the model, its five motions (op
   `motion`: the NMDM / POF0 chain padded to 32, converted like the victory pose's; the US Dreamcast
   ones convert exactly into the GameCube's) and its textures, which take the Western model's nine
   texture slots (op `tex_swap`: renamed, Japanese pixels as new CMPR with mips). Adding the textures
   and blanking the old ones came out 5,699 bytes too big (zero runs cost 2 bytes per 18 in AKLZ);
   the slots fit the original's 687,375 bytes exactly. Converted on WSL, Windows (all three games)
-  and the C++ test (219 of 219); **not yet seen in game**: it needs a save in the Grand Fortress
-  prison.
+  and the C++ test (219 of 219).
+- **Vigoro checked in game (2026-10-21, WSL, the Japanese game):** no save reaches the scene, so the
+  test pokes its start condition. `me116a.sct` (decoded with SALSA, SoAModTools' script tool) calls
+  `me116ag02` from `loop` when `IntVar 15` is 2300 (a switch on it; the other cases are the other
+  ways in) and `BitVar 301` is clear. `IntVar` / `BitVar` are at USA `0x8030E3E4` / `0x80310B3C`,
+  Japanese `0x8030DE64` / `0x803105BC` (European, unchecked: `+0x3680`, like `BitVar` in the address
+  map); bit N is byte N / 8, mask `1 << (N % 8)` (SALSA's reading). Poking both and warping into `me116a` plays the scene: the log shows
+  `field/a116ag02.mld` served converted, and Vigoro wears his blue armour (with Uncensored off, the
+  black top); the whole scene plays to the end with no errors. The test folder's import had to be
+  redone first: it predated the Vigoro conversion.
 - **Checked 2026-10-21:** Windows test app (all three games imported, 216 then 219 files identical to
   the reference; each game warped through Pirate Isle `e`, the tavern, Maramba and three more areas:
   the log shows the 6 converted area files served, no errors); macOS arm64 (the Mac session: build,

@@ -76,6 +76,10 @@ How it works and every finding: development notes, *Uncensored* (the bullets *Gi
   shows the converted data renders, not the import path. The import path: `victory11.sh` (from
   `jp-11`, a battle walked into) serves `ma0050.std` and `pcwin.mlk` converted (log), on WSL and on
   the Retroid; which variant those victories played wasn't seen.
+- **Vigoro checked in game (2026-10-21, WSL):** `vigoro.sh` (development notes, *Vigoro checked in
+  game*): `a116ag02.mld` served converted, Vigoro in his blue armour (the black top with Uncensored
+  off), the scene plays to the end. The test folder's import was redone with the current build (73
+  files, `a116ag02.mld` identical to the reference).
 - Not checked: the USA or European disc in game (no state with Gilder in a battle; the files are the
   same as on the Japanese disc and convert byte-identically).
 - WSL test copies in `~/projects/skies-uncensor-e2e/User/games`: `GEAJ8P` original (the one to use
@@ -85,6 +89,8 @@ How it works and every finding: development notes, *Uncensored* (the bullets *Gi
   (the real victory test), `victory12.sh GAME` (from a state holding the files), `uncram.py`,
   `wintour.sh GAME STATE` / `winrun.sh` / `winwarp.sh` / `winram.sh` (the Windows test app),
   `aui.sh` (uiautomator: fails on the Retroid, "null root node"),
+  `vigoro.sh GAME` (pokes the start of Vigoro's scene and warps into `me116a`; `UNC=0` for the
+  original; state `jp-14-vigoro-scene.sav` is its first line, model already loaded),
   `autofight12.sh GAME` (the `jp-12` battle, Attack until it ends, half speed), `ramdump.sh OUT`
   (24 MiB of RAM through `peek`), `snaptrace.py`. **No rolling captures** (`ringcap.sh` is not to
   be used; the user objected): one screenshot at a known moment, deleted after reading. The
@@ -92,14 +98,11 @@ How it works and every finding: development notes, *Uncensored* (the bullets *Gi
 
 ## Next
 
-1. **Vigoro in game:** a save in the Grand Fortress prison (event `e6g002` of `me116a.sct`, Vyse and
-   Gilder in the party, before Aika's scream), on any of the three discs, then watch the scene with
-   Uncensored on (the log shows `field/a116ag02.mld` served).
-2. **Gilder's pose from the import path, by eye:** `victory11.sh` a few times while watching (the
+1. **Gilder's pose from the import path, by eye:** `victory11.sh` a few times while watching (the
    variant is the game's pick).
-3. Optional: the Retroid Nova, a Windows picker import by the user (the CLI import and the Mac's
+2. Optional: the Retroid Nova, a Windows picker import by the user (the CLI import and the Mac's
    are done).
-4. Push, merge, release (HANDOFF-release says to hold the tag until this is merged); draft notes in
+3. Push, merge, release (HANDOFF-release says to hold the tag until this is merged); draft notes in
    the main checkout's `build/notes-next.md`. Then the script work (backlog).
 
 ## Notes for whoever continues
