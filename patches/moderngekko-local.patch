@@ -2528,7 +2528,7 @@ index 0000000..f3c3d14
 +void DrawMapping(State& state, const fs::path& user_directory, float scale);
 +}  // namespace moderngekko::launcher_controls
 diff --git a/tools/moderngekko_launcher.cpp b/tools/moderngekko_launcher.cpp
-index 7699c3d..365a068 100644
+index 7699c3d..1623b1c 100644
 --- a/tools/moderngekko_launcher.cpp
 +++ b/tools/moderngekko_launcher.cpp
 @@ -1,12 +1,25 @@
@@ -5483,19 +5483,6 @@ index 7699c3d..365a068 100644
 +        uncensor_ready = dc_import.uncensor_ready;
 +      }
 +      ImGui::Spacing();
-+      if (!described.empty())
-+      {
-+        setting_row("Music", "##music", dc_music, MUSIC_CHOICES,
-+                    "The Dreamcast version's music, played by its own sound chip, or the GameCube's. "
-+                    "Switches in game too.");
-+      }
-+      else
-+      {
-+        row_label("Music");
-+        ImGui::TextDisabled("GameCube");
-+        describe("Import your Dreamcast disc below to play the Dreamcast version's music instead.");
-+      }
-+      ImGui::Spacing();
 +      row_label("Dreamcast disc");
 +      if (running)
 +      {
@@ -5553,6 +5540,19 @@ index 7699c3d..365a068 100644
 +                           message.c_str());
 +      }
 +      ImGui::PopTextWrapPos();
++      ImGui::Spacing();
++      if (!described.empty())
++      {
++        setting_row("Music", "##music", dc_music, MUSIC_CHOICES,
++                    "The Dreamcast version's music, played by its own sound chip, or the GameCube's. "
++                    "Switches in game too.");
++      }
++      else
++      {
++        row_label("Music");
++        ImGui::TextDisabled("GameCube");
++        describe("Import your Dreamcast disc above to play the Dreamcast version's music instead.");
++      }
 +      if (!described.empty())
 +      {
 +        ImGui::Spacing();
