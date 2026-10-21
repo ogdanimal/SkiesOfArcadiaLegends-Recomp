@@ -18,13 +18,36 @@ exclamations under story text boxes), so this swaps that set of clips.
      release).
   3. Whether anything in the US game assumes English clip lengths (text box waits, lip flaps,
      battle timing).
-- Not started. **The Japanese GameCube disc is on hand since 2026-10-20** (the user's ISO,
-  `../GameCube-Research/targets/SkiesOfArcadiaLegends/jp`; the port now runs it as a game of its own,
-  HANDOFF-japan). First facts for question 1: its files have the USA names, and the ones that differ
-  in content are the voice and sound banks (`sound/cr*` 52 files, `e*` 509, `stv*` 144, `k*` / `ko*`
-  100, `b*` 165, `f*` 58, plus 114 `.dsp` streams and clips), while the music banks (`m0231`-`m0465`)
-  match the USA's; so the clips are likely the same layout under the same names. Not yet compared
-  bank by bank (sample counts, lengths).
+- **Researched 2026-10-21 (not built; answers to the three questions):**
+  1. **Layout: the same.** Every voice is in `sound/`, under the same 1799 names on the USA, European
+     and Japanese GameCube discs: streams `B702NNNN` (battle lines), `KO00NN` (each spell's / S-move's
+     voice and effects pre-mixed), `NNN` (victory lines), `f71000NN` (field voices), and the banks
+     `STVnn` / `CRnnn` / `e6xNNN` (`.info` + `.samp`; decomp `docs/sound.md`).
+  2. **Clip lists match**: every bank has the same sequence count except two where the Japanese one
+     has an extra sound at the end (`e6h011`, `k8900001`), which the USA game never asks for.
+  3. **Lengths**: 30 of the 66 `KO` streams differ in length (up to -1.6 / +1.2 s; the action waits
+     for its stream, so a spell takes the Japanese length; check no animation is cut). Text boxes
+     don't wait on clips.
+- **How:** swap the **whole** `sound/` folder, not the voice files alone. The Japanese `.info` files
+  of the banks that otherwise match (music, field effects) differ only in MusyX object IDs, numbered
+  across the whole project, so a mix of USA and Japanese banks could collide; the music `.samp` data is
+  byte-identical, so the whole folder changes nothing but the voices. The Japanese files mostly have
+  other sizes (unlike the Dreamcast music's same-size conversion) and a save state holds the disc's
+  file table and the banks loaded at boot (`tone`, `s1000000`, `b7000000`), so the setting needs a
+  restart (as Language does) and save states kept per voice setting. The reverse (Japanese text,
+  English voices) is the same swap; European text with Japanese voices works too, and the Japanese
+  streams fit the port's 60 Hz (the European ones were made for 50 Hz, *European 50 Hz audio* in the
+  development notes). Dreamcast voices: other formats, and Legends has voiced additions; not worth it.
+
+## The European languages for the USA game — asked 2026-10-21 (issue #3 comment)
+
+A player on the European disc saw the intro out of sync and asked whether the European release could
+be imported only for its languages, like the Dreamcast music. The desync is fixed on branch `pal60`
+(the European scripts' 50 Hz timing, its streams and enemy sound tempos; development notes *European
+intro in sync with its music*, *European 50 Hz audio*), which makes the European disc play like the
+USA one. Running the USA game with the European text would be much harder: the USA DOL has no code
+for the European `.sot` text files or the language-suffixed graphics, and the European scripts
+differ. Answer on #3 once the fix is released.
 
 ## Remember controllers by identity, not name — idea 2026-10-17
 

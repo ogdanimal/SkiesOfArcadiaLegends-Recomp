@@ -1,5 +1,8 @@
 # Handoff: the Dreamcast music option and the European disc (2026-10-17)
 
+> **2026-10-21:** the European disc at 60 Hz (intro sync, voice streams, enemy sound tempos; issue #3)
+> is on the local branches `cutscene` / `pal60`: `HANDOFF-pal60.md`.
+
 > Since 2026-10-20 (branch `uncensor`, HANDOFF-uncensor) the Dreamcast disc import, Music and Intro
 > music are in **Settings → Dreamcast** (launcher, in-game menu, Android), not Sound; the steps below
 > say Sound as they were.
