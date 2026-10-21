@@ -389,7 +389,12 @@ and battles are untouched. Checked on Windows and the Retroid: `tools/camera-tes
   the next command input. Ground battles unchanged: Cutlass Fury at 4x held normal speed for its whole
   action (14.8 s by 0.3 s polling), interpolation on for it. Not seen live: the S-Cannon (offered only
   on a phase marked C!, which came at random and not in the time tested), crew specials and the
-  enemies' special attacks (the code path is the same comparison as magic). Android and macOS not run.
+  enemies' special attacks (the code path is the same comparison as magic). macOS (the Mac session,
+  Apple Silicon, worktree from these commits, local codegen us/eu/jp: patched DOLs matching the
+  dolpatches' outputs; USA run, Invincible, Frame rate 60, the same two states): Sacri's window 29-31
+  game frames a second at 2x and at 4x, outside 57-66 (2x) and 116-122 (4x); interpolation off at the
+  fast battle, on as the flag rose, off as it fell; Cutlass Fury at 4x the flag up ~14.3 s with
+  interpolation on for it; 1x never set; fallback 0, smc_failed 0. Android not run.
 - Field speed (ws26, 2026-10-20): the same waits skipped in the field (game mode 6: cutscenes, towns,
   dungeons, the world map; a ship battle counts as battle), when the frontend sets `QOL_SPEED_FIELD`
   (0x100) in `qol_input`'s speed word, which it does only outside battle (an earlier DOL takes the word

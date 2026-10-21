@@ -20,7 +20,7 @@ On `origin/dev` for the next release (draft notes: the main checkout's `build/no
   interpolation stays on for spells and specials at speed (new `recompcore-battle-specials.patch`).
   `release/*.dolpatch` are ws28 (USA output `7af78727…`); the *Updating from 0.80* note holds as it is
   (the patch changes either way). Windows-checked (development notes *Ship battles' spells and special
-  attacks*); Android, macOS and Linux not run.
+  attacks*) and on macOS (the Mac session, same states and numbers); Android and Linux not run.
 - **AppImage catalog** (#10524): v0.80.0-beta passed; the bot's screenshot lacked the background art
   (its sandbox; it loads in 3 s under Xvfb here), answered on the PR; a maintainer merges it. Update
   information (zsync) is in the backlog.
