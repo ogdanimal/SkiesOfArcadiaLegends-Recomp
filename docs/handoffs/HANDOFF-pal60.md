@@ -1,11 +1,13 @@
 # Handoff: the European disc at 60 Hz, and cutscene framing (2026-10-21)
 
-Two local branches, stacked, **not pushed or merged**:
+Two local branches, stacked, **not pushed or merged**, rebased on 2026-10-21 onto the ws28 work
+(local branch `smove` `fea664d`, itself on origin/dev `7587e66`; another session's, **not on dev yet**).
+The tips before that rebase are kept as `cutscene-pre-ws28` and `pal60-pre-ws28`.
 
-| Branch | Worktree | Commits on origin/dev `7587e66` | What |
+| Branch | Worktree | Commits on `smove` | What |
 |---|---|---|---|
-| `cutscene` | `~/projects/skies-cutscene` | `7b1b076`, `79f44d7`, `af2083c`, `e34ddf3` | issue #10: listed cutscene shots zoom in widescreen (`cutscene.c/.S`, ws29); issue #3: the European intro in sync (`pal60.c`) |
-| `pal60` | `~/projects/skies-pal60` | `cutscene` + `e6dd558`, `f94524a`, the docs commit | issue #3: the European disc's 50 Hz audio (`recompcore-pal60.patch`) |
+| `cutscene` | `~/projects/skies-cutscene` | `96200de`, `0192d38`, `81efd71`, `d475866`, `d187d2e` | issue #10: listed cutscene shots zoom in widescreen (`cutscene.c/.S`); issue #3: the European intro in sync (`pal60.c`); `d187d2e`: game patch **ws29**, release `.dolpatch` files |
+| `pal60` | `~/projects/skies-pal60` | `cutscene` + `d6ca7ca`, `79ebba2`, the docs commits | issue #3: the European disc's 50 Hz audio (`recompcore-pal60.patch`) |
 
 The details are in `docs/development-notes.md`: *Cutscene shots framed for widescreen*, *European
 intro in sync with its music*, *European 50 Hz audio*. Backlog: #10, *Dual audio*, *The European
@@ -26,28 +28,45 @@ at 60 Hz. Its data was made for 50 Hz in three places, all fixed now, and only f
    same sizes, so save states are unaffected. The table (`SkiesPal60Data.inc`) holds names, sample
    counts, factors, SHA-1 prefixes and field positions only.
 
+## ws29 (the rebase onto ws28)
+
+- Conflicts, all kept both sides: `cave.ld` (`.late_bss_ws28`, then `.late_bss_ws29`),
+  `recompcore.series` (`battle-specials`, then `pal60`), `patches/README.md` (both rows and apply lines).
+- DOLs (`skies-cutscene/build/game/GEA*-ws29`): USA SHA-1 `2926f2c1`, Europe `a868b179`, Japan
+  `397da037`. `qol_normal_speed` stays at `0x80002BDC` on all three; `llvm-nm` against the ws28 ELFs:
+  no ws28 variable moved, `cs_shot` (`0x80002BE0`, 0x38 bytes) is the only new one. MetroTRK area:
+  0x2810 of 0x3210 bytes used.
+- The three release `.dolpatch` files made again; each reproduces its ws29 DOL through
+  `tools/applydolpatch.py` from the original disc's DOL.
+- `tools/check-patches.sh` passes (the `pal60` worktree's RecompCore copy has `battle-specials` applied).
+
 ## Checked
 
-- Intro (game patch): WSL, JIT, by frame: unpatched 0.84 of the USA frame, patched the USA frame.
-  Not played: the `m03` scenes; not on Windows / Android with a rebuilt module.
 - Audio (frontend): the user by ear on Windows ("that was perfect"; `C:\dev\SkiesLang`
   `test-eu-converted.bat` / `test-eu-original.bat` / `test-us-reference.bat`); Linux, Windows (MSVC,
   `C:\dev\SkiesPal60`), macOS (the Mac session) and the Retroid Pocket 5 (test app) all make the same
-  files (Android: 12 streams differ by rounding only). Table in the development notes.
-- #10: WSL only (JIT + static module), the opening's two shots.
+  files (Android: 12 streams differ by rounding only). Table in the development notes. Before the rebase.
+- Intro (game patch), ws29: WSL, JIT, cold boot, the game frame at each intro camera shot (`cs_shot`),
+  European against USA ws29: 0.993-1.005 of the USA frames over the 11 longer stretches (unpatched
+  0.84; the first, 48 frames, reads 0.917: the polling step). Not played: the `m03` scenes; not on
+  Windows / Android with a rebuilt module.
+- #10, ws29: WSL, JIT, a New Game on the European and Japanese discs: the bridge (`0x90763369`) zooms
+  1.307 and Fina's ship (`0xE6946063`) 1.288 on both, as on the USA disc (WSL, JIT + static module,
+  before the rebase); screenshots: no deck ends at the edges, no waiting ship.
+- One European JIT run ended by itself after about 10 minutes (no signal, no error, no OOM kill);
+  the rerun didn't. Possibly another session stopping `moderngekko-run`; not confirmed.
 
 ## Left before release
 
-1. **Wait for the ws28 work** (branch `smove`, worktree `~/projects/skies-smove`, another session) to
-   land on dev. Then rebase `cutscene` and `pal60` on it: `cave.ld` keeps `.late_bss_ws29` after
-   `.late_bss_ws28` (check with `llvm-nm` that `qol_normal_speed` stays at `0x80002BDC`), the game
-   patch becomes **ws29** (patch README build table, current-build line), and the release
-   `.dolpatch` files are made again with `tools/mkdolpatch.py` (all three regions).
-2. After the rebase: `tools/check-patches.sh`, then rebuild and check the modules (desktop PGO
-   modules, Android) with the new DOLs: the intro on the European disc on Windows and the Retroid,
-   one `m03` scene, the #10 shots on EU / JP.
+1. When `smove` reaches dev: check `cutscene` still fast-forwards from it (if `smove` changed, rebase
+   again and redo the ws29 checks above), then merge.
+2. Modules with the ws29 DOLs: Windows LLVM + PGO (`tools/module-llvm-win.sh`, patch README), Android
+   (`NAME=ws29 tools/android-ws-build.sh`). Then: the European intro on Windows (launch through
+   `C:\dev\sync-controls.bat`) and the Retroid (ask first), one `m03` scene (`me298a` / `me250a`) on
+   the European disc, a ws28 state loading on ws29.
 3. Release notes: the draft is `build/notes-next.md` in the main checkout (entries added
-   2026-10-21). Thank the issue #3 reporters there.
+   2026-10-21). Thank the issue #3 reporters (Renatodep, GLEclipseGaming) and #10's (Renatodep).
+   The release re-patches the discs (ws29).
 4. **Replies to #3 and #10 only after the release** (the user's call, 2026-10-21). #3: the
    European intro and battle sound are fixed; the language-import idea is in the backlog. #10: the
    opening's shots; more shots can be listed.
