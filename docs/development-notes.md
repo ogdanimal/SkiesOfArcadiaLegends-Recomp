@@ -1324,6 +1324,13 @@ NMDM); the GameCube is big-endian, AKLZ-compressed and has GVR textures instead 
   scene from `jp-02` the same way, full speed) and on **macOS** (arm64, the Mac session: disc 1
   imported again, converted in 0.5 s, the Japanese game from a card save's state): the same result
   on each.
+- **Before the release (2026-10-21):** the Windows launcher's own import (the user, through the file
+  picker, both GDIs, into an empty data folder): 73 files for the selected USA game, identical to
+  the reference, the copied disc files and music identical to the command-line import; the USA game
+  served the 6 converted area files on the warp tour, and the Japanese game converted its 73 by
+  itself at start (identical) and played Vigoro's scene. Android's update path: a test build from
+  before Uncensored, then the current one over it: `Sys` extracted again with the manifest, "73 of 73
+  files converted" (debug-signed test app; the release-signed update over v0.60.0 needs a CI build).
 - **Test APKs packed an old `Sys`:** `jni/CMakeLists.txt` copies `Data/Sys` into the app's assets
   only when CMake configures, which a reused build folder skips, so the first Vigoro test APK had the
   previous manifest, and a fresh local folder got no `Sys` at all on its first build;
