@@ -132,7 +132,8 @@ press Start**), or in the launcher's **Settings** window.
   filtering, and **Scaling**: Sharp keeps the original resolution (640x528) crisp on a large screen.
 - **Camera control:** hold Z and use the C-stick to tilt, and R / L to zoom (towns, dungeons and the
   world map; on the world map Z + C-stick left / right also turns around the ship).
-- **Battle speed** up to 4x: tap Z during a battle.
+- **Battle speed** up to 4x: tap Z during a battle. Spells and special attacks still play at normal
+  speed, so their sound stays with the picture.
 - **Field speed** 1.5x, 2x or 3x for cutscenes, towns, dungeons and sailing: hold Z and press X
   outside battle. A desktop PC holds 2x everywhere; 3x needs a fast one. Where a device can't keep
   up, it steps down by itself to what that device holds (a Retroid Pocket 5: about 1.25x-1.5x).

@@ -295,7 +295,7 @@ names, Dolphin's unused screens and resources removed, no "Dolphin" left where a
   from a memory card save: the launcher sets `[Skies] AutoLoadCard`, the runtime drives the title /
   load screens; NOTES *Memory card auto-load*; checked on Windows; on the Retroid waiting for the
   user's first Continue). Also drops the temporary `SkiesMenuDbg` input log of the tabs build.
-- **Battle freeze (open, tabled by the user 10-11):** the user changed battle speed several times during the Antonio fight (the
+- **Battle freeze (tabled by the user 10-11; fixed 2026-10-21: the recomp core's guest timebase ran fast under the 3x / 4x overclock and stalled the KO00NN stream every spell and S-move waits for; `recompcore-overclock-timebase.patch`, `e106420`, development notes *A battle can freeze*; their frozen state holds Cutlass Fury's stream stuck):** the user changed battle speed several times during the Antonio fight (the
   2x step-down kicking in too) and the round froze with a damage number on screen. Their slot 1 is at
   the fight's start (copied to `build/savestates/19-retroid-antonio-start.sav`; the frozen moment,
   saved over automation, is `18-retroid-battle-softlock.sav`). Reproduced on Windows (NOTES *Known

@@ -348,7 +348,10 @@ and battles are untouched. Checked on Windows and the Retroid: `tools/camera-tes
   stays held and its overclock on, so these play at 30 fps at speed. Measured on Windows (ws27 module,
   release runner): Cutlass Fury's animation 10.1 / 10.1 / 10.4 s at 1x / 2x / 4x, the stream ending 1.7
   s after it at each; Antonio's special (`19-retroid-antonio-start.sav`, unit 4, type 0xC, id 5) 7.3 s
-  at 1x and at 4x; plain attacks keep the speed (enemy attacks 1.0 s at 4x, 4.2-6.3 s at 1x). Before,
+  at 1x and at 4x; plain attacks keep the speed (enemy attacks 1.0 s at 4x, 4.2-6.3 s at 1x). Retroid
+  Pocket 5 (test app, the Japanese game, `jp-03-worldmap-battle-start.sav`): Cutlass Fury's action
+  ran about 12 s at 1x and 13 s at 4x (polled every 2-4 s), the rest of the 4x battle at 60 game
+  frames a second, and the battle went on. Before,
   the earlier research (2026-10-21) found nothing by diffing memory because the test states needed
   Aika's command too before the round started. Tools: the game state read through automation `peek`
   (the task list from `*0x803475A8`, linked by +4; the command records; the stream channels), audio
@@ -2750,7 +2753,9 @@ rights: BUILDING *macOS*.
   Dolphin's `GetTicks()` counts it. With it, 3x and 4x play the whole stream and the battle goes on (and
   1x is unchanged: the animation ends 10.0 s after the stream starts, 10.1 s before). The user's frozen
   state from the Retroid (`18-retroid-battle-softlock.sav`) is this: `KO0036` stuck in both channels,
-  Antonio's special (unit 4, type 0xC) waiting. Such a state stays frozen (the stall is in it). Tools:
+  Antonio's special (unit 4, type 0xC) waiting. Such a state stays frozen (the stall is in it). Retroid
+  Pocket 5 (test app, the Japanese game, `jp-03-worldmap-battle-start.sav`, ws27 APK): with overclock
+  2.0 forced at 1x, Cutlass Fury's stream played its ~11 s and the battle went on. Tools:
   `sndrun.py` / `stall.py` style runs (load, commands, `[DSP] DumpAudio` on, game state logged with the
   retrace count).
 - **Before (2026-10-11):** the user

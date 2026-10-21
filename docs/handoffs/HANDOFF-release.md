@@ -8,7 +8,7 @@ On `origin/dev` for the next release (draft notes: the main checkout's `build/no
 - **Graphics options** (`ce9b6df`, validate 39626291735 green): Texture filtering, Anisotropic
   filtering, Scaling (Reddit request; development notes *Texture filtering, anisotropic filtering,
   scaling*). Checked on Windows (test folder `C:\dev\SkiesGfx`) and the Retroid Pocket 5 test app.
-- **Battle freeze at 3x / 4x fixed and #7 done** (the #7 session, branch `smove`, on `dev`; validate on `c18ddc4` running at the time of writing: `e106420` the
+- **Battle freeze at 3x / 4x fixed and #7 done** (the #7 session, branch `smove`, on `dev`; validate 39633691151 on `c18ddc4` green, all 12 codegen jobs: `e106420` the
   guest timebase under overclock, `b84913f` docs, `c18ddc4` **game patch ws27**: spells and special
   attacks at normal speed). ws27 changes the game patch, so the next release asks desktop players for
   their disc once more (Android re-patches by itself); the draft notes' *Updating from 0.80* says so.
@@ -46,8 +46,9 @@ per version, the European card-save import fix, portable mode (#6), Linux on gli
   game and the save state (Continue), and the Dreamcast tab's Uncensored line says it needs Eternal
   Arcadia, which it only says with the manifest loaded: `Sys` was extracted again on the update.
 - Issues answered after the release (the user's go-ahead): #4 (Japanese disc) and #6 (portable)
-  closed, #8 answered and left open (DSF rips undecided). #7 (super attacks at battle speed) is a known
-  issue, worked on in its own session; #3 and #5 open.
+  closed, #8 answered and left open (DSF rips undecided). #7 (super attacks at battle speed): fixed on
+  `dev` 2026-10-21 (game patch ws27, `c18ddc4`: spells and special attacks at normal speed; with it the 3x / 4x
+  battle freeze, `e106420`), reply posted on #7, issue left open until the release; #3 and #5 open.
 - `/retest` commented on AppImage/appimage.github.io#10524 (2026-10-21, the user's go-ahead; the
   22.04 build and the new AppImage name are in this release): watch its result.
 

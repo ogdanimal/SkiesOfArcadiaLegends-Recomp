@@ -155,7 +155,7 @@ Alt+Enter switch fullscreen. Windows checked with real key presses on the releas
 the newest state and the runtime loads it through the title screen (NOTES *Memory card auto-load*).
 Test user dir `build\user-cardtest` (the Retroid's card save in `GC\USA\Card A`, started by
 `build\cardtest.bat`: set `[Skies] AutoLoadCard = 1` in its `Config\Dolphin.ini`, cold boot): in the
-game at the save point in ~33 s with no input. **Open bug:** a battle can freeze when the speed changes
+game at the save point in ~33 s with no input. **Bug (fixed 2026-10-21, the recomp core's guest timebase ran fast under the 3x / 4x overclock and stalled the KO00NN stream every spell and S-move waits for; `recompcore-overclock-timebase.patch`, `e106420`, development notes *A battle can freeze*):** a battle could freeze when the speed changed
 during a round (NOTES *Known issues*; states `build\savestates\18-retroid-battle-softlock.sav`,
 `19-retroid-antonio-start.sav`). The dev user dir `build\user-ws` was left at BattleSpeed 2,
 Invincible 0 by those trials.

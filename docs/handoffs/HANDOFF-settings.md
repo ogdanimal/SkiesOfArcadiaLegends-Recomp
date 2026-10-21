@@ -182,13 +182,13 @@ newest memory card save, and a card save now loads by itself (the user chose tha
 the title screen"): the runtime drives the title / load screens by their task states (NOTES *Memory
 card auto-load*). Windows: cold boot to the save point in ~33 s with no input. Built: Windows release,
 Android `skies-recomp-ws16-autoload-2026-10-11.apk` (installed on the Retroid 22:15, user OK). The launcher's click path
-(Continue writing `AutoLoadCard`) isn't clicked by hand yet. **Open (tabled by the user 10-11):** the battle
-freeze after mid-round speed changes (NOTES *Known issues*).
+(Continue writing `AutoLoadCard`) isn't clicked by hand yet. **Tabled by the user 10-11, fixed 2026-10-21:** the battle
+freeze after mid-round speed changes (the recomp core's guest timebase ran fast under the 3x / 4x overclock and stalled the KO00NN stream every spell and S-move waits for; `recompcore-overclock-timebase.patch`, `e106420`, development notes *A battle can freeze*).
 
 **Next, in order:** commit the save import (2026-10-12; patches already regenerated and checked); the
 user tries Import a save through the desktop file dialog; the user tries Continue from a card save on the Retroid (APK installed 10-11);
 the battle freeze after mid-round speed changes is tabled (user, 10-11; NOTES *Known issues*: split the
-overclock from the interpolation, then the actual wait); (done 10-11: icon / banner everywhere on the Retroid after restarting Radikal;
+overclock from the interpolation, then the actual wait; fixed 2026-10-21, it was the overclock); (done 10-11: icon / banner everywhere on the Retroid after restarting Radikal;
 menu and controls "work great now"; the shader compile at every start, fixed and verified on the
 Retroid; the automatic controller-profile fix, verified from the SDL backup) a clean
 Android build without the input log; whether the Retroid's launcher shows the new icon; the user's

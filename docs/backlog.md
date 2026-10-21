@@ -92,7 +92,7 @@ straight asset swap. Still to do, from the same Eternal Arcadia discs:
 
 ## Super attacks out of sync with their sound at battle speed — reported 2026-10-21, done (ws27)
 
-**Done 2026-10-21 (game patch ws27, branch `smove`):** spells and special attacks (party and enemies)
+**Done 2026-10-21 (game patch ws27, `dev` `c18ddc4`):** spells and special attacks (party and enemies)
 play at normal speed, always on (the user's choice); development notes *Spells and special attacks at
 normal speed*.
 

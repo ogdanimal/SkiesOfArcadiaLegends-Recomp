@@ -634,7 +634,7 @@ Tools:
   Left: the state header read three times (a desktop picker file changing between reads only gets
   refused or imported as it is then); the u32 sum was already 64-bit.
 
-## The tabled battle-speed freeze
+## The tabled battle-speed freeze (fixed 2026-10-21)
 
 Changing battle speed while a round plays out can freeze the battle (NOTES *Known issues*, tabled by
 the user 10-11). The game-patch reviewer traced `qol.c` for it: the patch holds no derived state
@@ -643,6 +643,8 @@ across a speed change (`qol_speed_phase` resets whenever the speed is not fast; 
 at `0x801DCB88`; the `OSGetTick` lines in `fn_801DC420` feed an FPS counter, not game logic). A
 freeze that survives a save-state reload points at game RAM state driven by the host side (the 3x/4x
 overclock, or the audio / DSP timing the game waits on), not at the C patch.
+
+**Fixed 2026-10-21 (on `dev`):** it was both of those together: the recomp core's guest timebase ran fast under the 3x / 4x overclock and stalled the KO00NN stream every spell and S-move waits for; `recompcore-overclock-timebase.patch`, `e106420`, development notes *A battle can freeze*. Checked on Windows and the Retroid.
 
 ## Checked and OK (so nobody re-reviews it)
 
