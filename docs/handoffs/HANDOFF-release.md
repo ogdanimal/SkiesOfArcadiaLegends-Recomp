@@ -17,13 +17,15 @@ per version, the European card-save import fix, portable mode (#6), Linux on gli
   `616d635`, every other job green, the workflow diff since v0.60.0 only the Japanese disc).
 - After: SHA256SUMS match all five downloads; the APK carries the 73-file Uncensored manifest per game,
   2161 `Sys` assets and three modules, signed with the same certificate as v0.60.0's
-  (`e2c00b0b…a92f`), so it installs over it. Not done: installing it over a real v0.60.0 install on a
-  device (the update path, `Sys` extracted again, was checked with the debug-signed test app).
+  (`e2c00b0b…a92f`), so it installs over it. On the Retroid Nova (the user's release app at
+  0.51.0-beta, 2026-10-21): `adb install -r` of the published APK succeeded, the app keeps the imported
+  game and the save state (Continue), and the Dreamcast tab's Uncensored line says it needs Eternal
+  Arcadia, which it only says with the manifest loaded: `Sys` was extracted again on the update.
 - Issues answered after the release (the user's go-ahead): #4 (Japanese disc) and #6 (portable)
   closed, #8 answered and left open (DSF rips undecided). #7 (super attacks at battle speed) is a known
   issue, worked on in its own session; #3 and #5 open.
-- Still to do: comment `/retest` on AppImage/appimage.github.io#10524 (the 22.04 build is in this
-  release).
+- `/retest` commented on AppImage/appimage.github.io#10524 (2026-10-21, the user's go-ahead; the
+  22.04 build and the new AppImage name are in this release): watch its result.
 
 ## After v0.60.0-beta (2026-10-20)
 
