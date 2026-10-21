@@ -70,7 +70,7 @@ and on Windows. Slower Android devices may not keep 60 fps (see [Slower devices]
 | **macOS:** "can't be opened" / "Apple could not verify" at the first start | The app isn't notarized: **System Settings → Privacy & Security → Open Anyway** (once). |
 | **Windows / Linux:** "Failed to create Vulkan device" or a similar message at start | Your graphics driver can't run Vulkan. The game switches to OpenGL by itself and keeps it (**Settings → Display → Graphics backend**). If neither starts, install the latest driver for your graphics card. |
 | **Android:** the game crashes or draws things wrong | **Settings → Graphics → Renderer** switches between Vulkan and OpenGL ES. On Adreno devices, **Settings → Graphics → GPU driver** can load another driver (see [GPU driver](#gpu-driver-android)). |
-| **Windows / Linux / macOS:** "Game files missing" when the game starts | A file of the download (`gGEAE8P_recomp.dll` or the European `gGEAP8P_recomp.dll`; `.so` on Linux; inside the app on macOS) isn't beside the game. Extract the whole zip again and keep its files together; if the file disappears again, your antivirus removed it (allow the folder). |
+| **Windows / Linux / macOS:** "Game files missing" when the game starts | A file of the download (`gGEAE8P_recomp.dll`, the European `gGEAP8P_recomp.dll` or the Japanese `gGEAJ8P_recomp.dll`; `.so` on Linux; inside the app on macOS) isn't beside the game. Extract the whole zip again and keep its files together; if the file disappears again, your antivirus removed it (allow the folder). |
 | The import refuses your disc | It must be the USA (`GEAE8P`), European (`GEAP8P`) or Japanese (`GEAJ8P`) disc, the original release. |
 | Battle freezes after changing the battle speed | A known issue: change the speed while you choose commands, not while a round plays out. |
 | You want saves from Dolphin, a GameCube or another device | **Settings → Saves → Import a save**; see [Importing a save](#importing-a-save). |
@@ -144,8 +144,8 @@ press Start**), or in the launcher's **Settings** window.
 - **Dreamcast music** (optional): the Dreamcast version's soundtrack, from your own Dreamcast disc
   (see [Dreamcast music](#dreamcast-music)).
 - **Uncensored** (optional): the original Japanese models and textures the Western releases changed
-  (cigars, Bellena's outfit, the tavern sign, the drinks), from your own Eternal Arcadia discs (see
-  [Uncensored](#uncensored)).
+  (cigars, Bellena's outfit, the tavern sign, the drinks, Gilder's victory pose, Vigoro's outfit),
+  from your own Eternal Arcadia discs (see [Uncensored](#uncensored)).
 - **HD textures** (optional): a texture pack you downloaded, imported in Settings (see
   [HD textures](#hd-textures)).
 - **Save states:** five slots, plus an auto-save every 10 minutes on the field (the newest three are
@@ -185,7 +185,7 @@ chip, and it sounds different from the GameCube version. To hear it here:
    tab in game; it switches mid-song).
 
 The port runs the Dreamcast's sound driver on an emulated sound chip and plays the songs from your
-disc, in place of the GameCube music. Two of the streamed songs differ on the Dreamcast, the intro's
+disc, in place of the GameCube music, with the reverb the Dreamcast plays them with. Two of the streamed songs differ on the Dreamcast, the intro's
 (disc 1) and a story scene's (disc 2), and play the disc's recordings too (converted once, the first
 time they're needed, and kept in the music folder); the other two (the title and staff roll, the
 ending) are the same recordings on both. **Intro music** (below the import) picks the intro's: the
@@ -284,6 +284,8 @@ you can switch to 30 fps. Nothing changes unless you choose it.
 
 - **Changing the battle speed while a round plays out can freeze the battle.** Change it while you
   choose commands instead.
+- At a battle speed above Normal, a special attack's sound keeps playing after its animation has
+  ended ([#7](../../issues/7)).
 - On Android, battles top out at about 2.5x speed on a Snapdragon 865; 3x and 4x settle at 2x.
 - On Android, the field speed tops out at about 1.25x-1.5x on a Snapdragon 865 (1.5x on foot, 1.25x on
   the world map and in cutscenes).
