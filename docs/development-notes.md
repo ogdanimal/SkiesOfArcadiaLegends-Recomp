@@ -1283,18 +1283,48 @@ NMDM); the GameCube is big-endian, AKLZ-compressed and has GVR textures instead 
   `0x8031063C` = `0x638C` for Vyse, Aika and Gilder): Gilder alone freezes at victory variant 26
   even with the original files (the same failed allocation), so test with three members (Vyse and
   Aika at 0 HP still act). States in the WSL test folder `~/projects/skies-uncensor-e2e/states`
-  (`jp-09` world map with Gilder, `jp-12` the battle), scripts in its `tools/`. **Seeing the pose
-  every time** (`tools/victory12.sh GAME`): Vyse and Aika only stand at 0 HP because of the
-  **Invincible** cheat; with it off (`config:Dolphin.Skies.Invincible=0`) they don't count for the
-  victory, so from `jp-12` Vyse and Aika use Focus, Gilder attacks, the battle ends in the first
-  round and the victory is Gilder's, variant 26 (the smoke), four runs of four with different
-  input timing: the variant comes from the state.
+  (`jp-09` world map with Gilder, `jp-12` the battle), scripts in its `tools/`. Vyse and Aika only
+  stand at 0 HP because of the **Invincible** cheat; with it off (`config:Dolphin.Skies.Invincible=0`)
+  they don't count for the victory, which is then Gilder's. **A state taken in a battle already holds
+  the battle's files:** from `jp-12` (`victory12.sh`) the smoke played four times of four, but the
+  log (below) showed nothing loaded during those runs: it was the converted data the state had been
+  made with. The real test starts on the world map: `victory11.sh GAME` (from `jp-11`, walk into a
+  battle at 4x encounters, Attack until it ends) loads `bchara/ma0050.std` at the battle's start and
+  `beff/pcwin.mlk` at the victory, both served converted.
+- **The log line:** `SkiesUncensor::Redirect` writes "Uncensored: PATH from CONVERTED" (Disc IO,
+  notice level) each time a file is served converted from its start; with `Logger.ini` `[Logs] DIO =
+  True`, `[Options] WriteToFile = True` it lands in `Logs/dolphin.log` (desktop and Android). A
+  runner saves its config on exit, so edit `Logger.ini` only with the game stopped.
 - **Checked in a normal build (2026-10-20, WSL, Linux release build):** the import of disc 1 copied
   `BEFF/PCWIN.MLK` and `BCHARA/MA0050.STD` and converted both (byte-identical to the reference,
   `pcwin.mlk` padded to 761,016 decompressed); the original Japanese game with `Uncensored = 1`
   played Gilder's smoke pose (seen by the user).
-- **Not covered:** Vigoro's shirtless model (the Japanese one has 79 bones against 50, so its scene
-  motions would be needed), the drunk sailor model Legends remade (`tc0102` in `A004AB05`, 0xc300
+- **Vigoro in Aika's cell (2026-10-21):** only `A116AG02` (the Grand Fortress prison scene, event
+  `e6g002` of `me116a.sct`, Gilder in the party) differs: the West gave Vigoro a model of his own,
+  `tc9014` (a black top), where the Japanese scene uses his regular shirtless `tc9003`. The Japanese
+  model has 79 bones against 50 and Legends remade the GameCube one (0x8e80 against 0x6600), so
+  entry 2 is swapped whole (`uncensor.py` `WHOLE_CHARACTERS`): the model, its five motions (op
+  `motion`: the NMDM / POF0 chain padded to 32, converted like the victory pose's; the US Dreamcast
+  ones convert exactly into the GameCube's) and its textures, which take the Western model's nine
+  texture slots (op `tex_swap`: renamed, Japanese pixels as new CMPR with mips). Adding the textures
+  and blanking the old ones came out 5,699 bytes too big (zero runs cost 2 bytes per 18 in AKLZ);
+  the slots fit the original's 687,375 bytes exactly. Converted on WSL, Windows (all three games)
+  and the C++ test (219 of 219); **not yet seen in game**: it needs a save in the Grand Fortress
+  prison.
+- **Checked 2026-10-21:** Windows test app (all three games imported, 216 then 219 files identical to
+  the reference; each game warped through Pirate Isle `e`, the tavern, Maramba and three more areas:
+  the log shows the 6 converted area files served, no errors); macOS arm64 (the Mac session: build,
+  both Eternal Arcadia GDIs imported, 72 converted per game, no mismatch); Android, Retroid Pocket 5
+  test app (CHDs made with `chdman createcd`, picker import 68 + 4 files in about 18 s, 72 byte-exact
+  pulled back, the Japanese game's warp tour serves the same 6 files at 59.9 fps, a battle loaded
+  from disc serves both victory files).
+- **Android Sys:** the app extracted `Sys` again only when Dolphin's git revision changed, which our
+  releases never do (patches on one revision), so an updated install would have kept a `Sys` without
+  `Skies/uncensor-manifest.json` and imported no Uncensored files. `DirectoryInitialization` now adds
+  the package's `lastUpdateTime`. (A first APK from a fresh worktree also lacked `assets/Sys`
+  entirely: CMake copies `Data/Sys` into the assets during the build, after Gradle packed them; a
+  second build has them. CI's APKs have them.)
+- **Not covered:** the drunk sailor model Legends remade (`tc0102` in `A004AB05`, 0xc300
   against 0x8520), and everything that needs a script: the drunk sailor's entry (`0xc21` in `A004A`),
   the Hamachou party (disc 2), Ramirez's blood (`ME131I.SCT`), the "loqua" text.
 

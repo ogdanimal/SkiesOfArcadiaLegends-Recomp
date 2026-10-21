@@ -124,10 +124,11 @@ release, **Eternal Arcadia**, has the originals. Import your own Eternal Arcadia
 2** the same way (**Settings → Dreamcast**; v1.009, the regular release), then set **Uncensored** to
 **On** there or in the settings menu's Dreamcast tab. It brings back Dyne's and Gilder's cigars, Don's
 cigar and bottle, Bellena's outfit, the tavern sign, the red-faced drunks and their drinks, and
-Gilder's victory pose with his smoke (one of his three), from the next area or scene the game loads.
+Gilder's victory pose with his smoke (one of his three) and Vigoro in Aika's cell, from the next
+area or scene the game loads.
 The models are converted for your GameCube disc into `DreamcastUncensor` in the data folder; each
-file is checked first and keeps its original's size, so save states work either way. Not yet:
-Vigoro's outfit, and the cut or rewritten scenes (the drunk sailor, Ramirez's blood, "loqua").
+file is checked first and keeps its original's size, so save states work either way. Not yet: the
+cut or rewritten scenes (the drunk sailor, Ramirez's blood, "loqua").
 
 ### HD textures
 

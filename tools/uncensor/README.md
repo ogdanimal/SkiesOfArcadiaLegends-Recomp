@@ -46,9 +46,11 @@ the US Dreamcast and GameCube files). Both are zero-padded to the original's dec
 (`pad`): a smaller `pcwin.mlk` ran the battle loader out of memory. `python3 victory.py` checks the
 converters against the US Dreamcast to GameCube pairs.
 
-Not covered (need motion or script work): Vigoro's shirtless model (79 bones against 50), the drunk
-sailor and other characters only the Japanese disc places (script), Ramirez's blood (script), the
-drunk sailor model Legends remade.
+Vigoro in Aika's cell (`A116AG02`) is swapped whole although Legends remade his GameCube model
+(`WHOLE_CHARACTERS`): model, motions (`motion`) and the Western model's texture slots (`tex_swap`).
+
+Not covered (need script work): the drunk sailor and other characters only the Japanese disc places,
+Ramirez's blood, the drunk sailor model Legends remade.
 
 ## Running
 

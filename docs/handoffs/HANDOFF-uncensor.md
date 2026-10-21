@@ -70,18 +70,21 @@ How it works and every finding: development notes, *Uncensored* (the bullets *Gi
   original decompressed size: smaller `pcwin.mlk` files crashed). Reference `tools/uncensor/victory.py`
   (`make_manifest.py OUT --victory-only` merges it in about a minute); C++ `MldToGc`, `MlkReplace`,
   `StdRebuild`; `convert_test` 216 of 216. Both GameCube files are identical on the three discs.
-- **Checked in a normal build (WSL, Japanese game, `Uncensored = 1`):** the disc 1 import picked up
-  `BEFF/` and converted both files (identical to the reference); the user saw Gilder smoke.
-- **Seeing it every time:** `tools/victory12.sh GAME` in the test folder (from `jp-12`, Invincible
-  off live, Vyse and Aika at 0 HP Focus, Gilder attacks and wins in round one): Gilder's pose,
-  variant 26, four runs of four. With **Invincible** on (the test folder's `Dolphin.ini` has it on), the
-  0-HP members stay eligible and the pose usually goes to them.
+- **Checked in a normal build:** the disc 1 import picked up `BEFF/` and converted both files
+  (identical to the reference). The user saw Gilder smoke four times from `jp-12` (`victory12.sh`),
+  **but that state already held the converted battle files** (the log showed nothing loaded), so it
+  shows the converted data renders, not the import path. The import path: `victory11.sh` (from
+  `jp-11`, a battle walked into) serves `ma0050.std` and `pcwin.mlk` converted (log), on WSL and on
+  the Retroid; which variant those victories played wasn't seen.
 - Not checked: the USA or European disc in game (no state with Gilder in a battle; the files are the
   same as on the Japanese disc and convert byte-identically).
 - WSL test copies in `~/projects/skies-uncensor-e2e/User/games`: `GEAJ8P` original (the one to use
   now), `GEAJ8P-unc`, `-unc2`…`-unc7`, `-swap`, `-swap-padded`: experiments from before the port,
   hard-link copies; ask the user before deleting them.
-- Test tools (`~/projects/skies-uncensor-e2e/tools`): `jprun.sh GAME [STATE]`, `victory12.sh GAME`,
+- Test tools (`~/projects/skies-uncensor-e2e/tools`): `jprun.sh GAME [STATE]`, `victory11.sh GAME`
+  (the real victory test), `victory12.sh GAME` (from a state holding the files), `uncram.py`,
+  `wintour.sh GAME STATE` / `winrun.sh` / `winwarp.sh` / `winram.sh` (the Windows test app),
+  `aui.sh` (uiautomator: fails on the Retroid, "null root node"),
   `autofight12.sh GAME` (the `jp-12` battle, Attack until it ends, half speed), `ramdump.sh OUT`
   (24 MiB of RAM through `peek`), `snaptrace.py`. **No rolling captures** (`ringcap.sh` is not to
   be used; the user objected): one screenshot at a known moment, deleted after reading. The
@@ -89,17 +92,15 @@ How it works and every finding: development notes, *Uncensored* (the bullets *Gi
 
 ## Next
 
-1. **The user's Windows check** of the Dreamcast tab (still open): picker import of both discs in
-   `C:\dev\SkiesUncensor\app`, Uncensored on, Dyne's cabin, the Sailors' Island tavern sign; USA and
-   European games too.
-2. **Android:** APK of the branch on the Retroid (ask the user first): CHD import of both discs
-   (convert the GDIs with chdman), conversion time on the device, the Dreamcast tab, the CMPR output
-   on ARM (the converter's `dec_sha1` check fails the file if `fp-contract` changed the arithmetic).
-3. **macOS** build (the Mac session).
-4. **Vigoro** (79 bones against 50: his scene motions from the Japanese file too) — ask the user
-   whether it blocks the release. Then the script work (backlog).
-5. Push, merge, release (HANDOFF-release says to hold the tag until this is merged); draft notes in
-   the main checkout's `build/notes-next.md`.
+1. **Vigoro in game:** a save in the Grand Fortress prison (event `e6g002` of `me116a.sct`, Vyse and
+   Gilder in the party, before Aika's scream), on any of the three discs, then watch the scene with
+   Uncensored on (the log shows `field/a116ag02.mld` served).
+2. **Gilder's pose from the import path, by eye:** `victory11.sh` a few times while watching (the
+   variant is the game's pick).
+3. Optional: the Retroid Nova, a Windows picker import by the user (the CLI import and the Mac's
+   are done).
+4. Push, merge, release (HANDOFF-release says to hold the tag until this is merged); draft notes in
+   the main checkout's `build/notes-next.md`. Then the script work (backlog).
 
 ## Notes for whoever continues
 

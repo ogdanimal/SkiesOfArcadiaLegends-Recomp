@@ -79,9 +79,6 @@ smaller step.
 The Uncensored setting (development notes, *Uncensored*; HANDOFF-uncensor) covers the art that is a
 straight asset swap. Still to do, from the same Eternal Arcadia discs:
 
-- **Vigoro's shirtless outfit** (Aika's cell, `A116AG02`, and his boss fight): the Japanese model has
-  79 bones against the US / GameCube model's 50, so the scene's motions (NMDM) would come from the
-  Japanese file too; the GameCube model is also a Legends remake (0x8e80 against 0x6600).
 - **The drunk sailor model** Legends remade (`tc0102` in `A004AB05`).
 - **Script work:** the drunk sailor in the Sailors' Island tavern (entry `0xc21` only on the
   Japanese disc; his English lines are still in `field/me004a.sct`), the Hamachou party (disc 2),
