@@ -22,6 +22,9 @@ SECTIONS
      * others, so a save state made with an earlier build still has every older variable where this
      * build looks for it, and 0 in the new ones. */
     KEEP(*(.late_bss))
+    /* Then each later build's own, for the same reason (ws28: qol_normal_speed, which the frontend
+     * reads at its address). */
+    KEEP(*(.late_bss_ws28))
     /* widescreen.c's HUD width, then qol.c's and camera.c's input blocks, at fixed addresses
      * the frontend writes (Core/SkiesSettings.cpp, VideoCommon/SkiesMenu.cpp). */
     ASSERT(. <= 0x80002E9C, "patch data runs into ws_hud_aspect at 0x80002E9C")

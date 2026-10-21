@@ -47,7 +47,11 @@
  *             so at speed the animation ended long before the sound. It's running while a unit's
  *             action task (lbl_80309700[unit]) is the party's spell / S-move action (fn_80085064,
  *             command types 1 and 2) or the enemies' spell / special action (fn_80087074, types 1
- *             and 0xC); attacks, items and the rest keep the speed.
+ *             and 0xC); attacks, items and the rest keep the speed. Ship battles too (ws28): a turn
+ *             plays its phases on a timeline of frames (lbl_803472E0), each phase's record
+ *             (lbl_803472A4) giving the frames where the side acting first and the side acting
+ *             second play their actions (lbl_80306E38, in that order); magic, a crew member's
+ *             special, an enemy's special attack or the party's S-Cannon plays at normal speed. qol_normal_speed tells the frontend, which keeps frame interpolation on then.
  *
  * qol_input sits at a fixed address (cave.ld) and is written by the frontend every poll
  * (VideoCommon/SkiesMenu.cpp); with no frontend its magic stays 0 and the game is unchanged. */
@@ -111,6 +115,10 @@ __attribute__((section(".late_bss"))) static int qol_ship_live;
 /* The retraces this frame takes at speed: 2 (as the game), 1 (the polling loop skipped) or 0
  * (VIWaitForRetrace skipped too). Set by qol_frame, read by qol_skip_wait later in the frame. */
 __attribute__((section(".late_bss"))) static int qol_frame_retraces;
+/* 1 while a battle at speed plays at normal speed for a spell or special attack (ws28): the
+ * frontend reads it (VideoCommon/SkiesMenu.cpp) and keeps frame interpolation on. In its own
+ * section after .late_bss (cave.ld), so the variables ws27 had there keep their addresses. */
+__attribute__((section(".late_bss_ws28"), used)) int qol_normal_speed;
 
 #define GAME_MODE (*(volatile u32 *)0x803475CC) /* 6 = field / world map, 7 = battle */
 extern int fn_8022A854(int *state); /* the resident files into ARAM: one step, 1 when done */
@@ -138,6 +146,28 @@ extern int fn_8022A854(int *state); /* the resident files into ARAM: one step, 1
 #define BATTLE_UNITS ((unsigned char *volatile *)0x80309DE4) /* [0..3]: the party */
 /* lbl_80309700: each battle unit's action task (12; the task's first word is the function it runs) */
 #define ACTION_TASKS ((void *volatile *)0x80309700)
+/* A ship battle turn plays out on a timeline: lbl_803472E0 is its frame (a float), lbl_803472DC
+ * 1.0 while it plays (0 at the command input), lbl_803472A4 the phase playing's record (+0x4
+ * length, +0x8 first frame; the side acting first plays from +0xC to +0x14, the second from +0x14
+ * to the end). lbl_80306E38: the two sides' actions this phase in that order (fn_8015C1E4 puts
+ * the enemy's first when it acts first), 0x90 each (+0 count, s16; from +0x10, 0x10 each: +0 kind,
+ * +1 side (0 the party, 1 the enemy), +5 weapon slot, +8 id). */
+#define SHIP_TURN_FRAME (*(volatile float *)0x803472E0)
+#define SHIP_TURN_PLAYING (*(volatile float *)0x803472DC)
+#define SHIP_PHASE_RECORD (*(const unsigned char *volatile *)0x803472A4)
+#define SHIP_ACTIONS ((const volatile unsigned char *)0x80306E38)
+/* Action kinds (fn_80159D48 names them): 4 a cannon, 5 magic, 7 a crew member's special, 8 an
+ * enemy's action (ids 3-7 its special attacks: Hull Ram, Red Ray, Fist of Grendel, Boulder Throw,
+ * Stomp; 0-2 and 8 are messages and Flee). */
+#define SHIP_KIND_CANNON 4
+#define SHIP_KIND_MAGIC 5
+#define SHIP_KIND_CREW 7
+#define SHIP_KIND_ENEMY 8
+/* The party's weapons in a ship battle: SHIP_PARTY + 0x298, 0x22 each, item id +0x12. The
+ * S-Cannons: Harpoon Cannon and MoonStone Cannon. */
+#define SHIP_WEAPON_ID(slot) (*(const volatile unsigned short *)(SHIP_PARTY + 0x298 + (slot) * 0x22 + 0x12))
+#define HARPOON_CANNON 0x1AE
+#define MOONSTONE_CANNON 0x1AF
 #define MAP_ID (*(volatile int *)0x80311AC4)
 #define SHIP_PARTY ((unsigned char *)0x803063F0) /* the party's side of a ship battle */
 #define PARTY_RECORDS ((unsigned char *)0x8030B7F4) /* 0x5C each; MP +0xD, max +0xE */
@@ -327,11 +357,47 @@ TRK_CAVE static int qol_special_action(void) {
   return 0;
 }
 
+/* A ship battle playing magic, a crew special, a special attack or the S-Cannon. */
+TRK_CAVE static int qol_ship_special(void) {
+  const unsigned char *const phase = SHIP_PHASE_RECORD;
+  if (!qol_ship_battle() || SHIP_TURN_PLAYING != 1.0f || !qol_ram(phase))
+    return 0;
+  const int frame = (int)SHIP_TURN_FRAME;
+  const int first = *(const int *)(phase + 0xC), second = *(const int *)(phase + 0x14);
+  const int end = *(const int *)(phase + 0x8) + *(const int *)(phase + 0x4);
+  const int turn = frame >= first && frame < second ? 0 : frame >= second && frame < end ? 1 : -1;
+  if (turn < 0)
+    return 0;
+  const volatile unsigned char *const actions = SHIP_ACTIONS + turn * 0x90;
+  const int count = *(const volatile short *)actions;
+  for (int i = 0; i < count && i < 8; i++) {
+    const volatile unsigned char *const action = actions + 0x10 + i * 0x10;
+    const int kind = (s8)action[0], id = *(const volatile short *)(action + 8);
+    if (kind == SHIP_KIND_MAGIC || kind == SHIP_KIND_CREW ||
+        (kind == SHIP_KIND_ENEMY && id >= 3 && id <= 7))
+      return 1;
+    if (kind == SHIP_KIND_CANNON && action[1] == 0) {
+      const int slot = (s8)action[5];
+      const int weapon = slot >= 0 && slot < 5 ? SHIP_WEAPON_ID(slot) : 0;
+      if (weapon == HARPOON_CANNON || weapon == MOONSTONE_CANNON)
+        return 1;
+    }
+  }
+  return 0;
+}
+
+/* In battle at speed, a spell or special attack playing (at normal speed). */
+TRK_CAVE static int qol_normal_speed_now(void) {
+  if (!qol_on() || QOL_QUARTERS <= 4 || !qol_in_battle())
+    return 0;
+  return GAME_MODE == 7 ? qol_special_action() : qol_ship_special();
+}
+
 TRK_CAVE static int qol_fast(void) {
   if (!qol_on() || QOL_QUARTERS <= 4)
     return 0;
   if (qol_in_battle())
-    return !qol_special_action();
+    return !qol_normal_speed_now();
   return (qol_input.battle_speed & QOL_SPEED_FIELD) && GAME_MODE == 6;
 }
 
@@ -370,6 +436,7 @@ TRK_CAVE void qol_frame(void) {
     qol_ship_live = 0;
   if (qol_invincible())
     qol_refill();
+  qol_normal_speed = qol_normal_speed_now();
   if (qol_fast()) {
     /* Each frame earns 2 retraces at 1x (8 in quarters) and takes as many whole ones as it can
      * afford at this speed, at most the game's 2. */

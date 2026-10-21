@@ -1,0 +1,57 @@
+diff --git a/Source/Core/VideoCommon/SkiesMenu.cpp b/Source/Core/VideoCommon/SkiesMenu.cpp
+index da496f95c7..3ccb36493c 100644
+--- a/Source/Core/VideoCommon/SkiesMenu.cpp
++++ b/Source/Core/VideoCommon/SkiesMenu.cpp
+@@ -1012,6 +1012,9 @@ constexpr u32 INPUT = 0x80002EA0;          // qol.c's qol_input
+ constexpr u32 INPUT_MAGIC = 0x514F4C43;    // 'QOLC'
+ const RegionAddress GAME_MODE{0x803475CC, 0x8034ACEC, 0x80347048};  // 7 = battle (ship battles: InShipBattle)
+ const RegionAddress MAP_ID{0x80311AC4, 0x80315154, 0x80311544};
++// qol.c's qol_normal_speed (ws28): 1 while a battle at speed plays a spell or special attack at
++// normal speed. An earlier game patch has nothing there (0).
++constexpr u32 NORMAL_SPEED = 0x80002BDC;
+ // In qol_input's speed word (ws26): the speed holds in the field (game mode 6) too. Written only
+ // outside battle, so an earlier game patch, which takes the whole word for the battle speed, never
+ // sees it in a battle.
+@@ -1027,6 +1030,8 @@ enum class Place
+ };
+ 
+ bool s_interpolation_held = false;  // turned off while the game runs fast
++bool s_interpolation_resume = false;  // it was on when the hold began
++int s_interpolation_held_mode = 0;    // the Frame rate setting when the hold began
+ int s_speed_pending = 0;            // a new battle speed to save (after the lock is let go)
+ int s_field_speed_pending = 0;      // a new field speed to save (after the lock is let go)
+ int s_invincible_pending = -1;      // a new Invincible setting to save (after the lock is let go)
+@@ -1203,11 +1208,30 @@ void Write(Memory::MemoryManager& memory)
+   memory.Write_U32(Config::Get(Config::SKIES_HOLD_B) != 0 ? 1 : 0, INPUT + 28);
+ 
+   const bool fast = place != Place::Other && quarters > 4;
+-  if (fast != s_interpolation_held)
++  // A spell or special attack in a battle at speed plays at normal speed (the game patch decides,
++  // ws28), so interpolation comes back for it; the overclock stays as the speed set it.
++  const bool held = fast && !(place == Place::Battle && memory.Read_U32(NORMAL_SPEED) == 1);
++  const int frame_mode = Config::Get(Config::SKIES_FRAME_MODE);
++  if (held)
++  {
++    if (!s_interpolation_held)
++    {
++      s_interpolation_resume = FrameInterpolator::IsEnabled();
++      s_interpolation_held_mode = frame_mode;
++    }
++    // Off every poll, not only when the hold begins: the settings (SkiesSettings.cpp, on a state
++    // load or any option changed) ask for the Frame rate setting as it stands, which turned
++    // interpolation on in a fast battle. A request matching the interpolator's state does nothing.
++    FrameInterpolator::RequestEnabled(false);
++  }
++  else if (s_interpolation_held)
+   {
+-    s_interpolation_held = fast;
+-    FrameInterpolator::RequestEnabled(!fast && Config::Get(Config::SKIES_FRAME_MODE) >= 1);
++    // Back on only if it was running when the hold began (it turns itself off when the second EFB
++    // doesn't fit, and shouldn't try again at every spell) or the setting changed meanwhile.
++    FrameInterpolator::RequestEnabled(frame_mode >= 1 && (s_interpolation_resume ||
++                                                          frame_mode != s_interpolation_held_mode));
+   }
++  s_interpolation_held = held;
+ 
+   // A world map frame takes about a retrace of the emulated CPU's time, as a ship battle's does
+   // (s_overclock), so 3x there needs it clocked at 2x (1.5x stayed at 60 frames a second), and
