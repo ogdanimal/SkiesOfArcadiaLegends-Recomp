@@ -36,9 +36,9 @@ REGIONS = {
     "295a9fc982072bce60734eb6bdb60aec4182b702": ("GEAP8P", "GEAP8P.addresses.json"),
     "74d8ff5da244b7f7b653b7340b845a11db7a4732": ("GEAJ8P", "GEAJ8P.addresses.json"),
 }
-# MetroTRK's message handlers, dead without a debugger: the second code area (cave.ld), in USA
-# addresses (translated like the rest for another region).
-TRK_CAVE = (0x802548E8, 0x80257074)
+# MetroTRK's message handlers and the functions after them, dead without a debugger: the second
+# code area (cave.ld), in USA addresses (translated like the rest for another region).
+TRK_CAVE = (0x802548E8, 0x80257AF8)
 ADDRESS = re.compile(r"\b(fn_|lbl_|0x)(80[0-9A-Fa-f]{6})\b")
 HALF = re.compile(r"\b0x8[01][0-9A-Fa-f]{2}\b")
 CFLAGS = ["--target=powerpc-unknown-eabi", "-mcpu=750", "-Os", "-fno-pic", "-ffreestanding",

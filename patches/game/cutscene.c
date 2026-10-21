@@ -72,6 +72,8 @@ TRK_CAVE static int cs_shot_aspect(int map, u32 key) {
   if (map == 201) { /* the opening (me201a.sct) */
     if (key == 0x90763369)
       return 1360 + CS_BOTTOM; /* up at the Valuan ship's bridge: its decks end at 1.38 */
+    if (key == 0xE6946063)
+      return 1380; /* Fina's ship by the moon: the Valuan ship waits just past the right at 1.40 */
   }
   return 0;
 }

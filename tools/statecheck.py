@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Where a savestate caught the game: its PC and the return addresses up the stack, and whether any
 of them is in game-patch code (the low-memory gap 0x80001900-0x80002F00 or the MetroTRK area
-0x802548E8-0x80257074). A state caught in patch code returns into whatever a later build put at that
+0x802548E8-0x80257AF8). A state caught in patch code returns into whatever a later build put at that
 address, so it hangs or crashes there (NOTES *Savestates and moved patch code*).
 
 usage: tools/statecheck.py STATE.sav DOL
@@ -10,7 +10,7 @@ Reads Dolphin's LZ4 state format (Core/StateFile.cpp); the register block is fou
 (0x80350000 / 0x8034E720, the game's small-data bases)."""
 import struct, sys
 
-PATCH = ((0x80001900, 0x80002F00), (0x802548E8, 0x80257074))
+PATCH = ((0x80001900, 0x80002F00), (0x802548E8, 0x80257AF8))
 
 
 def lz4_block(src, out):

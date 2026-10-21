@@ -726,7 +726,7 @@ def report(ctx):
                 row["note"] = "start of RAM; constant"
         elif ua >= 0x81000000 or ua == 0x80003000:
             row.update(eu=ua, method="constant", conf="high", note="not a game address")
-        elif ua in (0x802548E8, 0x80257074) and False:
+        elif ua in (0x802548E8, 0x80257AF8) and False:
             pass
         else:
             f = containing_fn(ua)
@@ -909,7 +909,7 @@ def report(ctx):
                 bad.append((hex(pc), hex(ut), hex(et)))
     extra.append("- `__start` branch targets that differ all map to the matched EU function: %s" % ("yes" if not bad else bad))
 
-    TA, TB = 0x802548E8, 0x80257074
+    TA, TB = 0x802548E8, 0x80257AF8
     trk_us = [(a, s, n) for a, s, n in funcs if TA <= a < TB]
     unm = [n for a, s, n in trk_us if a not in M.match]
     extra.append("- USA MetroTRK handler range 0x%08X-0x%08X holds %d functions (%s .. %s); matched in EU: %d, unmatched: %s" % (
@@ -949,7 +949,7 @@ def report(ctx):
                      "used_as": "code", "eu": ea0, "method": "function/" + M.match[TA]["method"], "conf": "high",
                      "note": "range end below"})
         rows.append({"usa": TB, "meaning": "MetroTRK handlers end (TRK_CAVE[1])", "where": "gamepatch.py, cave.ld",
-                     "used_as": "code", "eu": eend, "method": "end of last fn (fn_80256FC4 EU + size)", "conf": "medium",
+                     "used_as": "code", "eu": eend, "method": "end of the last function in the range (EU + size)", "conf": "medium",
                      "note": "EU size 0x%X vs USA 0x%X" % (eend - ea0, TB - TA)})
         # dispatch table
         tb = map_data_addr(M, cons, symdata, 0x802FBCF0)

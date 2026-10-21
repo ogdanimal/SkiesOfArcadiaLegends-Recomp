@@ -42,11 +42,13 @@ SECTIONS
   /* A second code area, in place of MetroTRK's message handlers (fn_802548E8-fn_80256FC4, 10 KB):
    * they're reached only through MetroTRK's dispatch table (lbl_802FBCF0, read by
    * TRKDispatchMessage), and MetroTRK only starts with a debugger (__start checks 0x800030E8 for 2
-   * or 3; retail and Dolphin have 0). Put code here with section ".trkcave" (e.g. a file-wide
+   * or 3; retail and Dolphin have 0). Since ws29 it goes on over the next MetroTRK functions
+   * (fn_80257074-fn_80257A20, 2.6 KB), which only InitMetroTRK reaches (nothing outside MetroTRK
+   * calls or points at them); it stops at TRK_flush_cache (0x80257AF8), which the game calls. Put code here with section ".trkcave" (e.g. a file-wide
    * #pragma clang section text=".trkcave"); tools/gamepatch.py writes it over the DOL's text in
    * place. It's code only: its data and constants still go above. Last, so the ELF file stays
    * in address order. */
   .trkcave 0x802548E8 : { *(.trkcave .trkcave.*) }
-  ASSERT(. <= 0x80257074, "patch code doesn't fit in the MetroTRK area (0x802548E8-0x80257074)")
+  ASSERT(. <= 0x80257AF8, "patch code doesn't fit in the MetroTRK area (0x802548E8-0x80257AF8)")
   /DISCARD/ : { *(.comment) *(.eh_frame) *(.note*) }
 }
