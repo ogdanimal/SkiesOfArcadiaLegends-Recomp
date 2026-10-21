@@ -89,3 +89,19 @@ straight asset swap. Still to do, from the same Eternal Arcadia discs:
   would save players a chdman step.
 - **The @barai edition** (v1.003, HDR-0119): not checked; its files fail the SHA-1 check if they
   differ, which leaves those files out.
+
+## Super attacks out of sync with their sound at battle speed — reported 2026-10-21
+
+Issue #7 (bobbleyaga) and on Reddit (r/recomps v0.60.0-beta thread, Unleaded_95): every super attack,
+the party's and the enemies', plays its sound past the animation, or the game waits for the sound,
+"worse when increasing battle speeds", with or without V-Sync. Battle speed skips the game's
+end-of-frame waits, so the animation runs 2-4x while the sound hardware keeps real time. #7 asks, in
+order: Normal speed during a special attack (a toggle), the sound sped up, or the sound cut when the
+animation ends. Whether it also drifts at Normal speed is being measured (issue #3, the intro's A/V
+sync, may be related).
+
+## Texture filtering and lower resolutions — requested 2026-10-21
+
+Reddit (r/recomps v0.60.0-beta thread, Unleaded_95): texture filtering options, and resolutions below
+the lowest 16:9 one offered (640x528 shown on a 4K display) for an original-resolution look on 16:9:
+640x360 or 768x432.
