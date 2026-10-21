@@ -46,7 +46,7 @@ index a9e97d3c90..ff4d32dddc 100644
       * Settings, Graphics: unpacks an HD texture pack the player downloaded ([pack], a .7z or .zip
       * path or content URI) into the user directory's Load/Textures/GEA, replacing the previous one.
 diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
-index 84ca2c01a0..e51fcf83ac 100644
+index 84ca2c01a0..f8513ed197 100644
 --- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
 +++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
 @@ -56,8 +56,8 @@ class SkiesSettingsPanel(
@@ -68,7 +68,23 @@ index 84ca2c01a0..e51fcf83ac 100644
          val LANGUAGE = choices(0 to "English", 1 to "Deutsch", 2 to "Français", 3 to "Español")
          val VOLUME = (0..100 step 10).map { Choice(it, if (it == 0) "0% (muted)" else "$it%") }
          val DEAD_ZONE = (0..30 step 5).map { Choice(it, if (it == 0) "Off" else "$it%") }
-@@ -283,8 +284,8 @@ class SkiesSettingsPanel(
+@@ -271,20 +272,22 @@ class SkiesSettingsPanel(
+                         "The game's text. In game, the menu (hold Z, press Start) can switch it " +
+                             "and restart the game at once.")
+                 } else if (japan) {
++                    rowLine(rows, "Language").addView(text("Japanese", 16f, Color.WHITE))
+                     describe(rows, "The Japanese disc is in Japanese only. The European disc has " +
+                         "English, German, French and Spanish: import it in the Disc tab to " +
+                         "choose one here.")
+                 } else {
++                    rowLine(rows, "Language").addView(text("English", 16f, Color.WHITE))
+                     describe(rows, "The USA disc is in English only. The European disc has " +
+-                        "English, German, French and Spanish: import it in the Disc tab to " +
+-                        "choose one here.")
++                        "English, German, French and Spanish, the Japanese disc Japanese: import " +
++                        "one in the Disc tab for its language.")
+                 }
+             }
              "Sound" -> {
                  configRow(rows, "Volume", VOLUME, dolphin, "DSP", "Volume", 100,
                      "Music and sound effects.")
@@ -78,7 +94,22 @@ index 84ca2c01a0..e51fcf83ac 100644
              "Controls" -> {
                  padRow(rows, "Stick dead zone", DEAD_ZONE,
                      arrayOf("Main Stick/Dead Zone", "C-Stick/Dead Zone"), 0, 1,
-@@ -458,13 +459,15 @@ class SkiesSettingsPanel(
+@@ -440,14 +443,6 @@ class SkiesSettingsPanel(
+      */
+     private fun dreamcastRows(rows: LinearLayout) {
+         val imported = SkiesNative.describeDreamcastMusic()
+-        if (imported.isNotEmpty()) {
+-            configRow(rows, "Music", MUSIC, Settings.FILE_DOLPHIN, "Skies", "DreamcastMusic", 0,
+-                "The Dreamcast version's music, played by its own sound chip, or the GameCube's. " +
+-                    "Switches in game too.")
+-        } else {
+-            rowLine(rows, "Music").addView(text("GameCube", 16f, Color.WHITE))
+-            describe(rows, "Import your Dreamcast disc below to play the Dreamcast version's music instead.")
+-        }
+         val line = rowLine(rows, "Dreamcast disc")
+         line.addView(button("Import a Dreamcast disc…", BUTTON) {
+             close()
+@@ -458,13 +453,15 @@ class SkiesSettingsPanel(
              line.addView(button("Remove", BUTTON) {
                  val removed = SkiesNative.removeDreamcastMusic()
                  writeInt(Settings.FILE_DOLPHIN, "Skies", "DreamcastMusic", 0)
@@ -96,7 +127,21 @@ index 84ca2c01a0..e51fcf83ac 100644
          rows.addView(text(imported.ifEmpty { "Nothing imported yet." }, 15f, Color.WHITE).apply {
              setPadding(dp(200f), dp(8f), 0, 0)
          })
-@@ -479,6 +482,22 @@ class SkiesSettingsPanel(
+@@ -473,12 +470,36 @@ class SkiesSettingsPanel(
+                 setPadding(dp(200f), dp(10f), 0, 0)
+             })
+         }
++        if (imported.isNotEmpty()) {
++            configRow(rows, "Music", MUSIC, Settings.FILE_DOLPHIN, "Skies", "DreamcastMusic", 0,
++                "The Dreamcast version's music, played by its own sound chip, or the GameCube's. " +
++                    "Switches in game too.")
++        } else {
++            rowLine(rows, "Music").addView(text("GameCube", 16f, Color.WHITE))
++            describe(rows, "Import your Dreamcast disc above to play the Dreamcast version's music instead.")
++        }
+         if (imported.isNotEmpty()) {
+             configRow(rows, "Intro music", INTRO, Settings.FILE_DOLPHIN, "Skies", "DreamcastIntro", 1,
+                 "With the Dreamcast music: the intro's song from the Dreamcast disc (disc 1), or the " +
                      "GameCube's. The Dreamcast recording is a different cut, so it doesn't line up " +
                      "with this intro's scenes.")
          }
