@@ -205,8 +205,9 @@ every boot, so a change in game is written back there too. Any key can be set fr
 `VideoCommon/SkiesMenu.cpp`, drawn with ImGui in the on-screen UI and fed by `Pad::GetStatus`
 (controller 1). Since 2026-10-11 (late night, user request) it looks like the launchers' Settings
 windows: a rounded navy window over the dimmed game, **tabs** Saves (Save state, Load state, Auto-save),
-Graphics (Picture, Frame rate, Resolution 1 / 2 / 3 / 4 / 6x, Anti-aliasing = the backend's MSAA modes,
-HD textures (since 2026-10-17; Off with a hint until a pack is imported), V-Sync, Show FPS), Gameplay (Camera, Battle speed, Field speed, Encounters, Hold B, EXP, Gold, Magic EXP, Invincible),
+Graphics (Picture, HUD, Frame rate, Resolution 1 / 2 / 3 / 4 / 6x, Anti-aliasing = the backend's MSAA modes,
+Texture filtering, Anisotropic filtering, Scaling (since 2026-10-21, *Texture filtering, anisotropic
+filtering, scaling*), HD textures (since 2026-10-17; Off with a hint until a pack is imported), V-Sync, Show FPS), Gameplay (Camera, Battle speed, Field speed, Encounters, Hold B, EXP, Gold, Magic EXP, Invincible),
 Language (since 2026-10-18; the European disc's four, a second A restarts the game in a new one), Sound (Volume), Dreamcast (since 2026-10-20: Music once a Dreamcast disc is imported, Uncensored once the game has converted files), Controls
 (Stick dead zone, Rumble, Button mapping since 0.10); each row a label, a value box (the selected one gold-edged
 with arrows) and the launchers' one-line description; a hint line for the selected row. **L / R** (digital,
@@ -450,7 +451,8 @@ patch loads it at boot (*Memory card auto-load* below; when the newest card save
 e.g. card B, Continue offers the newest state instead). Its second line says which, e.g. "Save
 state: Slot 2  Oct 11 18:00" or "Memory card save: file 1  Oct 11 17:30". Start Game clears the key. Same rule in the Android app. Checked on Windows with dummy files both ways; import progress and errors sit under the menu. Segoe UI from `%windir%\Fonts` (DejaVu Sans on Linux, ImGui's font otherwise; note
 SDL's own environment is case-sensitive, Windows spells it `windir`). **Settings** opens a rounded modal
-window over the dimmed home screen, tabs **Graphics** (Picture, Frame rate, Anti-aliasing, V-Sync),
+window over the dimmed home screen, tabs **Graphics** (Picture, Frame rate, Anti-aliasing, V-Sync; since 2026-10-21 also Texture
+filtering, Anisotropic filtering, Scaling),
 **Display** (Screen windowed / fullscreen, Resolution, Show FPS, FPS in title bar, Graphics backend),
 **Gameplay** (Camera, Battle speed, Field speed, Encounters, Hold B, EXP, Gold, Magic EXP, Invincible), **Language** (since
 2026-10-18: English / Deutsch / Français / Español with the European disc, else a line saying the USA disc

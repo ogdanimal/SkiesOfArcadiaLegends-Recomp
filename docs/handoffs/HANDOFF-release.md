@@ -1,5 +1,26 @@
 # Handoff: releases (Windows, Linux, macOS, Android)
 
+## After v0.80.0-beta (2026-10-21)
+
+On `origin/dev` for the next release (draft notes: the main checkout's `build/notes-next.md`; the
+0.80 draft kept as `notes-next.md.080`):
+
+- **Graphics options** (`ce9b6df`, validate 39626291735 green): Texture filtering, Anisotropic
+  filtering, Scaling (Reddit request; development notes *Texture filtering, anisotropic filtering,
+  scaling*). Checked on Windows (test folder `C:\dev\SkiesGfx`) and the Retroid Pocket 5 test app.
+- **Battle freeze at 3x / 4x fixed and #7 done** (the #7 session, branch `smove`, on `dev`; validate on `c18ddc4` running at the time of writing: `e106420` the
+  guest timebase under overclock, `b84913f` docs, `c18ddc4` **game patch ws27**: spells and special
+  attacks at normal speed). ws27 changes the game patch, so the next release asks desktop players for
+  their disc once more (Android re-patches by itself); the draft notes' *Updating from 0.80* says so.
+  States made with earlier builds load and battle under ws27 (checked by that session).
+  `release/*.dolpatch` are ws27 already (`c18ddc4`; USA output `bd2d267f…`); release.yml pins only
+  the original DOLs, which don't change.
+- **AppImage catalog** (#10524): v0.80.0-beta passed; the bot's screenshot lacked the background art
+  (its sandbox; it loads in 3 s under Xvfb here), answered on the PR; a maintainer merges it. Update
+  information (zsync) is in the backlog.
+- **Shared Windows tree:** `C:\dev\SkiesRomhack` is ws27 now (the #7 session configured it); re-sync
+  `release\` and reconfigure before a build from another branch.
+
 ## Released (2026-10-21 UTC): v0.80.0-beta
 
 **v0.80.0-beta is the current release** (prerelease, the user's version number: "a big release,

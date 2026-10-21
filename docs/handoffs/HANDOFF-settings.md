@@ -6,6 +6,11 @@
 > (Dreamcast music) and Button mapping; settings keys and menu tabs are in NOTES *The player build*;
 > the work is in HANDOFF-dcmusic-eu and HANDOFF-input. Branch `hdtex` (merged 2026-10-18) adds
 > **HD textures** to the launchers' and the menu's Graphics tab (HANDOFF-hdtextures).
+> **2026-10-21:** Graphics also has **Texture filtering**, **Anisotropic filtering** and **Scaling**
+> (Dolphin's `GFX.ini [Enhancements]` ForceTextureFiltering / MaxAnisotropy / OutputResampling) in the
+> launcher, the in-game menu and Android (`recompcore-gfx-options.patch`, `ce9b6df`; development
+> notes *Texture filtering, anisotropic filtering, scaling*). The in-game menu's Graphics tab is the
+> tallest now (11 rows), so it sets the whole menu's size; checked readable on the Retroid Pocket 5.
 
 Everything below the history line is the session log; this is the summary. What a player gets and how it
 works is in NOTES *The player build* (controls, settings keys, menu, camera, options, launcher).

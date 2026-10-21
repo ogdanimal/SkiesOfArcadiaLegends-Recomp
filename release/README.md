@@ -81,7 +81,8 @@ Japanese).
 - **HUD placement** on a wide picture: at the screen edges, in a centred 21:9 or 16:9 area (easier to
   take in on an ultrawide), or the original 4:3 layout in the middle.
 - **60 fps** by frame interpolation, or the original 30.
-- Internal resolution and anti-aliasing.
+- Internal resolution and anti-aliasing; texture filtering (smooth or sharp pixels), anisotropic
+  filtering, and **Scaling**: Sharp keeps the original resolution (640x528) crisp on a large screen.
 - **Camera control:** hold Z and use the C-stick to tilt, and R / L to zoom out / in (towns, dungeons
   and the world map; on the world map Z + C-stick left / right also turns around the ship).
 - **Battle speed** up to 4x: tap Z during a battle.
