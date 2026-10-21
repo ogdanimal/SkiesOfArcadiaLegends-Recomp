@@ -7,12 +7,16 @@
     "qol.c",
     "qol.S",
     "autoload.c",
-    "dcmusic.c"
+    "dcmusic.c",
+    "cutscene.c",
+    "cutscene.S"
   ],
   "symbols": {
     "FontIsReady": "0x801E34AC",
     "FontUpdate": "0x801E35FC",
     "njClipZ": "0x80299188",
+    "njSetScreen": "0x802993C8",
+    "njSetPerspective": "0x802992F8",
     "ws_ortho_m00": "0x803463C0",
     "njProjectScreen": "0x80291E54",
     "GXSetProjection": "0x80251F8C",
@@ -166,6 +170,16 @@
   ],
   "redirect_calls": [
     {
+      "target": "njSetScreen",
+      "to": "cs_set_screen",
+      "why": "the screen distance, longer in a cutscene shot listed in cutscene.c"
+    },
+    {
+      "target": "njSetPerspective",
+      "to": "cs_set_perspective",
+      "why": "the screen distance from the lens (fn_8028BAEC), longer in a listed cutscene shot (cutscene.c)"
+    },
+    {
       "target": "sndSeqVolume",
       "to": "dcm_seq_volume"
     },
@@ -264,6 +278,66 @@
       "target": "fn_8002DC14",
       "to": "qol_damage",
       "why": "lbl_802DBB10: the battle action handlers' table, entry 0 is the damage function (qol.c)"
+    },
+    {
+      "address": "0x802F7AD4",
+      "target": "fn_80203FFC",
+      "to": "cs_op_21",
+      "why": "lbl_802F7940: script opcode 0x21, a camera command (cutscene.c)"
+    },
+    {
+      "address": "0x802F7B64",
+      "target": "fn_8020726C",
+      "to": "cs_op_2D",
+      "why": "lbl_802F7940: script opcode 0x2D, a camera command (cutscene.c)"
+    },
+    {
+      "address": "0x802F7B70",
+      "target": "fn_8020549C",
+      "to": "cs_op_2E",
+      "why": "lbl_802F7940: script opcode 0x2E, a camera command (cutscene.c)"
+    },
+    {
+      "address": "0x802F7B7C",
+      "target": "fn_80204F8C",
+      "to": "cs_op_2F",
+      "why": "lbl_802F7940: script opcode 0x2F, a camera command (cutscene.c)"
+    },
+    {
+      "address": "0x802F7BA0",
+      "target": "fn_80204CD0",
+      "to": "cs_op_32",
+      "why": "lbl_802F7940: script opcode 0x32, a camera command (cutscene.c)"
+    },
+    {
+      "address": "0x802F7BB8",
+      "target": "fn_80204BE8",
+      "to": "cs_op_34",
+      "why": "lbl_802F7940: script opcode 0x34, a camera command (cutscene.c)"
+    },
+    {
+      "address": "0x802F7EF4",
+      "target": "fn_802034B0",
+      "to": "cs_op_79",
+      "why": "lbl_802F7940: script opcode 0x79, a camera command (cutscene.c)"
+    },
+    {
+      "address": "0x802F7F24",
+      "target": "fn_8020731C",
+      "to": "cs_op_7D",
+      "why": "lbl_802F7940: script opcode 0x7D, a camera command (cutscene.c)"
+    },
+    {
+      "address": "0x802F7FCC",
+      "target": "fn_80202DEC",
+      "to": "cs_op_8B",
+      "why": "lbl_802F7940: script opcode 0x8B, a camera command (cutscene.c)"
+    },
+    {
+      "address": "0x802F80BC",
+      "target": "fn_802023BC",
+      "to": "cs_op_9F",
+      "why": "lbl_802F7940: script opcode 0x9F, a camera command (cutscene.c)"
     }
   ]
 }

@@ -199,6 +199,9 @@ void ws_apply(void) {
   }
 }
 
+/* The HUD x scale, for cutscene.c (1 = the original 4:3). */
+float ws_factor(void) { return ws_config.factor; }
+
 /* 3D at the game's own field of view, for draws the wrappers in fullwidth.S put between
  * ws_unwide_begin and ws_unwide_end: the battle-entry shatter (fn_802297C4) draws the copied screen
  * as 3D tiles sized to the unwidened view, so with the widened projection they covered only the

@@ -196,6 +196,7 @@ ws_frame_end:
 	stw 0, 20(1)
 	bl ws_apply
 	bl qol_frame
+	bl cs_frame
 	lwz 0, 20(1)
 	mtlr 0
 	addi 1, 1, 16
