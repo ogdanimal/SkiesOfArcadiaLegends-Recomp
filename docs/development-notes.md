@@ -1879,6 +1879,39 @@ and saves `Hud`. Android: the Settings row compiles (`compileDebugKotlin`), not 
 launcher row built, not looked at. Not checked: Windows, the field party status and dungeon minimap
 (right-edge anchors, same code path), the European DOL (same sources, no new game address).
 
+### Cutscene shots framed for widescreen (2026-10-21, branch `cutscene`, issue #10)
+
+Issue #10 (Renatodep): in the opening "you see the Valuan ship on the side". The cutscenes are
+scripted field scenes (`field/meNNNx.sct`) with set pieces built only as wide as the 4:3 camera sees;
+Hor+ widening shows what was staged out of frame or never built. Found in the opening (map 201,
+`me201a.sct`, 16:9 vs 4:3 shot by shot up to the first battle, 34 shots): Fina's ship by the moon with
+the Valuan ship waiting just past the right edge, and the look up at the Valuan bridge whose side decks
+end in mid-air short of the edges. Other edge differences there (the pirate flag's end, the pirate
+ship's bow) are real objects.
+
+`cutscene.c` / `cutscene.S` (game patch; decomp `docs/widescreen.md` *Cutscene shots*): the script VM's
+ten camera commands go through stubs that note the shot, map + FNV-1a of the command's words (the same
+in the USA, European and Japanese scripts; all 53 opening keys match); a shot listed in
+`cs_shot_aspect` shows no wider than its aspect: the screen distance times picture aspect / listed
+aspect, through both ways the camera sets the screen (`njSetScreen`, and `njSetPerspective` from the
+lens, `fn_8028BAEC`); `CS_BOTTOM` / `CS_TOP` move the screen's centre so the bottom (top) edge stays
+where 4:3 has it. 4:3 never zooms. Listed: `0x90763369` (the bridge, 1.36, bottom), `0xE6946063`
+(Fina's ship, 1.38). To list another: play to it, `peek` `cs_shot` (key, map, script offset, opcode),
+poke `test_key` / `test_map` / `test_aspect` to try an aspect live, or hash the command's words from a
+SPICE dump (`SpiceSCT`, built on Linux with a Windows.h stub, `rawWords` = the command's words).
+
+The MetroTRK code area grows to `0x80257AF8` (`cave.ld`): ws28 + this needed 0x277C of 0x278C. The
+added functions (`fn_80257074`-`fn_80257A20`) are reached only by `InitMetroTRK` (checked from every
+non-MetroTRK function and data pointer; dolmatch: same range and offsets in Europe and Japan).
+
+Checked on WSL (USA, test DOL `build/game/GEAE8P-cs1`): JIT runs from a cold boot and the static recomp
+module (`build/us-gencs/module-linux`, PGO profile of `modules-llvm-pgo-gp`) at speed 1.0: both shots
+zoom (1.307 / 1.288 at 16:9), the bridge keeps its decks along the bottom, the waiting ship is gone,
+the next shots (Alfonso's bridge) are unzoomed from their first frame, 4:3 keeps the game's distance,
+and a state from ws24 picks the stubs up (the handler table is rewritten every frame). Not checked
+yet: Windows, Android, the European and Japanese games in play (they build), the rest of the game's
+cutscenes.
+
 ### Widescreen 4:3 setting: identical to the unpatched game (2026-10-10 night, DOL `7cb9de68`, `GEAE8P-ws10`)
 
 The runtime's `[Skies] Widescreen = 0` writes `ws_config.display_aspect = 0` (handoffs/HANDOFF-settings.md). The

@@ -145,3 +145,13 @@ are in `GameCube-Research/targets/SkiesOfArcadiaLegends/issues/11/`. Not investi
 development notes *Widescreen HUD at the edges*, *HUD placement*, ship battles (`InShipBattle`),
 and the replayed display lists that keep an old projection while a menu is open (*Known issues*).
 
+
+## Cutscene shots that show past their set pieces in widescreen — issue #10, 2026-10-21
+
+Renatodep: "Is there a way to edit models positions for the wide screen cutscenes? I.e. opening with
+Fina where you see the valuan ship on the side?" Branch `cutscene` frames listed shots (development
+notes *Cutscene shots framed for widescreen*); the opening's two are listed. The rest of the game's
+cutscenes (255 scripts, 5,493 distinct camera commands) aren't surveyed: list shots as players report
+them, or survey a scene at a time with the 16:9 / 4:3 shot log. Data-only alternative players can use
+today: SPICE (github.com/SoAModTools/SPICE) edits `.sct` camera poses, lens and object placement, and
+the port plays such a romhack (it changes the 4:3 picture too).

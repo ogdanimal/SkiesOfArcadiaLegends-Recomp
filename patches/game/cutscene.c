@@ -58,7 +58,7 @@ struct cs_shot {
 };
 
 /* After every older build's data, so their states hold zeros here (cave.ld). */
-__attribute__((section(".late_bss"), used)) struct cs_shot cs_shot;
+__attribute__((section(".late_bss_ws29"), used)) struct cs_shot cs_shot;
 
 /* The widest picture aspect (per mille) each listed shot can show; 0 = any. Plus CS_BOTTOM: the
  * shot keeps its bottom edge where the 4:3 picture has it and loses only the top (CS_TOP: the
