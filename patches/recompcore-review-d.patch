@@ -1,0 +1,77 @@
+diff --git a/Source/Core/VideoCommon/FrameInterpolator.cpp b/Source/Core/VideoCommon/FrameInterpolator.cpp
+index 3d18d7b56e..9c74d9ed11 100644
+--- a/Source/Core/VideoCommon/FrameInterpolator.cpp
++++ b/Source/Core/VideoCommon/FrameInterpolator.cpp
+@@ -219,6 +219,8 @@ bool s_verbose = false;  // RECOMP_FRAME_INTERPOLATION=2: statistics every 300 f
+ // Test switches (files in the user directory), to measure the parts' costs:
+ // FrameInterpolation.noreplay records but never replays, .norecord doesn't record either.
+ bool s_test_noreplay = false, s_test_norecord = false;
++// FrameInterpolation.failefb: act as if the replay's EFB couldn't be created (the phone-GPU case, D6).
++bool s_test_failefb = false;
+ using detail::s_replaying;
+ // Whether this frame's stream is being recorded: not while the budget keeps interpolation off,
+ // except for the frames just before it would come back on.
+@@ -1043,6 +1045,7 @@ bool ReadEnabled()
+   s_verbose = (env && env[0] == '2') ||
+               File::Exists(File::GetUserPath(D_USER_IDX) + "FrameInterpolation.stats");
+   s_test_norecord = File::Exists(File::GetUserPath(D_USER_IDX) + "FrameInterpolation.norecord");
++  s_test_failefb = File::Exists(File::GetUserPath(D_USER_IDX) + "FrameInterpolation.failefb");
+   s_test_noreplay =
+       s_test_norecord || File::Exists(File::GetUserPath(D_USER_IDX) + "FrameInterpolation.noreplay");
+   if (enabled)
+@@ -1053,6 +1056,9 @@ bool ReadEnabled()
+ }  // namespace detail
+ 
+ static std::atomic<s8> s_pending_enabled{-1};
++// Set when the replay turned interpolation off by itself (RunJob); Shutdown() then runs at the next
++// XFB copy, where nothing holds a pointer into s_shown. GPU thread only.
++static bool s_shutdown_pending = false;
+ 
+ void RequestEnabled(bool enabled)
+ {
+@@ -1061,6 +1067,8 @@ void RequestEnabled(bool enabled)
+ 
+ void ApplyPendingEnabled()
+ {
++  if (s_shutdown_pending)
++    Shutdown();
+   const s8 pending = s_pending_enabled.exchange(-1);
+   if (pending < 0 || pending == detail::s_enabled)
+     return;
+@@ -1459,12 +1467,15 @@ static bool RunJob(bool whole)
+   // dark garbage texture for one game frame, now and then, on the Retroid.
+   std::vector<u8> game_state = SaveState();
+   std::array<RcTcacheEntry, 8> game_bound = g_texture_cache->GetBoundTextures();
+-  if (!g_framebuffer_manager->SwapEFB())
++  if (s_test_failefb || !g_framebuffer_manager->SwapEFB())
+   {
+     // No memory for the replay's EFB (a high resolution with MSAA on a phone GPU): the real
+-    // pictures only, until the setting is changed again (and a smaller EFB may then fit)
+-    Shutdown();
++    // pictures only, until the setting is changed again (and a smaller EFB may then fit). Not
++    // Shutdown() here: the caller may hold a frame of s_shown (PictureForRetrace's `current`), so
++    // the recorded data go at the next XFB copy (ApplyPendingEnabled).
++    EndJob(false);
+     detail::s_enabled = 0;
++    s_shutdown_pending = true;
+     Log("[interp] frame interpolation off: the second EFB can't be created\n");
+     OSD::AddMessage("60 fps is off: not enough graphics memory at this resolution", 10000);
+     return false;
+@@ -1600,6 +1611,9 @@ static void EndFrame(u32 dest_address)
+ {
+   // The previous replay has to be done before its frame's data are replaced.
+   FinishJob();
++  // It may have turned interpolation off (no second EFB): record nothing more until ApplyPendingEnabled.
++  if (!detail::s_enabled)
++    return;
+ 
+   // Number the loads now that every key is known.
+   std::map<std::tuple<u16, u8, u64>, u32> seen;
+@@ -1879,6 +1893,7 @@ RcTcacheEntry FindReplayCopy(u32 address, TextureFormat format, u32 width, u32 h
+ 
+ void Shutdown()
+ {
++  s_shutdown_pending = false;
+   s_shown.clear();
+   s_job = {};
+   s_replay_copies.clear();
