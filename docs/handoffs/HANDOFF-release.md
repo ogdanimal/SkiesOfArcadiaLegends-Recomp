@@ -1,5 +1,23 @@
 # Handoff: releases (Windows, Linux, macOS, Android)
 
+## On dev after v0.81.0-beta (2026-10-22)
+
+For the next release (version not chosen; draft notes in the main checkout's `build/notes-next.md`,
+New: #12, Fixed: #9, reporters linked):
+
+- **#9 Drachma's victory pose squeezed into 4:3**: game patch **ws31** (`bb38213`; development notes
+  *Battle screen plane*). `release/*.dolpatch` are ws31 (outputs USA `7ef9451c`, Europe `b559fc7a`,
+  Japan `92d83c42`, each checked with `tools/applydolpatch.py`). The patch changes, so desktop players
+  are asked for their disc once more and Android re-patches by itself: the notes' *Updating* section
+  says so. ws31 only adds code at the end of the MetroTRK area (`.trkcave_late`), so ws30 states load.
+- **#12 Android: both landscapes**: `recompcore-android-orientation.patch` (`af2d899`). A Retroid's
+  firmware overlay forces landscape, so it can only be seen on a phone (development notes, Android app).
+- Checked: WSL (static modules, ws30 against ws31), Retroid Pocket Nova and Pocket 5 (local test APK
+  `skies-recomp-ws31-2026-10-22-test.apk`; both `.test` apps hold it now, their USA discs re-patched to
+  ws31, the Pocket 5's European disc still ws29 until it's started). Not run: Windows, Linux, macOS (the
+  change is game code, the same on every platform). Validate 39809242068 on `72bf7bf`.
+- Replies to #9 and #12 wait for the release, as before.
+
 ## Released (2026-10-22 UTC): v0.81.0-beta
 
 **v0.81.0-beta is the current release** (prerelease, the user's version number; tag on `1bd19c7`,
@@ -26,7 +44,7 @@ Android re-patches by itself.
   and left open for more shots. AppImage catalog PR #10524 is merged, so no retest is needed.
 - New open issues: **#9** "Drachma's winning animation breaks aspect ratio" (likely another
   full-screen picture or 2D drawn full width, as #11 was), **#12** Android: both landscape
-  orientations. Still open: #5 (cheats), #8 (DSF rips), #10.
+  orientations (both fixed on dev since: the section above). Still open: #5 (cheats), #8 (DSF rips), #10.
 
 ## Shipped in v0.81.0-beta (on dev after v0.80.0-beta, 2026-10-21)
 

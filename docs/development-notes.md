@@ -37,7 +37,9 @@ rebuilt.
 
 The game with the recomp's features (widescreen, camera, options; *The player build*) runs from the
 patched DOL with a module built from that same DOL. Released: game patch **ws30**, in **v0.81.0-beta**
-(2026-10-22; `patches/game/README.md` has the history). Older notes for this paragraph: on `dev` since 2026-10-18 **ws24** (*HUD placement*, on top of ws23's Continue fix, *Memory card
+(2026-10-22; `patches/game/README.md` has the history). On `dev` since: **ws31** (Drachma's victory
+pose, issue #9, *Battle screen plane*; `build/game/GEAE8P-ws31` / `GEAP8P-ws31` / `GEAJ8P-ws31` in the
+`pal60` worktree, WSL static module of the debug variant `build/ws31dbg`). Older notes for this paragraph: on `dev` since 2026-10-18 **ws24** (*HUD placement*, on top of ws23's Continue fix, *Memory card
 auto-load*; `build/game/GEAE8P-ws24` / `GEAP8P-ws24`, WSL modules `../skies-aspect/build/us-genhud/module-linux`
 and `build/eu-gen24/module-linux`, no PGO); ws23 was built for Android (`build/game/GEAE8P-ws23` /
 `GEAP8P-ws23`, `build/android/apk/skies-ws23-2026-10-17.apk` on the debug test app); the desktop trees
