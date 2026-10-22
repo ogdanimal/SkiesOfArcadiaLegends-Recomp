@@ -776,7 +776,7 @@ index 20c14278a6..98363b45f9 100644
 +bool ResetDefaults(SkiesBindings::Slot slot);
  }  // namespace SkiesInput
 diff --git a/Source/Core/Core/SkiesMusic.cpp b/Source/Core/Core/SkiesMusic.cpp
-index baacb2e16c..c411a51662 100644
+index baacb2e16c..3bccc30a9c 100644
 --- a/Source/Core/Core/SkiesMusic.cpp
 +++ b/Source/Core/Core/SkiesMusic.cpp
 @@ -8,6 +8,7 @@
@@ -795,7 +795,7 @@ index baacb2e16c..c411a51662 100644
  
  namespace SkiesMusic
  {
-@@ -92,6 +94,24 @@ struct Song
+@@ -92,6 +94,26 @@ struct Song
  
  const Addresses* s_addr = nullptr;
  bool s_running = false;
@@ -813,14 +813,16 @@ index baacb2e16c..c411a51662 100644
 +    const std::filesystem::path path = DCMusic::Directory() + name;
 +    const auto size = std::filesystem::file_size(path, ec);
 +    const auto time = std::filesystem::last_write_time(path, ec);
-+    stamp += std::to_string(size) + ":" + std::to_string(time.time_since_epoch().count()) + ";";
++    // libc++'s file_clock counts in __int128 (Android, macOS): no to_string overload takes it
++    stamp += std::to_string(size) + ":" +
++             std::to_string(static_cast<long long>(time.time_since_epoch().count())) + ";";
 +  }
 +  return stamp;
 +}
  u32 s_read = 0;  // events taken from the ring so far
  Song s_current, s_paused;
  std::array<std::array<std::string, 16>, DCMusic::PLAYERS> s_resident;  // per player and bank: MLT
-@@ -440,9 +460,15 @@ void Poll(Memory::MemoryManager& memory)
+@@ -440,9 +462,15 @@ void Poll(Memory::MemoryManager& memory)
    // and pair) even while the GameCube's plays, so turning the option on mid-song can take it over.
    InitBlock(memory);
    const bool want = Config::Get(Config::SKIES_DC_MUSIC) != 0 && DCMusic::Installed();

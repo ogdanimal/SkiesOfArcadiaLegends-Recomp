@@ -757,6 +757,9 @@ working copies of `8bf2116`.
   driver install re-extract the driver folder Start is loading. `save_import.cpp` has no core check of
   its own. **Fix:** the `importRunning` state (with `showImporting()`) for all four, and re-check
   `NativeLibrary.IsRunning()` before each entry of the backup loop.
+  Device-checked 2026-10-22 (Pocket 5, test app, `skies-recomp-ws34-2026-10-22-test.apk`): Back up saves
+  shows "Saving the backup…" and its result ("Saved a backup with 3 memory card saves and 11 save
+  states"); the zip tests clean (14 files).
 
 - [x] **D8 Medium (Android): the Dreamcast and texture-pack Remove buttons don't wait for the game to
   close.** FIXED 2026-10-22 (`afterGameClosed {}` + `startTask`, off the main thread). The
@@ -771,6 +774,10 @@ working copies of `8bf2116`.
   a multi-GB pack runs `DeleteDirRecursively` on the main thread (ANR). **Fix:** `afterGameClosed {}`
   and a worker thread for both; also have `DiscContent::Read` (`RC/Core/DiscIO/DirectoryBlob.cpp:98-103`)
   fall back to the disc's own file when a redirected one can't be opened (covers D19's cache too).
+  Device-checked 2026-10-22 (Pocket 5): with the game running behind a task-clearing relaunch
+  ("Game in progress"), Dreamcast Remove closed the game first, then removed both folders; no crash,
+  no ANR. (Remove also turns Music and Uncensored off; the test app's folders and settings were put
+  back afterwards.)
 
 - [x] **D9 Medium, plausible: Continue on the Japanese disc may write past the card task's work area.**
   FIXED 2026-10-22 (game patch ws34, branch `review`): confirmed in the Japanese DOL, `fn_801A4070`
@@ -810,6 +817,9 @@ Android:
   run each handler through `AfterDirectoryInitializationRunner().runWithLifecycle(this) { ... }`.
   FIXED 2026-10-22 (branch `review`): the seven picker results run through `afterInit {}`
   (`AfterDirectoryInitializationRunner().runWithLifecycle`). Kotlin compiles; device check pending.
+  Device-checked 2026-10-22 (Pocket 5): the app process killed (`am kill`) while the Back up saves
+  picker was up; Save brought up a new process and launcher, and the result ran the backup (busy
+  screen, result line) instead of throwing in `getUserDirectory()`.
 - [x] **D12:** the results of save import, backup and driver install are posted to the Activity that
   started them; a rotation or dark-mode change in between (no orientation lock,
   `AndroidManifest.xml:75`) recreates it and the result panel goes to the old one: the player never
@@ -835,6 +845,8 @@ Android:
   FIXED 2026-10-22 (branch `review`): automation runs only when `<User>/Automation` resolves inside
   `/Android/data/` (the app's own external storage, what `tools/drive.py` uses) or `/data/`; a moved
   data folder in shared storage logs that it's off. NDK syntax check passes.
+  Device-checked 2026-10-22: the automation directory in the app's own storage still starts
+  (`Automation directory: /storage/emulated/0/Android/data/...`), Continue at 1.002x.
 
 Dreamcast music, Uncensored, European streams:
 - [x] **D16:** the Dreamcast import puts ISO 9660 names in the output path as they are
