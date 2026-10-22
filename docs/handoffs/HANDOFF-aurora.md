@@ -379,10 +379,25 @@ them; `tools/check-patches.sh` passes. The work was ported from the stale main c
 there is built from the ws30 DOL in `~/projects/skies-pal60/build/game/GEAE8P-ws30`). Nothing is on by
 default: `-DMODERNGEKKO_ENABLE_AURORA=ON`, `AURORA=1 tools/android-ws-build.sh`.
 
+**Picture modes and the Nova (after 0025).** Pocket 5 screencaps with the Picture option: 4:3 is
+pillarboxed with 4:3 geometry, Match screen on the 16:9 screen and 16:9 fill it; the presenter's
+rectangle drives Aurora as intended. Nova lifecycle script with the final APK: loaded 1.004, Home and back
+1.001, menu sequence 1.002, three loads 1.002, second state 0.999, picture present throughout.
+
+**The in-game menu is invisible under Aurora, by construction.** `SkiesMenu::Draw` is Dear ImGui through
+Dolphin's `OnScreenUI`, which the presenter only creates for a backend whose gfx is not headless; the
+Aurora backend runs on the Null gfx classes (headless), so no OSD exists: not the Z+Start menu, not the
+OSD messages ("Controller: ...", the settings' restart notice). The lifecycle script's "menu open"
+screencap showed the plain scene for that reason. To fix: hand Dolphin's `ImGui::GetDrawData()` (or an
+OnScreenUI rendered through a small Aurora-side gfx) to the fork's present pass, which already has an
+ImGui overlay path (`imgui::freeze()` in `aurora.cpp`, stubbed by `AURORA_ENABLE_IMGUI=OFF` because
+Dolphin ships its own Dear ImGui). Until then the Android app's Settings panel and the launcher are the
+only way at the settings under Aurora.
+
 ## Open
 
-1. The in-game menu check (the Z+Start sequence left no menu on the screencap), Picture = 4:3 and
-   Match screen by eye under Aurora, the lifecycle script on the Nova.
+1. The OSD under Aurora (above): the in-game menu and OSD messages are Dear ImGui through
+   `OnScreenUI`, which needs a non-headless gfx; give the fork Dolphin's draw data.
 2. Coverage: battles, menus, world map night, EU/JP, HD textures (Aurora's own replacement; Dolphin's packs
    don't apply); macOS; a Linux GPU (WSL's llvmpipe tint).
 3. Cheaper still: the interpolator's own bookkeeping (~10% of the GPU thread), VideoCommon's decode of

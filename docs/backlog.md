@@ -184,7 +184,8 @@ Where it stands (2026-10-22 noon): the picture matches Dolphin on both Retroids,
 (three fork bugs found and fixed: the XF viewport decoded only from six-register loads, and
 intermediate EFB passes skipped under the 60 fps replay, on Android and on Windows); 60 fps at full speed on both Retroids
 with Vulkan's on-screen cadence; the Picture option applies. Left to ship it as a renderer choice:
-HD texture packs (Aurora's
+the in-game menu and OSD messages (Dolphin's Dear ImGui overlay never draws on the headless Null gfx the
+backend runs on; hand the draw data to the fork's present pass), HD texture packs (Aurora's
 own replacement format), coverage (ship battles, menus, world map night, EU/JP, cutscene framing),
 packaging (Dawn in every build, CI), macOS, a Linux GPU. The reason to do it is owning the renderer,
 not speed; Vulkan costs nothing further.
