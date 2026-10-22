@@ -330,26 +330,37 @@ timing, or the menu closed again; inconclusive), and after the three loads in a 
 red channel at all (mean colour 0,28,37: the shadow composite's red restore lost), the same look as the
 Nova showed on a cutscene state and WSL shows always; a single load is fine.
 
-**The fringe is back, and was never fixed for this game.** The Nova test runs of session 5 booted
-through Start Game and then loaded a state; the Pocket 5's launcher (1920x1080) puts the old tap
-position on **Continue**, which loads the device's newest state first. On the Pocket 5 that sequence
-shows the red/cyan fringe; Start Game then load is clean; the Nova is clean on Start Game. On Windows
-(NVIDIA, the ws26 game, a direct `--load-state`) the fringe is there with the session-5 sources too. The
-draw log (Windows, `AURORA_DRAW_LOG=1`) says: the widescreen-patched game's live XF viewport is
-`ox=660 oy=580` (the SDK's 342 + 318: logical viewport `-2,-2 640x480`), scissor offset `02acab` (342),
-scissor `0,0 640x480`, and every shadow copy is `src=0,0 640x480`. Dolphin computes the same geometry
-(`BPFunctions::SetScissorAndViewport` x = 660 - 342 - 320 = -2; `BPStructs` copies from `copyTexSrcXY`
-as is) and shows no fringe, so Aurora loses the alignment between the scene at -2 and the copy drawn
-back somewhere else. Experiments on the Pocket 5 (Continue path): `AURORA_COPY_NUDGE=-2,-1` clean,
-`2,1` doubled; `AURORA_VIEWPORT_ORIGIN=340` clean, `344` worse; EFB scale 1 or 2 the same;
-`AURORA_LOGIC_OP_BLEND=1` and `AURORA_NO_DEREF=1` no change; the replay off (`_INTERP=0`) no change.
-The savestate re-feed carries `ox=662` (the state's value) while the running game writes 660: which
-value the fork ends up drawing with likely decides clean vs fringed, i.e. the game's own writes after a
-load. Not resolved. Two attempts at the copy texture cache (recreate on a size change; one texture per
-size at an address) did nothing for it, both reverted. Scripts: `capture/android-bench.sh` and `android-lifecycle.sh` now tap Start
-Game by screen size (`TAP` overrides), `SHOTS=N` takes screencap bursts, `capture/android-set-config.sh`
-sets Dolphin.ini keys, `tools/shiftsearch.py` measures per-channel offsets between two frames,
-`inproc.sh` takes `REPO=` and `STATES=`.
+**The fringe, found for real.** Session 5's fix (the viewport origin from the scissor box offset)
+was verified on the Nova through Start Game and a state load; the Pocket 5's launcher (1920x1080)
+put the old tap position on **Continue** (the device's newest state first), and that sequence, like a
+direct `--load-state` on Windows, showed the red/cyan fringe. The draw log (Windows) said the fork
+drew with a viewport origin of `660,580` while VideoCommon's `xfmem` had `662,582`: the fork took
+the XF viewport only from a load of all six registers starting at 0x101A, so the game's later
+origin-only write at 0x101D (and a savestate re-feed, one register at a time) were ignored, two
+pixels off from Dolphin (a frame-matched comparison with Dolphin's Vulkan picture put the scene at
+the 340-origin position: dx=0 dy=0 against Aurora with `AURORA_VIEWPORT_ORIGIN=340`). Fork 0024
+decodes the viewport and the projection per register. Pocket 5 Continue path, Nova, Windows at
+1280x960 and 1920x1080: clean, R/G/B aligned.
+
+**The black / red-less picture after a savestate reload, found too.** With the 60 fps replay active
+(the Pocket 5 only starts replaying some seconds in, which is why a first load looked fine), a reload
+of the same scene gave a black picture, and on Windows every picture lacked red from the start.
+`render_pass` skips an intermediate EFB pass without a resolve target, and the replay's context
+switches (`restart_efb_pass`) cut the live frame into such passes: the draws after the last EFB copy
+and before the XFB copy (the shadow composite that restores the scene's red channel) were dropped.
+`restart_efb_pass` now marks the pass it ends observable (fork 0024, with: a replay context switch
+asked for while no frame is open is deferred to the next begin_frame instead of dropped, and the
+logic-op EFB snapshot is per context). Pocket 5 with the replay active (582 real + 577 in-between
+pictures kept per 600 frames): single load, same-state reload and two rapid reloads all at full speed
+with the red channel present. Two earlier attempts at the copy-texture cache were wrong and are gone.
+
+**Still open on Windows (D3D12):** with the replay forced on (`RECOMP_FRAME_INTERPOLATION_ADAPTIVE=0`,
+`user-bench-60c`) every dumped picture lacks red (mean colour 0,33,42 against 36,33,42 without the
+replay), with the session-5 sources as well, so it predates today; the Android fix did not change it.
+Reproduce in 30 s with the inline runner command in `capture/inproc-win.sh`'s style (see the Windows
+runs in this session's shell history: `--user-dir C:\dev\SkiesAuroraRun\user-bench-60c`, the
+`ADAPTIVE=0` set), `AURORA_LOGIC_OP_BLEND=1` turns it into saturated red (254), so the logic-op
+snapshot path is involved.
 
 WSL (llvmpipe) draws this scene with a blue tint and a white shadow blob with the session-5 runner as
 well (Dolphin's Vulkan backend on llvmpipe is right): a WSL-only rendering problem, not looked into.
@@ -370,12 +381,9 @@ default: `-DMODERNGEKKO_ENABLE_AURORA=ON`, `AURORA=1 tools/android-ws-build.sh`.
 
 ## Open
 
-1. **The fringe with the widescreen-patched game** (above): find what Aurora does with the -2 viewport
-   origin that Dolphin does not, or why the clean path (Start Game, then a load) differs from the direct
-   load. Windows reproduces it in 20 s (`capture/inproc-win.sh 04-valuan-ship-later 5`, the draw log for
-   numbers); the Nova / Pocket 5 Start Game path is the clean reference.
-2. The red channel lost after repeated state loads (above; `android-lifecycle.sh` step 4), the in-game
-   menu check, Picture = 4:3 and Match screen by eye under Aurora, the lifecycle script on the Nova.
+1. Windows + the 60 fps replay: the red channel (above). Android is right.
+2. The in-game menu check (the Z+Start sequence left no menu on the screencap), Picture = 4:3 and
+   Match screen by eye under Aurora, the lifecycle script on the Nova.
 3. Coverage: battles, menus, world map night, EU/JP, HD textures (Aurora's own replacement; Dolphin's packs
    don't apply); macOS; a Linux GPU (WSL's llvmpipe tint).
 4. Cheaper still: the interpolator's own bookkeeping (~10% of the GPU thread), VideoCommon's decode of

@@ -2425,22 +2425,29 @@ running as with the Null backend (timing, PE tokens, EFB bookkeeping, savestates
 command is forwarded to Aurora, which draws into its own window (desktop, SDL) or the app's Surface
 (Android, a no-SDL build of the fork).
 
-Status (2026-10-22): the picture matches Dolphin frame for frame on the desktop (19 scenes, 390
-battle frames) and on Android; the red/cyan fringe seen on Adreno was a 2-pixel viewport offset in
-the fork (a fixed 340 where GX uses the scissor box offset register, 342), doubled by every EFB copy
-drawn back, and is fixed. The 60 fps mode works under Aurora: the Frame Interpolator's replay runs in
-a second Aurora context (its own GX state on a spare EFB, entered and left per replay slice through
-hooks in `FrameInterpolator`), the replayed draws get the interpolator's vertex-array copies, and the
-real and in-between pictures are kept and presented on the VI retrace. Speed came from draw count:
-indexed vertex attributes are now dereferenced on the CPU like Dolphin's vertex loaders, so the
-thousands of small strips a frame draws from slices of one array merge (1960 → 537 draws in the
-ship interior), and retail textures are hashed once per frame. Retroid Nova, capped, 60 fps mode:
-full speed, GPU thread 12 ms live + 11 ms replay per game frame, on-screen cadence 16.66-16.67 ms
-every frame (SurfaceFlinger), the same as Dolphin's Vulkan backend; Windows at full speed as well.
-Aurora draws at Dolphin's internal resolution (`iEFBScale`) now. Still open: the Pocket 5 (untested
-with this build), the presentation (the picture is stretched to the window, no letterbox), HD texture
-packs (Aurora has its own replacement format), lifecycle checks with 60 fps on, coverage, and
-committing the backend (nothing of it is committed; the fork's commits are in the research tree).
+Status (2026-10-22, session 6): the picture matches Dolphin on both Retroids, Windows and WSL
+(the red/cyan fringe was the fork taking the XF viewport only from a six-register load, so the
+game's origin-only write and savestate re-feeds were ignored, two pixels off; fork commit 0024
+decodes it per register). The 60 fps mode works under Aurora: the Frame Interpolator's replay runs
+in a second Aurora context (its own GX state on a spare EFB, entered and left per replay slice
+through hooks in `FrameInterpolator`), the replayed draws get the interpolator's vertex-array
+copies, and the real and in-between pictures are kept and presented on the VI retrace; the
+context switches cut the live frame into render passes, which Aurora used to skip when they had no
+resolve target (a black or red-less picture once the replay ran, fixed in 0024). Speed came from
+draw count (indexed vertex attributes dereferenced on the CPU so strips merge: 1960 to 537 draws in
+the ship interior) and a once-per-frame texture hash. Both Retroids run the capped 60 fps mode at
+full speed with the same on-screen cadence as Dolphin's Vulkan backend (16.66-16.67 ms every frame,
+SurfaceFlinger); Windows at full speed. The timing log (`MODERNGEKKO_AURORA_LOG=1`) times only the
+drains: a clock read per GP command is a syscall on the Pocket 5's kernel (the game at 0.55x with
+the log on, which first read as "the Pocket 5 is slow"). Presentation: the backend gives Aurora's
+surface size to VideoCommon's presenter and Aurora presents into the presenter's target rectangle,
+so the Picture option applies (Match screen included), and the frame buffer keeps the GX 4:3 shape
+(640x480 times the internal resolution) on any screen. Lifecycle on the Pocket 5 with 60 fps on:
+Home and back, the in-game menu, repeated state loads and a second state keep full speed. The
+backend is in the repo as `patches/moderngekko-aurora.patch` + `patches/recompcore-aurora.patch`.
+Open: Windows with the replay active loses the scene's red channel (predates today; Android is
+right), HD texture packs (Aurora's own replacement format), coverage (battles, menus, EU/JP),
+macOS, a Linux GPU (WSL's llvmpipe tints this scene).
 Not built by default: `-DMODERNGEKKO_ENABLE_AURORA=ON` on the desktop, `AURORA=1
 tools/android-ws-build.sh` on Android. Runtime knobs (environment, or `aurora.env` in the app's
 user folder on Android): `MODERNGEKKO_AURORA_INTERP=0` (replays skipped, the old 30 fps),
