@@ -800,7 +800,7 @@ working copies of `8bf2116`.
 ### Low
 
 Android:
-- [ ] **D11:** picker results use the user folder before the asynchronous directory init.
+- [x] **D11:** picker results use the user folder before the asynchronous directory init.
   `SkiesLauncherActivity.kt:1231` (`startImport`), `485`, `408`, `1053`, `544`;
   `RC/Android/.../utils/DirectoryInitialization.kt:206-213`. `getUserDirectory()` throws until the
   init is done; `onCreate` (226-231) waits with `AfterDirectoryInitializationRunner`, the result
@@ -808,22 +808,33 @@ Android:
   "Don't keep activities") → recreated activity, the result arrives before the init → crash (the
   save import's worker thread too); texture and music imports run with empty paths. A1's class. **Fix:**
   run each handler through `AfterDirectoryInitializationRunner().runWithLifecycle(this) { ... }`.
-- [ ] **D12:** the results of save import, backup and driver install are posted to the Activity that
+  FIXED 2026-10-22 (branch `review`): the seven picker results run through `afterInit {}`
+  (`AfterDirectoryInitializationRunner().runWithLifecycle`). Kotlin compiles; device check pending.
+- [x] **D12:** the results of save import, backup and driver install are posted to the Activity that
   started them; a rotation or dark-mode change in between (no orientation lock,
   `AndroidManifest.xml:75`) recreates it and the result panel goes to the old one: the player never
   sees whether it worked. **Fix:** the companion-object result pattern the disc import uses.
-- [ ] **D13:** `onCleanExit` in `EmulationActivity.onPause` runs whenever the activity finishes,
+  FIXED by D7 (`874a413`): save import, backup and driver install report through the companion
+  fields (`savesResult`, `driverResult`) whichever launcher instance is up.
+- [x] **D13:** `onCleanExit` in `EmulationActivity.onPause` runs whenever the activity finishes,
   including a frontend's CLEAR_TASK relaunch with the core still running: the driver guard's pending
   marker is cleared and a later crash of that session isn't caught. **Fix:** only when the core is
   stopping; skip `checkDriver()` while `IsRunning()`.
-- [ ] **D14:** `checkDriver()` runs from `onResume` during a data-folder move (`SkiesLauncherActivity.kt:291-307`);
+  FIXED 2026-10-22 (branch `review`): `onCleanExit` only when `!NativeLibrary.IsRunning()` (the native
+  side finishes the Activity after `Core::Shutdown`, so a normal exit still clears the marker);
+  `checkDriver()` returns while a session runs. Device check pending.
+- [x] **D14:** `checkDriver()` runs from `onResume` during a data-folder move (`SkiesLauncherActivity.kt:291-307`);
   "Keep this GPU driver?" then saves `GFX.ini` into the folder being moved (lost, or an orphan
   `Config/` left behind). **Fix:** return early while `dataMoveRunning`.
-- [ ] **D15:** debug builds only: the automation channel (`RC/Android/jni/Automation.cpp:9-10, 293-310`;
+  FIXED 2026-10-22 (branch `review`): `checkDriver()` returns while `dataMoveRunning`.
+- [x] **D15:** debug builds only: the automation channel (`RC/Android/jni/Automation.cpp:9-10, 293-310`;
   pad input, guest memory read / write, states to any path) trusts `<User>/Automation/`, which after
   a data-folder move is in shared storage that other apps with All files access can write (and D2
   can reach). Release APKs don't have it (`build.gradle.kts:98-103`). **Fix:** anchor it in
   `filesDir`, or require a marker there.
+  FIXED 2026-10-22 (branch `review`): automation runs only when `<User>/Automation` resolves inside
+  `/Android/data/` (the app's own external storage, what `tools/drive.py` uses) or `/data/`; a moved
+  data folder in shared storage logs that it's off. NDK syntax check passes.
 
 Dreamcast music, Uncensored, European streams:
 - [x] **D16:** the Dreamcast import puts ISO 9660 names in the output path as they are

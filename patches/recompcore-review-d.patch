@@ -1,5 +1,23 @@
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/activities/EmulationActivity.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/activities/EmulationActivity.kt
+index 096a53bd9e..9e3131d91d 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/activities/EmulationActivity.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/activities/EmulationActivity.kt
+@@ -316,8 +316,11 @@ class EmulationActivity : AppCompatActivity(), ThemeProvider {
+ 
+     override fun onPause() {
+         super.onPause()
+-        // Skies Recomp: the game closed normally (this runs before the launcher's onResume looks)
+-        if (isFinishing && org.dolphinemu.dolphinemu.skies.isSkiesBrand(this))
++        // Skies Recomp: the game closed normally (this runs before the launcher's onResume looks).
++        // The native side finishes this Activity only after Core::Shutdown; one finishing with the
++        // core still running (a relaunch over it) isn't an exit, and keeps the marker (review D13).
++        if (isFinishing && org.dolphinemu.dolphinemu.skies.isSkiesBrand(this) &&
++            !NativeLibrary.IsRunning())
+             org.dolphinemu.dolphinemu.skies.SkiesDriverGuard.onCleanExit(applicationContext)
+     }
+ 
 diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
-index 7a242e8b0c..6e6fd8f717 100644
+index 7a242e8b0c..3268f90255 100644
 --- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
 +++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
 @@ -101,6 +101,73 @@ class SkiesLauncherActivity : FragmentActivity() {
@@ -76,7 +94,73 @@ index 7a242e8b0c..6e6fd8f717 100644
      }
  
      private lateinit var message: TextView
-@@ -318,6 +385,14 @@ class SkiesLauncherActivity : FragmentActivity() {
+@@ -111,30 +178,36 @@ class SkiesLauncherActivity : FragmentActivity() {
+     private val handler = Handler(Looper.getMainLooper())
+     private var driverDialog: android.app.AlertDialog? = null
+ 
++    // A picker's result can come to a launcher the OS made again while the picker was up (low
++    // memory, "Don't keep activities"), before its directory init is done: every handler waits for
++    // it, as onCreate does (review D11; getUserDirectory() throws until then)
++    private fun afterInit(block: () -> Unit) =
++        AfterDirectoryInitializationRunner().runWithLifecycle(this) { block() }
++
+     private val pickDisc =
+         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+-            if (uri != null) startImport(uri)
++            if (uri != null) afterInit { startImport(uri) }
+         }
+ 
+     // A GPU driver package (Settings, Graphics): installed with Dolphin's loader, then tried
+     // (SkiesDriverGuard), and the Settings window comes back on Graphics
+     private val pickDriver =
+         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+-            if (uri != null) installDriver(uri)
++            if (uri != null) afterInit { installDriver(uri) }
+         }
+ 
+     // A save the player already has (Settings, Saves), after the prompt: imported, and the Settings
+     // window comes back on Saves with what happened
+     private val pickSave =
+         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+-            if (uri != null) importSave(uri)
++            if (uri != null) afterInit { importSave(uri) }
+         }
+ 
+     // The Dreamcast disc for the music (Settings, Sound): imported with the disc import's progress
+     // screen, and the Settings window comes back on Sound with what happened
+     private val pickDreamcastDisc =
+         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+-            if (uri != null) startMusicImport(uri)
++            if (uri != null) afterInit { startMusicImport(uri) }
+         }
+ 
+     // Settings, Disc, Data folder: another folder than the ones listed (a folder of the port's name
+@@ -147,7 +220,7 @@ class SkiesLauncherActivity : FragmentActivity() {
+                 message.text = "That folder can't hold the data: pick one on internal storage or an SD card."
+                 return@registerForActivityResult
+             }
+-            confirmDataMove(SkiesDataFolder.inside(folder))
++            afterInit { confirmDataMove(SkiesDataFolder.inside(folder)) }
+         }
+     // All files access was asked for: the folder list (Change), or a start again on the moved
+     // folder (it couldn't be reached at start), once the player is back with it granted
+@@ -161,13 +234,13 @@ class SkiesLauncherActivity : FragmentActivity() {
+     // in several archives can be picked at once: they are imported one after another.
+     private val pickTexturePack =
+         registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris: List<Uri> ->
+-            if (uris.isNotEmpty()) startTexturePackImport(uris)
++            if (uris.isNotEmpty()) afterInit { startTexturePackImport(uris) }
+         }
+ 
+     // Back up saves (Settings, Saves): one .zip written where the player chooses
+     private val pickBackup =
+         registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri: Uri? ->
+-            if (uri != null) exportSaves(uri)
++            if (uri != null) afterInit { exportSaves(uri) }
+         }
+ 
+     override fun onCreate(savedInstanceState: Bundle?) {
+@@ -318,12 +391,23 @@ class SkiesLauncherActivity : FragmentActivity() {
              textureResult = null
              openSettings(mainDol.isFile, "Graphics", result)
          }
@@ -91,7 +175,16 @@ index 7a242e8b0c..6e6fd8f717 100644
      }
  
      /** After a game session: a custom GPU driver that crashed is undone; a new one, kept or not.
-@@ -387,84 +462,35 @@ class SkiesLauncherActivity : FragmentActivity() {
+      * Runs from both the directory callback and onResume, so it never stacks a second dialog. */
+     private fun checkDriver() {
+         if (driverDialog?.isShowing == true || importRunning) return
++        // Not while a session still runs (its marker isn't settled), nor during a data-folder move,
++        // when "Keep it" would save GFX.ini into the folder being moved (review D13, D14)
++        if (dataMoveRunning || org.dolphinemu.dolphinemu.NativeLibrary.IsRunning()) return
+         driverDialog = when (val check = SkiesDriverGuard.check(this)) {
+             is SkiesDriverGuard.Check.Reverted -> padDialog(android.app.AlertDialog.Builder(this)
+                 .setTitle("Back on the device's own GPU driver")
+@@ -387,86 +471,37 @@ class SkiesLauncherActivity : FragmentActivity() {
  
      /** Copies the picked document into the cache (a content URI has no path) and imports that. */
      private fun importSave(uri: Uri) {
@@ -148,9 +241,9 @@ index 7a242e8b0c..6e6fd8f717 100644
 -            total += n
 -            if (total > MAX_IMPORT_BYTES) throw java.io.IOException("it is too big to be a save")
 -            output.write(buffer, 0, n)
--        }
--    }
--
+         }
+     }
+ 
 -    private fun isZip(file: File): Boolean {
 -        val head = ByteArray(4)
 -        val n = file.inputStream().use { it.read(head) }
@@ -181,13 +274,15 @@ index 7a242e8b0c..6e6fd8f717 100644
 -            } finally {
 -                part.delete()
 -            }
-         }
+-        }
 -        return arrayOf("Imported $imported of ${entries.size} files from the backup.$failure",
 -            if (imported == entries.size) "ok" else "")
-     }
- 
+-    }
+-
      /** Settings, Saves: Back up saves. With the game closed, as for Import: it holds the card in memory. */
-@@ -483,7 +509,8 @@ class SkiesLauncherActivity : FragmentActivity() {
+     private fun startExport() {
+         if (org.dolphinemu.dolphinemu.NativeLibrary.IsRunning()) {
+@@ -483,7 +518,8 @@ class SkiesLauncherActivity : FragmentActivity() {
       */
      private fun exportSaves(uri: Uri) {
          val user = userDirectory
@@ -197,7 +292,7 @@ index 7a242e8b0c..6e6fd8f717 100644
              val cards = File(user, "GC").listFiles { f -> f.isDirectory }.orEmpty().flatMap { region ->
                  File(region, "Card A").listFiles { f -> f.isFile && f.name.endsWith(".gci") }.orEmpty()
                      .map { "GC/${region.name}/Card A/${it.name}" to it }
-@@ -516,37 +543,56 @@ class SkiesLauncherActivity : FragmentActivity() {
+@@ -516,37 +552,56 @@ class SkiesLauncherActivity : FragmentActivity() {
                  }
                  arrayOf("Could not save the backup: ${e.message}", "")
              }
@@ -274,7 +369,7 @@ index 7a242e8b0c..6e6fd8f717 100644
      }
  
      /** The licences (assets/licenses, from the recomp repo's COPYING and release/ notices). */
-@@ -819,7 +865,9 @@ class SkiesLauncherActivity : FragmentActivity() {
+@@ -819,7 +874,9 @@ class SkiesLauncherActivity : FragmentActivity() {
              { confirmImportSave() }, { startExport() },
              { afterGameClosed { pickDreamcastDisc.launch(arrayOf("*/*")) } },
              { afterGameClosed { chooseDataFolder() } },
@@ -285,7 +380,7 @@ index 7a242e8b0c..6e6fd8f717 100644
              column.descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
              settings = null
              buttons.getChildAt(buttons.childCount - 1)?.requestFocus()
-@@ -945,7 +993,7 @@ class SkiesLauncherActivity : FragmentActivity() {
+@@ -945,7 +1002,7 @@ class SkiesLauncherActivity : FragmentActivity() {
                  return
              }
              val status = SkiesNative.importStatus()
@@ -294,7 +389,7 @@ index 7a242e8b0c..6e6fd8f717 100644
                  (if (importStep.isNotEmpty()) "\n" + importStep else "") +
                  if (status.isNotEmpty()) "\n" + status else ""
              handler.postDelayed(this, 250)
-@@ -1149,10 +1197,40 @@ class SkiesLauncherActivity : FragmentActivity() {
+@@ -1149,10 +1206,40 @@ class SkiesLauncherActivity : FragmentActivity() {
          handler.post(movePoll)
      }
  
@@ -381,6 +476,37 @@ index ea754e10b2..489eac2aa9 100644
              })
          }
          describe(rows, "Your own Skies of Arcadia Dreamcast disc, as a CHD file. Either disc has most " +
+diff --git a/Source/Android/jni/Automation.cpp b/Source/Android/jni/Automation.cpp
+index 03f55e0caa..1c11fdf89d 100644
+--- a/Source/Android/jni/Automation.cpp
++++ b/Source/Android/jni/Automation.cpp
+@@ -6,8 +6,10 @@
+ // savestates, screenshots and memory reads, and <User>/Automation/status.txt
+ // reports speed and progress. tools/drive.py pushes and polls them over adb.
+ //
+-// Opt-in: the thread only runs when <User>/Automation exists. It sits in the
+-// app's own storage, which only the app and adb can write.
++// Opt-in: the thread only runs when <User>/Automation exists, and only in the
++// app's own storage (Android/data/<package>, or /data), which only the app and
++// adb can write: a data folder moved to shared storage turns it off (review
++// D15; other apps with All files access can write there).
+ 
+ #include "jni/Automation.h"
+ 
+@@ -296,6 +298,13 @@ void Start()
+   std::error_code ec;
+   if (!fs::is_directory(root, ec))
+     return;
++  const std::string real = fs::weakly_canonical(root, ec).string();
++  if (ec || (real.find("/Android/data/") == std::string::npos && !real.starts_with("/data/")))
++  {
++    __android_log_print(ANDROID_LOG_WARN, "DolphinEmuNative",
++                        "Automation directory %s is outside the app's storage: off", root.c_str());
++    return;
++  }
+   __android_log_print(ANDROID_LOG_INFO, "DolphinEmuNative", "Automation directory: %s",
+                       root.c_str());
+   s_frame_count = 0;
 diff --git a/Source/Core/AudioCommon/DCMusic.cpp b/Source/Core/AudioCommon/DCMusic.cpp
 index b1e7d75ba4..8d30394eac 100644
 --- a/Source/Core/AudioCommon/DCMusic.cpp
