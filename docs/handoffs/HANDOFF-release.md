@@ -36,6 +36,11 @@ noreply address. The rest of review section D, all of it but D10 (netplay, not u
   folders and Music / Uncensored settings were put back after the Remove test. The Nova keeps the
   Aurora session's build; both release apps are on 0.81.
 - Not yet: a Dock > Quit by hand on the Mac (D27); the Japanese disc on a device with ws34.
+- **#13 CPUs without FMA3** (`192f0bf`, `recompcore-module-fma.patch`, last in the series): the module's
+  own `fma()`, exact (`tools/fma-exact-test.c`); development notes *CPUs without FMA3*. WSL simulation
+  0.84 -> 1.57; Windows (v0.82 runtime, relinked ws34 USA DLL in `C:\dev\fmabench`) unchanged on FMA3,
+  no-FMA3 path forced plays (`fallback=0`). No codegen change. Not run on a real non-FMA3 CPU; the #13
+  reply (asking for the CPU model and resolution) waits for the user.
 - Release notes draft: `build/notes-next.md` in the main checkout covers all of the above.
 
 ## Released (2026-10-22 UTC): v0.82.0-beta
