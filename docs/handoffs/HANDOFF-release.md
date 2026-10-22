@@ -1,9 +1,25 @@
 # Handoff: releases (Windows, Linux, macOS, Android)
 
-## On dev after v0.81.0-beta (2026-10-22)
+## Released (2026-10-22 UTC): v0.82.0-beta
 
-For the next release (version not chosen; draft notes in the main checkout's `build/notes-next.md`,
-New: #12, Fixed: #9, reporters linked):
+**v0.82.0-beta is the current release** (prerelease, the user's version number; tag on `8bf2116`, `main`
+fast-forwarded to it from `1bd19c7`, release run 39838808411, published 19:59 UTC; `android-sign`
+approved by the user): https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/releases/tag/v0.82.0-beta.
+Notes: `build/notes-0.82.0-beta.md` in the main checkout (0.81 layout). Carries #12 (both landscapes),
+#9 (ws31) and #10's two new shots (ws32); game patch **ws32**, so desktop players may be asked for their
+disc once more and Android re-patches by itself.
+
+- Before the tag: validate 39829041151 green on `fb7e138` (ws32) and 39835670457 on `8bf2116` (started by
+  hand: the version bump is docs only); version strings bumped (README, release/README, BUILDING, the bug
+  template); PII sweep clean; `.github` unchanged since v0.81.0 apart from the bug template's version.
+- After: SHA256SUMS match all five downloads; every platform carries the ws32 dolpatches (USA output
+  `0886a47b`, Europe `baa96638`, Japan `cf86fb7b`); the APK has 2161 `Sys` assets and is signed with the
+  same certificate as before (`e2c00b0b…a92f`).
+- Issue replies (#9, #10, #12) and #13 wait for the user.
+
+## Shipped in v0.82.0-beta (was: on dev after v0.81.0-beta)
+
+For the release after v0.81.0-beta (shipped as v0.82.0-beta):
 
 - **#9 Drachma's victory pose squeezed into 4:3**: game patch **ws31** (`bb38213`; development notes
   *Battle screen plane*). `release/*.dolpatch` are ws31 (outputs USA `7ef9451c`, Europe `b559fc7a`,
