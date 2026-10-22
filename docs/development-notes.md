@@ -332,6 +332,16 @@ save in P. Isle Underground, Z + C-stick up + L for 1.2 s): `cam_input.applied` 
 The USA DOL is byte-identical to ws32; the Japanese one differs in the same halfword, by its table
 (not run: no Japanese module on WSL).
 
+**Japanese Continue's card work (ws34, 2026-10-22, review D9).** The Japanese `fn_801A4070` (at
+`0x801A4204`) stores the `EA_LEGEND_EXTRA #00`-`#02` probe's bit mask at work +0x270, and the Japanese
+load and save screens allocate 0x274 bytes of work (`li r4, 0x274` at `0x801A23BC` / `0x801A24D8`;
+USA and Europe 0x270). `autoload.c` allocated 0x270 on every disc, so a Japanese Continue wrote one
+word past its heap block (the earlier tests passed, likely on the allocator's rounding). The size is
+now 0x274 under `GAME_GEAJ8P`; `gamepatch.py` passes `-DGAME_<ID>` to every source. The USA and
+European DOLs are byte-identical to ws33; the Japanese one differs in two bytes. Checked on WSL (JIT,
+cold boot, `build/game/GEAJ8P-ws34`, the converted Japanese card files 2 and 3 in `build/user10`):
+Continue done in about 6 s both times, no invalid reads.
+
 ### QOL options and Invincible (DOL ws12, 2026-10-11)
 
 `patches/game/qol.c` / `qol.S`, all whole-call hooks (decomp `docs/qol_cheats.md`):
@@ -2977,8 +2987,10 @@ rights: BUILDING *macOS*.
   the 60 fps replay when its second EFB can't be made, D5 the auto-save deleting a good save before a
   failed write, D7 / D8 the Android launcher's save, backup, driver and Remove actions racing the game,
   D2 texture packs writing outside their folder, D3 / D4 a damaged Dreamcast driver crashing or
-  halving the speed (`recompcore-review-d.patch`; D2-D4 on the local branch `review` until pushed).
-  Open: D9 (Japanese Continue's card work area), D10 (netplay with differing gameplay options), the Lows.
+  halving the speed (`recompcore-review-d.patch`; D2-D4 on the local branch `review` until pushed),
+  D9 the Japanese Continue writing one word past its card work (ws34, *Japanese Continue's card work*).
+  Not fixed: D10 (netplay with differing gameplay options; the project doesn't use netplay). Open: the
+  Lows.
 
 - **macOS: Left didn't register in the in-game settings menu (fixed 2026-10-19):** D-pad and stick
   Left did nothing in the Skies menu while Right / Up / Down worked. Without Input Monitoring macOS

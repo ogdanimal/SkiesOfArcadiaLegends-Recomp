@@ -646,7 +646,8 @@ Tools:
 **Status (2026-10-22 evening).** Fixed and on `origin/dev`: D1 (game patch ws33), D6, D5, D7, D8
 (`patches/recompcore-review-d.patch`, last in `recompcore.series`, holds section D's RecompCore
 fixes). Fixed on the local branch `review` in the `pal60` worktree, not pushed (the user pushes when
-ready): D2 (`eece5e3`), D3 + D4 (`adef5ee`). Open: D9, D10 (Medium) and the Lows D11-D31 (D12 covered
+ready): D2 (`eece5e3`), D3 + D4 (`adef5ee`), D9 (game patch ws34). D10 not fixed (no netplay, the
+user's call). Open: the Lows D11-D31 (D12 covered
 for the four tasks D7 moved). Android checks (D7, D8, the rest) wait for one APK at the end of the
 review work. Each fix's notes are at its item below and in `patches/README.md`'s `review-d` row.
 
@@ -771,7 +772,12 @@ working copies of `8bf2116`.
   and a worker thread for both; also have `DiscContent::Read` (`RC/Core/DiscIO/DirectoryBlob.cpp:98-103`)
   fall back to the disc's own file when a redirected one can't be opened (covers D19's cache too).
 
-- [ ] **D9 Medium, plausible: Continue on the Japanese disc may write past the card task's work area.**
+- [x] **D9 Medium, plausible: Continue on the Japanese disc may write past the card task's work area.**
+  FIXED 2026-10-22 (game patch ws34, branch `review`): confirmed in the Japanese DOL, `fn_801A4070`
+  (`0x801A4204`) does `stw r3, 0x270(work)` with the probe's mask, and the Japanese load / save screens
+  allocate 0x274 (USA / Europe 0x270). `autoload.c` allocates 0x274 under `GAME_GEAJ8P`
+  (`gamepatch.py` defines `GAME_<ID>`); the USA and European DOLs are unchanged. WSL JIT cold boot,
+  Continue from Japanese files 2 and 3: done.
   `patches/game/autoload.c:97` (`dl_work = fn_801E1C7C(0x270)`), against `patches/game/README.md:60-61`:
   the Japanese `fn_801A4070` also probes `EA_LEGEND_EXTRA #00`-`#02` at mount (`fn_801A3BB4`) "into the
   task's work +0x270", i.e. from the end of this allocation on. The documented JP Continue tests pass,
@@ -779,7 +785,8 @@ working copies of `8bf2116`.
   decomp. **Fix:** allocate the size the Japanese load screen's own task uses (0x300 covers the three
   probe results by any reading); a heap pointer, so no layout or state change.
 
-- [ ] **D10 Medium, plausible: netplay desyncs when the players' gameplay options differ.**
+- [x] **D10 Medium, plausible: netplay desyncs when the players' gameplay options differ.**
+  NOT FIXED, by the user's call (2026-10-22): the project doesn't use netplay.
   `RC/Core/VideoCommon/SkiesMenu.cpp:1186-1208` (`qol::Write`), `986-1000` (`camera::Write`),
   `RC/Core/Core/SkiesSettings.cpp:119-138`. The launcher offers netplay (`MG/tools/moderngekko_launcher.cpp:1396-1403`),
   but encounters, rewards, battle / field speed, Invincible and Hold B are written into guest RAM from
