@@ -2444,7 +2444,8 @@ surface size to VideoCommon's presenter and Aurora presents into the presenter's
 so the Picture option applies (Match screen included), and the frame buffer keeps the GX 4:3 shape
 (640x480 times the internal resolution) on any screen. Lifecycle on the Pocket 5 with 60 fps on:
 Home and back, the in-game menu, repeated state loads and a second state keep full speed. The
-backend is in the repo as `patches/moderngekko-aurora.patch` + `patches/recompcore-aurora.patch`.
+backend is `patches/moderngekko-aurora.patch` + `patches/recompcore-aurora.patch` on the local branch
+`aurora-backend` (never pushed, rebased or merged).
 The in-game menu and the OSD messages (Dear ImGui through `OnScreenUI`) draw over Aurora's picture: the Null gfx reports itself presentable, `OnScreenUI` hands the draw data to the backend, the fork's present pass draws it (fork 0026). Open: HD texture packs (Aurora's own replacement format), coverage (battles, menus, EU/JP),
 macOS, a Linux GPU (WSL's llvmpipe tints this scene).
 Not built by default: `-DMODERNGEKKO_ENABLE_AURORA=ON` on the desktop, `AURORA=1
@@ -2932,6 +2933,8 @@ The direction for the port: run the recompiled game on GXRuntime, ModernGekko's 
 Aurora drawing, instead of inside Dolphin's core; the Dolphin build ships until the standalone build
 reaches parity. Survey, gaps (MusyX audio on the DSP, the 60 fps interpolator, an Android shell, the
 port's Dolphin-hosted features) and the phased plan: [handoffs/HANDOFF-emulator-free.md](handoffs/HANDOFF-emulator-free.md).
+All Aurora and emulator-free work lives on the local branch `aurora-backend` (kept local on purpose: not
+rebased, merged or pushed); dev and the releases don't carry it.
 
 ## Aurora renderer (desktop; 2026-10-21, committed as patches 2026-10-22: see *Aurora renderer* under Android for the status)
 
@@ -2945,7 +2948,8 @@ matches Dolphin's (3-5k of 307k pixels off, antialiasing/text, 19 single-frame s
 frames offline; in-process on Windows and WSL, frame-matched against Dolphin's Vulkan picture). Windows,
 NVIDIA via D3D12, uncapped: Aurora reaches ~93% of the Null backend's ceiling in single- and dual-core
 (1.67x vs 1.79x; 1.63x vs 1.76x); capped 60 fps at full speed. The code is
-`patches/moderngekko-aurora.patch` + `patches/recompcore-aurora.patch` (off unless the option is on;
+`patches/moderngekko-aurora.patch` + `patches/recompcore-aurora.patch` on the local branch
+`aurora-backend` (off unless the option is on;
 the normal runner is unchanged unless `--graphics Aurora` is passed); the fork's own history is
 `~/projects/skies-aurora/GXRuntime` (24 commits, `patches/` there for upstreaming), its desktop tools in
 `~/projects/skies-aurora/HANDOFF.md`. Open on the desktop: WSL's llvmpipe tints the ship interior blue with every

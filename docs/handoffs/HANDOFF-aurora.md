@@ -4,8 +4,9 @@ Aurora is GXRuntime's GX renderer (WebGPU through Dawn). Sessions 1-3 proved it 
 correctly and, as an in-process Dolphin video backend (`moderngekko-run --graphics Aurora`), at
 93% of the Null ceiling on a Windows GPU; the research tree, scripts, scores and the fork live in
 `~/projects/skies-aurora` (its `HANDOFF.md`). This file is the Android part: the app builds with
-the backend, draws into its own Surface and runs the game on a Retroid. Nothing of it is committed
-in this repo yet (see *What is where*).
+the backend, draws into its own Surface and runs the game on a Retroid. Since session 6 it is
+committed as patches on the local branch `aurora-backend`, which is kept local on purpose: it is not
+rebased, merged or pushed (see *What is where*).
 
 ## How it works on Android
 
@@ -423,9 +424,14 @@ matched its own shell): its partial output is not a result; rerun it with the st
 
 ## What is where
 
+- Branch: `aurora-backend` in the worktree `~/projects/skies-aurora-backend`, cut from origin/dev
+  a7aa0f8. Kept local by the user's choice: no upstream (`git branch --unset-upstream`), pushes blocked
+  (`branch.aurora-backend.pushRemote = no-push`), never rebased onto newer dev, never merged. dev and its
+  releases carry none of this work. The main checkout's stale session-5 copies of these docs were removed
+  from its working copy on 2026-10-22 (backup: `~/projects/skies-aurora/main-checkout-stale-2026-10-22/`).
 - Fork: `~/projects/skies-aurora/GXRuntime` (git, 26 commits over the vendored copy, last `f5eb436`; `patches/` = format-patch of its commits), copied
   verbatim into `lib/ModernGekko/vendor/dolphin/GXRuntime` (and `C:\dev\SkiesAuroraRun`'s copy).
-- This repo: `patches/moderngekko-aurora.patch`, `patches/recompcore-aurora.patch` (regenerate with
+- On that branch: `patches/moderngekko-aurora.patch`, `patches/recompcore-aurora.patch` (regenerate with
   `tools/regen-recompcore-patch.sh aurora` after editing the working copy), `tools/android-ws-build.sh`
   (AURORA, AURORA_DEPS), this file.
 - Research tree: `~/projects/skies-aurora/{android-deps, android-build, android-bench, capture/, inproc/,
