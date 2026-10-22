@@ -706,7 +706,9 @@ working copies of `8bf2116`.
   as long as the option is on. **Fix:** latch the failure until the option is changed or the import
   changes, and say so in the Dreamcast tab.
 
-- [ ] **D5 Medium: the auto-save deletes the oldest auto-save before the new one exists.**
+- [x] **D5 Medium: the auto-save deletes the oldest auto-save before the new one exists.**
+  FIXED 2026-10-22 in `patches/recompcore-review-d.patch`: `State::SaveAs` reports the write; prune
+  after success, a failed write removes its own file.
   `RC/Core/VideoCommon/SkiesMenu.cpp:1334-1345` (`autosave::Save`). `PruneAutomatic(directory,
   AUTO_KEEP - 1, ...)` runs first; `State::SaveAs` only queues the compress-and-write on Dolphin's
   dump thread, and a failed write (disk full, folder not writable) shows only an OSD line. Disk full
