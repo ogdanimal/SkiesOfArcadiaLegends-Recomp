@@ -354,13 +354,13 @@ logic-op EFB snapshot is per context). Pocket 5 with the replay active (582 real
 pictures kept per 600 frames): single load, same-state reload and two rapid reloads all at full speed
 with the red channel present. Two earlier attempts at the copy-texture cache were wrong and are gone.
 
-**Still open on Windows (D3D12):** with the replay forced on (`RECOMP_FRAME_INTERPOLATION_ADAPTIVE=0`,
-`user-bench-60c`) every dumped picture lacks red (mean colour 0,33,42 against 36,33,42 without the
-replay), with the session-5 sources as well, so it predates today; the Android fix did not change it.
-Reproduce in 30 s with the inline runner command in `capture/inproc-win.sh`'s style (see the Windows
-runs in this session's shell history: `--user-dir C:\dev\SkiesAuroraRun\user-bench-60c`, the
-`ADAPTIVE=0` set), `AURORA_LOGIC_OP_BLEND=1` turns it into saturated red (254), so the logic-op
-snapshot path is involved.
+**Windows with the replay, found too (fork 0025).** Every picture lacked red whenever the replay ran
+(mean colour 0,33,42 against 36,33,42 without it), with the session-5 sources as well. Same family:
+`queue_texture_copy` (the kept-picture copy) ended the live frame's last pass without marking it
+observable, so `render_pass` skipped it and the kept picture missed the shadow composite; on Android
+that last pass usually ended at a context switch instead. Windows with the replay forced on
+(`RECOMP_FRAME_INTERPOLATION_ADAPTIVE=0`, `user-bench-60c`): red 36 on six consecutive pictures, 903
+real + 895 in-between kept per 600 frames, full speed; the Pocket 5 reload sequence re-checked.
 
 WSL (llvmpipe) draws this scene with a blue tint and a white shadow blob with the session-5 runner as
 well (Dolphin's Vulkan backend on llvmpipe is right): a WSL-only rendering problem, not looked into.
@@ -381,15 +381,14 @@ default: `-DMODERNGEKKO_ENABLE_AURORA=ON`, `AURORA=1 tools/android-ws-build.sh`.
 
 ## Open
 
-1. Windows + the 60 fps replay: the red channel (above). Android is right.
-2. The in-game menu check (the Z+Start sequence left no menu on the screencap), Picture = 4:3 and
+1. The in-game menu check (the Z+Start sequence left no menu on the screencap), Picture = 4:3 and
    Match screen by eye under Aurora, the lifecycle script on the Nova.
-3. Coverage: battles, menus, world map night, EU/JP, HD textures (Aurora's own replacement; Dolphin's packs
+2. Coverage: battles, menus, world map night, EU/JP, HD textures (Aurora's own replacement; Dolphin's packs
    don't apply); macOS; a Linux GPU (WSL's llvmpipe tint).
-4. Cheaper still: the interpolator's own bookkeeping (~10% of the GPU thread), VideoCommon's decode of
+3. Cheaper still: the interpolator's own bookkeeping (~10% of the GPU thread), VideoCommon's decode of
    a stream Aurora parses again, Dawn's per-draw cost; `Fifo::RunGpuLoop`'s idle spin reads the clock
    through a syscall on this kernel (a third of the thread's samples when capped: not work, but power).
-5. Upstream `patches/` (the fork's commits) to ModernGekko.
+4. Upstream `patches/` (the fork's commits) to ModernGekko.
 
 ## What is where
 

@@ -2433,7 +2433,7 @@ in a second Aurora context (its own GX state on a spare EFB, entered and left pe
 through hooks in `FrameInterpolator`), the replayed draws get the interpolator's vertex-array
 copies, and the real and in-between pictures are kept and presented on the VI retrace; the
 context switches cut the live frame into render passes, which Aurora used to skip when they had no
-resolve target (a black or red-less picture once the replay ran, fixed in 0024). Speed came from
+resolve target (a black or red-less picture once the replay ran, fixed in 0024 and 0025). Speed came from
 draw count (indexed vertex attributes dereferenced on the CPU so strips merge: 1960 to 537 draws in
 the ship interior) and a once-per-frame texture hash. Both Retroids run the capped 60 fps mode at
 full speed with the same on-screen cadence as Dolphin's Vulkan backend (16.66-16.67 ms every frame,
@@ -2445,8 +2445,7 @@ so the Picture option applies (Match screen included), and the frame buffer keep
 (640x480 times the internal resolution) on any screen. Lifecycle on the Pocket 5 with 60 fps on:
 Home and back, the in-game menu, repeated state loads and a second state keep full speed. The
 backend is in the repo as `patches/moderngekko-aurora.patch` + `patches/recompcore-aurora.patch`.
-Open: Windows with the replay active loses the scene's red channel (predates today; Android is
-right), HD texture packs (Aurora's own replacement format), coverage (battles, menus, EU/JP),
+Open: HD texture packs (Aurora's own replacement format), coverage (battles, menus, EU/JP),
 macOS, a Linux GPU (WSL's llvmpipe tints this scene).
 Not built by default: `-DMODERNGEKKO_ENABLE_AURORA=ON` on the desktop, `AURORA=1
 tools/android-ws-build.sh` on Android. Runtime knobs (environment, or `aurora.env` in the app's
@@ -2942,8 +2941,7 @@ NVIDIA via D3D12, uncapped: Aurora reaches ~93% of the Null backend's ceiling in
 `patches/moderngekko-aurora.patch` + `patches/recompcore-aurora.patch` (off unless the option is on;
 the normal runner is unchanged unless `--graphics Aurora` is passed); the fork's own history is
 `~/projects/skies-aurora/GXRuntime` (24 commits, `patches/` there for upstreaming), its desktop tools in
-`~/projects/skies-aurora/HANDOFF.md`. Open on the desktop: Windows with the 60 fps replay active loses
-the scene's red channel (Android is right); WSL's llvmpipe tints the ship interior blue with every
+`~/projects/skies-aurora/HANDOFF.md`. Open on the desktop: WSL's llvmpipe tints the ship interior blue with every
 build (Dolphin's Vulkan backend on llvmpipe is right).
 
 ## Known issues

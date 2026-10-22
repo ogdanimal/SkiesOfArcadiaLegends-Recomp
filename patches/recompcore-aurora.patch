@@ -926,7 +926,7 @@ index bb8fba407f..788db08e7e 100644
  } // namespace aurora::webgpu::utils
 +#endif // AURORA_NO_SDL
 diff --git a/GXRuntime/graphics/aurora/lib/gfx/common.cpp b/GXRuntime/graphics/aurora/lib/gfx/common.cpp
-index 4c672587f0..c09196e296 100644
+index 4c672587f0..24276e0a5a 100644
 --- a/GXRuntime/graphics/aurora/lib/gfx/common.cpp
 +++ b/GXRuntime/graphics/aurora/lib/gfx/common.cpp
 @@ -22,8 +22,11 @@
@@ -941,7 +941,20 @@ index 4c672587f0..c09196e296 100644
  #include <mutex>
  #include <optional>
  #include <ranges>
-@@ -556,6 +559,64 @@ void queue_texture_copy(wgpu::TexelCopyTextureInfo src, wgpu::TexelCopyTextureIn
+@@ -541,6 +544,12 @@ void queue_texture_copy(wgpu::TexelCopyTextureInfo src, wgpu::TexelCopyTextureIn
+   ZoneScoped;
+   auto& frame = current_frame_packet();
+   if (g_currentRenderPass != UINT32_MAX) {
++    // The copy reads what this pass drew (a kept picture for the frame interpolator): observable,
++    // or render_pass skips the pass as an intermediate one without a resolve target and the copy
++    // misses the draws after the last EFB copy (Skies of Arcadia's shadow composite, the red
++    // channel; seen on Windows, where the live frame's last pass ended here more often than at a
++    // replay context switch).
++    current_render_passes()[g_currentRenderPass].observable = true;
+     enqueue_pass(frame, g_recordingFrameSlot, g_currentRenderPass);
+     g_currentRenderPass = UINT32_MAX;
+   }
+@@ -556,6 +565,64 @@ void queue_texture_copy(wgpu::TexelCopyTextureInfo src, wgpu::TexelCopyTextureIn
    enqueue_op(frame, g_recordingFrameSlot, opIndex);
  }
  
@@ -1006,7 +1019,7 @@ index 4c672587f0..c09196e296 100644
  void begin_color_pass(const ColorPassDescriptor& desc) {
    ZoneScoped;
    auto& frame = current_frame_packet();
-@@ -689,9 +750,17 @@ void resolve_pass(TextureHandle texture, ClipRect rect, bool clearColor, bool cl
+@@ -689,9 +756,17 @@ void resolve_pass(TextureHandle texture, ClipRect rect, bool clearColor, bool cl
    // Push UV transform uniform for tex_copy_conv (crop region in UV space)
    const auto srcW = static_cast<float>(prevPass.targetSize.width);
    const auto srcH = static_cast<float>(prevPass.targetSize.height);
@@ -1026,7 +1039,7 @@ index 4c672587f0..c09196e296 100644
        static_cast<float>(rect.width) / srcW,
        static_cast<float>(rect.height) / srcH,
    };
-@@ -1420,6 +1489,84 @@ static void encode_op(wgpu::CommandEncoder& cmd, FramePacket& frame, const Frame
+@@ -1420,6 +1495,84 @@ static void encode_op(wgpu::CommandEncoder& cmd, FramePacket& frame, const Frame
    }
  }
  
@@ -1111,7 +1124,7 @@ index 4c672587f0..c09196e296 100644
  static void render(wgpu::CommandEncoder& cmd, FramePacket& frame, RenderPass& passInfo, uint32_t passIndex) {
    ZoneScoped;
    if (!passInfo.sealed) {
-@@ -1526,12 +1673,23 @@ static void render(wgpu::CommandEncoder& cmd, FramePacket& frame, RenderPass& pa
+@@ -1526,12 +1679,23 @@ static void render(wgpu::CommandEncoder& cmd, FramePacket& frame, RenderPass& pa
        };
        cmd.CopyTextureToTexture(&src, &dst, &size);
      }

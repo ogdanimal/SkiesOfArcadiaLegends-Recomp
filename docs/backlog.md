@@ -181,10 +181,10 @@ the port plays such a romhack (it changes the 4:3 picture too).
 GXRuntime's WebGPU renderer runs as a Dolphin video backend on the desktop and in the Android app
 (development notes *Aurora renderer*, HANDOFF-aurora), committed as patches (off by default).
 Where it stands (2026-10-22 noon): the picture matches Dolphin on both Retroids, Windows and WSL
-(two fork bugs found and fixed: the XF viewport decoded only from six-register loads, and
-intermediate EFB passes skipped under the 60 fps replay); 60 fps at full speed on both Retroids
+(three fork bugs found and fixed: the XF viewport decoded only from six-register loads, and
+intermediate EFB passes skipped under the 60 fps replay, on Android and on Windows); 60 fps at full speed on both Retroids
 with Vulkan's on-screen cadence; the Picture option applies. Left to ship it as a renderer choice:
-Windows with the replay loses the red channel (reproducible in 30 s), HD texture packs (Aurora's
+HD texture packs (Aurora's
 own replacement format), coverage (ship battles, menus, world map night, EU/JP, cutscene framing),
 packaging (Dawn in every build, CI), macOS, a Linux GPU. The reason to do it is owning the renderer,
 not speed; Vulkan costs nothing further.
