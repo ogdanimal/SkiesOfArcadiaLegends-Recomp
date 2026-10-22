@@ -643,6 +643,13 @@ Tools:
 
 ## D. Second review (2026-10-22)
 
+**Status (2026-10-22 evening).** Fixed and on `origin/dev`: D1 (game patch ws33), D6, D5, D7, D8
+(`patches/recompcore-review-d.patch`, last in `recompcore.series`, holds section D's RecompCore
+fixes). Fixed on the local branch `review` in the `pal60` worktree, not pushed (the user pushes when
+ready): D2 (`eece5e3`), D3 + D4 (`adef5ee`). Open: D9, D10 (Medium) and the Lows D11-D31 (D12 covered
+for the four tasks D7 moved). Android checks (D7, D8, the rest) wait for one APK at the end of the
+review work. Each fix's notes are at its item below and in `patches/README.md`'s `review-d` row.
+
 The same kind of review on `dev` `8bf2116` (v0.82.0-beta's version strings; the code is that of
 `1125b1b`): every patch applied to fresh submodules (`tools/apply-patches.sh`) in a scratch worktree,
 six reviewers (desktop launcher and file imports; Dreamcast music, Uncensored and the European

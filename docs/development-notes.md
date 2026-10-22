@@ -2971,6 +2971,15 @@ rights: BUILDING *macOS*.
 
 ## Known issues
 
+- **Second code review, section D (2026-10-22):** a cloud review of v0.82's code
+  (docs/handoffs/HANDOFF-review.md, section D: 10 Medium, 21 Low; no remote-exploitable issue). Fixed:
+  D1 camera control on the European and Japanese discs (ws33, *Camera control*), D6 a use after free in
+  the 60 fps replay when its second EFB can't be made, D5 the auto-save deleting a good save before a
+  failed write, D7 / D8 the Android launcher's save, backup, driver and Remove actions racing the game,
+  D2 texture packs writing outside their folder, D3 / D4 a damaged Dreamcast driver crashing or
+  halving the speed (`recompcore-review-d.patch`; D2-D4 on the local branch `review` until pushed).
+  Open: D9 (Japanese Continue's card work area), D10 (netplay with differing gameplay options), the Lows.
+
 - **macOS: Left didn't register in the in-game settings menu (fixed 2026-10-19):** D-pad and stick
   Left did nothing in the Skies menu while Right / Up / Down worked. Without Input Monitoring macOS
   reports key code 0 (`A`, stick-Left in the Skies layout) as held while the app is in front, so the
