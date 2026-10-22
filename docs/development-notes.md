@@ -2445,7 +2445,7 @@ so the Picture option applies (Match screen included), and the frame buffer keep
 (640x480 times the internal resolution) on any screen. Lifecycle on the Pocket 5 with 60 fps on:
 Home and back, the in-game menu, repeated state loads and a second state keep full speed. The
 backend is in the repo as `patches/moderngekko-aurora.patch` + `patches/recompcore-aurora.patch`.
-The in-game menu and the OSD messages (Dear ImGui through `OnScreenUI`, which needs a non-headless gfx) do not show under Aurora yet. Open: that OSD, HD texture packs (Aurora's own replacement format), coverage (battles, menus, EU/JP),
+The in-game menu and the OSD messages (Dear ImGui through `OnScreenUI`) draw over Aurora's picture: the Null gfx reports itself presentable, `OnScreenUI` hands the draw data to the backend, the fork's present pass draws it (fork 0026). Open: HD texture packs (Aurora's own replacement format), coverage (battles, menus, EU/JP),
 macOS, a Linux GPU (WSL's llvmpipe tints this scene).
 Not built by default: `-DMODERNGEKKO_ENABLE_AURORA=ON` on the desktop, `AURORA=1
 tools/android-ws-build.sh` on Android. Runtime knobs (environment, or `aurora.env` in the app's

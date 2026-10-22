@@ -384,20 +384,24 @@ pillarboxed with 4:3 geometry, Match screen on the 16:9 screen and 16:9 fill it;
 rectangle drives Aurora as intended. Nova lifecycle script with the final APK: loaded 1.004, Home and back
 1.001, menu sequence 1.002, three loads 1.002, second state 0.999, picture present throughout.
 
-**The in-game menu is invisible under Aurora, by construction.** `SkiesMenu::Draw` is Dear ImGui through
-Dolphin's `OnScreenUI`, which the presenter only creates for a backend whose gfx is not headless; the
-Aurora backend runs on the Null gfx classes (headless), so no OSD exists: not the Z+Start menu, not the
-OSD messages ("Controller: ...", the settings' restart notice). The lifecycle script's "menu open"
-screencap showed the plain scene for that reason. To fix: hand Dolphin's `ImGui::GetDrawData()` (or an
-OnScreenUI rendered through a small Aurora-side gfx) to the fork's present pass, which already has an
-ImGui overlay path (`imgui::freeze()` in `aurora.cpp`, stubbed by `AURORA_ENABLE_IMGUI=OFF` because
-Dolphin ships its own Dear ImGui). Until then the Android app's Settings panel and the launcher are the
-only way at the settings under Aurora.
+**The in-game menu and the OSD under Aurora (fork 0026).** `SkiesMenu::Draw` is Dear ImGui through
+Dolphin's `OnScreenUI`, which the presenter only creates for a non-headless gfx; the backend runs on the
+Null gfx classes, so there was no OSD at all (the lifecycle script's "menu open" screencap showed the
+plain scene). Now `Null::g_presentable` makes the Null gfx report itself presentable (its draws stay
+no-ops; `Null::g_surface_info` is the surface the presenter starts from, the real size follows through
+`ApplyPresentRectangle`), `OnScreenUI::Finalize` hands each frame's finished draw data to
+`VideoCommon::g_imgui_draw_sink`, and the backend's `ImGuiDrawSink` flattens it (vertices, 16-bit
+indices, per-command clip rect and texture, the font atlas uploaded when ImGui creates or updates it)
+into `aurora_backend_set_overlay` / `aurora_backend_set_overlay_texture`; the fork's `gfx/overlay.cpp`
+draws it in the present pass after the EFB blit (alpha blend, scissor per command, the surface as the
+display). `MODERNGEKKO_AURORA_OSD=0` turns it off. Checked: the Settings menu (Z+Start) over the game on
+Windows and on the Pocket 5, speed 1.008 with it open; the presenter's FPS counter reads 59.7-59.9 now
+(it counts presents only on a presentable gfx). The backend links `imgui` for the draw-data types.
 
 ## Open
 
-1. The OSD under Aurora (above): the in-game menu and OSD messages are Dear ImGui through
-   `OnScreenUI`, which needs a non-headless gfx; give the fork Dolphin's draw data.
+1. OSD details: the OSD message font scale on a 1920x1080 surface (ImGui scale 1 everywhere),
+   the on-screen keyboard / mouse paths of `OnScreenUI` are not wired (menu by pad only).
 2. Coverage: battles, menus, world map night, EU/JP, HD textures (Aurora's own replacement; Dolphin's packs
    don't apply); macOS; a Linux GPU (WSL's llvmpipe tint).
 3. Cheaper still: the interpolator's own bookkeeping (~10% of the GPU thread), VideoCommon's decode of

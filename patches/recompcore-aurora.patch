@@ -288,14 +288,15 @@ index 47c60b1038..82efa7082b 100644
  
  bool aurora_backend_pad_init(void);
 diff --git a/GXRuntime/backends/aurora/aurora_graphics.cpp b/GXRuntime/backends/aurora/aurora_graphics.cpp
-index 24367bf568..d9e2e8b2ef 100644
+index 24367bf568..d81925a929 100644
 --- a/GXRuntime/backends/aurora/aurora_graphics.cpp
 +++ b/GXRuntime/backends/aurora/aurora_graphics.cpp
-@@ -8,7 +8,11 @@
+@@ -8,7 +8,12 @@
  #include <dolphin/vi.h>
  #include <gx/fifo.hpp>
  #include <gx/gx.hpp>
 +#include <gfx/common.hpp>
++#include <gfx/overlay.hpp>
 +#include <webgpu/gpu.hpp>
 +#include <window.hpp>
  #include <gx/recomp.hpp>
@@ -303,7 +304,7 @@ index 24367bf568..d9e2e8b2ef 100644
  #include <cstdio>
  #include <cstdlib>
  #include <cstring>
-@@ -586,6 +590,8 @@ void shadow_transform_observer(
+@@ -586,6 +591,8 @@ void shadow_transform_observer(
  
  extern "C" {
  
@@ -312,7 +313,7 @@ index 24367bf568..d9e2e8b2ef 100644
  void aurora_backend_present(void) {
      if (!gx_aurora::g_initialized)
          return;
-@@ -816,6 +822,7 @@ void aurora_backend_present(void) {
+@@ -816,6 +823,7 @@ void aurora_backend_present(void) {
      gx_aurora::poll_events();
      if (!gx_aurora::g_should_quit) {
          gx_aurora::g_frame_open = aurora_begin_frame();
@@ -320,7 +321,7 @@ index 24367bf568..d9e2e8b2ef 100644
  #if GXRUNTIME_HAS_AURORA_RECOMP
          gx_aurora::g_shadow_transform_next_draw_index = 0;
  #endif
-@@ -852,6 +859,116 @@ void aurora_backend_call_display_list(const void* data, u32 size) {
+@@ -852,6 +860,147 @@ void aurora_backend_call_display_list(const void* data, u32 size) {
      gx_aurora::g_fifo_bytes += size;
  }
  
@@ -417,6 +418,37 @@ index 24367bf568..d9e2e8b2ef 100644
 +// a third of a pixel off: a red/cyan fringe). Off (the default) widens the buffer to the window.
 +void aurora_backend_set_frame_buffer_aspect_fit(int fit) {
 +    aurora::window::set_frame_buffer_aspect_fit(fit != 0);
++}
++
++// The host's 2D overlay for the next presents (Dolphin's on-screen UI as Dear ImGui draw data),
++// in display pixels: vertices of 20 bytes (pos f32x2, uv f32x2, colour rgba8), 16-bit indices,
++// commands (clip x1 y1 x2 y2, texture id, index offset/count, vertex offset). An empty list clears it.
++void aurora_backend_set_overlay(const void* vertices, uint32_t vertex_count, const uint16_t* indices,
++                                uint32_t index_count, const AuroraOverlayCmd* cmds, uint32_t cmd_count,
++                                float display_width, float display_height) {
++    aurora::gfx::overlay::Data data;
++    const auto* bytes = static_cast<const uint8_t*>(vertices);
++    data.vertices.assign(bytes, bytes + static_cast<size_t>(vertex_count) * 20);
++    data.indices.assign(indices, indices + index_count);
++    data.cmds.reserve(cmd_count);
++    for (uint32_t i = 0; i < cmd_count; ++i) {
++        const AuroraOverlayCmd& c = cmds[i];
++        data.cmds.push_back(aurora::gfx::overlay::Cmd{
++            .clip = {c.clip[0], c.clip[1], c.clip[2], c.clip[3]},
++            .texture = c.texture,
++            .indexOffset = c.index_offset,
++            .indexCount = c.index_count,
++            .vertexOffset = c.vertex_offset,
++        });
++    }
++    data.displayWidth = display_width;
++    data.displayHeight = display_height;
++    aurora::gfx::overlay::set(std::move(data));
++}
++
++// An overlay texture (RGBA8, the font atlas), replaced whole when it changes.
++void aurora_backend_set_overlay_texture(uint32_t id, uint32_t width, uint32_t height, const uint8_t* rgba) {
++    aurora::gfx::overlay::set_texture(id, width, height, rgba);
 +}
 +
 +// Whether the next aurora_backend_drain_if_over(bytes) would drain (the host times only those).
@@ -568,6 +600,19 @@ index c4b4bf2a3e..998ad62a6f 100644
  endif ()
  
  if(AURORA_ENABLE_RMLUI)
+diff --git a/GXRuntime/graphics/aurora/cmake/aurora_gx.cmake b/GXRuntime/graphics/aurora/cmake/aurora_gx.cmake
+index 59f6a44825..ef7f1bac59 100644
+--- a/GXRuntime/graphics/aurora/cmake/aurora_gx.cmake
++++ b/GXRuntime/graphics/aurora/cmake/aurora_gx.cmake
+@@ -1,6 +1,8 @@
+ add_library(aurora_gx STATIC
+         lib/gfx/clear.cpp
+         lib/gfx/common.cpp
++        lib/gfx/overlay.cpp
++        lib/gfx/overlay.hpp
+         lib/gfx/depth_peek.cpp
+         lib/gfx/efb_readback.cpp
+         lib/gfx/pipeline_cache.cpp
 diff --git a/GXRuntime/graphics/aurora/extern/CMakeLists.txt b/GXRuntime/graphics/aurora/extern/CMakeLists.txt
 index b887894fb5..c195194645 100644
 --- a/GXRuntime/graphics/aurora/extern/CMakeLists.txt
@@ -667,10 +712,10 @@ index 46ebf40b49..93353b4852 100644
  };
  
 diff --git a/GXRuntime/graphics/aurora/lib/aurora.cpp b/GXRuntime/graphics/aurora/lib/aurora.cpp
-index 8843b7b0d8..c45c6b0e32 100644
+index 8843b7b0d8..ba97ce52cf 100644
 --- a/GXRuntime/graphics/aurora/lib/aurora.cpp
 +++ b/GXRuntime/graphics/aurora/lib/aurora.cpp
-@@ -1,7 +1,11 @@
+@@ -1,7 +1,12 @@
 +#include <cstdlib>
 +#include <cstdio>
 +#include <chrono>
@@ -678,11 +723,12 @@ index 8843b7b0d8..c45c6b0e32 100644
  
  #ifdef AURORA_ENABLE_GX
  #include "gfx/common.hpp"
++#include "gfx/overlay.hpp"
 +#include "gfx/efb_readback.hpp"
  #include "gfx/render_worker.hpp"
  #include "gx/fifo.hpp"
  #include "imgui.hpp"
-@@ -14,11 +18,19 @@
+@@ -14,11 +19,19 @@
  #include "rmlui.hpp"
  #endif
  
@@ -702,7 +748,7 @@ index 8843b7b0d8..c45c6b0e32 100644
  #include <magic_enum.hpp>
  
  #include "system_info.hpp"
-@@ -98,18 +110,26 @@ AuroraInfo initialize(int argc, char* argv[], const AuroraConfig& config) noexce
+@@ -98,18 +111,26 @@ AuroraInfo initialize(int argc, char* argv[], const AuroraConfig& config) noexce
    } else {
      g_config.appName = strdup(g_config.appName);
    }
@@ -732,7 +778,7 @@ index 8843b7b0d8..c45c6b0e32 100644
    } else {
      g_config.resourcesPath = strdup(g_config.resourcesPath);
    }
-@@ -121,9 +141,11 @@ AuroraInfo initialize(int argc, char* argv[], const AuroraConfig& config) noexce
+@@ -121,9 +142,11 @@ AuroraInfo initialize(int argc, char* argv[], const AuroraConfig& config) noexce
    }
    ASSERT(window::initialize(), "Error initializing window");
  
@@ -744,7 +790,7 @@ index 8843b7b0d8..c45c6b0e32 100644
  
  #ifdef AURORA_ENABLE_GX
    /* Attempt to create a window using the calling application's desired backend */
-@@ -152,16 +174,18 @@ AuroraInfo initialize(int argc, char* argv[], const AuroraConfig& config) noexce
+@@ -152,16 +175,18 @@ AuroraInfo initialize(int argc, char* argv[], const AuroraConfig& config) noexce
      }
    }
  
@@ -766,7 +812,11 @@ index 8843b7b0d8..c45c6b0e32 100644
  #endif
  
    window::show_window();
-@@ -205,7 +229,9 @@ void shutdown() noexcept {
+@@ -202,10 +227,13 @@ void shutdown() noexcept {
+   rmlui::shutdown();
+ #endif
+   imgui::shutdown();
++  gfx::overlay::shutdown();
    gfx::shutdown();
    webgpu::shutdown();
  #endif
@@ -776,7 +826,7 @@ index 8843b7b0d8..c45c6b0e32 100644
    window::shutdown();
  }
  
-@@ -213,7 +239,9 @@ const AuroraEvent* update() noexcept {
+@@ -213,7 +241,9 @@ const AuroraEvent* update() noexcept {
    ZoneScoped;
    if (g_initialFrame) {
      g_initialFrame = false;
@@ -786,7 +836,7 @@ index 8843b7b0d8..c45c6b0e32 100644
    }
    return window::poll_events();
  }
-@@ -245,17 +273,52 @@ bool begin_frame() noexcept {
+@@ -245,17 +275,54 @@ bool begin_frame() noexcept {
    return true;
  }
  
@@ -824,11 +874,14 @@ index 8843b7b0d8..c45c6b0e32 100644
 +    }
 +  } restTimer;
    auto imguiDrawData = imgui::freeze();
- 
+-
 -  const auto& presentSource = webgpu::present_source();
 -  const auto viewport = webgpu::calculate_present_viewport(webgpu::g_graphicsConfig.surfaceConfiguration.width,
 -                                                           webgpu::g_graphicsConfig.surfaceConfiguration.height,
 -                                                           presentSource.size.width, presentSource.size.height);
++  // The host's overlay (Dolphin's on-screen UI as Dear ImGui draw data), drawn after the EFB blit.
++  auto hostOverlay = gfx::overlay::take_for_frame();
++
 +  // A host may present a kept picture instead of the EFB (frame interpolation); copied here, the
 +  // render worker reads it later.
 +  const webgpu::TextureWithSampler presentSource =
@@ -843,16 +896,17 @@ index 8843b7b0d8..c45c6b0e32 100644
  
    wgpu::BindGroup rmlBindGroup;
    bool rmlOverlay = false;
-@@ -267,7 +330,7 @@ void end_frame() noexcept {
+@@ -267,7 +334,8 @@ void end_frame() noexcept {
    }
  #endif
  
 -  gfx::end_frame([rmlBindGroup = std::move(rmlBindGroup), rmlOverlay, viewport,
 +  gfx::end_frame([rmlBindGroup = std::move(rmlBindGroup), rmlOverlay, viewport, presentSource,
++                  hostOverlay = std::move(hostOverlay),
                    imguiDrawData = std::move(imguiDrawData)](wgpu::CommandEncoder& encoder) {
      wgpu::Texture currentTexture;
      wgpu::TextureView currentView;
-@@ -286,13 +349,14 @@ void end_frame() noexcept {
+@@ -286,13 +354,14 @@ void end_frame() noexcept {
        }
      }
  
@@ -868,7 +922,16 @@ index 8843b7b0d8..c45c6b0e32 100644
          presentBindGroup = webgpu::create_copy_bind_group(resampledSource);
        }
        {
-@@ -430,6 +494,9 @@ const AuroraEvent* aurora_update() { return aurora::update(); }
+@@ -322,6 +391,8 @@ void end_frame() noexcept {
+           pass.SetBindGroup(0, rmlBindGroup, 0, nullptr);
+           pass.Draw(3);
+         }
++        gfx::overlay::render(pass, hostOverlay, webgpu::g_graphicsConfig.surfaceConfiguration.width,
++                             webgpu::g_graphicsConfig.surfaceConfiguration.height);
+         pass.End();
+       }
+       {
+@@ -430,6 +501,9 @@ const AuroraEvent* aurora_update() { return aurora::update(); }
  bool aurora_begin_frame() { return aurora::begin_frame(); }
  void aurora_end_frame() { aurora::end_frame(); }
  AuroraBackend aurora_get_backend() { return aurora::g_config.desiredBackend; }
@@ -1263,6 +1326,343 @@ index 12c22b3eb2..110fc69d09 100644
        .attributeCount = attributes.size(),
        .attributes = attributes.data(),
    };
+diff --git a/GXRuntime/graphics/aurora/lib/gfx/overlay.cpp b/GXRuntime/graphics/aurora/lib/gfx/overlay.cpp
+new file mode 100644
+index 0000000000..304b677d7c
+--- /dev/null
++++ b/GXRuntime/graphics/aurora/lib/gfx/overlay.cpp
+@@ -0,0 +1,283 @@
++#include "overlay.hpp"
++
++#include <algorithm>
++#include <array>
++#include <cstring>
++#include <mutex>
++#include <unordered_map>
++
++#include "../webgpu/gpu.hpp"
++
++namespace aurora::gfx::overlay {
++namespace {
++std::mutex g_mutex;
++Data g_pending;  // the host's latest lists
++std::vector<TextureUpload> g_pendingTextures;
++
++struct Texture {
++  wgpu::Texture texture;
++  wgpu::TextureView view;
++};
++std::unordered_map<uint32_t, Texture> g_textures;  // render worker only
++wgpu::RenderPipeline g_pipeline;
++wgpu::BindGroupLayout g_bindGroupLayout;
++wgpu::Sampler g_sampler;
++
++constexpr uint32_t VertexStride = 20;
++
++void ensure_pipeline() {
++  if (g_pipeline) {
++    return;
++  }
++  wgpu::ShaderSourceWGSL source{};
++  source.code = R"""(
++struct Transform {
++    scale: vec2<f32>,
++    offset: vec2<f32>,
++};
++@group(0) @binding(0) var overlay_sampler: sampler;
++@group(0) @binding(1) var overlay_texture: texture_2d<f32>;
++@group(0) @binding(2) var<uniform> transform: Transform;
++
++struct VertexOutput {
++    @builtin(position) pos: vec4<f32>,
++    @location(0) uv: vec2<f32>,
++    @location(1) color: vec4<f32>,
++};
++
++@vertex
++fn vs_main(@location(0) pos: vec2<f32>, @location(1) uv: vec2<f32>, @location(2) color: vec4<f32>) -> VertexOutput {
++    var out: VertexOutput;
++    out.pos = vec4<f32>(pos * transform.scale + transform.offset, 0.0, 1.0);
++    out.uv = uv;
++    out.color = color;
++    return out;
++}
++
++@fragment
++fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
++    return in.color * textureSample(overlay_texture, overlay_sampler, in.uv);
++}
++)""";
++  const wgpu::ShaderModuleDescriptor moduleDescriptor{.nextInChain = &source, .label = "Overlay Module"};
++  auto module = webgpu::g_device.CreateShaderModule(&moduleDescriptor);
++  const std::array layoutEntries{
++      wgpu::BindGroupLayoutEntry{
++          .binding = 0,
++          .visibility = wgpu::ShaderStage::Fragment,
++          .sampler = wgpu::SamplerBindingLayout{.type = wgpu::SamplerBindingType::Filtering},
++      },
++      wgpu::BindGroupLayoutEntry{
++          .binding = 1,
++          .visibility = wgpu::ShaderStage::Fragment,
++          .texture =
++              wgpu::TextureBindingLayout{
++                  .sampleType = wgpu::TextureSampleType::Float,
++                  .viewDimension = wgpu::TextureViewDimension::e2D,
++              },
++      },
++      wgpu::BindGroupLayoutEntry{
++          .binding = 2,
++          .visibility = wgpu::ShaderStage::Vertex,
++          .buffer = wgpu::BufferBindingLayout{.type = wgpu::BufferBindingType::Uniform, .minBindingSize = 16},
++      },
++  };
++  const wgpu::BindGroupLayoutDescriptor layoutDescriptor{.entryCount = layoutEntries.size(),
++                                                         .entries = layoutEntries.data()};
++  g_bindGroupLayout = webgpu::g_device.CreateBindGroupLayout(&layoutDescriptor);
++  const wgpu::PipelineLayoutDescriptor pipelineLayoutDescriptor{.bindGroupLayoutCount = 1,
++                                                                .bindGroupLayouts = &g_bindGroupLayout};
++  auto pipelineLayout = webgpu::g_device.CreatePipelineLayout(&pipelineLayoutDescriptor);
++  const std::array attributes{
++      wgpu::VertexAttribute{.format = wgpu::VertexFormat::Float32x2, .offset = 0, .shaderLocation = 0},
++      wgpu::VertexAttribute{.format = wgpu::VertexFormat::Float32x2, .offset = 8, .shaderLocation = 1},
++      wgpu::VertexAttribute{.format = wgpu::VertexFormat::Unorm8x4, .offset = 16, .shaderLocation = 2},
++  };
++  const wgpu::VertexBufferLayout vertexLayout{
++      .stepMode = wgpu::VertexStepMode::Vertex,
++      .arrayStride = VertexStride,
++      .attributeCount = attributes.size(),
++      .attributes = attributes.data(),
++  };
++  const wgpu::BlendState blend{
++      .color = {.operation = wgpu::BlendOperation::Add,
++                .srcFactor = wgpu::BlendFactor::SrcAlpha,
++                .dstFactor = wgpu::BlendFactor::OneMinusSrcAlpha},
++      .alpha = {.operation = wgpu::BlendOperation::Add,
++                .srcFactor = wgpu::BlendFactor::One,
++                .dstFactor = wgpu::BlendFactor::OneMinusSrcAlpha},
++  };
++  const std::array colorTargets{wgpu::ColorTargetState{
++      .format = webgpu::g_graphicsConfig.surfaceConfiguration.format,
++      .blend = &blend,
++      .writeMask = wgpu::ColorWriteMask::All,
++  }};
++  const wgpu::FragmentState fragmentState{
++      .module = module,
++      .entryPoint = "fs_main",
++      .targetCount = colorTargets.size(),
++      .targets = colorTargets.data(),
++  };
++  const wgpu::RenderPipelineDescriptor pipelineDescriptor{
++      .label = "Overlay Pipeline",
++      .layout = pipelineLayout,
++      .vertex =
++          wgpu::VertexState{
++              .module = module,
++              .entryPoint = "vs_main",
++              .bufferCount = 1,
++              .buffers = &vertexLayout,
++          },
++      .primitive = wgpu::PrimitiveState{.topology = wgpu::PrimitiveTopology::TriangleList},
++      .multisample = wgpu::MultisampleState{.count = 1, .mask = UINT32_MAX},
++      .fragment = &fragmentState,
++  };
++  g_pipeline = webgpu::g_device.CreateRenderPipeline(&pipelineDescriptor);
++  const wgpu::SamplerDescriptor samplerDescriptor{
++      .label = "Overlay Sampler",
++      .addressModeU = wgpu::AddressMode::ClampToEdge,
++      .addressModeV = wgpu::AddressMode::ClampToEdge,
++      .magFilter = wgpu::FilterMode::Linear,
++      .minFilter = wgpu::FilterMode::Linear,
++  };
++  g_sampler = webgpu::g_device.CreateSampler(&samplerDescriptor);
++}
++
++void upload_texture(const TextureUpload& upload) {
++  auto& entry = g_textures[upload.id];
++  if (!entry.texture || entry.texture.GetWidth() != upload.width || entry.texture.GetHeight() != upload.height) {
++    const wgpu::TextureDescriptor descriptor{
++        .label = "Overlay Texture",
++        .usage = wgpu::TextureUsage::TextureBinding | wgpu::TextureUsage::CopyDst,
++        .dimension = wgpu::TextureDimension::e2D,
++        .size = {upload.width, upload.height, 1},
++        .format = wgpu::TextureFormat::RGBA8Unorm,
++        .mipLevelCount = 1,
++        .sampleCount = 1,
++    };
++    entry.texture = webgpu::g_device.CreateTexture(&descriptor);
++    entry.view = entry.texture.CreateView();
++  }
++  const wgpu::TexelCopyTextureInfo destination{.texture = entry.texture};
++  const wgpu::TexelCopyBufferLayout layout{.bytesPerRow = upload.width * 4, .rowsPerImage = upload.height};
++  const wgpu::Extent3D size{upload.width, upload.height, 1};
++  webgpu::g_queue.WriteTexture(&destination, upload.rgba.data(), upload.rgba.size(), &layout, &size);
++}
++}  // namespace
++
++void set(Data data) noexcept {
++  std::lock_guard lock{g_mutex};
++  g_pending = std::move(data);
++}
++
++void set_texture(uint32_t id, uint32_t width, uint32_t height, const uint8_t* rgba) noexcept {
++  std::lock_guard lock{g_mutex};
++  g_pendingTextures.push_back(TextureUpload{
++      .id = id,
++      .width = width,
++      .height = height,
++      .rgba = std::vector<uint8_t>(rgba, rgba + static_cast<size_t>(width) * height * 4),
++  });
++}
++
++Data take_for_frame() noexcept {
++  std::lock_guard lock{g_mutex};
++  Data data = g_pending;  // the lists stay until the host sets new ones (a frame without a set repeats)
++  data.textures = std::move(g_pendingTextures);
++  g_pendingTextures.clear();
++  return data;
++}
++
++void render(const wgpu::RenderPassEncoder& pass, const Data& data, uint32_t surfaceWidth,
++            uint32_t surfaceHeight) noexcept {
++  for (const auto& upload : data.textures) {
++    upload_texture(upload);
++  }
++  if (data.cmds.empty() || data.vertices.empty() || data.indices.empty() || data.displayWidth <= 0.f ||
++      data.displayHeight <= 0.f || surfaceWidth == 0 || surfaceHeight == 0) {
++    return;
++  }
++  ensure_pipeline();
++  if (!g_pipeline) {
++    return;
++  }
++  const wgpu::BufferDescriptor vertexDescriptor{
++      .label = "Overlay Vertices",
++      .usage = wgpu::BufferUsage::Vertex,
++      .size = (data.vertices.size() + 3) & ~size_t{3},
++      .mappedAtCreation = true,
++  };
++  auto vertexBuffer = webgpu::g_device.CreateBuffer(&vertexDescriptor);
++  std::memcpy(vertexBuffer.GetMappedRange(), data.vertices.data(), data.vertices.size());
++  vertexBuffer.Unmap();
++  const size_t indexBytes = data.indices.size() * sizeof(uint16_t);
++  const wgpu::BufferDescriptor indexDescriptor{
++      .label = "Overlay Indices",
++      .usage = wgpu::BufferUsage::Index,
++      .size = (indexBytes + 3) & ~size_t{3},
++      .mappedAtCreation = true,
++  };
++  auto indexBuffer = webgpu::g_device.CreateBuffer(&indexDescriptor);
++  std::memcpy(indexBuffer.GetMappedRange(), data.indices.data(), indexBytes);
++  indexBuffer.Unmap();
++  // Display pixels to clip space: the overlay's display is the surface.
++  const std::array<float, 4> transform{2.f / data.displayWidth, -2.f / data.displayHeight, -1.f, 1.f};
++  const wgpu::BufferDescriptor uniformDescriptor{
++      .label = "Overlay Transform",
++      .usage = wgpu::BufferUsage::Uniform,
++      .size = sizeof(transform),
++      .mappedAtCreation = true,
++  };
++  auto uniformBuffer = webgpu::g_device.CreateBuffer(&uniformDescriptor);
++  std::memcpy(uniformBuffer.GetMappedRange(), transform.data(), sizeof(transform));
++  uniformBuffer.Unmap();
++
++  pass.SetPipeline(g_pipeline);
++  pass.SetViewport(0.f, 0.f, static_cast<float>(surfaceWidth), static_cast<float>(surfaceHeight), 0.f, 1.f);
++  pass.SetVertexBuffer(0, vertexBuffer);
++  pass.SetIndexBuffer(indexBuffer, wgpu::IndexFormat::Uint16);
++  std::unordered_map<uint32_t, wgpu::BindGroup> bindGroups;
++  const float sx = static_cast<float>(surfaceWidth) / data.displayWidth;
++  const float sy = static_cast<float>(surfaceHeight) / data.displayHeight;
++  for (const auto& cmd : data.cmds) {
++    const auto texIt = g_textures.find(cmd.texture);
++    if (texIt == g_textures.end() || cmd.indexCount == 0) {
++      continue;
++    }
++    auto& bindGroup = bindGroups[cmd.texture];
++    if (!bindGroup) {
++      const std::array entries{
++          wgpu::BindGroupEntry{.binding = 0, .sampler = g_sampler},
++          wgpu::BindGroupEntry{.binding = 1, .textureView = texIt->second.view},
++          wgpu::BindGroupEntry{.binding = 2, .buffer = uniformBuffer, .size = sizeof(transform)},
++      };
++      const wgpu::BindGroupDescriptor descriptor{
++          .layout = g_bindGroupLayout, .entryCount = entries.size(), .entries = entries.data()};
++      bindGroup = webgpu::g_device.CreateBindGroup(&descriptor);
++    }
++    const auto clamp = [](float v, float lo, float hi) { return std::min(std::max(v, lo), hi); };
++    const float x1 = clamp(cmd.clip[0] * sx, 0.f, static_cast<float>(surfaceWidth));
++    const float y1 = clamp(cmd.clip[1] * sy, 0.f, static_cast<float>(surfaceHeight));
++    const float x2 = clamp(cmd.clip[2] * sx, 0.f, static_cast<float>(surfaceWidth));
++    const float y2 = clamp(cmd.clip[3] * sy, 0.f, static_cast<float>(surfaceHeight));
++    if (x2 <= x1 || y2 <= y1) {
++      continue;
++    }
++    pass.SetScissorRect(static_cast<uint32_t>(x1), static_cast<uint32_t>(y1),
++                        static_cast<uint32_t>(x2 - x1), static_cast<uint32_t>(y2 - y1));
++    pass.SetBindGroup(0, bindGroup, 0, nullptr);
++    pass.DrawIndexed(cmd.indexCount, 1, cmd.indexOffset, static_cast<int32_t>(cmd.vertexOffset), 0);
++  }
++  pass.SetScissorRect(0, 0, surfaceWidth, surfaceHeight);
++}
++
++void shutdown() noexcept {
++  std::lock_guard lock{g_mutex};
++  g_pending = {};
++  g_pendingTextures.clear();
++  g_textures.clear();
++  g_pipeline = {};
++  g_bindGroupLayout = {};
++  g_sampler = {};
++}
++}  // namespace aurora::gfx::overlay
+diff --git a/GXRuntime/graphics/aurora/lib/gfx/overlay.hpp b/GXRuntime/graphics/aurora/lib/gfx/overlay.hpp
+new file mode 100644
+index 0000000000..9e5914536e
+--- /dev/null
++++ b/GXRuntime/graphics/aurora/lib/gfx/overlay.hpp
+@@ -0,0 +1,42 @@
++#pragma once
++
++#include <cstdint>
++#include <vector>
++
++#include <webgpu/webgpu_cpp.h>
++
++// A host's 2D overlay (Dear ImGui draw data: Dolphin's on-screen UI) drawn over the presented
++// picture, in surface pixels. The host sets the frame's lists before its present; end_frame takes
++// them, and the render worker draws them after the EFB blit.
++namespace aurora::gfx::overlay {
++struct Cmd {
++  float clip[4];  // x1, y1, x2, y2 in display pixels
++  uint32_t texture;
++  uint32_t indexOffset;
++  uint32_t indexCount;
++  uint32_t vertexOffset;
++};
++struct TextureUpload {
++  uint32_t id;
++  uint32_t width;
++  uint32_t height;
++  std::vector<uint8_t> rgba;
++};
++struct Data {
++  std::vector<uint8_t> vertices;  // 20 bytes each: pos f32x2, uv f32x2, col rgba8
++  std::vector<uint16_t> indices;
++  std::vector<Cmd> cmds;
++  std::vector<TextureUpload> textures;
++  float displayWidth = 0.f;
++  float displayHeight = 0.f;
++};
++
++void set(Data data) noexcept;
++void set_texture(uint32_t id, uint32_t width, uint32_t height, const uint8_t* rgba) noexcept;
++// The lists for this frame (the host's latest), with the texture uploads queued since the last take.
++Data take_for_frame() noexcept;
++// Render worker: draws `data` into the current present pass (the full surface as the viewport).
++void render(const wgpu::RenderPassEncoder& pass, const Data& data, uint32_t surfaceWidth,
++            uint32_t surfaceHeight) noexcept;
++void shutdown() noexcept;
++}  // namespace aurora::gfx::overlay
 diff --git a/GXRuntime/graphics/aurora/lib/gfx/pipeline_cache.cpp b/GXRuntime/graphics/aurora/lib/gfx/pipeline_cache.cpp
 index 822a5601a4..d1d01d5752 100644
 --- a/GXRuntime/graphics/aurora/lib/gfx/pipeline_cache.cpp
@@ -3429,10 +3829,18 @@ index ca511a7ab6..e5b40abc03 100644
  
  int dolgx_replay_pixels_main(const char* trace_path,
 diff --git a/GXRuntime/include/gxruntime/aurora_backend.h b/GXRuntime/include/gxruntime/aurora_backend.h
-index c9ec4b9a42..f00dc5ce2f 100644
+index c9ec4b9a42..db6c2b22c2 100644
 --- a/GXRuntime/include/gxruntime/aurora_backend.h
 +++ b/GXRuntime/include/gxruntime/aurora_backend.h
-@@ -19,11 +19,24 @@ typedef struct AuroraBackendConfig {
+@@ -3,6 +3,7 @@
+ #define GXRUNTIME_AURORA_BACKEND_H
+ 
+ #include "gxruntime/platform.h"
++#include <stdint.h>
+ 
+ #include <stdbool.h>
+ 
+@@ -19,14 +20,42 @@ typedef struct AuroraBackendConfig {
      bool info_logging;
      bool graphics_logging;
      bool force_untextured;
@@ -3457,6 +3865,24 @@ index c9ec4b9a42..f00dc5ce2f 100644
  
  #ifdef __cplusplus
  }
+ #endif
+ 
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++/* A host overlay draw command (aurora_backend_set_overlay). */
++typedef struct AuroraOverlayCmd {
++    float clip[4];
++    uint32_t texture;
++    uint32_t index_offset;
++    uint32_t index_count;
++    uint32_t vertex_offset;
++} AuroraOverlayCmd;
++#ifdef __cplusplus
++}
++#endif
+ #endif
 diff --git a/GXRuntime/src/dvd.c b/GXRuntime/src/dvd.c
 index a81707358e..626f4f51b6 100644
 --- a/GXRuntime/src/dvd.c
@@ -3730,10 +4156,10 @@ index 822599a96c..5eb9fe0f97 100644
  }  // namespace ciface::SDL
 diff --git a/Source/Core/VideoBackends/Aurora/AuroraBackend.cpp b/Source/Core/VideoBackends/Aurora/AuroraBackend.cpp
 new file mode 100644
-index 0000000000..70b70c839d
+index 0000000000..961449f445
 --- /dev/null
 +++ b/Source/Core/VideoBackends/Aurora/AuroraBackend.cpp
-@@ -0,0 +1,862 @@
+@@ -0,0 +1,941 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +
 +#include "VideoBackends/Aurora/VideoBackend.h"
@@ -3770,6 +4196,9 @@ index 0000000000..70b70c839d
 +
 +#include "VideoBackends/Null/NullBoundingBox.h"
 +#include "VideoBackends/Null/NullGfx.h"
++#include "VideoCommon/OnScreenUI.h"
++#include <imgui.h>
++#include <unordered_map>
 +#include "VideoBackends/Null/NullVertexManager.h"
 +#include "VideoBackends/Null/PerfQuery.h"
 +#include "VideoBackends/Null/TextureCache.h"
@@ -3799,6 +4228,10 @@ index 0000000000..70b70c839d
 +bool aurora_backend_drain_if_over(u32 bytes);
 +int aurora_backend_fifo_over(u32 bytes);
 +void aurora_backend_set_frame_buffer_aspect_fit(int fit);
++void aurora_backend_set_overlay(const void* vertices, uint32_t vertex_count, const uint16_t* indices,
++                                uint32_t index_count, const AuroraOverlayCmd* cmds, uint32_t cmd_count,
++                                float display_width, float display_height);
++void aurora_backend_set_overlay_texture(uint32_t id, uint32_t width, uint32_t height, const uint8_t* rgba);
 +void aurora_backend_set_guest_address_resolver(DolPlatformGuestAddressResolverFn resolve,
 +                                               void* user);
 +void aurora_backend_replay_context(int enter);
@@ -4112,6 +4545,68 @@ index 0000000000..70b70c839d
 +  }
 +  const MathUtil::Rectangle<int>& rect = g_presenter->GetTargetRectangle();
 +  aurora_backend_set_present_rect(rect.left, rect.top, rect.GetWidth(), rect.GetHeight());
++}
++
++// Dolphin's on-screen UI (OSD messages, the port's in-game menu) is Dear ImGui drawn by the
++// presenter, which the Null gfx classes this backend runs on never show. With Null::g_presentable
++// the presenter builds the draw lists anyway, and OnScreenUI hands each frame's finished draw data
++// here (the ImGui lock held): it goes to Aurora's present pass as an overlay in display pixels
++// (the surface), the textures (the font atlas) uploaded when ImGui creates or updates them.
++std::unordered_map<ImTextureID, u32> s_overlay_texture_ids;
++
++void ImGuiDrawSink(ImDrawData* draw_data)
++{
++  if (draw_data == nullptr)
++    return;
++  if (draw_data->Textures != nullptr)
++  {
++    for (ImTextureData* tex : *draw_data->Textures)
++    {
++      if (tex->Status != ImTextureStatus_OK || tex->TexID == ImTextureID_Invalid || tex->Pixels == nullptr)
++        continue;
++      auto [it, inserted] = s_overlay_texture_ids.try_emplace(tex->TexID, static_cast<u32>(s_overlay_texture_ids.size() + 1));
++      // Updated this frame (the rects are cleared at the next NewFrame), or new here: the whole atlas
++      if (inserted || tex->Updates.Size > 0)
++        aurora_backend_set_overlay_texture(it->second, static_cast<u32>(tex->Width), static_cast<u32>(tex->Height),
++                                           static_cast<const uint8_t*>(tex->Pixels));
++    }
++  }
++  static std::vector<u8> vertices;
++  static std::vector<u16> indices;
++  static std::vector<AuroraOverlayCmd> cmds;
++  vertices.clear();
++  indices.clear();
++  cmds.clear();
++  static_assert(sizeof(ImDrawVert) == 20, "the overlay expects ImGui's default vertex layout");
++  static_assert(sizeof(ImDrawIdx) == 2, "the overlay expects 16-bit ImGui indices");
++  const ImVec2 pos = draw_data->DisplayPos;
++  for (int n = 0; n < draw_data->CmdListsCount; ++n)
++  {
++    const ImDrawList* list = draw_data->CmdLists[n];
++    const u32 base_vertex = static_cast<u32>(vertices.size() / sizeof(ImDrawVert));
++    const u32 base_index = static_cast<u32>(indices.size());
++    const auto* vb = reinterpret_cast<const u8*>(list->VtxBuffer.Data);
++    vertices.insert(vertices.end(), vb, vb + static_cast<size_t>(list->VtxBuffer.Size) * sizeof(ImDrawVert));
++    indices.insert(indices.end(), list->IdxBuffer.Data, list->IdxBuffer.Data + list->IdxBuffer.Size);
++    for (const ImDrawCmd& cmd : list->CmdBuffer)
++    {
++      if (cmd.UserCallback != nullptr || cmd.ElemCount == 0)
++        continue;
++      const auto tex_it = s_overlay_texture_ids.find(cmd.GetTexID());
++      if (tex_it == s_overlay_texture_ids.end())
++        continue;
++      cmds.push_back(AuroraOverlayCmd{
++          .clip = {cmd.ClipRect.x - pos.x, cmd.ClipRect.y - pos.y, cmd.ClipRect.z - pos.x, cmd.ClipRect.w - pos.y},
++          .texture = tex_it->second,
++          .index_offset = base_index + cmd.IdxOffset,
++          .index_count = cmd.ElemCount,
++          .vertex_offset = base_vertex + cmd.VtxOffset,
++      });
++    }
++  }
++  aurora_backend_set_overlay(vertices.data(), static_cast<u32>(vertices.size() / sizeof(ImDrawVert)), indices.data(),
++                             static_cast<u32>(indices.size()), cmds.data(), static_cast<u32>(cmds.size()),
++                             draw_data->DisplaySize.x, draw_data->DisplaySize.y);
 +}
 +
 +// Presents kept slot `slot` (-1: the EFB) and opens the next frame.
@@ -4481,6 +4976,14 @@ index 0000000000..70b70c839d
 +  // Runs on the thread that decodes the FIFO (the GPU thread in dual-core mode); Aurora's
 +  // window is created, pumped and presented from that same thread.
 +  LoadEnvFile();
++  // The on-screen UI (Dolphin's OSD, the port's in-game menu) through Aurora: the Null gfx reports
++  // itself presentable, the presenter then runs OnScreenUI, whose draw data ImGuiDrawSink forwards.
++  // The surface size is Aurora's; the presenter learns it through ApplyPresentRectangle later.
++  Null::g_presentable = EnvUnsigned("MODERNGEKKO_AURORA_OSD", 1) != 0;
++  Null::g_surface_info = SurfaceInfo{.width = 640, .height = 480, .scale = 1.0f,
++                                     .format = AbstractTextureFormat::RGBA8};
++  VideoCommon::g_imgui_draw_sink = Null::g_presentable ? ImGuiDrawSink : nullptr;
++  s_overlay_texture_ids.clear();
 +  if (!InitializeShared(std::make_unique<Null::NullGfx>(), std::make_unique<Null::VertexManager>(),
 +                        std::make_unique<Null::PerfQuery>(),
 +                        std::make_unique<Null::NullBoundingBox>(),
@@ -4574,6 +5077,8 @@ index 0000000000..70b70c839d
 +
 +void VideoBackend::Shutdown()
 +{
++  VideoCommon::g_imgui_draw_sink = nullptr;
++  Null::g_presentable = false;
 +  OpcodeDecoder::g_gp_command_sink = nullptr;
 +  OpcodeDecoder::g_gp_state_sink = nullptr;
 +  OpcodeDecoder::g_skip_vertex_loading = false;
@@ -4598,10 +5103,10 @@ index 0000000000..70b70c839d
 +}  // namespace Aurora
 diff --git a/Source/Core/VideoBackends/Aurora/CMakeLists.txt b/Source/Core/VideoBackends/Aurora/CMakeLists.txt
 new file mode 100644
-index 0000000000..56c0609162
+index 0000000000..61f0bfeb35
 --- /dev/null
 +++ b/Source/Core/VideoBackends/Aurora/CMakeLists.txt
-@@ -0,0 +1,12 @@
+@@ -0,0 +1,14 @@
 +add_library(videoaurora
 +  AuroraBackend.cpp
 +  VideoBackend.h
@@ -4613,6 +5118,8 @@ index 0000000000..56c0609162
 +  videocommon
 +  videonull
 +  GXRuntime::aurora
++PRIVATE
++  imgui
 +)
 diff --git a/Source/Core/VideoBackends/Aurora/VideoBackend.h b/Source/Core/VideoBackends/Aurora/VideoBackend.h
 new file mode 100644
@@ -4663,6 +5170,57 @@ index e56dd03100..a1af594a37 100644
  add_subdirectory(Software)
  
  if(WIN32)
+diff --git a/Source/Core/VideoBackends/Null/NullGfx.cpp b/Source/Core/VideoBackends/Null/NullGfx.cpp
+index 7d67b9c32e..34f94ad598 100644
+--- a/Source/Core/VideoBackends/Null/NullGfx.cpp
++++ b/Source/Core/VideoBackends/Null/NullGfx.cpp
+@@ -23,14 +23,17 @@ NullGfx::~NullGfx()
+   UpdateActiveConfig();
+ }
+ 
++bool g_presentable = false;
++SurfaceInfo g_surface_info{};
++
+ bool NullGfx::IsHeadless() const
+ {
+-  return true;
++  return !g_presentable;
+ }
+ 
+ bool NullGfx::SupportsUtilityDrawing() const
+ {
+-  return false;
++  return g_presentable;
+ }
+ 
+ std::unique_ptr<AbstractTexture> NullGfx::CreateTexture(const TextureConfig& config,
+diff --git a/Source/Core/VideoBackends/Null/NullGfx.h b/Source/Core/VideoBackends/Null/NullGfx.h
+index d811a48cbc..5f26f307dd 100644
+--- a/Source/Core/VideoBackends/Null/NullGfx.h
++++ b/Source/Core/VideoBackends/Null/NullGfx.h
+@@ -8,6 +8,13 @@
+ 
+ namespace Null
+ {
++// A backend that presents by itself (Aurora) runs on these classes and asks for the on-screen UI:
++// with g_presentable the gfx reports itself not headless and able to draw the UI (the draws stay
++// no-ops; the UI's Dear ImGui draw data goes to that backend through OnScreenUI's sink), and
++// GetSurfaceInfo returns g_surface_info.
++extern bool g_presentable;
++extern SurfaceInfo g_surface_info;
++
+ class NullGfx final : public AbstractGfx
+ {
+ public:
+@@ -37,7 +44,7 @@ public:
+   std::unique_ptr<AbstractPipeline> CreatePipeline(const AbstractPipelineConfig& config,
+                                                    const void* cache_data = nullptr,
+                                                    size_t cache_data_length = 0) override;
+-  SurfaceInfo GetSurfaceInfo() const override { return {}; }
++  SurfaceInfo GetSurfaceInfo() const override { return g_surface_info; }
+ };
+ 
+ class NullEFBInterface final : public EFBInterfaceBase
 diff --git a/Source/Core/VideoCommon/CMakeLists.txt b/Source/Core/VideoCommon/CMakeLists.txt
 index 643e6cfd0d..9bc3e92f81 100644
 --- a/Source/Core/VideoCommon/CMakeLists.txt
@@ -4875,6 +5433,49 @@ index 78212865d4..40d4ed784c 100644
 +};
 +u32 ReplayArrays(ReplayArray* out, u32 max);
  }  // namespace FrameInterpolator
+diff --git a/Source/Core/VideoCommon/OnScreenUI.cpp b/Source/Core/VideoCommon/OnScreenUI.cpp
+index 86fa3eafab..50d6e1acdb 100644
+--- a/Source/Core/VideoCommon/OnScreenUI.cpp
++++ b/Source/Core/VideoCommon/OnScreenUI.cpp
+@@ -40,6 +40,8 @@
+ 
+ namespace VideoCommon
+ {
++ImGuiDrawSink g_imgui_draw_sink = nullptr;
++
+ bool OnScreenUI::Initialize(u32 width, u32 height, float scale)
+ {
+   std::unique_lock<std::mutex> imgui_lock(m_imgui_mutex);
+@@ -439,6 +441,8 @@ void OnScreenUI::Finalize()
+     for (ImTextureData* tex : *draw_data->Textures)
+       if (tex->Status != ImTextureStatus_OK)
+         UpdateImguiTexture(tex);
++  if (g_imgui_draw_sink)
++    g_imgui_draw_sink(draw_data);
+ }
+ 
+ void OnScreenUI::UpdateImguiTexture(ImTextureData* tex)
+diff --git a/Source/Core/VideoCommon/OnScreenUI.h b/Source/Core/VideoCommon/OnScreenUI.h
+index e9a14e02ba..79b7a0d514 100644
+--- a/Source/Core/VideoCommon/OnScreenUI.h
++++ b/Source/Core/VideoCommon/OnScreenUI.h
+@@ -17,9 +17,16 @@ class AbstractTexture;
+ class AbstractPipeline;
+ struct ImTextureData;
+ 
++struct ImDrawData;
++
+ namespace VideoCommon
+ {
+ // OnScreenUI handles all the ImGui rendering.
++// A video backend that draws the UI itself (Aurora) gets each frame's finished Dear ImGui draw data
++// (textures created and updated; the ImGui lock held). Null when unused.
++using ImGuiDrawSink = void (*)(ImDrawData* draw_data);
++extern ImGuiDrawSink g_imgui_draw_sink;
++
+ class OnScreenUI
+ {
+ public:
 diff --git a/Source/Core/VideoCommon/OpcodeDecoding.cpp b/Source/Core/VideoCommon/OpcodeDecoding.cpp
 index bbf40f36bd..ed428becb5 100644
 --- a/Source/Core/VideoCommon/OpcodeDecoding.cpp
