@@ -400,7 +400,8 @@ default: `-DMODERNGEKKO_ENABLE_AURORA=ON`, `AURORA=1 tools/android-ws-build.sh`.
   (AURORA, AURORA_DEPS), this file.
 - Research tree: `~/projects/skies-aurora/{android-deps, android-build, android-bench, capture/, inproc/,
   inproc-win/, states/}`; `HANDOFF.md` there has the desktop tools.
-- Devices: both Retroids' test app (`com.skiesofarcadia.recomp.test`) run today's APK
-  (`skies-recomp-aurora-2026-10-22-test.apk` from the worktree's `build/android/apk/`); the Pocket 5's
-  test app also holds the European game and old states (`StateSaves/recovery-skies-20261020-*.sav`,
-  the Continue entries).
+- Devices: the Pocket 5's test app (`com.skiesofarcadia.recomp.test`) runs the final APK of this session
+  (`skies-recomp-aurora-2026-10-22-test.apk`, 12:00, from the worktree's `build/android/apk/`), the USA
+  disc imported, European game and old states beside it (`StateSaves/recovery-skies-20261020-*.sav` are the
+  Continue entries); the Nova's test app was taken over by the issue #9/#12 session (its ws31 build) at
+  noon, so reinstall the Aurora APK there before an Aurora run.
