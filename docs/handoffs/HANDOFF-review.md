@@ -826,31 +826,49 @@ Android:
   `filesDir`, or require a marker there.
 
 Dreamcast music, Uncensored, European streams:
-- [ ] **D16:** the Dreamcast import puts ISO 9660 names in the output path as they are
+- [x] **D16:** the Dreamcast import puts ISO 9660 names in the output path as they are
   (`DCMusicImport.cpp:284-294, 314-319, 442-446`): `Wanted()` only needs `SOUND/M…MLT`, so
   `M\..\..\..\X.MLT` passes, and on Windows `CreateFileW` resolves the `..` (a `*.MLT` written outside
   the music folder; Linux and Android fail on the missing `M`). No cap on the number of wanted
   entries (a 2 MB directory of 4 MB files on the same sectors fills the disk). **Fix:** the
   `NameProblem` rule; a total-size cap (~300 MB).
-- [ ] **D17:** `ApplyRequests` reads an MLT (up to 4 MB) with `File::ReadFileToString` inside the
+  FIXED 2026-10-22 (branch `review`, `recompcore-review-d.patch`): `Wanted` takes only `SOUND/M` + letters,
+  digits and `_` + `.MLT`; the copied files are capped at 300 MB in all. WSL: USA disc 1 imports as
+  before (every file byte-identical).
+- [x] **D17:** `ApplyRequests` reads an MLT (up to 4 MB) with `File::ReadFileToString` inside the
   audio callback under `m_queue_lock` on a song's first play (`DCMusic.cpp:298-359, 374-389`):
   an audio dropout, and the CPU thread's `Send()` waits on the same lock. **Fix:** read it on the CPU
   thread in `SkiesMusic::Play` and pass the bytes with the request.
-- [ ] **D18:** `BuildPal60` runs on every disc, USA and Japanese too, and reads all 446 stream files
+  FIXED 2026-10-22 (branch `review`): `DCMusic::Download` reads the MLT on its caller's thread (the
+  CPU thread), cached by name until `Start` / `Shutdown`, and passes the bytes with the request; the
+  engine's own file cache is gone. WSL: a bank read on the CPU thread (temporary log), music on.
+- [x] **D18:** `BuildPal60` runs on every disc, USA and Japanese too, and reads all 446 stream files
   in full (>100 MB) at every boot just to compare their headers, before the cache key is computed
   (`SkiesStreams.cpp:648-658, 696-757, 790-810`). **Fix:** only on GEAP8P, and read only the 0x60-byte
   headers.
-- [ ] **D19:** the 60 Hz copies served live are in `Cache/SkiesPal60/` (Android: `externalCacheDir`,
+  FIXED 2026-10-22 (branch `review`), headers part: `FixStream` reads the two 0x60-byte headers and
+  the sizes, compares them and checks the cache before reading anything whole (the same cache key),
+  and `FixBank` checks the size first. Not limited to GEAP8P: with header reads the other discs cost
+  446 small reads. WSL: the European cache rebuilt identical (726 files).
+- [x] **D19:** the 60 Hz copies served live are in `Cache/SkiesPal60/` (Android: `externalCacheDir`,
   `DirectoryInitialization.kt:125`), which the OS or "Clear cache" can delete mid-session; the next
   read of one ends the session as in D8. **Fix:** D8's fallback, or keep them under the user folder.
-- [ ] **D20:** first run only: a pal60 copy published while the game is part-way through the original
+  FIXED 2026-10-22 (branch `review`) with D8's fallback: `DiscContent::Read` reads the disc's own
+  file when a served copy can't be read (warned up to 8 times). Covers D8's Remove too.
+- [x] **D20:** first run only: a pal60 copy published while the game is part-way through the original
   stream can pair the European header with the shortened data (`SkiesStreams.cpp:713-717`); unlike
   `SkiesUncensor::Redirect` (`SkiesUncensor.cpp:402-410`) there is no choice latched at offset 0.
   Cosmetic. **Fix:** latch at offset 0 the same way.
-- [ ] **D21:** the detached conversion threads (Uncensored, pal60; up to ~50 s on the first run)
+  FIXED 2026-10-22 (branch `review`): `SkiesStreams::Redirect(path, offset)` latches its choice at
+  offset 0 per file (a first read past the start takes the current one), reset by `Register`.
+- [x] **D21:** the detached conversion threads (Uncensored, pal60; up to ~50 s on the first run)
   use `File::GetUserPath` / manifest statics, so quitting during them can crash in static destructors
   (`SkiesUncensor.cpp:382-391`, `SkiesStreams.cpp:805, 840`). After the config is saved, so low
   impact. **Fix:** a shutdown flag checked between files, or join from `Core::Shutdown`.
+  FIXED 2026-10-22 (branch `review`): the pal60, Dreamcast-stream and Uncensored threads stop
+  between files and `Core::Shutdown` waits for them (`StopBackgroundWork`, up to 10 s). WSL: quit 6 s
+  and 9 s into the European conversion, exit 0, 394 / 520 files, no `.part`; the next run finished it
+  identical to the old cache.
 
 Texture packs:
 - [ ] **D22:** no cap on the bytes a pack writes: LZMA / LZMA2 / stored folders stream straight to

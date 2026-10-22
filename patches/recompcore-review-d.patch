@@ -382,10 +382,18 @@ index ea754e10b2..489eac2aa9 100644
          }
          describe(rows, "Your own Skies of Arcadia Dreamcast disc, as a CHD file. Either disc has most " +
 diff --git a/Source/Core/AudioCommon/DCMusic.cpp b/Source/Core/AudioCommon/DCMusic.cpp
-index b1e7d75ba4..2276b588c0 100644
+index b1e7d75ba4..8d30394eac 100644
 --- a/Source/Core/AudioCommon/DCMusic.cpp
 +++ b/Source/Core/AudioCommon/DCMusic.cpp
-@@ -98,11 +98,17 @@ public:
+@@ -74,6 +74,7 @@ struct Request
+   Kind kind = Kind::Command;
+   Record record{};
+   std::string mlt;
++  std::shared_ptr<const std::string> data;  // Download: the MLT, read on the caller's thread
+   float level = 1.0f;
+   int fade_ms = 0;
+   AfterFade after = AfterFade::None;
+@@ -98,11 +99,17 @@ public:
        return false;
      }
  
@@ -406,11 +414,168 @@ index b1e7d75ba4..2276b588c0 100644
      dcsound_upload_to_ram(m_state.get(), 0, const_cast<u8*>(d + 0x20), image_size);
      // The driver's work table (sd library's sdDrvGetInfo): port status, system block (the host
      // command flag), bank table, host command buffer.
+@@ -132,7 +139,6 @@ public:
+     master[0] = CMD_MASTER_VOL;
+     master[2] = 0xF0;
+     m_pending.push_back(master);
+-    m_dir = dir;
+     return true;
+   }
+ 
+@@ -326,7 +332,8 @@ private:
+       case Request::Kind::Download:
+         if (!m_pending.empty())
+           goto send;
+-        DownloadMlt(r.mlt);
++        if (r.data && !r.data->empty())
++          DownloadUnits(*r.data);
+         break;
+       case Request::Kind::Command:
+         if (r.record[0] == CMD_MIDI_PLAY)
+@@ -371,23 +378,6 @@ private:
+     Set8(m_flag, 1);
+   }
+ 
+-  void DownloadMlt(const std::string& name)
+-  {
+-    auto it = m_files.find(name);
+-    if (it == m_files.end())
+-    {
+-      std::string data;
+-      if (!File::ReadFileToString(m_dir + "SOUND/" + name + ".MLT", data))
+-      {
+-        WARN_LOG_FMT(AUDIO, "Dreamcast music: no {}.MLT", name);
+-        data.clear();
+-      }
+-      it = m_files.emplace(name, std::move(data)).first;
+-    }
+-    if (!it->second.empty())
+-      DownloadUnits(it->second);
+-  }
+-
+   // An MLT (SMLT) file: 0x20-byte unit entries from 0x20, each a type, a bank number, the bank's
+   // sound RAM address and size, and the offset and size of the data the file carries for it. As
+   // the sd library's sdMultiUnitDownload: the bank table entry is written, then the data copied.
+@@ -432,8 +422,6 @@ private:
+   }
+ 
+   std::unique_ptr<u8[]> m_state;
+-  std::string m_dir;
+-  std::map<std::string, std::string> m_files;
+   u32 m_ports = 0, m_flag = 0, m_banks = 0, m_commands = 0;
+ 
+   std::mutex m_queue_lock;
+@@ -456,6 +444,11 @@ private:
+ 
+ std::mutex s_lock;  // guards s_engines against Start / Shutdown while the audio thread mixes
+ std::array<std::unique_ptr<Engine>, PLAYERS> s_engines;
++// The MLTs read so far, by name: read by Download on its own thread (the CPU thread), not in the
++// audio callback under the queue lock, which a 4 MB read stalled (review D17). Emptied by Start
++// and Shutdown (Android keeps the process, and an import may have changed the files).
++std::mutex s_files_lock;
++std::map<std::string, std::shared_ptr<const std::string>, std::less<>> s_files;
+ int s_gain = DEFAULT_GAIN;
+ bool s_initialized = false;
+ 
+@@ -521,15 +514,23 @@ bool Start()
+     return false;
+   }
+   s_engines = std::move(engines);
++  {
++    std::lock_guard files_lk(s_files_lock);
++    s_files.clear();
++  }
+   INFO_LOG_FMT(AUDIO, "Dreamcast music started");
+   return true;
+ }
+ 
+ void Shutdown()
+ {
+-  std::lock_guard lk(s_lock);
+-  for (auto& engine : s_engines)
+-    engine.reset();
++  {
++    std::lock_guard lk(s_lock);
++    for (auto& engine : s_engines)
++      engine.reset();
++  }
++  std::lock_guard files_lk(s_files_lock);
++  s_files.clear();
+ }
+ 
+ bool Running()
+@@ -540,8 +541,25 @@ bool Running()
+ 
+ void Download(int player, std::string_view mlt)
+ {
++  if (!Running())
++    return;
+   Request r = Kind(Request::Kind::Download);
+   r.mlt = std::string(mlt);
++  {
++    std::lock_guard files_lk(s_files_lock);
++    auto it = s_files.find(mlt);
++    if (it == s_files.end())
++    {
++      auto data = std::make_shared<std::string>();
++      if (!File::ReadFileToString(Directory() + "SOUND/" + r.mlt + ".MLT", *data))
++      {
++        WARN_LOG_FMT(AUDIO, "Dreamcast music: no {}.MLT", r.mlt);
++        data->clear();
++      }
++      it = s_files.emplace(r.mlt, std::move(data)).first;
++    }
++    r.data = it->second;
++  }
+   Send(player, std::move(r));
+ }
+ 
 diff --git a/Source/Core/AudioCommon/DCMusicImport.cpp b/Source/Core/AudioCommon/DCMusicImport.cpp
-index 5481cf5929..6bdc69693e 100644
+index 5481cf5929..a220615453 100644
 --- a/Source/Core/AudioCommon/DCMusicImport.cpp
 +++ b/Source/Core/AudioCommon/DCMusicImport.cpp
-@@ -439,6 +439,16 @@ std::string Import(const std::string& image, const std::string& music_dir, std::
+@@ -38,6 +38,9 @@ constexpr u32 CHD_FRAME = 2448;  // a raw sector + 96 bytes of subcode
+ // The music files and their limits (the largest bank on the discs is 1.3 MB, the streams 5.3 MB).
+ constexpr u32 MAX_FILE = 4 << 20;
+ constexpr u32 MAX_STREAM = 16 << 20;
++// All the copied files together: a real disc's are about 40 MB (review D16: many wanted entries
++// pointing at the same sectors would otherwise fill the disk)
++constexpr u64 MAX_TOTAL = 300 << 20;
+ 
+ // The 2048-byte user data of the high-density area's sectors (mode 1).
+ class SectorReader
+@@ -315,7 +318,11 @@ bool Wanted(const std::string& name)
+ {
+   if (name == "BONITO.DRV" || name == "ARESNEW.MLT" || StreamTrack(name))
+     return true;
+-  return name.starts_with("SOUND/M") && name.ends_with(".MLT");
++  // A plain bank name only: the disc's names go into the output path (review D16, "M\..\X.MLT")
++  if (!name.starts_with("SOUND/M") || !name.ends_with(".MLT") || name.size() > 6 + 31)
++    return false;
++  const std::string_view base(name.data() + 6, name.size() - 6 - 4);
++  return base.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_") == std::string_view::npos;
+ }
+ 
+ // sources.txt in the music folder: one "NAME REGION" line per imported file.
+@@ -417,6 +424,7 @@ std::string Import(const std::string& image, const std::string& music_dir, std::
+   std::map<std::string, std::string> sources = ReadSources(dir);
+ 
+   int banks = 0, streams = 0, kept = 0;
++  u64 total = 0;
+   std::vector<u8> data;
+   std::array<u8, 2048> sector;
+   for (const auto& [name, entry] : files)
+@@ -431,6 +439,9 @@ std::string Import(const std::string& image, const std::string& music_dir, std::
+     }
+     if (entry.size > (StreamTrack(name) ? MAX_STREAM : MAX_FILE))
+       return "Unexpected file size for " + name + ".";
++    total += entry.size;
++    if (total > MAX_TOTAL)
++      return "The disc's music files are far larger than expected; is it really Skies of Arcadia?";
+     report("Copying " + name);
+     data.resize(entry.size);
+     for (u32 i = 0; i * 2048 < entry.size; ++i)
+@@ -439,6 +450,16 @@ std::string Import(const std::string& image, const std::string& music_dir, std::
          return "Reading " + name + " failed.";
        std::memcpy(data.data() + i * 2048, sector.data(), std::min<u32>(2048, entry.size - i * 2048));
      }
@@ -427,6 +592,30 @@ index 5481cf5929..6bdc69693e 100644
      const std::string path = dir + name;
      const std::string temp = path + ".part";
      if (!File::WriteStringToFile(temp, std::string(data.begin(), data.end())) ||
+diff --git a/Source/Core/Core/Core.cpp b/Source/Core/Core/Core.cpp
+index b59e519883..f276c85ac1 100644
+--- a/Source/Core/Core/Core.cpp
++++ b/Source/Core/Core/Core.cpp
+@@ -80,6 +80,8 @@
+ #endif
+ 
+ #include "DiscIO/RiivolutionPatcher.h"
++#include "DiscIO/SkiesStreams.h"
++#include "DiscIO/SkiesUncensor.h"
+ 
+ #include "InputCommon/ControlReference/ControlReference.h"
+ #include "InputCommon/ControllerInterface/ControllerInterface.h"
+@@ -846,6 +848,10 @@ void Shutdown(Core::System& system)
+   if (s_emu_thread.joinable())
+     s_emu_thread.join();
+ 
++  // Skies: the 60 Hz, Dreamcast-stream and Uncensored conversions run on their own threads
++  DiscIO::SkiesStreams::StopBackgroundWork();
++  DiscIO::SkiesUncensor::StopBackgroundWork();
++
+   // Make sure there's nothing left over in case we're about to exit.
+   HostDispatchJobs(system);
+ }
 diff --git a/Source/Core/Core/SkiesInput.cpp b/Source/Core/Core/SkiesInput.cpp
 index 1f775bc87c..6c1c95ec69 100644
 --- a/Source/Core/Core/SkiesInput.cpp
@@ -629,6 +818,397 @@ index 1c4eeb0554..bb05f484f7 100644
  void LoadAs(Core::System& system, std::string filename);
  
  void LoadLastSaved(Core::System& system, int i = 1);
+diff --git a/Source/Core/DiscIO/DirectoryBlob.cpp b/Source/Core/DiscIO/DirectoryBlob.cpp
+index e348c2f199..bca6812820 100644
+--- a/Source/Core/DiscIO/DirectoryBlob.cpp
++++ b/Source/Core/DiscIO/DirectoryBlob.cpp
+@@ -4,6 +4,7 @@
+ #include "DiscIO/DirectoryBlob.h"
+ 
+ #include <algorithm>
++#include <atomic>
+ #include <cstring>
+ #include <map>
+ #include <memory>
+@@ -97,13 +98,26 @@ bool DiscContent::Read(u64* offset, u64* length, u8** buffer, DirectoryBlobReade
+       const auto& content = std::get<ContentFile>(m_content_source);
+       // Skies: a streamed song can be served from its Dreamcast recording (SkiesStreams.h), a model
+       // file from its uncensored conversion (SkiesUncensor.h).
+-      File::DirectIOFile file(
+-          SkiesUncensor::Redirect(SkiesStreams::Redirect(content.m_filename),
+-                                  content.m_offset + offset_in_content),
+-          File::AccessMode::Read);
++      const u64 offset_in_file = content.m_offset + offset_in_content;
++      const std::string path = SkiesUncensor::Redirect(
++          SkiesStreams::Redirect(content.m_filename, offset_in_file), offset_in_file);
++      File::DirectIOFile file(path, File::AccessMode::Read);
+       if (!file.OffsetRead(content.m_offset + offset_in_content, *buffer, bytes_to_read))
+       {
+-        return false;
++        // A served copy that went away (removed with the game running, or a cache the OS
++        // cleared): the disc's own file rather than a read error, which ends the session
++        // (review D8, D19)
++        if (path == content.m_filename)
++          return false;
++        static std::atomic<int> s_warned{0};
++        if (s_warned.fetch_add(1, std::memory_order_relaxed) < 8)
++        {
++          WARN_LOG_FMT(DISCIO, "{} can't be read: the disc's own {} instead", path,
++                       content.m_filename);
++        }
++        File::DirectIOFile original(content.m_filename, File::AccessMode::Read);
++        if (!original.OffsetRead(content.m_offset + offset_in_content, *buffer, bytes_to_read))
++          return false;
+       }
+     }
+     else if (std::holds_alternative<ContentMemory>(m_content_source))
+diff --git a/Source/Core/DiscIO/SkiesStreams.cpp b/Source/Core/DiscIO/SkiesStreams.cpp
+index 210cc686d2..feb47b22b1 100644
+--- a/Source/Core/DiscIO/SkiesStreams.cpp
++++ b/Source/Core/DiscIO/SkiesStreams.cpp
+@@ -6,6 +6,7 @@
+ #include <algorithm>
+ #include <array>
+ #include <atomic>
++#include <chrono>
+ #include <cmath>
+ #include <cstring>
+ #include <limits>
+@@ -28,6 +29,29 @@ namespace DiscIO::SkiesStreams
+ {
+ namespace
+ {
++// The background conversions: Core::Shutdown stops them between files and waits for them, so
++// none is left using the user paths or the tables while the program's statics are destroyed
++// (review D21).
++std::atomic<bool> s_stop{false};
++std::atomic<int> s_workers{0};
++
++struct Worker
++{
++  Worker() { s_workers.fetch_add(1); }
++  ~Worker() { s_workers.fetch_sub(1); }
++  Worker(const Worker&) = delete;
++  Worker& operator=(const Worker&) = delete;
++};
++
++void WaitForWorkers()
++{
++  s_stop = true;
++  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
++  while (s_workers.load() > 0 && std::chrono::steady_clock::now() < deadline)
++    std::this_thread::sleep_for(std::chrono::milliseconds(10));
++  s_stop = false;
++}
++
+ constexpr int TRACKS = 4;
+ // Bumped when the conversion changes, so older cached files are made again.
+ constexpr u32 VERSION = 1;
+@@ -402,6 +426,7 @@ bool Convert(int track, const std::string (&gc_paths)[2], std::string (&made)[2]
+ // Converts the enabled tracks that aren't ready, the intro first.
+ void Build()
+ {
++  const Worker worker;
+   State& s = S();
+   for (;;)
+   {
+@@ -409,6 +434,11 @@ void Build()
+     std::string gc[2];
+     {
+       std::lock_guard lk(s.lock);
++      if (s_stop)
++      {
++        s.building = false;  // the tracks not attempted yet wait for the next SetEnabled
++        return;
++      }
+       for (int t = 0; t < TRACKS && track < 0; ++t)
+       {
+         const Track& tr = s.tracks[t];
+@@ -480,6 +510,20 @@ Pal60State& P()
+   return *state;
+ }
+ 
++// Redirect's choice per file, latched at offset 0 (review D20, as SkiesUncensor's). Never
++// destroyed, like S().
++struct Latch
++{
++  std::mutex lock;
++  std::unordered_map<std::string, std::string> serving;
++};
++
++Latch& L()
++{
++  static Latch* latch = new Latch;
++  return *latch;
++}
++
+ std::string BaseName(const std::string& path)
+ {
+   const std::size_t slash = path.find_last_of("/\\");
+@@ -537,7 +581,8 @@ void Put32(u8* p, u32 v)
+ std::string FixBank(const BankFix& fix, const std::string& path)
+ {
+   std::string file;
+-  if (!File::ReadFileToString(path, file) || file.size() != fix.size)
++  if (File::GetSize(path) != fix.size || !File::ReadFileToString(path, file) ||
++      file.size() != fix.size)
+     return "";
+   const Common::SHA1::Digest digest = Common::SHA1::CalculateDigest(file);
+   u64 sha1 = 0;
+@@ -639,24 +684,40 @@ void Compress(const std::array<std::vector<float>, 2>& in, u32 rate, double fact
+ // sample count shorter, the rest zeros): false when the files aren't the European ones.
+ bool FixStream(const StreamFix& fix, const std::string (&paths)[2], std::string (&made)[2])
+ {
+-  GcStream gc[2];
+-  if (!gc[0].Load(paths[0]) || !gc[1].Load(paths[1]) || gc[0].samples != fix.samples_left ||
+-      gc[1].samples != fix.samples_right || gc[0].rate != gc[1].rate)
++  // The headers first: every disc has files by these names, and reading them whole (over 100 MB)
++  // at every boot just to compare sample counts was most of the work (review D18)
++  std::array<u8, HEADER> head[2];
++  u64 size[2];
++  for (int c = 0; c < 2; ++c)
++  {
++    File::IOFile f(paths[c], "rb");
++    if (!f || !f.ReadBytes(head[c].data(), HEADER))
++      return false;
++    size[c] = f.GetSize();
++  }
++  if (Be32(head[0].data()) != fix.samples_left || Be32(head[1].data()) != fix.samples_right ||
++      Be32(head[0].data() + 8) != Be32(head[1].data() + 8))
+   {
+     return false;
+   }
+   u32 key = Fnv(2166136261u, &PAL60_VERSION, sizeof(PAL60_VERSION));
+-  for (const GcStream& g : gc)
++  for (int c = 0; c < 2; ++c)
+   {
+-    key = Fnv(key, g.data.data(), HEADER);
+-    const u64 size = g.data.size();
+-    key = Fnv(key, &size, sizeof(size));
++    key = Fnv(key, head[c].data(), HEADER);
++    key = Fnv(key, &size[c], sizeof(size[c]));
+   }
+   for (int c = 0; c < 2; ++c)
+     made[c] = Pal60Dir() + fmt::format("{}_{}-{:08x}.dsp", fix.name, c ? 'r' : 'l', key);
+-  if (File::GetSize(made[0]) == gc[0].data.size() && File::GetSize(made[1]) == gc[1].data.size())
++  if (File::GetSize(made[0]) == size[0] && File::GetSize(made[1]) == size[1])
+     return true;
+ 
++  GcStream gc[2];
++  if (!gc[0].Load(paths[0]) || !gc[1].Load(paths[1]) || gc[0].samples != fix.samples_left ||
++      gc[1].samples != fix.samples_right || gc[0].rate != gc[1].rate ||
++      gc[0].data.size() != size[0] || gc[1].data.size() != size[1])
++  {
++    return false;
++  }
+   std::array<std::vector<float>, 2> pcm{gc[0].Decode(), gc[1].Decode()}, out;
+   Compress(pcm, gc[0].rate, fix.factor, &out);
+   for (int c = 0; c < 2; ++c)
+@@ -695,7 +756,16 @@ bool FixStream(const StreamFix& fix, const std::string (&paths)[2], std::string
+ // spells' and S-moves' (KO) before the battle and field voices.
+ void BuildPal60()
+ {
++  const Worker worker;
+   Pal60State& p = P();
++  const auto stopped = [&p] {
++    if (!s_stop)
++      return false;
++    std::lock_guard lk(p.lock);
++    p.building = false;
++    p.pending = true;  // the next sound file read starts again where this left off
++    return true;
++  };
+   for (;;)
+   {
+     std::unordered_map<std::string, std::string> files;
+@@ -718,6 +788,8 @@ void BuildPal60()
+     int banks = 0, streams = 0;
+     for (const BankFix& fix : BANK_FIXES)
+     {
++      if (stopped())
++        return;
+       const auto it = files.find(fix.name);
+       if (it == files.end())
+         continue;
+@@ -734,6 +806,8 @@ void BuildPal60()
+       {
+         if ((std::string_view(fix.name).starts_with("ko")) != (pass == 0))
+           continue;
++        if (stopped())
++          return;
+         const auto l = files.find(fmt::format("{}_l.dsp", fix.name));
+         const auto r = files.find(fmt::format("{}_r.dsp", fix.name));
+         if (l == files.end() || r == files.end())
+@@ -759,6 +833,12 @@ void BuildPal60()
+ 
+ void Register(const std::string& physical_path)
+ {
++  {
++    // A new disc build (Android keeps the process between boots) starts every choice afresh
++    Latch& l = L();
++    std::lock_guard lk(l.lock);
++    l.serving.erase(physical_path);
++  }
+   const std::string name = BaseName(physical_path);
+   if (IsPal60File(physical_path, name))
+   {
+@@ -787,13 +867,10 @@ void Register(const std::string& physical_path)
+   tr.attempted = false;
+ }
+ 
+-std::string Redirect(const std::string& physical_path)
++namespace
++{
++std::string Choose(const std::string& physical_path, bool dsp)
+ {
+-  // Cheap for every other file the game reads.
+-  const std::string ext = physical_path.size() < 9 ? "" : Lower(physical_path.substr(physical_path.size() - 5));
+-  const bool dsp = ext.ends_with(".dsp");
+-  if (!dsp && ext != ".info")
+-    return physical_path;
+   {
+     // The European 50 Hz audio: the conversions start with the game's first read of a sound file
+     // (the disc is built by then, every file registered).
+@@ -821,6 +898,29 @@ std::string Redirect(const std::string& physical_path)
+     return physical_path;
+   return tr.ready[channel];
+ }
++}  // namespace
++
++std::string Redirect(const std::string& physical_path, u64 offset_in_file)
++{
++  // Cheap for every other file the game reads.
++  const std::string ext = physical_path.size() < 9 ? "" : Lower(physical_path.substr(physical_path.size() - 5));
++  const bool dsp = ext.ends_with(".dsp");
++  if (!dsp && ext != ".info")
++    return physical_path;
++  std::string chosen = Choose(physical_path, dsp);
++  Latch& l = L();
++  std::lock_guard lk(l.lock);
++  std::string& serving = l.serving[physical_path];
++  // A first read past the start (a state loaded mid-song) takes the current choice too
++  if (offset_in_file == 0 || serving.empty())
++    serving = std::move(chosen);
++  return serving;
++}
++
++void StopBackgroundWork()
++{
++  WaitForWorkers();
++}
+ 
+ void SetEnabled(u32 mask)
+ {
+diff --git a/Source/Core/DiscIO/SkiesStreams.h b/Source/Core/DiscIO/SkiesStreams.h
+index 71510d68b0..c9e3a33286 100644
+--- a/Source/Core/DiscIO/SkiesStreams.h
++++ b/Source/Core/DiscIO/SkiesStreams.h
+@@ -38,9 +38,13 @@ namespace DiscIO::SkiesStreams
+ // Every file of an extracted game's folder, as the disc is built: notes the stream files (and the
+ // European sound files to convert).
+ void Register(const std::string& physical_path);
++// Core::Shutdown: stops the background conversions between files and waits for them (up to 10 s).
++void StopBackgroundWork();
+ // The file to read for physical_path: the converted stream when that track is enabled and ready,
+ // or the European file's 60 Hz copy once made (the first sound file read starts making them).
+-std::string Redirect(const std::string& physical_path);
++// The choice is made at offset 0 and kept for the rest of the file, so a copy finished while the
++// game is part-way through the original isn't joined onto it.
++std::string Redirect(const std::string& physical_path, u64 offset_in_file);
+ // Which tracks play the Dreamcast recording, bit n - 1 for mn; converts the missing ones on a
+ // background thread (until a track is ready, the GameCube one plays).
+ void SetEnabled(u32 mask);
+diff --git a/Source/Core/DiscIO/SkiesUncensor.cpp b/Source/Core/DiscIO/SkiesUncensor.cpp
+index 2b55438ddc..d74eb22aa1 100644
+--- a/Source/Core/DiscIO/SkiesUncensor.cpp
++++ b/Source/Core/DiscIO/SkiesUncensor.cpp
+@@ -4,6 +4,8 @@
+ #include "DiscIO/SkiesUncensor.h"
+ 
+ #include <algorithm>
++#include <atomic>
++#include <chrono>
+ #include <filesystem>
+ #include <map>
+ #include <mutex>
+@@ -28,6 +30,29 @@ namespace DiscIO::SkiesUncensor
+ {
+ namespace
+ {
++// The background conversions: Core::Shutdown stops them between files and waits for them, so
++// none is left using the user paths or the tables while the program's statics are destroyed
++// (review D21).
++std::atomic<bool> s_stop{false};
++std::atomic<int> s_workers{0};
++
++struct Worker
++{
++  Worker() { s_workers.fetch_add(1); }
++  ~Worker() { s_workers.fetch_sub(1); }
++  Worker(const Worker&) = delete;
++  Worker& operator=(const Worker&) = delete;
++};
++
++void WaitForWorkers()
++{
++  s_stop = true;
++  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
++  while (s_workers.load() > 0 && std::chrono::steady_clock::now() < deadline)
++    std::this_thread::sleep_for(std::chrono::milliseconds(10));
++  s_stop = false;
++}
++
+ std::string s_user_directory, s_sys_directory;  // SetDirectories(); "" = Dolphin's
+ 
+ std::string SysDirectory()
+@@ -309,6 +334,8 @@ std::string Prepare(const std::string& game_root,
+   std::vector<u8> gc, dc, out;
+   for (const auto& [rel, ops] : game->second)
+   {
++    if (s_stop)
++      return "Stopped.";
+     ++n;
+     const std::string game_file = game_root + "/files/" + rel;
+     const std::string converted = ConvertedPath(id, rel);
+@@ -342,6 +369,11 @@ std::string Prepare(const std::string& game_root,
+   return "";
+ }
+ 
++void StopBackgroundWork()
++{
++  WaitForWorkers();
++}
++
+ bool Remove()
+ {
+   return !File::Exists(Directory()) || File::DeleteDirRecursively(Directory());
+@@ -380,9 +412,12 @@ void Register(const std::string& physical_path)
+   {
+     r.preparing.insert(root);
+     std::thread([root] {
+-      Prepare(root, {});
++      const Worker worker;
++      const bool stopped = Prepare(root, {}) == "Stopped.";
+       Redirects& rr = R();
+       std::lock_guard lock(rr.lock);
++      if (stopped)
++        rr.preparing.erase(root);  // the next disc build starts it again
+       for (auto& [physical, redirect] : rr.files)
+       {
+         if (!redirect.ready)
+diff --git a/Source/Core/DiscIO/SkiesUncensor.h b/Source/Core/DiscIO/SkiesUncensor.h
+index 84b2b062fc..0047fcf341 100644
+--- a/Source/Core/DiscIO/SkiesUncensor.h
++++ b/Source/Core/DiscIO/SkiesUncensor.h
+@@ -57,6 +57,8 @@ std::string Prepare(const std::string& game_root,
+                     int* skipped = nullptr);
+ // Removes the imported Dreamcast files and every converted file.
+ bool Remove();
++// Core::Shutdown: stops the background conversion between files and waits for it (up to 10 s).
++void StopBackgroundWork();
+ 
+ // DirectoryBlob: every file of an extracted game's folder, as the disc is built.
+ void Register(const std::string& physical_path);
 diff --git a/Source/Core/VideoCommon/Fifo.cpp b/Source/Core/VideoCommon/Fifo.cpp
 index c9ca59a0c7..07e53ea3bd 100644
 --- a/Source/Core/VideoCommon/Fifo.cpp
