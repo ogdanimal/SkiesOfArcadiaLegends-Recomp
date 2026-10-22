@@ -51,7 +51,7 @@ __attribute__((section(".cam_input"), used)) struct cam_input cam_input;
 #define MANAGER_EYE 4
 #define MANAGER_ANGLES 7
 /* The field camera object: eye at +0x7C (the manager's source), look-at at +0x24. */
-#define FIELD_CAMERA_EYE 0x80302F94u
+#define FIELD_CAMERA_EYE 0x80302F94
 #define GAME_MODE (*(volatile u32 *)0x803475CC) /* 6 = field / world map */
 #define FIELD_CAMERA_LOOK_AT ((const float *)0x80302F3C)
 

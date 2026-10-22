@@ -39,8 +39,11 @@ REGIONS = {
 # MetroTRK's message handlers and the functions after them, dead without a debugger: the second
 # code area (cave.ld), in USA addresses (translated like the rest for another region).
 TRK_CAVE = (0x802548E8, 0x80257AF8)
-ADDRESS = re.compile(r"\b(fn_|lbl_|0x)(80[0-9A-Fa-f]{6})\b")
-HALF = re.compile(r"\b0x8[01][0-9A-Fa-f]{2}\b")
+# A C suffix (0x80302F94u) must not hide an address: the European and Japanese builds once kept the
+# USA one that way (review D1). Every match is translated, and one missing from the table stops the
+# build, so only the table's identity entries (0x80000000) pass through unchanged.
+ADDRESS = re.compile(r"(?<![\w.])(fn_|lbl_|0x)(80[0-9A-Fa-f]{6})(?![0-9A-Fa-f])")
+HALF = re.compile(r"(?<![\w.])0x8[01][0-9A-Fa-f]{2}(?![0-9A-Fa-f])")
 CFLAGS = ["--target=powerpc-unknown-eabi", "-mcpu=750", "-Os", "-fno-pic", "-ffreestanding",
           "-fno-builtin", "-fno-asynchronous-unwind-tables", "-Wall", "-Werror"]
 

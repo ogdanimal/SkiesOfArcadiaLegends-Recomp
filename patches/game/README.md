@@ -2,9 +2,9 @@
 
 Changes to the game itself, written in C (and a little assembly) and built into a copy of
 `main.dol` by `tools/gamepatch.py`. The shipping spec is `widescreen.json` (widescreen, camera
-control and the QOL options together); the current build is **ws32** (`build/game/GEAE8P-ws32`, DOL
-SHA-1 `2873c7a9`, SHA-256 `0886a47b`; the European one `GEAP8P-ws32`, SHA-1 `77dd0c1a`, SHA-256
-`baa96638`; the Japanese one `GEAJ8P-ws32`, SHA-1 `fab0fb0a`, SHA-256 `cf86fb7b`; ws32 = ws31 + two more cutscene shots framed for widescreen, Fina's ship heading for the horizon in the opening and Aika and Vyse leaving the lookout on the Moon Stone night (issue #10); ws31 = ws30 + the battle's screen plane at the game's own field of view, Drachma's victory pose no longer squeezed into 4:3 (issue #9); ws30 = ws29 + the first ship battle's tutorial grid at the HUD's shape (issue #11); ws29 = ws28 + cutscene shots framed for widescreen (issue #10) and the European intro in sync with its music (issue #3), branch `cutscene`; ws28 = ws27 + ship battles' spells and special attacks at normal speed and `qol_normal_speed` for the frontend, branch `smove`; ws27 = ws26 + spells and special attacks at normal speed, branch `smove`; ws26 = ws25 + field speed, branch `speed`; ws25 = ws24 + Hold B, branch `romhack`), and `release/skies-widescreen.dolpatch` (`skies-widescreen-eu.dolpatch`, `skies-widescreen-jp.dolpatch`) turns a player's own
+control and the QOL options together); the current build is **ws33** (`build/game/GEAE8P-ws33`, DOL
+SHA-1 `2873c7a9`, SHA-256 `0886a47b`, the same as ws32; the European one `GEAP8P-ws33`, SHA-1 `0fdfe13c`, SHA-256
+`6a246b64`; the Japanese one `GEAJ8P-ws33`, SHA-1 `7b9b14f5`, SHA-256 `98a49ed7`; ws33 = ws32 + camera control on the European and Japanese discs (review D1); ws32 = ws31 + two more cutscene shots framed for widescreen, Fina's ship heading for the horizon in the opening and Aika and Vyse leaving the lookout on the Moon Stone night (issue #10); ws31 = ws30 + the battle's screen plane at the game's own field of view, Drachma's victory pose no longer squeezed into 4:3 (issue #9); ws30 = ws29 + the first ship battle's tutorial grid at the HUD's shape (issue #11); ws29 = ws28 + cutscene shots framed for widescreen (issue #10) and the European intro in sync with its music (issue #3), branch `cutscene`; ws28 = ws27 + ship battles' spells and special attacks at normal speed and `qol_normal_speed` for the frontend, branch `smove`; ws27 = ws26 + spells and special attacks at normal speed, branch `smove`; ws26 = ws25 + field speed, branch `speed`; ws25 = ws24 + Hold B, branch `romhack`), and `release/skies-widescreen.dolpatch` (`skies-widescreen-eu.dolpatch`, `skies-widescreen-jp.dolpatch`) turns a player's own
 `main.dol` into it (`tools/mkdolpatch.py`). Because they're part of the DOL, the recompiled module runs them
 as ordinary game code: desktop and Android alike, with no mod loader and no runtime cost beyond the
 code itself. The research behind each one is in the decomp's `docs/` (`../SkiesOfArcadiaLegends-Decomp`).
@@ -68,23 +68,23 @@ MetroTRK's handlers are at `0x80254398`-`0x80256B24`; the idle PC `0x8023772C` (
 
 ```sh
 tools/gamepatch.py patches/game/widescreen.json --dol <european disc>/sys/main.dol \
-  --out-root build/game/GEAP8P-ws32
+  --out-root build/game/GEAP8P-ws33
 tools/gamepatch.py patches/game/widescreen.json --dol <japanese disc>/sys/main.dol \
-  --out-root build/game/GEAJ8P-ws32
+  --out-root build/game/GEAJ8P-ws33
 ```
 
 ```sh
-tools/gamepatch.py patches/game/widescreen.json --out-root build/game/GEAE8P-ws32
-DOL=build/game/GEAE8P-ws32/sys/main.dol tools/module-llvm-win.sh llvm-pgo-ws32 \
+tools/gamepatch.py patches/game/widescreen.json --out-root build/game/GEAE8P-ws33
+DOL=build/game/GEAE8P-ws33/sys/main.dol tools/module-llvm-win.sh llvm-pgo-ws33 \
   --profile-use build/modules-llvm-pgo-gp/GEAE8P/pgo/merged.profdata      # Windows module
-NAME=ws32 tools/android-ws-build.sh                                       # Android module + APK
+NAME=ws33 tools/android-ws-build.sh                                       # Android module + APK
 python3 tools/mkdolpatch.py --fst extracted/SkiesOfArcadiaLegends/sys/fst.bin \
-  extracted/SkiesOfArcadiaLegends/sys/main.dol build/game/GEAE8P-ws32/sys/main.dol \
+  extracted/SkiesOfArcadiaLegends/sys/main.dol build/game/GEAE8P-ws33/sys/main.dol \
   release/skies-widescreen.dolpatch patches/game/GEAE8P.known             # release patch
 python3 tools/mkdolpatch.py --fst <european disc>/sys/fst.bin <european disc>/sys/main.dol \
-  build/game/GEAP8P-ws32/sys/main.dol release/skies-widescreen-eu.dolpatch   # European release patch
+  build/game/GEAP8P-ws33/sys/main.dol release/skies-widescreen-eu.dolpatch   # European release patch
 python3 tools/mkdolpatch.py --fst <japanese disc>/sys/fst.bin <japanese disc>/sys/main.dol \
-  build/game/GEAJ8P-ws32/sys/main.dol release/skies-widescreen-jp.dolpatch   # Japanese release patch
+  build/game/GEAJ8P-ws33/sys/main.dol release/skies-widescreen-jp.dolpatch   # Japanese release patch
 ```
 
 The Android build picks up the European game from `DOL_EU` (default `build/game/GEAP8P-NAME/sys/main.dol`)
@@ -139,6 +139,7 @@ and a module built from the same DOL.
 | ws30 | `28e34092` (Europe `6e00d7f9`, Japan `71c74c58`) | The first ship battle's tutorial (Drachma: "a 3X3 grid will appear", 2026-10-21, issue #11): the command grid shown while he explains is a sprite picture, `fn_800A9D24`'s ship-battle call of `fn_800A1BA4` (`0x800AAF94`, maps 500-599), whose quad spans the screen, so `ws_tex_poly` drew it full width, 1.33 times too wide. That call goes through `ws_squeezed_800A1BA4` (`fullwidth.S`, `SQUEEZED`: `ws_config.full_m00` set to the squeezed scale for the call), so it keeps the HUD's 4:3 shape, centred as in 4:3. Code only, in the MetroTRK area; no variable moved: states from ws29 load |
 | ws31 | `4ceaa9c4` (Europe `0b8d7279`, Japan `fe4687af`) | Drachma's victory pose (2026-10-22, issue #9): its camera work turns on the battle's screen copy (`lbl_8030A10C + 0x6C` bit `0x40000000`); `fn_8002FF70` copies the frame (`fn_80226D14`, which clears it) and the task `fn_8003484C` draws the copy back on a model in front of the camera, moved and scaled for a shake. The model is sized to the game's own field of view, so the widened projection drew the whole picture squeezed into the middle 4:3, black at the sides, flickering with the shake. Its three model draws (`0x8003497C`, `0x80034994`, `0x800349A0`) go through `UNWIDE` wrappers, like the battle-entry shatters. Code only, linked after all older MetroTRK-area code (`.trkcave_late` in `cave.ld`), so no older symbol moved: ws30 states load, the cutscene stubs included. EU/JP tables: additions only |
 | ws32 | `2873c7a9` (Europe `77dd0c1a`, Japan `fab0fb0a`) | Two more cutscene shots (2026-10-22, issue #10): in the opening, Fina's ship heading for the horizon (`0xF62BE063`, 1.55: the Valuan ship's side waits at the right edge until it sweeps in), and on the Moon Stone night, Aika and Vyse walking to the lookout's ladder (map 202, `me202a.sct`, `0xA5940371`, 4:3 with `CS_TOP`: the game removes each one just past the 4:3 right edge, so 16:9 showed them vanish). The keys are in all three discs' scripts. `cs_shot_aspect` moved to `.trkcave_late` and `cutscene.S`'s stubs to their own `.trkcave_stubs`, which `cave.ld` pins at the ws29-ws31 address (0x26F4 into the MetroTRK area on every disc): the script VM's handler table in game data points at the stubs, and a state brings that table back, so a longer list must not move them. Only `cs_note` and `cs_frame` moved (0x5C down). ws31 states load and zoom |
+| ws33 | `2873c7a9` (unchanged from ws32; Europe `0fdfe13c`, Japan `7b9b14f5`) | Camera control on the European and Japanese discs (2026-10-22, code review D1): `camera.c`'s `FIELD_CAMERA_EYE` was written `0x80302F94u`, and the suffix kept `gamepatch.py`'s address pattern from translating it, so `cam_view` never matched the field camera there and the tilt, zoom and world-map orbit did nothing. The suffix is gone and the pattern takes one now (`(?<![\w.])...(?![0-9A-Fa-f])`, the same for `HALF`); an address missing from the table still stops the build. One halfword per regional DOL; the USA DOL and its `.dolpatch` are unchanged, so USA players aren't asked for their disc again. No data moved: ws32 states load |
 
 A module only matches the DOL it was built from: an unpatched module with a patched DOL (or the
 reverse) fails verification for the patched code and runs it in the interpreter, but only where the
