@@ -436,8 +436,9 @@ matched its own shell): its partial output is not a result; rerun it with the st
   (AURORA, AURORA_DEPS), this file.
 - Research tree: `~/projects/skies-aurora/{android-deps, android-build, android-bench, capture/, inproc/,
   inproc-win/, states/}`; `HANDOFF.md` there has the desktop tools.
-- Devices: the Pocket 5's test app (`com.skiesofarcadia.recomp.test`) runs the final APK of this session
-  (`skies-recomp-aurora-2026-10-22-test.apk`, 12:34, with the OSD overlay, from the worktree's `build/android/apk/`), the USA
-  disc imported, European game and old states beside it (`StateSaves/recovery-skies-20261020-*.sav` are the
-  Continue entries); the Nova's test app runs the 12:17 Aurora APK (before the overlay). The issue
-  #9/#12 session borrows both devices after asking (it ran its ws31 build on them around noon).
+- Devices (2026-10-22, 14:00): the Pocket 5's test app (`com.skiesofarcadia.recomp.test`) runs the issue
+  #9/#12 session's ws32 build (`skies-recomp-ws32-2026-10-22-test.apk`, disc re-patched to ws32); the Nova's
+  runs the 12:17 Aurora APK (before the overlay). For an Aurora run, reinstall
+  `build/android/apk/skies-recomp-aurora-2026-10-22-test.apk` from this worktree (12:34, with the overlay;
+  built from the ws30 DOL, so the app re-patches the disc back to ws30). The other session borrows the
+  devices after asking.
