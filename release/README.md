@@ -4,7 +4,7 @@ A native port of **Skies of Arcadia Legends** (GameCube) for Windows, Linux, mac
 recompilation. It doesn't contain the game: you supply your own copy of the disc, and the game's
 data is read from it.
 
-This is a **beta** (v0.82). Please report what you run into.
+This is a **beta** (v0.83). Please report what you run into.
 
 ## What you need
 
