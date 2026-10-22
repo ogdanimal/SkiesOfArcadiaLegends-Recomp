@@ -94,7 +94,7 @@ Japanese).
   EXP (off to 4x), and Invincible (press L3 or R3 to toggle).
 - **Romhacks** that change the game's data, such as Maeson's rebalance: see below.
 - **Keyboard and button mapping:** play with the keyboard on Windows and Linux, and change any
-  button or key (see *Controls*). On desktop, any controller you press is picked up without setup.
+  button or key (see *Controls*). Any controller you press is picked up without setup.
 - **Save states:** five slots, plus an auto-save every 10 minutes on the field (the newest three are
   kept). Your memory card saves are never touched by a state.
 - **Continue** in the launcher starts from your newest save state or memory card save, whichever is
@@ -169,8 +169,9 @@ On Windows and Linux the keyboard and a controller both work, together or on the
 uses whichever controller you press, so a controller plugged in later or a second one needs no setup
 (started from Steam with Steam Input, Steam's controller works the same way; the Steam Controller
 shows as "Steam Controller"). On Android the built-in controller, or
-the first one you connect, is set up for you; without one, the game shows touch controls (the in-game
-**Back** menu turns them on and off).
+the first one you connect, is set up for you, and the game also switches to whichever controller you
+press, so a Bluetooth controller works next to a handheld's own; without one, the game shows touch
+controls (the in-game **Back** menu turns them on and off).
 
 | GameCube | Controller (Xbox / PlayStation) | Keyboard |
 |---|---|---|

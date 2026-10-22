@@ -24,7 +24,10 @@ for the next release); see *Steam Controller (issue #1)* below.
   device isn't connected, or when another gamepad is pressed while it has been idle 750 ms
   (`SkiesInput::Follow`, OSD "Controller: <name>"). Meant for the player report "controller doesn't
   work through Steam" (cause not confirmed; a profile naming a device the game doesn't see is one way
-  it happens). Android keeps the profile's device (`ensurePadProfile` sets it up).
+  it happens). Android (since 2026-10-22, `recompcore-android-pad-follow.patch`, Reddit report: an Odin 2
+  with a Bluetooth pad) follows its gamepads too: an Android device with `Axis 0+` and `Button A`
+  (the names `ensurePadProfile`'s profile uses), taken over by its buttons only (an axis may rest
+  away from 0). Checked on the Retroid Pocket 5 with a DualSense Edge, both ways.
 - **Controller 1 is "Always Connected"** (Dolphin's option, set by the runtime and in new launcher
   profiles): without it Dolphin reports no controller at all, keyboard included, while the profile's
   device is unplugged. This was why the keyboard did nothing in the first test.

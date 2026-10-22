@@ -154,6 +154,16 @@ the frontend side is `recompcore-skies-settings.patch` (`VideoCommon/SkiesMenu.c
 [handoffs/HANDOFF-settings.md](handoffs/HANDOFF-settings.md). Research: the decomp's `docs/widescreen.md`,
 `docs/camera.md`, `docs/qol_cheats.md`.
 
+### Android: a second controller (2026-10-22)
+
+The Android profile names one device (`ensurePadProfile`: the first gamepad with a stick, the built-in
+one on a handheld), and desktop's controller-follow (`SkiesInput::Follow`) took only SDL devices, so on
+Android a Bluetooth pad connected later did nothing (Reddit: an Odin 2 docked to a TV). `Follow` now
+takes Android gamepads too (`Axis 0+` and `Button A`, the names the profile's bindings use, which every
+standard Android gamepad reports), and switches to one by its buttons only, since some pads' axes rest
+away from 0. Checked on the Retroid Pocket 5 with a DualSense Edge: both ways. The D-pad is bound to the
+hat axes (`Axis 15` / `16`); a pad that reports its D-pad as keys (`Up`, `Down`, ...) would need those added.
+
 ### Controls the recomp adds
 
 | Input | Where | What it does |
