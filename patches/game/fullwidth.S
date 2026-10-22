@@ -146,6 +146,19 @@ UNWIDE ws_unwide_80287B38, fn_80287B38
  * called only on this path). */
 UNWIDE ws_unwide_80097CA4, fn_80097CA4
 
+	.section .trkcave_late, "ax"
+/* A battle's screen plane: when a move's camera work turns on the battle's screen copy
+ * (lbl_8030A10C + 0x6C bit 0x40000000), fn_8002FF70 copies the frame (fn_80226D14, which clears it)
+ * and the task fn_8003484C draws the copy back on a model in front of the camera, moved, turned and
+ * scaled for a shake or zoom. It's sized to the game's own field of view, so the widened one drew
+ * the whole picture squeezed into the middle 4:3, black at the sides (Drachma's victory pose,
+ * issue #9; found with trace2d: fn_8003484C+0x158 -> fn_801CF0F8 -> fn_80287B38). Its three model
+ * draws, by how the model is animated. */
+UNWIDE ws_unwide_801CEF30, fn_801CEF30
+UNWIDE ws_unwide_801CF020, fn_801CF020
+UNWIDE ws_unwide_801CF0F8, fn_801CF0F8
+	.text
+
 /* Squeezed: the reverse of FULLWIDTH. Call a 2D function with ws_config.full_m00 set to the
  * squeezed x scale the ortho matrix holds, so a picture whose quad spans the screen (ws_poly,
  * ws_tex_poly) keeps the HUD's 4:3 shape instead of being stretched to the full width; the saved

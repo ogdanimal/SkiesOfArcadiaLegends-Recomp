@@ -48,8 +48,11 @@ SECTIONS
    * calls or points at them); it stops at TRK_flush_cache (0x80257AF8), which the game calls. Put code here with section ".trkcave" (e.g. a file-wide
    * #pragma clang section text=".trkcave"); tools/gamepatch.py writes it over the DOL's text in
    * place. It's code only: its data and constants still go above. Last, so the ELF file stays
-   * in address order. */
-  .trkcave 0x802548E8 : { *(.trkcave .trkcave.*) }
+   * in address order. Code added after ws30 goes in ".trkcave_late", placed after all of it, so
+   * the older code keeps its addresses: game data holds pointers to some of it (the cutscene
+   * stubs in the script VM's handler table), and a save state made with an older build brings
+   * those back. */
+  .trkcave 0x802548E8 : { *(.trkcave .trkcave.*) *(.trkcave_late) }
   ASSERT(. <= 0x80257AF8, "patch code doesn't fit in the MetroTRK area (0x802548E8-0x80257AF8)")
   /DISCARD/ : { *(.comment) *(.eh_frame) *(.note*) }
 }
