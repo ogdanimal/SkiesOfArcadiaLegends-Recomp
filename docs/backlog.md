@@ -192,4 +192,4 @@ intermediate EFB passes no longer skipped under the 60 fps replay or before a ke
 at full speed on both Retroids with Vulkan's on-screen cadence; the Picture option applies; the in-game
 menu and OSD draw through a Dear ImGui overlay (fork 0026). Inside Dolphin it is at parity with Vulkan, not
 ahead, and Dolphin's HD packs don't apply under it, so it stays opt-in there. Committed as patches on the
-local branch `aurora-backend` (needs a rebase onto origin/dev, then merge behind its flag).
+local branch `aurora-backend`, kept local on purpose (not rebased, merged or pushed).

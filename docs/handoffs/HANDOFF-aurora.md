@@ -402,7 +402,7 @@ Windows and on the Pocket 5, speed 1.008 with it open; the presenter's FPS count
 parity with the Vulkan renderer (speed and picture), not ahead, and it loses Dolphin's HD packs; better
 lighting is the one strong reason to own the renderer there. The user chose the **emulator-free path**
 (the recompiled game on standalone GXRuntime with Aurora): [HANDOFF-emulator-free.md](HANDOFF-emulator-free.md).
-This backend's fork fixes and overlay are its starting point. A Pocket 5 coverage survey (eight states,
+This backend's fork fixes and overlay are its starting point; the branch stays local (not rebased, not merged, not pushed). A Pocket 5 coverage survey (eight states,
 Aurora vs Vulkan, `android-bench/p5-cov-*`) was started and then cut off (the restart's `pkill -f`
 matched its own shell): its partial output is not a result; rerun it with the state names
 `02-first-battle 06-save-menu 07-valuan-red-alarm 10-worldmap-android 12-streaks 16-deck-battle-ws10
@@ -410,8 +410,7 @@ matched its own shell): its partial output is not a result; rerun it with the st
 
 ## Open
 
-1. Rebase `aurora-backend` onto origin/dev (ws31 and later) and merge it behind its flag; then the
-   emulator-free plan's phase 1.
+1. The emulator-free plan's phase 1 (the branch stays local, see *What is where*).
 2. The coverage survey above (battles, menus, world map, Baltor, Antonio) on the Pocket 5.
 3. OSD details: the OSD message font scale on a 1920x1080 surface (ImGui scale 1 everywhere),
    the on-screen keyboard / mouse paths of `OnScreenUI` are not wired (menu by pad only).

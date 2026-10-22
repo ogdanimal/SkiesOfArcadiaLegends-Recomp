@@ -62,7 +62,7 @@ GCI files and carry over.
 - The Aurora fork (`~/projects/skies-aurora/GXRuntime`, 26 commits, `patches/` there): Skies renders exactly
   like Dolphin on the Retroid Pocket 5, the Nova, Windows and WSL; 60 fps through a second GX context;
   the present rectangle (Picture option); the Dear ImGui overlay (the in-game menu). All of it is in the
-  vendored GXRuntime once the `aurora-backend` branch is merged.
+  vendored GXRuntime on the local `aurora-backend` branch.
 - The recompiled modules, the game patch (widescreen, QOL, cutscene framing), the build scripts, CI codegen.
 - Card saves; the disc import (DiscIO is used by the launchers, which stay Dolphin-free already).
 
@@ -78,5 +78,7 @@ GCI files and carry over.
    of the table above.
 5. **Android shell**, then standalone builds released beside the Dolphin builds until parity.
 
-Before phase 1: merge the `aurora-backend` branch (behind its flag, off by default) after a rebase onto
-origin/dev; its fork fixes and overlay are what phase 1 starts from.
+Where the work lives: the local branch `aurora-backend` (worktree `~/projects/skies-aurora-backend`, cut
+from origin/dev a7aa0f8). It is deliberately kept local: no upstream, pushes blocked
+(`branch.aurora-backend.pushRemote = no-push`), not rebased onto newer dev, not merged. Phase 1 starts
+from this branch, whose vendored GXRuntime carries the fork fixes and the overlay.
