@@ -18,6 +18,9 @@
 # APK, around a module built that way (CI: the job that decrypts the generated code builds the module,
 # and Gradle with its downloaded dependencies runs in a job of its own that never sees that code or the
 # key that decrypts it).
+# AURORA=1 builds the Aurora (GXRuntime WebGPU / Dawn) video backend into the app (-PrecompAurora=1;
+# docs/handoffs/HANDOFF-aurora.md). AURORA_DEPS=DIR reuses its already-downloaded dependencies
+# (DIR/dawn-android-aarch64, and the FetchContent sources under DIR/src/<name>) instead of fetching.
 set -eu
 cd "$(dirname "$0")/.."
 ROOT=$PWD
@@ -159,8 +162,20 @@ ASSETS=$V/Source/Android/app/src/main/assets
 rm -rf $ASSETS/Sys && mkdir -p $ASSETS && cp -r $V/Data/Sys $ASSETS/ && rm -rf $ASSETS/Sys/Themes
 # The injected ABI builds arm64 only, but on its own it also marks the APK android:testOnly, which
 # only adb install -t accepts (players' installs failed with "App not installed"); testOnly=false undoes that
+AURORA_ARGS=()
+if [ "${AURORA:-0}" = 1 ]; then
+  AURORA_ARGS+=(-PrecompAurora=1)
+  if [ -n "${AURORA_DEPS:-}" ]; then
+    CM="-DFETCHCONTENT_SOURCE_DIR_DAWN_PREBUILT=$AURORA_DEPS/dawn-android-aarch64"
+    for dep in ABSEIL-CPP SQLITE3 TRACY PNG; do
+      d=$AURORA_DEPS/src/$(echo $dep | tr 'A-Z' 'a-z')
+      [ -d "$d" ] && CM="$CM;-DFETCHCONTENT_SOURCE_DIR_$dep=$d"
+    done
+    AURORA_ARGS+=("-PrecompCMakeArgs=$CM")
+  fi
+fi
 cd $V/Source/Android && ./gradlew :app:$TASK \
-  -Pandroid.injected.build.abi=arm64-v8a -Pandroid.injected.testOnly=false -PrecompJniLibs=$A/jniLibs-$NAME "-PrecompNativeFlags=-mno-outline-atomics $PREFIX_MAP" "${BRAND_ARGS[@]}" "${SIGN_ARGS[@]}" > $A/apk-$NAME.log 2>&1
+  -Pandroid.injected.build.abi=arm64-v8a -Pandroid.injected.testOnly=false -PrecompJniLibs=$A/jniLibs-$NAME "-PrecompNativeFlags=-mno-outline-atomics $PREFIX_MAP" "${BRAND_ARGS[@]}" "${SIGN_ARGS[@]}" "${AURORA_ARGS[@]}" > $A/apk-$NAME.log 2>&1
 if [ "${RELEASE:-0}" = 1 ]; then
   # No keystore property, so Gradle leaves it unsigned (app-release-unsigned.apk)
   UNSIGNED=(app/build/intermediates/apk/release/*.apk)

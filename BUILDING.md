@@ -153,6 +153,9 @@ only the USA module (`REGIONS="us eu"`: the USA and European games; `package` te
 modules apart by their names). Dolphin's libraries (bzip2, zstd, zlib and the rest) are its own bundled copies, linked
 in (`USE_SYSTEM_LIBS=OFF`), so the package doesn't need the build machine's distribution.
 
+Add `-DMODERNGEKKO_ENABLE_AURORA=ON` to the ModernGekko configure to build the experimental Aurora
+video backend as well (`--graphics Aurora`; Dawn's prebuilt package is fetched; `docs/handoffs/HANDOFF-aurora.md`).
+
 ```sh
 tools/build-release-linux.sh appimage v0.81.0-beta
 ```
@@ -235,6 +238,14 @@ dependencies never run alongside the signing secrets. The build stays arm64-only
 `-Pandroid.injected.build.abi`, an Android Studio property that makes the Android Gradle plugin mark the
 APK `android:testOnly` (installable only with `adb install -t`); the script also passes
 `-Pandroid.injected.testOnly=false`, and `tools/sign-apk.sh` refuses a test-only APK.
+
+`AURORA=1` builds the experimental Aurora video backend into the app (GXRuntime's WebGPU renderer
+through Dawn; `docs/handoffs/HANDOFF-aurora.md`). Gradle then gets `-PrecompAurora=1`, which turns
+`ENABLE_AURORA_BACKEND` on and needs CMake 3.25 or newer (the SDK's `cmake;3.31.0` package; the plain
+app keeps 3.22.1). The build fetches Dawn's prebuilt `android-aarch64` package and a few libraries;
+`AURORA_DEPS=DIR` reuses copies downloaded before (`DIR/dawn-android-aarch64`, `DIR/src/<name>`).
+The output is dated (`build/android/apk/skies-recomp-NAME-<date>[-test].apk`), so a build after
+midnight is a new file; install the newest one.
 
 ### Development builds
 

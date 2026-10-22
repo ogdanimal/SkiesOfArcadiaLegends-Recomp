@@ -1,0 +1,44 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index df296ce..3564740 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -119,6 +119,9 @@ if(MODERNGEKKO_ENABLE_DOLPHIN_RUNTIME)
+     # backend fails to initialize. Off by default to match upstream.
+     option(MODERNGEKKO_ENABLE_EGL "Build Dolphin's EGL OpenGL interface" OFF)
+     set(ENABLE_EGL ${MODERNGEKKO_ENABLE_EGL} CACHE BOOL "" FORCE)
++    # Aurora (GXRuntime WebGPU renderer) as a Dolphin video backend: --graphics Aurora.
++    option(MODERNGEKKO_ENABLE_AURORA "Build the Aurora video backend (Dawn/WebGPU)" OFF)
++    set(ENABLE_AURORA_BACKEND ${MODERNGEKKO_ENABLE_AURORA} CACHE BOOL "" FORCE)
+     set(USE_SYSTEM_SDL3 OFF CACHE BOOL "" FORCE)
+     # SDL bundles its own copy of the macOS hidapi backend
+     if(APPLE)
+diff --git a/src/runtime/dolphin_runtime.cpp b/src/runtime/dolphin_runtime.cpp
+index eae9f34..0abc243 100644
+--- a/src/runtime/dolphin_runtime.cpp
++++ b/src/runtime/dolphin_runtime.cpp
+@@ -21,6 +21,7 @@
+ #include "Core/System.h"
+ #include "DolphinNoGUI/Platform.h"
+ #include "InputCommon/ControllerInterface/Touch/InputOverrider.h"
++#include "InputCommon/ControllerInterface/SDL/SDL.h"
+ #include "UICommon/UICommon.h"
+ #include "VideoCommon/FrameDumper.h"
+ #include "VideoCommon/PerformanceMetrics.h"
+@@ -643,7 +644,8 @@ RuntimeCreateResult Runtime::Create(RuntimeConfig config) {
+   }
+   Config::SetBase(Config::MAIN_FULLSCREEN, impl->config.fullscreen);
+ 
+-  if (impl->config.headless)
++  // The Aurora backend owns its own SDL window: no host render window.
++  if (impl->config.headless || impl->config.graphics.backend == "Aurora")
+     impl->platform = Platform::CreateHeadlessPlatform();
+ #ifdef _WIN32
+   else
+@@ -669,6 +671,7 @@ RuntimeCreateResult Runtime::Create(RuntimeConfig config) {
+   }
+ 
+   const WindowSystemInfo wsi = impl->platform->GetWindowSystemInfo();
++  ciface::SDL::SetSharedEventQueue(impl->config.graphics.backend == "Aurora");
+   UICommon::InitControllers(wsi);
+   impl->controllers_initialized = true;
+   EnsureAutomationDirectories(impl->config.automation.directory);

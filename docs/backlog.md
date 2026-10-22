@@ -175,3 +175,18 @@ cutscenes (255 scripts, 5,493 distinct camera commands) aren't surveyed: list sh
 them, or survey a scene at a time with the 16:9 / 4:3 shot log. Data-only alternative players can use
 today: SPICE (github.com/SoAModTools/SPICE) edits `.sct` camera poses, lens and object placement, and
 the port plays such a romhack (it changes the 4:3 picture too).
+
+## Aurora renderer: finish or drop — 2026-10-21, updated 2026-10-22
+
+GXRuntime's WebGPU renderer runs as a Dolphin video backend on the desktop and in the Android app
+(development notes *Aurora renderer*, HANDOFF-aurora). Where it stands (2026-10-22): the picture
+matches Dolphin on every platform (the Adreno fringe was a viewport-origin bug in the fork, fixed);
+60 fps works under Aurora and runs at full speed on the Retroid Nova with the same on-screen cadence
+as the Vulkan backend (16.7 ms every frame), and at full speed on Windows. Left for the go/no-go:
+measure on the Pocket 5 (ask first, the user plays on it). To ship it as a renderer choice, four to
+six more sessions: presentation (letterbox / Match screen, MSAA, filtering from the port's settings),
+HD texture packs (Aurora's own replacement format), lifecycle with 60 fps on (Home and back, menu,
+disc swap, savestates mid-replay), coverage (ship battles, menus, world map night, EU/JP, cutscene
+framing), packaging (Dawn in every build, CI), and committing the backend into ModernGekko and
+RecompCore (the fork's commits 0018-0022 are in the research tree). The reason to do it is owning the
+renderer, not speed; Vulkan costs nothing further.

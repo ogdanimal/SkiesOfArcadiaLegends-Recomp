@@ -2416,6 +2416,42 @@ speed work never raises the frame rate. Two routes, neither started:
 First step if resumed (cheap, no device): find in the decomp whether the frame loop is fixed-step or
 delta-time, which decides between the two.
 
+### Aurora renderer (experimental, 2026-10-21/22)
+
+Aurora is GXRuntime's own GX renderer (WebGPU through Dawn), the one Dusklight/Metaforce draw with.
+It runs as a Dolphin video backend (`--graphics Aurora` on the desktop, `[Core] GFXBackend = Aurora`
+or Settings → Graphics → Renderer → "Aurora (experimental)" in a build that has it): VideoCommon keeps
+running as with the Null backend (timing, PE tokens, EFB bookkeeping, savestates), every decoded GP
+command is forwarded to Aurora, which draws into its own window (desktop, SDL) or the app's Surface
+(Android, a no-SDL build of the fork).
+
+Status (2026-10-22): the picture matches Dolphin frame for frame on the desktop (19 scenes, 390
+battle frames) and on Android; the red/cyan fringe seen on Adreno was a 2-pixel viewport offset in
+the fork (a fixed 340 where GX uses the scissor box offset register, 342), doubled by every EFB copy
+drawn back, and is fixed. The 60 fps mode works under Aurora: the Frame Interpolator's replay runs in
+a second Aurora context (its own GX state on a spare EFB, entered and left per replay slice through
+hooks in `FrameInterpolator`), the replayed draws get the interpolator's vertex-array copies, and the
+real and in-between pictures are kept and presented on the VI retrace. Speed came from draw count:
+indexed vertex attributes are now dereferenced on the CPU like Dolphin's vertex loaders, so the
+thousands of small strips a frame draws from slices of one array merge (1960 → 537 draws in the
+ship interior), and retail textures are hashed once per frame. Retroid Nova, capped, 60 fps mode:
+full speed, GPU thread 12 ms live + 11 ms replay per game frame, on-screen cadence 16.66-16.67 ms
+every frame (SurfaceFlinger), the same as Dolphin's Vulkan backend; Windows at full speed as well.
+Aurora draws at Dolphin's internal resolution (`iEFBScale`) now. Still open: the Pocket 5 (untested
+with this build), the presentation (the picture is stretched to the window, no letterbox), HD texture
+packs (Aurora has its own replacement format), lifecycle checks with 60 fps on, coverage, and
+committing the backend (nothing of it is committed; the fork's commits are in the research tree).
+Not built by default: `-DMODERNGEKKO_ENABLE_AURORA=ON` on the desktop, `AURORA=1
+tools/android-ws-build.sh` on Android. Runtime knobs (environment, or `aurora.env` in the app's
+user folder on Android): `MODERNGEKKO_AURORA_INTERP=0` (replays skipped, the old 30 fps),
+`MODERNGEKKO_AURORA_VSYNC=1` (Fifo presents), `MODERNGEKKO_AURORA_EFB_SCALE=N`,
+`MODERNGEKKO_AURORA_LOG=1` (per-600-frame timing, kept/shown pictures, present-interval percentiles),
+`RECOMP_PRESENT_PACING=1` or a `PresentPacing.on` file (present intervals for any backend). Why
+bother: owning the renderer, so widescreen, HD textures and lighting are done in one place.
+Everything, with numbers, in [handoffs/HANDOFF-aurora.md](handoffs/HANDOFF-aurora.md) (Android, the
+60 fps design, the fringe, the measurements) and the research tree's `~/projects/skies-aurora/HANDOFF.md`
+(desktop, the fork, capture and compare tools).
+
 ## Status (2026-10-05, Linux/WSL2 + WSLg, GCC 15; C and LLVM 20 backends)
 
 - `make tools`: builds cleanly.
@@ -2883,6 +2919,23 @@ rights: BUILDING *macOS*.
   Homebrew; `87ba4f3` builds Dolphin's own (`USE_SYSTEM_*=OFF`) and the package step refuses any
   `/opt/homebrew` or `/usr/local` link. That CI zip ran 3.05 / 4.63× (01 / 02, 1×) on the M4, and the
   v0.60.0-beta candidate's (`1e7e586`) Field speed 2x held 1.00x at 60 fps.
+
+## Aurora renderer (experiment, 2026-10-21, not in any build; 2026-10-22: 60 fps at full speed on the Nova, see *Aurora renderer* under Android)
+
+Can the game draw through Aurora (encounter/aurora, the GX-on-WebGPU layer ModernGekko's own
+`vendor/dolphin/GXRuntime` ships, as the Wind Waker HD port does) instead of Dolphin's VideoCommon
+backends? Yes: a Dolphin video backend `Aurora` (`--graphics Aurora`, built with
+`-DMODERNGEKKO_ENABLE_AURORA=ON`) keeps VideoCommon in charge of timing, PE and savestates (Null
+backend classes) and forwards every decoded GP command to Aurora, which draws into its own window and
+presents at the XFB copy. The picture matches Dolphin's (3-5k of 307k pixels off, antialiasing/text, 19
+single-frame scenes + 390 battle frames offline, six scenes in-process on Windows). Windows, NVIDIA via
+D3D12, uncapped: Aurora reaches ~93% of the Null backend's ceiling in single- and dual-core (1.67x vs
+1.79x; 1.63x vs 1.76x), costing ~4.9 ms of CPU per frame on the GPU thread (not GPU-bound). The point
+is the Retroid, where Dolphin's own renderer is the limit; that needs an Android init path in the fork
+first. Everything (design, files, measurements, scripts, next steps) is in
+`~/projects/skies-aurora/HANDOFF.md`; the code is uncommitted in `lib/ModernGekko` (+ its
+`vendor/dolphin`), and `lib/ModernGekko/build` on WSL is configured with the option on (the normal
+runner is unchanged unless `--graphics Aurora` is passed).
 
 ## Known issues
 
