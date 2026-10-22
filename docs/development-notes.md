@@ -3032,6 +3032,13 @@ rights: BUILDING *macOS*.
 
 ## Known issues
 
+- **"The game process could not be monitored:" when closing the game from Steam (fixed 2026-10-22,
+  issue #14, a Steam Machine):** Steam's close signals the launcher too; SDL installs its SIGINT /
+  SIGTERM handler without `SA_RESTART`, so the launcher's `waitpid` returned `EINTR` and it showed this
+  box, with an empty reason because `SDL_DestroyProcess` had cleared SDL's error first. The launcher
+  now waits again, passes a quit request on to the game once, and leaves without a message
+  (`moderngekko-launcher-signal.patch`).
+
 - **Second code review, section D (2026-10-22):** a cloud review of v0.82's code
   (docs/handoffs/HANDOFF-review.md, section D: 10 Medium, 21 Low; no remote-exploitable issue). Fixed:
   D1 camera control on the European and Japanese discs (ws33, *Camera control*), D6 a use after free in

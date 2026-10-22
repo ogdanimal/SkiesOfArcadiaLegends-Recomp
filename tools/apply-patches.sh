@@ -12,6 +12,7 @@ apply() { git -C "$1" apply ${CHECK[@]+"${CHECK[@]}"} "$P/$2" || { echo "patch f
 
 apply $MG moderngekko-local.patch
 apply $MG moderngekko-macos.patch
+apply $MG moderngekko-launcher-signal.patch
 for p in $(grep -v '^#' "$P/recompcore.series"); do
   apply $RC recompcore-$p.patch
 done
