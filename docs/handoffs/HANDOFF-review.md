@@ -715,7 +715,9 @@ working copies of `8bf2116`.
   too. **Fix:** prune after the write has succeeded (State's after-save callback, or keep
   `AUTO_KEEP` and prune the surplus after `SaveAs`).
 
-- [ ] **D6 Medium: the frame interpolator can read freed memory when the second EFB can't be made.**
+- [x] **D6 Medium: the frame interpolator can read freed memory when the second EFB can't be made.**
+  FIXED 2026-10-22 in `patches/recompcore-review-d.patch` (deferred `Shutdown`, early return in
+  `EndFrame`; test switch `FrameInterpolation.failefb`).
   `RC/Core/VideoCommon/FrameInterpolator.cpp:1897-1933` (`PictureForRetrace`), `1462-1468`
   (`RunJob`), `1880-1882` (`Shutdown`). `PictureForRetrace` keeps `current = &s_shown[i]` and, on the
   second retrace, calls `FinishJob()` → `RunJob` → `SwapEFB()` fails (high resolution + MSAA on a
