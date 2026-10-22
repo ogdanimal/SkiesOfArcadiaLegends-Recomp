@@ -12,12 +12,31 @@
 - **Auto-save keeps its earlier saves when a save fails** (review D5): `recompcore-review-d.patch`.
   Checked on WSL (a working save prunes after writing; a read-only folder keeps all three).
 - **Android: save import / backup / driver install show the busy screen; Remove waits for the game**
-  (review D7, D8): `recompcore-review-d.patch`. Kotlin compiled; not on a device yet (one APK at the
-  end of the review work, the user's call).
-- Review section D (HANDOFF-review) is on `dev`; D1, D5, D6, D7 and D8 done, the rest open.
-- On the local branch `review` (pal60 worktree, not pushed; the user pushes when ready): D2 (texture
-  pack entries can't leave the import folder), D3 / D4 (a damaged Dreamcast driver neither crashes
-  nor slows the game).
+  (review D7, D8): `recompcore-review-d.patch`. Device-checked on the Retroid Pocket 5 (below).
+- Review section D (HANDOFF-review) is on `dev` up to D8 (D1, D5, D6, D7, D8).
+
+## On the local branch `review` (pal60 worktree, on `origin/dev` `fec46d6`, not pushed)
+
+The user pushes when ready; before that, read the whole PII sweep and check that every author is the
+noreply address. The rest of review section D, all of it but D10 (netplay, not used: not fixed):
+- **Game patch ws34** (`0dc57fe`, review D9): the Japanese Continue's card work at the Japanese load
+  screen's size (0x274; it wrote one word past 0x270). Only `release/skies-widescreen-jp.dolpatch`
+  changed (output `fdd1ce0f`); the USA and European DOLs are byte-identical to ws33, so their players
+  aren't asked again. `gamepatch.py` now defines `GAME_<ID>` for the sources. WSL: Japanese Continue
+  from files 2 and 3 from a cold boot.
+- **D2-D4** (texture-pack paths, damaged Dreamcast driver) and **the Lows D11-D31**, all in
+  `recompcore-review-d.patch` (22 files) or the repo's tools / CI / READMEs; each item's notes and
+  checks are in HANDOFF-review, and `patches/README.md`'s `review-d` row. D27 (macOS Dock / logout
+  quit) was fixed and tested by the Mac session.
+- **Android build fix** (`25aa1e9`): D4's file stamp didn't compile with libc++'s `__int128` file
+  times (Android, likely macOS).
+- **Devices:** the Retroid Pocket 5's `.test` app has `skies-recomp-ws34-2026-10-22-test.apk` (built
+  from this branch): D7 backup, D8 Dreamcast Remove with the game running, D11 a picker result after
+  the process was killed, D15 automation, Continue at 1.002x all pass (2026-10-22). Its Dreamcast
+  folders and Music / Uncensored settings were put back after the Remove test. The Nova keeps the
+  Aurora session's build; both release apps are on 0.81.
+- Not yet: a Dock > Quit by hand on the Mac (D27); the Japanese disc on a device with ws34.
+- Release notes draft: `build/notes-next.md` in the main checkout covers all of the above.
 
 ## Released (2026-10-22 UTC): v0.82.0-beta
 

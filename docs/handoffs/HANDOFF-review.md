@@ -647,9 +647,11 @@ Tools:
 (`patches/recompcore-review-d.patch`, last in `recompcore.series`, holds section D's RecompCore
 fixes). Fixed on the local branch `review` in the `pal60` worktree, not pushed (the user pushes when
 ready): D2 (`eece5e3`), D3 + D4 (`adef5ee`), D9 (game patch ws34), and the Lows D11-D26 and
-D28-D31 (`e919e94`, `2c9bd38`, `adfcb98`, `ce9bedf`, `b6b82d5`), D27 (Mac session's fix). D10 not
-fixed (no netplay, the user's call). Android checks (D7, D8, D11, D13-D15) wait for one APK at the end of the
-review work. Each fix's notes are at its item below and in `patches/README.md`'s `review-d` row.
+D28-D31 (`e919e94`, `2c9bd38`, `adfcb98`, `ce9bedf`, `b6b82d5`), the Android build fix `25aa1e9`,
+D27 (`da71a88`, the Mac session's fix and tests). D10 not fixed (no netplay, the user's call). Android:
+D7, D8, D11 and D15 passed on the Retroid Pocket 5 with `skies-recomp-ws34-2026-10-22-test.apk`
+(HANDOFF-android); D13 and D14 not exercised there (the test app has no custom driver), D9 only on WSL.
+Section D is done. Each fix's notes are at its item below and in `patches/README.md`'s `review-d` row.
 
 The same kind of review on `dev` `8bf2116` (v0.82.0-beta's version strings; the code is that of
 `1125b1b`): every patch applied to fresh submodules (`tools/apply-patches.sh`) in a scratch worktree,
