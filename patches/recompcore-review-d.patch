@@ -1,3 +1,110 @@
+diff --git a/Source/Core/Core/State.cpp b/Source/Core/Core/State.cpp
+index 2684dbf834..6d498f55bb 100644
+--- a/Source/Core/Core/State.cpp
++++ b/Source/Core/Core/State.cpp
+@@ -78,6 +78,7 @@ struct CompressAndDumpStateArgs
+   Common::UniqueBuffer<u8> buffer;
+   std::string filename;
+   std::shared_lock<decltype(s_state_saves_in_progress)> task_lock;
++  AfterSaveCallbackFunc after;
+ };
+ 
+ // Queue for compressing and writing savestates to disk.
+@@ -248,6 +249,8 @@ static void CompressAndDumpState(Core::System& system, const CompressAndDumpStat
+   if (!f)
+   {
+     Core::DisplayMessage("Failed to create state file", 2000);
++    if (save_args.after)
++      save_args.after(false);
+     return;
+   }
+ 
+@@ -258,7 +261,8 @@ static void CompressAndDumpState(Core::System& system, const CompressAndDumpStat
+   else
+     f.WriteBytes(buffer.data(), buffer.size());
+ 
+-  if (!f.IsGood())
++  bool written = f.IsGood();
++  if (!written)
+     Core::DisplayMessage("Failed to write state file", 2000);
+ 
+   const std::string last_state_filename = File::GetUserPath(D_STATESAVES_IDX) + "lastState.sav";
+@@ -292,10 +296,14 @@ static void CompressAndDumpState(Core::System& system, const CompressAndDumpStat
+ 
+   // Move written state to final location.
+   if (!f.Close())
++  {
++    written = false;
+     Core::DisplayMessage("Failed to close state file", 2000);
++  }
+ 
+   if (!File::Rename(temp_filename, filename))
+   {
++    written = false;
+     Core::DisplayMessage("Failed to rename state file", 2000);
+   }
+   else
+@@ -303,9 +311,12 @@ static void CompressAndDumpState(Core::System& system, const CompressAndDumpStat
+     const std::filesystem::path temp_path(filename);
+     Core::DisplayMessage(fmt::format("Saved State to {}", temp_path.filename()), 2000);
+   }
++  if (save_args.after)
++    save_args.after(written);
+ }
+ 
+-static void SaveAsFromCore(Core::System& system, std::string filename)
++static void SaveAsFromCore(Core::System& system, std::string filename,
++                           AfterSaveCallbackFunc after = {})
+ {
+   const auto buffer_size_estimate = std::size_t(s_last_state_size) * 110 / 100;
+   Common::UniqueBuffer<u8> buffer{buffer_size_estimate};
+@@ -318,6 +329,7 @@ static void SaveAsFromCore(Core::System& system, std::string filename)
+         .buffer = std::move(buffer),
+         .filename = std::move(filename),
+         .task_lock = GetStateSaveTaskLock(),
++        .after = std::move(after),
+     };
+     Core::DisplayMessage("Saving State...", 1000);
+     s_compress_and_dump_thread.EmplaceItem(std::move(dump_args));
+@@ -325,15 +337,18 @@ static void SaveAsFromCore(Core::System& system, std::string filename)
+   else
+   {
+     Core::DisplayMessage("Unable to save: Internal DoState Error", 4000);
++    if (after)
++      after(false);
+   }
+ }
+ 
+-void SaveAs(Core::System& system, std::string filename)
++void SaveAs(Core::System& system, std::string filename, AfterSaveCallbackFunc after)
+ {
+-  Core::RunOnCPUThread(
+-      system, [&system, filename = std::move(filename), lock = GetStateSaveTaskLock()]() mutable {
+-        SaveAsFromCore(system, std::move(filename));
+-      });
++  Core::RunOnCPUThread(system, [&system, filename = std::move(filename),
++                                after = std::move(after),
++                                lock = GetStateSaveTaskLock()]() mutable {
++    SaveAsFromCore(system, std::move(filename), std::move(after));
++  });
+ }
+ 
+ static void LoadAsFromCore(Core::System& system, std::string filename)
+diff --git a/Source/Core/Core/State.h b/Source/Core/Core/State.h
+index 1c4eeb0554..bb05f484f7 100644
+--- a/Source/Core/Core/State.h
++++ b/Source/Core/Core/State.h
+@@ -95,7 +95,9 @@ u64 GetUnixTimeOfSlot(int slot);
+ void Save(Core::System& system, int slot);
+ void Load(Core::System& system, int slot);
+ 
+-void SaveAs(Core::System& system, std::string filename);
++// `after` runs on the state writer thread once the file is in place (true) or the save failed (false).
++using AfterSaveCallbackFunc = std::function<void(bool written)>;
++void SaveAs(Core::System& system, std::string filename, AfterSaveCallbackFunc after = {});
+ void LoadAs(Core::System& system, std::string filename);
+ 
+ void LoadLastSaved(Core::System& system, int i = 1);
 diff --git a/Source/Core/VideoCommon/FrameInterpolator.cpp b/Source/Core/VideoCommon/FrameInterpolator.cpp
 index 3d18d7b56e..9c74d9ed11 100644
 --- a/Source/Core/VideoCommon/FrameInterpolator.cpp
@@ -75,3 +182,38 @@ index 3d18d7b56e..9c74d9ed11 100644
    s_shown.clear();
    s_job = {};
    s_replay_copies.clear();
+diff --git a/Source/Core/VideoCommon/SkiesMenu.cpp b/Source/Core/VideoCommon/SkiesMenu.cpp
+index 3ccb36493c..e6a89d44cd 100644
+--- a/Source/Core/VideoCommon/SkiesMenu.cpp
++++ b/Source/Core/VideoCommon/SkiesMenu.cpp
+@@ -1331,17 +1331,27 @@ void Poll(Memory::MemoryManager& memory)
+   s_pending = true;
+ }
+ 
+-// Host thread: the oldest auto-saves go so that, with this one, the newest AUTO_KEEP remain.
++// Host thread. Once this one is written, the oldest auto-saves go so that the newest AUTO_KEEP
++// remain; a failed write (disk full, a folder that can't be written) removes its own file and
++// prunes nothing, so it never replaces a good one or becomes the newest (review D5).
+ void Save(Core::System& system)
+ {
+   const std::filesystem::path directory = StateDirectory();
+   std::error_code ec;
+   std::filesystem::create_directories(directory, ec);
+-  State::Layout::PruneAutomatic(directory, AUTO_KEEP - 1, AUTO_PREFIX);
+   const std::string path =
+       (directory / State::Layout::TimestampedName(std::time(nullptr), AUTO_PREFIX)).string();
+   NOTICE_LOG_FMT(CORE, "[skies] auto-save to {}", path);
+-  State::SaveAs(system, path);
++  State::SaveAs(system, path, [directory, path](bool written) {
++    std::error_code remove_ec;
++    if (!written)
++    {
++      std::filesystem::remove(path, remove_ec);
++      WARN_LOG_FMT(CORE, "[skies] auto-save failed; kept the earlier ones");
++      return;
++    }
++    State::Layout::PruneAutomatic(directory, AUTO_KEEP, AUTO_PREFIX);
++  });
+ }
+ }  // namespace autosave
+ 
