@@ -555,7 +555,11 @@ the icon; `release/android-icon/drawable-xhdpi/skies_banner.png` from the launch
 own version: `versionCode` = minutes since 2026-01-01 at build time, `versionName` "dev build N" (a
 release: the tag's, `-PskiesVersionName`) (Dolphin's commit-count version was the same for every build, so launchers such as the Retroid's
 Radikal kept the cached icon). On every start it makes sure controller 1's profile uses Android's input
-names (`SkiesNative.ensurePadProfile`).
+names (`SkiesNative.ensurePadProfile`). The game screen turns with the device between both
+landscapes (`SCREEN_ORIENTATION_USER_LANDSCAPE`, so the system's rotation lock still holds it;
+`recompcore-android-orientation.patch`, issue #12, 2026-10-22): it took Dolphin's own setting before,
+plain landscape, which no Skies screen can change. A 180-degree turn keeps the configuration, so the
+Activity isn't recreated.
 
 ### A missing game module (2026-10-17 night)
 
@@ -1821,6 +1825,37 @@ round), centred; the three following lines the same; command input after it with
 top right as before. A poke to `full_m00` as a test does nothing (`ws_apply` writes it every frame),
 and the JIT can't test a new patch from an older state (the state brings its own code back; only
 the static module replaces it).
+
+### Battle screen plane: Drachma's victory pose (2026-10-22, ws31, issue #9)
+
+Sandbowl (v0.80.0-beta, with a video): in 16:9, Drachma's victory pose "reverts back to 4:3". The
+video at 60 fps: on about half the frames of the pose the picture is the whole 16:9 scene squeezed to
+0.75 of its width (landmarks 0.75 times as far apart as on the neighbouring full frames), in a box that
+slides left and right with the camera shake, black around it. Vyse's and Aika's poses are fine.
+
+Reproduced on WSL with the ws30 static module. No save had Drachma, so `shipdebug.c` gained a party
+request (`'PTY' << 8 | 3` to `0x8031AA20`: the game's own join, `fn_800FF6B4`, stats from his table);
+from `10-worldmap-android.sav` with Drachma joined, Encounters at 400 and flying forward, a deck battle
+starts; the victory pose is the game's random pick, steered by poking its rand seed (`lbl_803469A8`,
+`fn_8025ECC4`) before the last command. The projection trace has no chain only in Drachma's pose, and
+logging every 2D polygon that misses an edge showed none during it either. What it does have: the pose
+turns on the battle's screen copy (`lbl_8030A10C + 0x6C` bit `0x40000000`, set at `0x80056CA4` and
+`0x8005B7B0`); `fn_8002FF70` draws the task list in two passes with the copy in between
+(`fn_80226D14`: `GXCopyTex` with clear), and the only task drawn after it (a hook on the copy that
+listed the tasks) was `fn_8003484C`. That task draws the copy back on a model in front of the camera
+(unit matrix, `njTranslate` to the screen distance, rotate, scale: the shake), through `fn_801CEF30`,
+`fn_801CF020` or `fn_801CF0F8` by how the model is animated (the trace: `fn_8003484C+0x158` ->
+`fn_801CF0F8` -> `fn_80287B38`). The model is sized to the game's own field of view, so with the
+widened one it covered the middle 4:3, the copy squeezed into it, and the clear left black around it.
+Its 2D branch (no model, `fn_800333A0`) wasn't seen.
+
+ws31 sends those three calls (`0x8003497C`, `0x80034994`, `0x800349A0`) through `UNWIDE` wrappers
+(`fullwidth.S`), as the battle-entry shatters: the plane is drawn at the game's field of view and covers
+the whole picture. The wrappers are in a new input section, `.trkcave_late`, which `cave.ld` places
+after all other MetroTRK-area code, so no older symbol moved (the script VM's handler table holds
+pointers to the cutscene stubs, and a state brings the old table back). Checked on WSL: the same state
+and seeds on the ws30 and ws31 static modules, 9 shots each during the deck part of the pose: ws30 boxed
+on 4, ws31 on none; the rest of the pose and the results screen as before.
 
 ### Match screen: ultrawide and any other shape (2026-10-17 night)
 
