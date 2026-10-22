@@ -11,7 +11,10 @@
   Checked on WSL with the test switch `FrameInterpolation.failefb`.
 - **Auto-save keeps its earlier saves when a save fails** (review D5): `recompcore-review-d.patch`.
   Checked on WSL (a working save prunes after writing; a read-only folder keeps all three).
-- Review section D (HANDOFF-review) is on `dev`; D1, D5 and D6 done, the rest open.
+- **Android: save import / backup / driver install show the busy screen; Remove waits for the game**
+  (review D7, D8): `recompcore-review-d.patch`. Kotlin compiled; not on a device yet (one APK at the
+  end of the review work, the user's call).
+- Review section D (HANDOFF-review) is on `dev`; D1, D5, D6, D7 and D8 done, the rest open.
 
 ## Released (2026-10-22 UTC): v0.82.0-beta
 

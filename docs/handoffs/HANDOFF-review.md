@@ -731,8 +731,10 @@ working copies of `8bf2116`.
   and apply it (`Shutdown` + `s_enabled = 0`) at a safe point (`ApplyPendingEnabled`, start of
   `EndFrame`), or re-find the frame after `FinishJob()` and return `{}` if it's gone.
 
-- [ ] **D7 Medium (Android): save import, backup restore and export, and driver install have no busy
-  state.** `RC/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt:386-420`
+- [x] **D7 Medium (Android): save import, backup restore and export, and driver install have no busy
+  state.** FIXED 2026-10-22 (`recompcore-review-d.patch`: `startTask`, results in companion fields, so
+  D12 is covered for these four too; the backup loop checks `IsRunning()` per entry). Device check
+  pending (next APK). `RC/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt:386-420`
   (`importSave`), `449-468` (`importBackupEntries`), `484-521` (`exportSaves`), `523-550`
   (`installDriver`). Unlike the disc, texture, music imports and the data move, they never set
   `importRunning`; "never while the game runs" (the comment at 364-366) is checked only before the
@@ -745,8 +747,10 @@ working copies of `8bf2116`.
   its own. **Fix:** the `importRunning` state (with `showImporting()`) for all four, and re-check
   `NativeLibrary.IsRunning()` before each entry of the backup loop.
 
-- [ ] **D8 Medium (Android): the Dreamcast and texture-pack Remove buttons don't wait for the game to
-  close.** `RC/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt:470-473`
+- [x] **D8 Medium (Android): the Dreamcast and texture-pack Remove buttons don't wait for the game to
+  close.** FIXED 2026-10-22 (`afterGameClosed {}` + `startTask`, off the main thread). The
+  `DiscContent::Read` fallback the review also suggests isn't done (D19 still open). Device check
+  pending (next APK). `RC/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt:470-473`
   (Dreamcast), `426-430` (textures) → `RC/Android/jni/SkiesImport.cpp:576-584`. Every other
   file-replacing action goes through `afterGameClosed {}`. With a game left running without its screen
   (the "Game in progress" case, `SkiesLauncherActivity.kt:752-768`), Remove deletes `DreamcastMusic/`
