@@ -51,8 +51,20 @@ SECTIONS
    * in address order. Code added after ws30 goes in ".trkcave_late", placed after all of it, so
    * the older code keeps its addresses: game data holds pointers to some of it (the cutscene
    * stubs in the script VM's handler table), and a save state made with an older build brings
-   * those back. */
-  .trkcave 0x802548E8 : { *(.trkcave .trkcave.*) *(.trkcave_late) }
+   * those back. Since ws32 the stubs (cutscene.S's ".trkcave_stubs") are pinned where ws29-ws31
+   * had them, 0x26F4 into the area on every disc, after the code of the sources before them, so
+   * code before them can shrink. */
+  .trkcave 0x802548E8 : {
+    *widescreen.c.o(.trkcave .trkcave.*) *fullwidth.S.o(.trkcave .trkcave.*)
+    *camera.c.o(.trkcave .trkcave.*) *qol.c.o(.trkcave .trkcave.*) *qol.S.o(.trkcave .trkcave.*)
+    *autoload.c.o(.trkcave .trkcave.*) *dcmusic.c.o(.trkcave .trkcave.*)
+    *cutscene.c.o(.trkcave .trkcave.*)
+    ASSERT(. <= ADDR(.trkcave) + 0x26F4, "MetroTRK-area code runs into the pinned cutscene stubs")
+    . = ADDR(.trkcave) + 0x26F4;
+    *(.trkcave_stubs)
+    *(.trkcave .trkcave.*)
+    *(.trkcave_late)
+  }
   ASSERT(. <= 0x80257AF8, "patch code doesn't fit in the MetroTRK area (0x802548E8-0x80257AF8)")
   /DISCARD/ : { *(.comment) *(.eh_frame) *(.note*) }
 }
