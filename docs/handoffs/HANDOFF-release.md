@@ -25,8 +25,8 @@ On `origin/dev` for the next release (draft notes: the main checkout's `build/no
 - **AppImage catalog** (#10524): v0.80.0-beta passed; the bot's screenshot lacked the background art
   (its sandbox; it loads in 3 s under Xvfb here), answered on the PR; a maintainer merges it. Update
   information (zsync) is in the backlog.
-- **Issues since the release:** #7 fixed on `dev` (ws27; close it with the next release), #11 new
-  (ship tutorial's command grid stretched; backlog, README Known Issues); #3, #5 and #8 (DSF part)
+- **Issues since the release:** #7 fixed on `dev` (ws27; close it with the next release), #11 fixed on
+  `dev` (ws30, the ship tutorial's grid picture; close it with the next release); #3, #5 and #8 (DSF part)
   open.
 - **Shared Windows tree:** `C:\dev\SkiesRomhack` is ws28 now (the #7 session configured it); re-sync
   `release\` and reconfigure before a build from another branch.

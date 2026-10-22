@@ -133,6 +133,12 @@
       "why": "fn_802297C4: the battle-entry shatter's 3D tiles, drawn at the game's own field of view so they cover the whole picture (found with trace2d)"
     },
     {
+      "site": "0x800AAF94",
+      "target": "fn_800A1BA4",
+      "to": "ws_squeezed_800A1BA4",
+      "why": "fn_800A9D24's sprite picture in a ship battle (maps 500-599): the first tutorial's command grid is a full-screen quad, kept at the HUD's 4:3 shape (issue #11, found with trace2d)"
+    },
+    {
       "site": "0x8022D910",
       "target": "fn_8022D1F8",
       "to": "cam_view",

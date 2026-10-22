@@ -1794,6 +1794,34 @@ command input, Focus and attack rounds both ways (plates and their damage number
 won to the results; 4:3 still identical to the unpatched game (state 02, 165 pictures). The results
 screen is a centred 4:3 page like the save menu (shared with ground battles), unchanged.
 
+### Ship battle tutorial grid (2026-10-21 night, ws30, issue #11)
+
+Sandbowl (v0.80.0-beta): in the first ship battle the command grid is "stretched in different aspect
+ratios", only in the tutorial. The Baltor state (`17-ship-battle-baltor.sav`, one A press) shows it:
+while Drachma explains the grid ("At the top of the screen, a 3X3 grid will appear", three more lines),
+the grid covers the same share of the screen at 16:9 as at 4:3 (x 385-830 of 1280 in both), 1.33
+times too wide; at command input it's the real, anchored grid (top right) and fine. During the
+explanation the grid isn't the HUD's grid: `trace2d` (chains only in the explanation, against command
+input) gives `fn_800A9D24+0x1274 -> fn_800A1BA4 -> fn_801CCD90 -> fn_8000610C -> fn_80291064`, a
+sprite object drawn as one textured quad. `fn_800A1BA4` has three callers, all in `fn_800A9D24`;
+the one at `0x800AAF94` runs only on maps 500-599 (ship battles). The tutorial's picture is a quad
+across the whole screen, so `ws_tex_poly` took it for a background and drew it full width.
+
+ws30 sends that one call through `ws_squeezed_800A1BA4` (`fullwidth.S`, macro `SQUEEZED`, the reverse
+of `FULLWIDTH`): `ws_config.full_m00` holds the squeezed scale for the call, so the picture keeps the
+HUD's 4:3 shape, centred where 4:3 has it. 4:3 goes straight to the game's function. The other two
+calls (outside ship battles) are unchanged. Code only, in the MetroTRK area: no variable moved
+(`ws_config`, `qol_normal_speed`, `cs_shot` at their ws29 addresses in all three DOLs), and the
+European and Japanese address tables got `fn_800A9D24`, `fn_800A1BA4` and the call site
+(`tools/dolmatch.py`, only additions).
+
+Checked on WSL (static module of the USA ws30 DOL, `build/ws30`): a state made on ws29 at the
+explanation loads; the grid at 16:9 has the real grid's proportions (cells square, portraits
+round), centred; the three following lines the same; command input after it with the anchored grid
+top right as before. A poke to `full_m00` as a test does nothing (`ws_apply` writes it every frame),
+and the JIT can't test a new patch from an older state (the state brings its own code back; only
+the static module replaces it).
+
 ### Match screen: ultrawide and any other shape (2026-10-17 night)
 
 The game patch takes any target aspect in `ws_config.display_aspect` (Hor+ 3D, HUD anchors as a

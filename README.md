@@ -287,8 +287,6 @@ you can switch to 30 fps. Nothing changes unless you choose it.
 - On Android, the field speed tops out at about 1.25x-1.5x on a Snapdragon 865 (1.5x on foot, 1.25x on
   the world map and in cutscenes).
 - An auto-save can cause a brief hitch on Android.
-- In the first ship battle (the tutorial), the command grid can change its shape from frame to frame
-  ([#11](../../issues/11)).
 
 ## Reporting a Problem
 

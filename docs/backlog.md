@@ -158,16 +158,13 @@ and publish the `.zsync` beside the AppImage, so AppImageUpdate works), and a "m
 screenshot shows the launcher without the background art, which loads within 3 s under Xvfb here
 (software GL), so likely the bot's sandbox; the launcher's own dark look is by design.
 
-## Ship battle command grid stretched in the first tutorial — issue #11, 2026-10-21
+## ~~Ship battle command grid stretched in the first tutorial~~ — issue #11, FIXED on `dev` (ws30), 2026-10-21
 
 Sandbowl, against v0.80.0-beta: "The input command screen is still stretched in different aspect
-ratios. This only happens during the first tutorial." The first ship battle (Drachma's tutorial):
-in the reporter's clip the command grid at the top (portraits, turn bar with C!) switches between a
-narrower shape with tall portraits and a wider one with normal portraits. The clip and two frames
-are in `GameCube-Research/targets/SkiesOfArcadiaLegends/issues/11/`. Not investigated yet; leads:
-development notes *Widescreen HUD at the edges*, *HUD placement*, ship battles (`InShipBattle`),
-and the replayed display lists that keep an old projection while a menu is open (*Known issues*).
-
+ratios. This only happens during the first tutorial." While Drachma explains the grid ("a 3X3 grid
+will appear"), the game shows it as a sprite picture across the whole screen, which the patch drew
+full width; the real grid at command input was fine. Game patch ws30 keeps that picture at the HUD's
+4:3 shape (development notes *Ship battle tutorial grid*). Close #11 with the release that has ws30.
 
 ## Cutscene shots that show past their set pieces in widescreen — issue #10, 2026-10-21
 

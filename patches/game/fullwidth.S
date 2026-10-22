@@ -146,6 +146,46 @@ UNWIDE ws_unwide_80287B38, fn_80287B38
  * called only on this path). */
 UNWIDE ws_unwide_80097CA4, fn_80097CA4
 
+/* Squeezed: the reverse of FULLWIDTH. Call a 2D function with ws_config.full_m00 set to the
+ * squeezed x scale the ortho matrix holds, so a picture whose quad spans the screen (ws_poly,
+ * ws_tex_poly) keeps the HUD's 4:3 shape instead of being stretched to the full width; the saved
+ * value is put back after (ws_apply writes it every frame anyway). Same registers as FULLWIDTH.
+ * In the MetroTRK area: the low-memory gap is full. */
+.macro SQUEEZED name, target
+	.global \name
+	.type \name, @function
+\name:
+	ORIGINAL_IN_43 \target
+	stwu 1, -16(1)
+	mflr 0
+	stw 0, 20(1)
+	lis 11, ws_config@ha
+	addi 11, 11, ws_config@l
+	lwz 12, 12(11) /* ws_config.full_m00 */
+	stw 12, 8(1)
+	lis 12, ws_ortho_m00@ha
+	lwz 12, ws_ortho_m00@l(12)
+	stw 12, 12(11)
+	bl \target
+	lwz 12, 8(1)
+	lis 11, ws_config@ha
+	addi 11, 11, ws_config@l
+	stw 12, 12(11)
+	lwz 0, 20(1)
+	mtlr 0
+	addi 1, 1, 16
+	blr
+	.size \name, . - \name
+.endm
+
+	.section .trkcave, "ax"
+/* A ship battle's sprite pictures: fn_800A9D24 draws a sprite object through fn_800A1BA4, on maps
+ * 500-599 from this one call. The first ship battle's tutorial (Drachma: "a 3X3 grid will appear")
+ * shows the command grid as such a picture, a quad across the whole screen, so ws_tex_poly drew it
+ * full width, 1.33 times as wide as the real grid (issue #11; found with trace2d). */
+SQUEEZED ws_squeezed_800A1BA4, fn_800A1BA4
+	.text
+
 /* Text anchoring (widescreen.c): call a text function, then pass the node it returns (r3)
  * through ws_text_anchor, which moves it if anchored HUD code queued it. Only for functions with
  * all their arguments in registers. */
