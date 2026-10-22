@@ -38,8 +38,9 @@ rebuilt.
 The game with the recomp's features (widescreen, camera, options; *The player build*) runs from the
 patched DOL with a module built from that same DOL. Released: game patch **ws30**, in **v0.81.0-beta**
 (2026-10-22; `patches/game/README.md` has the history). On `dev` since: **ws31** (Drachma's victory
-pose, issue #9, *Battle screen plane*; `build/game/GEAE8P-ws31` / `GEAP8P-ws31` / `GEAJ8P-ws31` in the
-`pal60` worktree, WSL static module of the debug variant `build/ws31dbg`). Older notes for this paragraph: on `dev` since 2026-10-18 **ws24** (*HUD placement*, on top of ws23's Continue fix, *Memory card
+pose, issue #9, *Battle screen plane*) and **ws32** (two more cutscene shots, issue #10, *Cutscene shots
+framed for widescreen*; `build/game/GEAE8P-ws32` / `GEAP8P-ws32` / `GEAJ8P-ws32` in the `pal60`
+worktree, WSL static module `build/ws32`). Older notes for this paragraph: on `dev` since 2026-10-18 **ws24** (*HUD placement*, on top of ws23's Continue fix, *Memory card
 auto-load*; `build/game/GEAE8P-ws24` / `GEAP8P-ws24`, WSL modules `../skies-aspect/build/us-genhud/module-linux`
 and `build/eu-gen24/module-linux`, no PGO); ws23 was built for Android (`build/game/GEAE8P-ws23` /
 `GEAP8P-ws23`, `build/android/apk/skies-ws23-2026-10-17.apk` on the debug test app); the desktop trees
@@ -2073,6 +2074,29 @@ the next shots (Alfonso's bridge) are unzoomed from their first frame, 4:3 keeps
 and a state from ws24 picks the stubs up (the handler table is rewritten every frame). Not checked
 yet: Windows, Android, the European and Japanese games in play (they build), the rest of the game's
 cutscenes.
+
+**ws32 (2026-10-22, two more shots from #10's comments).** In the opening, Fina's ship heading for the
+horizon (`0xF62BE063`, 1.55): the Valuan ship's side waits at the right edge for about 8 s before it
+sweeps in. On the Moon Stone night (map 202, `me202a.sct`), after "Dinner is ready!", Aika and Vyse walk
+to the lookout's ladder (`0xA5940371`, 4:3 + `CS_TOP`, so Fina's head stays in frame when she walks in):
+the game removes each of them just past the 4:3 right edge, so 16:9 showed them vanish in view. Both
+keys, like the first two, are once each in the USA, European and Japanese scripts (FNV-1a over every
+word run of the decompressed `me201a` / `me202a`).
+
+A longer `cs_shot_aspect` would move the stubs, and the script VM's handler table in game data points at
+them: a state from ws29-ws31 brings that table back, and `cs_frame` rewrites it only at the end of the
+frame. So `cs_shot_aspect` is in `.trkcave_late` now, the stubs in `.trkcave_stubs`, pinned by `cave.ld`
+where ws29-ws31 had them (0x26F4 into the MetroTRK area, the same offset on every disc), with the code
+before them free to shrink (only `cs_note` and `cs_frame` moved, 0x5C down). Shot lists can now grow
+without moving anything older.
+
+Checked on WSL (USA, static ws32 module `build/ws32` in the `pal60` worktree, JIT for the first look):
+the horizon shot zooms 1.147 at 16:9 with no hull at the edge until the ship arrives; the lookout shot
+1.334, Aika and Vyse go out past the right edge, the shots after it unzoomed; a ws31 state at the start
+of the opening plays all three opening shots at their zooms (1.147, 1.307, 1.288); ws10-era states (world
+map, a deck battle, the Antonio fight) load and run at speed 1.00. States for the lookout:
+`build/savestates/20-pirate-isle-fina-meets-mom-ws32.sav` (card save #3 of the Retroid backup, in the
+house), `21-pirate-isle-before-lookout-ws32.sav`, `22-lookout-scene-ws32.sav` (the scene's first frame).
 
 ### Widescreen 4:3 setting: identical to the unpatched game (2026-10-10 night, DOL `7cb9de68`, `GEAE8P-ws10`)
 

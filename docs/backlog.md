@@ -186,7 +186,7 @@ full width; the real grid at command input was fine. Game patch ws30 keeps that 
 
 Renatodep: "Is there a way to edit models positions for the wide screen cutscenes? I.e. opening with
 Fina where you see the valuan ship on the side?" Branch `cutscene` frames listed shots (development
-notes *Cutscene shots framed for widescreen*); the opening's two are listed. The rest of the game's
+notes *Cutscene shots framed for widescreen*); the opening's two are listed (ws29), and since ws32 two more from GLEclipseGaming's comments: the opening's horizon shot and Aika and Vyse leaving the lookout on the Moon Stone night. The rest of the game's
 cutscenes (255 scripts, 5,493 distinct camera commands) aren't surveyed: list shots as players report
 them, or survey a scene at a time with the 16:9 / 4:3 shot log. Data-only alternative players can use
 today: SPICE (github.com/SoAModTools/SPICE) edits `.sct` camera poses, lens and object placement, and

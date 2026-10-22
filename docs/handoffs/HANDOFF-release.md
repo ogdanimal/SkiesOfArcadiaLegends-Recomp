@@ -10,6 +10,11 @@ New: #12, Fixed: #9, reporters linked):
   Japan `92d83c42`, each checked with `tools/applydolpatch.py`). The patch changes, so desktop players
   are asked for their disc once more and Android re-patches by itself: the notes' *Updating* section
   says so. ws31 only adds code at the end of the MetroTRK area (`.trkcave_late`), so ws30 states load.
+- **#10 two more cutscene shots**: game patch **ws32** (development notes *Cutscene shots framed for
+  widescreen*, ws32): the opening's horizon shot and the Moon Stone night's walk to the ladder, from
+  GLEclipseGaming's two comments. `release/*.dolpatch` are ws32 now (outputs USA `0886a47b`, Europe
+  `baa96638`, Japan `cf86fb7b`, each checked with `tools/applydolpatch.py`). The cutscene stubs are
+  pinned where ws29-ws31 had them, so ws31 states load and zoom.
 - **#12 Android: both landscapes**: `recompcore-android-orientation.patch` (`af2d899`). A Retroid's
   firmware overlay forces landscape, so it can only be seen on a phone (development notes, Android app).
 - Checked: WSL (static modules, ws30 against ws31), Retroid Pocket Nova and Pocket 5 (local test APK
