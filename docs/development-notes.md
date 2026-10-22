@@ -2927,22 +2927,24 @@ rights: BUILDING *macOS*.
   `/opt/homebrew` or `/usr/local` link. That CI zip ran 3.05 / 4.63× (01 / 02, 1×) on the M4, and the
   v0.60.0-beta candidate's (`1e7e586`) Field speed 2x held 1.00x at 60 fps.
 
-## Aurora renderer (experiment, 2026-10-21, not in any build; 2026-10-22: 60 fps at full speed on the Nova, see *Aurora renderer* under Android)
+## Aurora renderer (desktop; 2026-10-21, committed as patches 2026-10-22: see *Aurora renderer* under Android for the status)
 
 Can the game draw through Aurora (encounter/aurora, the GX-on-WebGPU layer ModernGekko's own
 `vendor/dolphin/GXRuntime` ships, as the Wind Waker HD port does) instead of Dolphin's VideoCommon
 backends? Yes: a Dolphin video backend `Aurora` (`--graphics Aurora`, built with
 `-DMODERNGEKKO_ENABLE_AURORA=ON`) keeps VideoCommon in charge of timing, PE and savestates (Null
 backend classes) and forwards every decoded GP command to Aurora, which draws into its own window and
-presents at the XFB copy. The picture matches Dolphin's (3-5k of 307k pixels off, antialiasing/text, 19
-single-frame scenes + 390 battle frames offline, six scenes in-process on Windows). Windows, NVIDIA via
-D3D12, uncapped: Aurora reaches ~93% of the Null backend's ceiling in single- and dual-core (1.67x vs
-1.79x; 1.63x vs 1.76x), costing ~4.9 ms of CPU per frame on the GPU thread (not GPU-bound). The point
-is the Retroid, where Dolphin's own renderer is the limit; that needs an Android init path in the fork
-first. Everything (design, files, measurements, scripts, next steps) is in
-`~/projects/skies-aurora/HANDOFF.md`; the code is uncommitted in `lib/ModernGekko` (+ its
-`vendor/dolphin`), and `lib/ModernGekko/build` on WSL is configured with the option on (the normal
-runner is unchanged unless `--graphics Aurora` is passed).
+presents at the XFB copy, into the presenter's target rectangle (the Picture option). The picture
+matches Dolphin's (3-5k of 307k pixels off, antialiasing/text, 19 single-frame scenes + 390 battle
+frames offline; in-process on Windows and WSL, frame-matched against Dolphin's Vulkan picture). Windows,
+NVIDIA via D3D12, uncapped: Aurora reaches ~93% of the Null backend's ceiling in single- and dual-core
+(1.67x vs 1.79x; 1.63x vs 1.76x); capped 60 fps at full speed. The code is
+`patches/moderngekko-aurora.patch` + `patches/recompcore-aurora.patch` (off unless the option is on;
+the normal runner is unchanged unless `--graphics Aurora` is passed); the fork's own history is
+`~/projects/skies-aurora/GXRuntime` (24 commits, `patches/` there for upstreaming), its desktop tools in
+`~/projects/skies-aurora/HANDOFF.md`. Open on the desktop: Windows with the 60 fps replay active loses
+the scene's red channel (Android is right); WSL's llvmpipe tints the ship interior blue with every
+build (Dolphin's Vulkan backend on llvmpipe is right).
 
 ## Known issues
 
