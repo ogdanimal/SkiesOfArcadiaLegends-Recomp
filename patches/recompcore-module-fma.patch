@@ -25,10 +25,10 @@ index b25bd9fc12..9753ac831b 100644
    target_link_options(${MODULE_NAME} PRIVATE
 diff --git a/module-template/host_fma.c b/module-template/host_fma.c
 new file mode 100644
-index 0000000000..7455de2175
+index 0000000000..93293d2c89
 --- /dev/null
 +++ b/module-template/host_fma.c
-@@ -0,0 +1,143 @@
+@@ -0,0 +1,149 @@
 +// fma() for the module on x86-64, so CPUs without FMA3 don't pay for a software fma.
 +//
 +// The generated code and the CPU runtime call fma() for every guest fmadd / ps_madd family
@@ -47,6 +47,10 @@ index 0000000000..7455de2175
 +
 +#if (defined(__x86_64__) || defined(_M_X64)) && !defined(__APPLE__)
 +
++#if !defined(_WIN32) && !defined(_GNU_SOURCE)
++#define _GNU_SOURCE  // RTLD_DEFAULT (glibc before 2.40 has it only under _GNU_SOURCE)
++#endif
++
 +#include <immintrin.h>
 +#include <stdint.h>
 +#include <stdlib.h>
@@ -60,8 +64,10 @@ index 0000000000..7455de2175
 +#include <dlfcn.h>
 +#endif
 +
++#if defined(__clang__)
 +#pragma STDC FENV_ACCESS ON
 +#pragma STDC FP_CONTRACT OFF
++#endif
 +
 +typedef double (*fma_fn)(double, double, double);
 +
