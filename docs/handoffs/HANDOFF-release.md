@@ -1,9 +1,34 @@
 # Handoff: releases (Windows, Linux, macOS, Android)
 
-## After v0.80.0-beta (2026-10-21)
+## Released (2026-10-22 UTC): v0.81.0-beta
 
-On `origin/dev` for the next release (draft notes: the main checkout's `build/notes-next.md`; the
-0.80 draft kept as `notes-next.md.080`):
+**v0.81.0-beta is the current release** (prerelease, the user's version number; tag on `1bd19c7`,
+`main` fast-forwarded to it from `616d635`, release run 39715279768, published 03:34 UTC):
+https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/releases/tag/v0.81.0-beta. Notes:
+`build/notes-0.81.0-beta.md` (local), in the layout the 0.80 notes were given on GitHub after their
+release (one line per paragraph, an `[!IMPORTANT]` box for the disc, sub-bullets per item, `---` before
+the footer, reporters linked to their GitHub profiles); the published 0.80 body has doubled links
+(`[[#8](…)](…)`), not copied. What it carries over 0.80.0: *Shipped in v0.81.0-beta* below (graphics
+options, the 3x / 4x freeze, #7 and ship battles' specials, #3 European disc at 60 Hz, #10 cutscene
+shots, #11 tutorial grid). Game patch **ws30**: desktop players may be asked for their disc once more;
+Android re-patches by itself.
+
+- Before the tag: validate 39709570103 green on `431d2fb` (the last code commit) and 39713536928 on
+  `1bd19c7` (started by hand: the version bump is docs only); version strings (README, release/README,
+  BUILDING, the bug template) bumped first; PII sweep of the tree clean (only the `/home/someone` test
+  placeholders). `android-sign` approved by Claude after every other job was green; `.github` unchanged
+  since v0.80.0 apart from the bug template's version.
+- After: SHA256SUMS match all five downloads; the APK has 2161 `Sys` assets and the ws30 dolpatch
+  (USA output `c615035e`), signed with the same certificate as before (`e2c00b0b…a92f`). Release app
+  updated with `adb install -r` on the Retroid Nova (0.80.0) and the Pocket 5 (0.9.1): both re-patched
+  their USA disc to `c615035e` on the launcher's first start, the Pocket 5 still offers its auto-save.
+- Issues (the user's go-ahead): #3, #7 and #11 closed with replies; #10 answered (the opening's shots)
+  and left open for more shots. AppImage catalog PR #10524 is merged, so no retest is needed.
+- New open issues: **#9** "Drachma's winning animation breaks aspect ratio" (likely another
+  full-screen picture or 2D drawn full width, as #11 was), **#12** Android: both landscape
+  orientations. Still open: #5 (cheats), #8 (DSF rips), #10.
+
+## Shipped in v0.81.0-beta (on dev after v0.80.0-beta, 2026-10-21)
 
 - **Graphics options** (`ce9b6df`, validate 39626291735 green): Texture filtering, Anisotropic
   filtering, Scaling (Reddit request; development notes *Texture filtering, anisotropic filtering,
@@ -22,18 +47,17 @@ On `origin/dev` for the next release (draft notes: the main checkout's `build/no
   (the patch changes either way). Windows-checked (development notes *Ship battles' spells and special
   attacks*), on macOS (the Mac session) and on the Retroid Pocket 5 (test app, USA disc now imported
   in it beside the Japanese one); Linux not run.
-- **AppImage catalog** (#10524): v0.80.0-beta passed; the bot's screenshot lacked the background art
-  (its sandbox; it loads in 3 s under Xvfb here), answered on the PR; a maintainer merges it. Update
-  information (zsync) is in the backlog.
-- **Issues since the release:** #7 fixed on `dev` (ws27; close it with the next release), #11 fixed on
-  `dev` (ws30, the ship tutorial's grid picture; close it with the next release); #3, #5 and #8 (DSF part)
-  open.
+- **European disc at 60 Hz (#3) and cutscene shots (#10)**, game patch ws29 + `recompcore-pal60.patch`
+  (branches `cutscene` and `pal60`, HANDOFF-pal60), and **#11** (game patch ws30, development notes
+  *Ship battle tutorial grid*).
+- **AppImage catalog** (#10524): v0.80.0-beta passed and the PR was merged. Update information
+  (zsync) is in the backlog.
 - **Shared Windows tree:** `C:\dev\SkiesRomhack` is ws28 now (the #7 session configured it); re-sync
   `release\` and reconfigure before a build from another branch.
 
-## Released (2026-10-21 UTC): v0.80.0-beta
+## Earlier release (2026-10-21 UTC): v0.80.0-beta
 
-**v0.80.0-beta is the current release** (prerelease, the user's version number: "a big release,
+**v0.80.0-beta was the current release** (prerelease, the user's version number: "a big release,
 following releases most likely incremental"; tag on `616d635`, `main` fast-forwarded to it, release run
 39619750781, published 15:13 UTC):
 https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/releases/tag/v0.80.0-beta. Notes:

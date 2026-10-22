@@ -152,19 +152,19 @@ filtering, scaling*): 640x528 is already the original, so Sharp scaling answers 
 
 ## AppImage update information — suggested 2026-10-21
 
-The AppImage catalog's test (AppImage/appimage.github.io#10524) passed on v0.80.0-beta (glibc 2.34),
+The AppImage catalog's test (AppImage/appimage.github.io#10524, since merged) passed on v0.80.0-beta (glibc 2.34),
 with two warnings: no update information (embed it with `appimagetool -u "gh-releases-zsync|ogdanimal|SkiesOfArcadiaLegends-Recomp|latest|SkiesOfArcadiaLegends-*-x86_64.AppImage.zsync"`
 and publish the `.zsync` beside the AppImage, so AppImageUpdate works), and a "mostly dark" window: its
 screenshot shows the launcher without the background art, which loads within 3 s under Xvfb here
 (software GL), so likely the bot's sandbox; the launcher's own dark look is by design.
 
-## ~~Ship battle command grid stretched in the first tutorial~~ — issue #11, FIXED on `dev` (ws30), 2026-10-21
+## ~~Ship battle command grid stretched in the first tutorial~~ — issue #11, FIXED in v0.81.0-beta (ws30)
 
 Sandbowl, against v0.80.0-beta: "The input command screen is still stretched in different aspect
 ratios. This only happens during the first tutorial." While Drachma explains the grid ("a 3X3 grid
 will appear"), the game shows it as a sprite picture across the whole screen, which the patch drew
 full width; the real grid at command input was fine. Game patch ws30 keeps that picture at the HUD's
-4:3 shape (development notes *Ship battle tutorial grid*). Close #11 with the release that has ws30.
+4:3 shape (development notes *Ship battle tutorial grid*). Released in v0.81.0-beta; #11 closed.
 
 ## Cutscene shots that show past their set pieces in widescreen — issue #10, 2026-10-21
 

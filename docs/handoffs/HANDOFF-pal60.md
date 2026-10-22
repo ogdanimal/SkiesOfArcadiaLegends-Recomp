@@ -2,8 +2,9 @@
 
 Two branches, stacked, rebased on 2026-10-21 onto the ws28 work (branch `smove` `fea664d`, on
 origin/dev `7587e66`). **All three are on `dev` since 2026-10-21 night** (fast-forward `7587e66..2200a73`,
-validate run 39701868565 green). The tips before the rebase are kept as `cutscene-pre-ws28` and
-`pal60-pre-ws28`.
+validate run 39701868565 green), and **released in v0.81.0-beta** (2026-10-22; with #11's ws30).
+#3 is closed and #10 answered (left open for more shots). The tips before the rebase are kept as
+`cutscene-pre-ws28` and `pal60-pre-ws28`.
 
 | Branch | Worktree | Commits on `smove` | What |
 |---|---|---|---|
@@ -91,7 +92,7 @@ at 60 Hz. Its data was made for 50 Hz in three places, all fixed now, and only f
 3. Release notes: the draft is `build/notes-next.md` in the main checkout (entries added
    2026-10-21). Thank the issue #3 reporters (Renatodep, GLEclipseGaming) and #10's (Renatodep).
    The release re-patches the discs (ws30 since #11's fix; ws30 = ws29 + one wrapper, no data moved).
-4. **Replies to #3 and #10 only after the release** (the user's call, 2026-10-21). #3: the
+4. ~~**Replies to #3 and #10 only after the release**~~ (posted 2026-10-22 with v0.81.0-beta; #3 closed). #3: the
    European intro and battle sound are fixed; the language-import idea is in the backlog. #10: the
    opening's shots; more shots can be listed.
 
