@@ -1,8 +1,9 @@
 # Handoff: the European disc at 60 Hz, and cutscene framing (2026-10-21)
 
-Two local branches, stacked, **not pushed or merged**, rebased on 2026-10-21 onto the ws28 work
-(local branch `smove` `fea664d`, itself on origin/dev `7587e66`; another session's, **not on dev yet**).
-The tips before that rebase are kept as `cutscene-pre-ws28` and `pal60-pre-ws28`.
+Two branches, stacked, rebased on 2026-10-21 onto the ws28 work (branch `smove` `fea664d`, on
+origin/dev `7587e66`). **All three are on `dev` since 2026-10-21 night** (fast-forward `7587e66..2200a73`,
+validate run 39701868565 green). The tips before the rebase are kept as `cutscene-pre-ws28` and
+`pal60-pre-ws28`.
 
 | Branch | Worktree | Commits on `smove` | What |
 |---|---|---|---|
@@ -60,6 +61,22 @@ at 60 Hz. Its data was made for 50 Hz in three places, all fixed now, and only f
   the cloud sea, then the purple moon over the snow) show only the ship's sparkle trail, not the ship:
   the same in the original (the user checked, 2026-10-21). Not a bug. That stretch has no script
   camera commands (`cs_shot` logs nothing between the intro, map 299, and the map 297 demo).
+- Android, ws29, after the push (2026-10-21 night): CI's module (`android-module` artifact of run
+  39701868565) in a test APK (`BRAND=1 TEST_ID=1 NAME=ws29 JNILIBS=...`,
+  `build/android/apk/skies-recomp-ws29-2026-10-21-test.apk`) installed over the Retroid Pocket 5's
+  test app with its data. Both games had ws28 DOLs; the launcher re-patched each to ws29 on its own
+  from `main.dol.orig` (USA `ac356927`, Europe `8e4cf16c`, the dolpatches' outputs). The European
+  folder had been copied in by hand without `main.dol.orig` and first asked for the disc again ("imported
+  by an older version"); a real import keeps the original, so it was given one. European intro from a
+  cold boot against the USA one on the same device, `cs_shot` polled about 6 times a second with the
+  game's frame count: the 10 shots both scripts share (the European scripts' timing words are part of
+  the hash, so the rest differ) within -15..+18 frames of the USA's over 3,600 frames, ratio 1.005.
+  Continue from the ws28 auto-save (European, mid-intro) on ws29: loads and plays at speed 1.00.
+- The `m03` scenes, offline instead of in play (no state reaches disc 2's story there): the three
+  European scripts decompressed (`tools/uncensor/aklz.py`) and `pal_script_copy`'s rewrite applied:
+  `me299a` 320, `me298a` 348, `me250a` 348 `x / 1.2` timings, all rewritten; the `1.2` constants
+  left (3, 5, 36) are in the USA scripts too, the same number, so they're not 50 Hz retiming. The
+  intro shows the rewrite works in play; the `m03` scenes themselves still unplayed.
 - One European JIT run ended by itself after about 10 minutes (no signal, no error, no OOM kill);
   the rerun didn't. Possibly another session stopping `moderngekko-run`; not confirmed.
 
@@ -67,13 +84,13 @@ at 60 Hz. Its data was made for 50 Hz in three places, all fixed now, and only f
 
 1. When `smove` reaches dev: check `cutscene` still fast-forwards from it (if `smove` changed, rebase
    again and redo the ws29 checks above), then merge.
-2. Android with the ws29 DOLs (`NAME=ws29 tools/android-ws-build.sh`), then the European intro on the
-   Retroid (ask first). Windows: the European intro by ear (`C:\dev\SkiesPal60\run-eu-ws29.bat`), one
-   `m03` scene (`me298a` / `me250a`) on the European disc, a ws28 state loading on ws29. The release
-   modules come from CI; local ones are for testing only.
+2. ~~Android ws29 and the European intro on the Retroid; a ws28 state on ws29~~ (done 2026-10-21
+   night, *Checked*); the `m03` scripts checked offline (*Checked*). Left: Windows, the European
+   intro by ear (`C:\dev\SkiesPal60\run-eu-ws29.bat`), optional. The release modules come from CI;
+   local ones are for testing only.
 3. Release notes: the draft is `build/notes-next.md` in the main checkout (entries added
    2026-10-21). Thank the issue #3 reporters (Renatodep, GLEclipseGaming) and #10's (Renatodep).
-   The release re-patches the discs (ws29).
+   The release re-patches the discs (ws30 since #11's fix; ws30 = ws29 + one wrapper, no data moved).
 4. **Replies to #3 and #10 only after the release** (the user's call, 2026-10-21). #3: the
    European intro and battle sound are fixed; the language-import idea is in the backlog. #10: the
    opening's shots; more shots can be listed.
@@ -86,7 +103,6 @@ at 60 Hz. Its data was made for 50 Hz in three places, all fixed now, and only f
   (`run-eu.bat`); ws29: `run-eu-ws29.bat` (syncs the controls, then the European game in `GEAP8P-ws29`:
   `sys` with the ws29 DOL, `files` a junction to `C:\dev\SkiesLang\games\GEAP8P\files`, the module from
   `C:\dev\SkiesRecomp\build\modules-ws29-eu`, user folder `ud`). `ud-ws29` / `auto-ws29`: the automated run's.
-- Retroid Pocket 5, test app `com.skiesofarcadia.recomp.test`: the `pal60` APK
-  (`build/android/apk/skies-recomp-pal60-2026-10-21-test.apk`, the ws28 modules), with
-  `Games/GEAP8P` beside `Games/GEAE8P` (the app boots the USA one first; move it aside for the
-  European one).
+- Retroid Pocket 5, test app `com.skiesofarcadia.recomp.test`: the ws29 test APK (CI's modules,
+  2026-10-21 night), with `Games/GEAP8P` (now with `main.dol.orig`) beside `Games/GEAE8P` (the app
+  boots the USA one first; move it aside for the European one).
