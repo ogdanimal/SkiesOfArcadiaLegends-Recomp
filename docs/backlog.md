@@ -176,15 +176,20 @@ them, or survey a scene at a time with the 16:9 / 4:3 shot log. Data-only altern
 today: SPICE (github.com/SoAModTools/SPICE) edits `.sct` camera poses, lens and object placement, and
 the port plays such a romhack (it changes the 4:3 picture too).
 
-## Aurora renderer: finish or drop — 2026-10-21, updated 2026-10-22 (session 6)
+## The emulator-free path (Aurora + standalone GXRuntime) — decided 2026-10-22
 
-GXRuntime's WebGPU renderer runs as a Dolphin video backend on the desktop and in the Android app
-(development notes *Aurora renderer*, HANDOFF-aurora), committed as patches (off by default).
-Where it stands (2026-10-22 noon): the picture matches Dolphin on both Retroids, Windows and WSL
-(three fork bugs found and fixed: the XF viewport decoded only from six-register loads, and
-intermediate EFB passes skipped under the 60 fps replay, on Android and on Windows); 60 fps at full speed on both Retroids
-with Vulkan's on-screen cadence; the Picture option applies, the in-game menu and OSD draw (fork 0026). Left to ship it as a renderer choice:
-HD texture packs (Aurora's
-own replacement format), coverage (ship battles, menus, world map night, EU/JP, cutscene framing),
-packaging (Dawn in every build, CI), macOS, a Linux GPU. The reason to do it is owning the renderer,
-not speed; Vulkan costs nothing further.
+Goal: the port runs without Dolphin's core: the recompiled game on GXRuntime, ModernGekko's standalone
+runtime, with Aurora drawing; the Dolphin build ships until the standalone one reaches parity. Plan,
+gates and the survey in [handoffs/HANDOFF-emulator-free.md](handoffs/HANDOFF-emulator-free.md). Hard
+gaps: audio (Skies mixes with MusyX 2.0 on the DSP and GXRuntime has no DSP emulation: a DSP emulator or
+a native MusyX engine such as AxioDL's amuse), the 60 fps interpolator (built into Dolphin's video layer),
+a new Android shell, and about 25,000 lines of port features written against Dolphin's APIs. First step:
+a boot spike to the title screen on desktop.
+
+The Aurora renderer inside Dolphin (`--graphics Aurora`, `AURORA=1`), the groundwork for it: the picture
+matches Dolphin on both Retroids, Windows and WSL (fork fixes: the XF viewport decoded per register;
+intermediate EFB passes no longer skipped under the 60 fps replay or before a kept-picture copy); 60 fps
+at full speed on both Retroids with Vulkan's on-screen cadence; the Picture option applies; the in-game
+menu and OSD draw through a Dear ImGui overlay (fork 0026). Inside Dolphin it is at parity with Vulkan, not
+ahead, and Dolphin's HD packs don't apply under it, so it stays opt-in there. Committed as patches on the
+local branch `aurora-backend` (needs a rebase onto origin/dev, then merge behind its flag).

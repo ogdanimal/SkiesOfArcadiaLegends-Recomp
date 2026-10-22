@@ -398,20 +398,33 @@ display). `MODERNGEKKO_AURORA_OSD=0` turns it off. Checked: the Settings menu (Z
 Windows and on the Pocket 5, speed 1.008 with it open; the presenter's FPS counter reads 59.7-59.9 now
 (it counts presents only on a presentable gfx). The backend links `imgui` for the draw-data types.
 
+**Direction (2026-10-22, end of session 6).** Asked how promising Aurora really is: inside Dolphin it is at
+parity with the Vulkan renderer (speed and picture), not ahead, and it loses Dolphin's HD packs; better
+lighting is the one strong reason to own the renderer there. The user chose the **emulator-free path**
+(the recompiled game on standalone GXRuntime with Aurora): [HANDOFF-emulator-free.md](HANDOFF-emulator-free.md).
+This backend's fork fixes and overlay are its starting point. A Pocket 5 coverage survey (eight states,
+Aurora vs Vulkan, `android-bench/p5-cov-*`) was started and then cut off (the restart's `pkill -f`
+matched its own shell): its partial output is not a result; rerun it with the state names
+`02-first-battle 06-save-menu 07-valuan-red-alarm 10-worldmap-android 12-streaks 16-deck-battle-ws10
+17-ship-battle-baltor 19-retroid-antonio-start`.
+
 ## Open
 
-1. OSD details: the OSD message font scale on a 1920x1080 surface (ImGui scale 1 everywhere),
+1. Rebase `aurora-backend` onto origin/dev (ws31 and later) and merge it behind its flag; then the
+   emulator-free plan's phase 1.
+2. The coverage survey above (battles, menus, world map, Baltor, Antonio) on the Pocket 5.
+3. OSD details: the OSD message font scale on a 1920x1080 surface (ImGui scale 1 everywhere),
    the on-screen keyboard / mouse paths of `OnScreenUI` are not wired (menu by pad only).
-2. Coverage: battles, menus, world map night, EU/JP, HD textures (Aurora's own replacement; Dolphin's packs
+4. Coverage: battles, menus, world map night, EU/JP, HD textures (Aurora's own replacement; Dolphin's packs
    don't apply); macOS; a Linux GPU (WSL's llvmpipe tint).
-3. Cheaper still: the interpolator's own bookkeeping (~10% of the GPU thread), VideoCommon's decode of
+5. Cheaper still: the interpolator's own bookkeeping (~10% of the GPU thread), VideoCommon's decode of
    a stream Aurora parses again, Dawn's per-draw cost; `Fifo::RunGpuLoop`'s idle spin reads the clock
    through a syscall on this kernel (a third of the thread's samples when capped: not work, but power).
-4. Upstream `patches/` (the fork's commits) to ModernGekko.
+6. Upstream `patches/` (the fork's commits) to ModernGekko.
 
 ## What is where
 
-- Fork: `~/projects/skies-aurora/GXRuntime` (git; `patches/` = format-patch of its commits), copied
+- Fork: `~/projects/skies-aurora/GXRuntime` (git, 26 commits over the vendored copy, last `f5eb436`; `patches/` = format-patch of its commits), copied
   verbatim into `lib/ModernGekko/vendor/dolphin/GXRuntime` (and `C:\dev\SkiesAuroraRun`'s copy).
 - This repo: `patches/moderngekko-aurora.patch`, `patches/recompcore-aurora.patch` (regenerate with
   `tools/regen-recompcore-patch.sh aurora` after editing the working copy), `tools/android-ws-build.sh`
@@ -419,7 +432,7 @@ Windows and on the Pocket 5, speed 1.008 with it open; the presenter's FPS count
 - Research tree: `~/projects/skies-aurora/{android-deps, android-build, android-bench, capture/, inproc/,
   inproc-win/, states/}`; `HANDOFF.md` there has the desktop tools.
 - Devices: the Pocket 5's test app (`com.skiesofarcadia.recomp.test`) runs the final APK of this session
-  (`skies-recomp-aurora-2026-10-22-test.apk`, 12:00, from the worktree's `build/android/apk/`), the USA
+  (`skies-recomp-aurora-2026-10-22-test.apk`, 12:34, with the OSD overlay, from the worktree's `build/android/apk/`), the USA
   disc imported, European game and old states beside it (`StateSaves/recovery-skies-20261020-*.sav` are the
-  Continue entries); the Nova's test app was taken over by the issue #9/#12 session (its ws31 build) at
-  noon, so reinstall the Aurora APK there before an Aurora run.
+  Continue entries); the Nova's test app runs the 12:17 Aurora APK (before the overlay). The issue
+  #9/#12 session borrows both devices after asking (it ran its ws31 build on them around noon).

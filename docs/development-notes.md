@@ -2926,6 +2926,13 @@ rights: BUILDING *macOS*.
   `/opt/homebrew` or `/usr/local` link. That CI zip ran 3.05 / 4.63× (01 / 02, 1×) on the M4, and the
   v0.60.0-beta candidate's (`1e7e586`) Field speed 2x held 1.00x at 60 fps.
 
+## The emulator-free path (decided 2026-10-22)
+
+The direction for the port: run the recompiled game on GXRuntime, ModernGekko's standalone runtime, with
+Aurora drawing, instead of inside Dolphin's core; the Dolphin build ships until the standalone build
+reaches parity. Survey, gaps (MusyX audio on the DSP, the 60 fps interpolator, an Android shell, the
+port's Dolphin-hosted features) and the phased plan: [handoffs/HANDOFF-emulator-free.md](handoffs/HANDOFF-emulator-free.md).
+
 ## Aurora renderer (desktop; 2026-10-21, committed as patches 2026-10-22: see *Aurora renderer* under Android for the status)
 
 Can the game draw through Aurora (encounter/aurora, the GX-on-WebGPU layer ModernGekko's own
