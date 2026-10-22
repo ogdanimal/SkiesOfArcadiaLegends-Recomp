@@ -654,7 +654,9 @@ working copies of `8bf2116`.
 
 ### Medium
 
-- [ ] **D1 Medium: camera control is inert on the European and Japanese discs.**
+- [x] **D1 Medium: camera control is inert on the European and Japanese discs.** FIXED 2026-10-22, game
+  patch ws33: the suffix dropped and `gamepatch.py`'s pattern made suffix-tolerant (development notes,
+  *Camera control*). Only the patch's tilt, zoom and orbit were dead; the C-stick turn is the game's own.
   `patches/game/camera.c:54` (`#define FIELD_CAMERA_EYE 0x80302F94u`), `tools/gamepatch.py:42`.
   `ADDRESS` (`\b(fn_|lbl_|0x)(80[0-9A-Fa-f]{6})\b`) needs a word boundary after the eighth digit, so
   the `u` suffix hides this literal from the region translation: the EU and JP DOLs compare against

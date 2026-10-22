@@ -1,5 +1,13 @@
 # Handoff: releases (Windows, Linux, macOS, Android)
 
+## On dev after v0.82.0-beta (2026-10-22)
+
+- **Camera control on the European and Japanese discs** (code review D1): game patch **ws33**. Only
+  `release/skies-widescreen-eu.dolpatch` (output `6a246b64`) and `-jp` (`98a49ed7`) changed, each
+  checked with `tools/applydolpatch.py`; the USA patch is the same as 0.82's, so only European and
+  Japanese players get the disc update. Checked on WSL (European disc); the Japanese DOL offline.
+- Review section D (HANDOFF-review) is on `dev`; D1 done, the rest open.
+
 ## Released (2026-10-22 UTC): v0.82.0-beta
 
 **v0.82.0-beta is the current release** (prerelease, the user's version number; tag on `8bf2116`, `main`

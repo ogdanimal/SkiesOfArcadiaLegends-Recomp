@@ -321,6 +321,17 @@ Valuan ship cabin's ceiling); on the world map pitch -35 to +25 degrees, zoom 0.
 and battles are untouched. Checked on Windows and the Retroid: `tools/camera-test-win.sh`, 60 fps at
 1.00x.
 
+**European and Japanese discs (ws33, 2026-10-22, review D1).** Until ws33 the patch's tilt, zoom and
+world-map orbit did nothing on those discs: `FIELD_CAMERA_EYE` was written `0x80302F94u`, and the suffix
+kept `gamepatch.py`'s address pattern from translating it, so `cam_view` compared the manager's eye
+source against the USA address (Europe `0x80306614`, Japan `0x80302A14`). The hook was installed, so the
+frontend's check passed. Turning with the C-stick still worked there: that is the game's own camera.
+`gamepatch.py`'s pattern now takes a suffix (and an untranslated address stops the build, so only the
+tables' identity entries pass through). Checked on WSL (JIT, European disc, a cold boot into a card
+save in P. Isle Underground, Z + C-stick up + L for 1.2 s): `cam_input.applied` 0 on ws32, 51 on ws33.
+The USA DOL is byte-identical to ws32; the Japanese one differs in the same halfword, by its table
+(not run: no Japanese module on WSL).
+
 ### QOL options and Invincible (DOL ws12, 2026-10-11)
 
 `patches/game/qol.c` / `qol.S`, all whole-call hooks (decomp `docs/qol_cheats.md`):
