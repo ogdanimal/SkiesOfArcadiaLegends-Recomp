@@ -2994,8 +2994,9 @@ rights: BUILDING *macOS*.
   RecompCore ones): Android picker results and the driver guard, the Dreamcast import's names and
   size, bank files read off the audio thread, cheaper and latched 60 Hz copies with a fallback to the
   disc's file, the converters stopped at shutdown, a texture-pack size cap and safe replacement, menu
-  clamps and locking, the GPU drain wait (1 s), pinned CI image, signing-script pipefail. Open: D27
-  (macOS quit with the game running is cancelled; a fix has to be tried on a Mac).
+  clamps and locking, the GPU drain wait (1 s), pinned CI image, signing-script pipefail; D27 a quit
+  from the Dock, a logout or a shutdown with the game running is answered "quit" after the runtime has
+  shut down (it used to report "refused to quit", aborting a logout; checked on the Mac).
 
 - **macOS: Left didn't register in the in-game settings menu (fixed 2026-10-19):** D-pad and stick
   Left did nothing in the Skies menu while Right / Up / Down worked. Without Input Monitoring macOS

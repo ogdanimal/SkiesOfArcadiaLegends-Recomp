@@ -647,8 +647,8 @@ Tools:
 (`patches/recompcore-review-d.patch`, last in `recompcore.series`, holds section D's RecompCore
 fixes). Fixed on the local branch `review` in the `pal60` worktree, not pushed (the user pushes when
 ready): D2 (`eece5e3`), D3 + D4 (`adef5ee`), D9 (game patch ws34), and the Lows D11-D26 and
-D28-D31 (`e919e94`, `2c9bd38`, `adfcb98`, `ce9bedf`, `b6b82d5`). D10 not fixed (no netplay, the
-user's call). Open: D27 (macOS quit, needs a Mac). Android checks (D7, D8, D11, D13-D15) wait for one APK at the end of the
+D28-D31 (`e919e94`, `2c9bd38`, `adfcb98`, `ce9bedf`, `b6b82d5`), D27 (Mac session's fix). D10 not
+fixed (no netplay, the user's call). Android checks (D7, D8, D11, D13-D15) wait for one APK at the end of the
 review work. Each fix's notes are at its item below and in `patches/README.md`'s `review-d` row.
 
 The same kind of review on `dev` `8bf2116` (v0.82.0-beta's version strings; the code is that of
@@ -944,7 +944,7 @@ Core, video, platforms:
   upstream); `WaitForGpuToDrain` now waits up to 1 s (below `WaitForFifoSpace`'s 2 s) and logs when it
   gives up. A no-cap-while-progressing rule wouldn't cover a pipeline compile (no FIFO progress
   while it runs). WSL with 60 fps: no give-up logged.
-- [ ] **D27:** macOS `applicationShouldTerminate:` returns `NSTerminateCancel` after `Stop()`
+- [x] **D27:** macOS `applicationShouldTerminate:` returns `NSTerminateCancel` after `Stop()`
   (`RC/Core/DolphinNoGUI/PlatformMacos.mm`, ~100-108): a logout or shutdown with the game running is
   aborted ("the app refused to quit"), although it exits a moment later. **Fix:** `NSTerminateLater`,
   then `replyToApplicationShouldTerminate:YES` when the main loop ends.
@@ -953,6 +953,12 @@ Core, video, platforms:
   loop would never get back to `UpdateRunningFlag` (a hang, worse than the cancel). A fix has to reply
   from that modal loop (a timer in `NSModalPanelRunLoopMode` that finishes the shutdown) and be tried
   on a Mac.
+  FIXED 2026-10-22 by the Mac session (applied on branch `review`): a `kAEQuitApplication` handler of our
+  own suspends the event and stops the platform; `~PlatformMacOS` (after `Core::Shutdown`) resumes it,
+  so the sender gets "quit, no error" and AppKit's `terminate:` never runs. Tested on the Mac with the
+  game running: errn -128 before, 0 after (also two quits at once, and `kAEReallyLogOut`), exit 0,
+  settings saved, next boot normal. Not tried: a real logout, a physical Dock click (worth one try by
+  hand).
 - [x] **D28:** `PlatformWin32.cpp:159, 316, 356` import `GetDpiForWindow` and
   `SetProcessDpiAwarenessContext` statically, so the runner needs Windows 10 1703 or later (the
   README says Windows 10 or 11). **Fix:** `GetProcAddress`, or state the minimum.

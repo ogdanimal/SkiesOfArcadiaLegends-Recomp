@@ -1337,6 +1337,86 @@ index 84b2b062fc..0047fcf341 100644
  
  // DirectoryBlob: every file of an extracted game's folder, as the disc is built.
  void Register(const std::string& physical_path);
+diff --git a/Source/Core/DolphinNoGUI/PlatformMacos.mm b/Source/Core/DolphinNoGUI/PlatformMacos.mm
+index f697b135a6..e5345b083b 100644
+--- a/Source/Core/DolphinNoGUI/PlatformMacos.mm
++++ b/Source/Core/DolphinNoGUI/PlatformMacos.mm
+@@ -84,11 +84,17 @@
+ @end
+ 
+ @interface AppDelegate : NSObject <NSApplicationDelegate>
++{
++  NSAppleEventManagerSuspensionID m_quit_event;
++}
+ 
+ @property(readonly) Platform* platform;
+ 
+ - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication*)sender;
+ - (id)initWithPlatform:(Platform*)platform;
++- (void)handleQuitEvent:(NSAppleEventDescriptor*)event
++         withReplyEvent:(NSAppleEventDescriptor*)reply;
++- (void)replyToQuitEvent;
+ @end
+ 
+ @implementation AppDelegate
+@@ -97,10 +103,31 @@
+   return YES;
+ }
+ 
+-// Quit from outside the window's own menu (the Dock, logging out, another app's quit event):
+-// AppKit's terminate: would call exit() with the emulation still running, and the static
+-// destructors then abort (cubeb's logger thread). Stop the platform instead and let the main loop
+-// end and the runtime shut down in order.
++// Quit from outside the window's own menu (the Dock, logging out or shutting down, another app's
++// quit event) arrives as this Apple event. AppKit's own handler calls terminate:, which would call
++// exit() with the emulation still running (the static destructors then abort: cubeb's logger
++// thread), and cancelling it there tells the sender the app refused to quit, which aborts a
++// logout. Instead the event waits for its reply while the main loop ends and the runtime shuts
++// down in order; the reply (quit, no error) goes out when the platform is destroyed, after
++// Core::Shutdown.
++- (void)handleQuitEvent:(NSAppleEventDescriptor*)event
++         withReplyEvent:(NSAppleEventDescriptor*)reply
++{
++  // A second quit while the first waits (the Dock's Quit clicked again) is answered at once
++  if (!m_quit_event)
++    m_quit_event = [[NSAppleEventManager sharedAppleEventManager] suspendCurrentAppleEvent];
++  _platform->Stop();
++}
++
++- (void)replyToQuitEvent
++{
++  if (m_quit_event)
++    [[NSAppleEventManager sharedAppleEventManager] resumeWithSuspensionID:m_quit_event];
++  m_quit_event = nullptr;
++}
++
++// Anything else that calls terminate: is stopped the same way (AppKit's exit() must not run
++// before the runtime shuts down).
+ - (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication*)sender
+ {
+   _platform->Stop();
+@@ -211,6 +238,8 @@ private:
+ PlatformMacOS::~PlatformMacOS()
+ {
+   [m_window close];
++  // The runtime has shut down (the platform goes last): tell a waiting quit event the app quit
++  [m_app_delegate replyToQuitEvent];
+ }
+ 
+ bool PlatformMacOS::Init()
+@@ -223,6 +252,12 @@ bool PlatformMacOS::Init()
+   [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+   [NSApp setPlatform:this];
+   [Application.sharedApplication finishLaunching];
++  // After finishLaunching, which installs AppKit's own handler
++  [[NSAppleEventManager sharedAppleEventManager]
++      setEventHandler:m_app_delegate
++          andSelector:@selector(handleQuitEvent:withReplyEvent:)
++        forEventClass:kCoreEventClass
++           andEventID:kAEQuitApplication];
+ 
+   unsigned long styleMask =
+       NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable;
 diff --git a/Source/Core/VideoCommon/Fifo.cpp b/Source/Core/VideoCommon/Fifo.cpp
 index c9ca59a0c7..07e53ea3bd 100644
 --- a/Source/Core/VideoCommon/Fifo.cpp
