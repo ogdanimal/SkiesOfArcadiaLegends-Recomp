@@ -646,9 +646,9 @@ Tools:
 **Status (2026-10-22 evening).** Fixed and on `origin/dev`: D1 (game patch ws33), D6, D5, D7, D8
 (`patches/recompcore-review-d.patch`, last in `recompcore.series`, holds section D's RecompCore
 fixes). Fixed on the local branch `review` in the `pal60` worktree, not pushed (the user pushes when
-ready): D2 (`eece5e3`), D3 + D4 (`adef5ee`), D9 (game patch ws34). D10 not fixed (no netplay, the
-user's call). Open: the Lows D11-D31 (D12 covered
-for the four tasks D7 moved). Android checks (D7, D8, the rest) wait for one APK at the end of the
+ready): D2 (`eece5e3`), D3 + D4 (`adef5ee`), D9 (game patch ws34), and the Lows D11-D26 and
+D28-D31 (`e919e94`, `2c9bd38`, `adfcb98`, `ce9bedf`, `b6b82d5`). D10 not fixed (no netplay, the
+user's call). Open: D27 (macOS quit, needs a Mac). Android checks (D7, D8, D11, D13-D15) wait for one APK at the end of the
 review work. Each fix's notes are at its item below and in `patches/README.md`'s `review-d` row.
 
 The same kind of review on `dev` `8bf2116` (v0.82.0-beta's version strings; the code is that of
