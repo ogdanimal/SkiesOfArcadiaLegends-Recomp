@@ -895,16 +895,23 @@ Core, video, platforms:
   README says Windows 10 or 11). **Fix:** `GetProcAddress`, or state the minimum.
 
 Tools and CI:
-- [ ] **D29:** `tools/dcmusic/gdrom.py:57, 74-80` writes `os.path.join(out, name)` with the ISO 9660
+- [x] **D29:** `tools/dcmusic/gdrom.py:57, 74-80` writes `os.path.join(out, name)` with the ISO 9660
   name as it is (a record `../../x` writes outside OUTDIR). Developer tool. **Fix:** reject `/`, `\`,
   `..`, or check the real path stays under `out`.
-- [ ] **D30:** `tools/sign-apk.sh:11, 25-26` has `set -eu` without `pipefail`, so the testOnly check
+  FIXED 2026-10-22 (branch `review`): `extract` skips (and names) an entry whose real path leaves OUTDIR.
+- [x] **D30:** `tools/sign-apk.sh:11, 25-26` has `set -eu` without `pipefail`, so the testOnly check
   (`aapt2 dump ... | grep -q ...`) passes when `aapt2` fails; `tools/set-release-secrets.sh:67, 84, 86`
   the same (a failed `openssl` / `base64` stores an empty secret; validate.yml's `test -n` then fails
   safe). **Fix:** `set -o pipefail`; check aapt2's exit; `put` refuses an empty value.
-- [ ] **D31:** validate.yml's Linux job uses `container: image: ubuntu:22.04` by tag (383-384), and
+  FIXED 2026-10-22 (branch `review`): `sign-apk.sh` has `pipefail` and checks aapt2's exit before
+  the testOnly match (checked: a non-APK stops at "aapt2 can't read the manifest", a real APK still
+  reaches the signer check); `set-release-secrets.sh`'s store section has `pipefail` and `put` refuses
+  an empty value.
+- [x] **D31:** validate.yml's Linux job uses `container: image: ubuntu:22.04` by tag (383-384), and
   the macOS job runs `brew install ninja` (494-495) after the Decrypt step (483-492), with the
   decrypted codegen in the workspace. **Fix:** pin the image by digest; install before decrypting.
+  FIXED 2026-10-22 (branch `review`): `ubuntu:22.04@sha256:0a988793...` (the index digest that day);
+  the macOS job installs Ninja before the codegen is downloaded.
 
 ## The tabled battle-speed freeze (fixed 2026-10-21)
 

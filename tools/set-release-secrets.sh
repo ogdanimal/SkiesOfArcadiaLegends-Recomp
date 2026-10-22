@@ -64,7 +64,9 @@ else
 fi
 
 # --- 3. Store -----------------------------------------------------------------
-set -e
+# pipefail: a failed openssl / base64 fails its line (put also refuses an empty value, since it
+# runs, and could store one, before the pipeline's status is known)
+set -eo pipefail
 if [ -n "$ENVS" ]; then
     for e in ci release; do
         gh api "repos/$PORT_REPO/environments/$e" >/dev/null 2>&1 ||
@@ -76,6 +78,7 @@ else
 fi
 put() {  # put NAME VALUE-ON-STDIN, once per target (the repo, or each environment)
     local name=$1; shift; local value; value=$(cat)
+    [ -n "$value" ] || { echo "Empty value for $name: not stored (stopped here; run it again)."; exit 1; }
     if [ "$1" = "" ]; then printf '%s' "$value" | gh secret set "$name" --repo "$PORT_REPO"; return; fi
     while [ $# -gt 0 ]; do printf '%s' "$value" | gh secret set "$name" --repo "$PORT_REPO" "$1" "$2"; shift 2; done
 }

@@ -8,7 +8,7 @@
 # skiesrecomp-release); the passwords come from SKIES_STORE_PASS / SKIES_KEY_PASS (the key's defaults
 # to the store's, as tools/make-release-key.sh makes them), or are asked for. They reach the tools
 # through the environment, never on a command line.
-set -eu
+set -euo pipefail
 IN=${1:?usage: tools/sign-apk.sh UNSIGNED.apk SIGNED.apk} OUT=${2:?usage: tools/sign-apk.sh UNSIGNED.apk SIGNED.apk}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 export ANDROID_HOME=${ANDROID_HOME:-$HOME/Android/Sdk}
@@ -21,9 +21,13 @@ if [ -z "${SKIES_STORE_PASS:-}" ]; then
 fi
 export SKIES_STORE_PASS SKIES_KEY_PASS=${SKIES_KEY_PASS:-$SKIES_STORE_PASS}
 
-# A test-only APK installs only through adb install -t, never from a download
-"$BT/aapt2" dump xmltree --file AndroidManifest.xml "$IN" | grep -q 'android:testOnly.*=true' &&
-  { echo "$IN is marked android:testOnly, which players can't install"; exit 1; }
+# A test-only APK installs only through adb install -t, never from a download (aapt2's own failure
+# stops here too, rather than reading as "not test-only")
+MANIFEST=$("$BT/aapt2" dump xmltree --file AndroidManifest.xml "$IN") ||
+  { echo "aapt2 can't read the manifest of $IN"; exit 1; }
+if grep -q 'android:testOnly.*=true' <<<"$MANIFEST"; then
+  echo "$IN is marked android:testOnly, which players can't install"; exit 1
+fi
 
 TMP=$(mktemp --suffix=.apk "${OUT%.apk}.XXXXXX")
 trap 'rm -f "$TMP"' EXIT

@@ -74,7 +74,12 @@ def main():
         for name, lba, size in g.walk():
             if want and name.upper() not in want and os.path.basename(name).upper() not in want:
                 continue
+            # The names come from the disc: one that leaves OUTDIR (../, an absolute path) is skipped
             dest = os.path.join(out, name)
+            root = os.path.realpath(out)
+            if os.path.commonpath([root, os.path.realpath(dest)]) != root:
+                print(f"skipped {name!r}: outside {out}", file=sys.stderr)
+                continue
             os.makedirs(os.path.dirname(dest), exist_ok=True)
             with open(dest, "wb") as f:
                 f.write(g.read_bytes(lba, size))
