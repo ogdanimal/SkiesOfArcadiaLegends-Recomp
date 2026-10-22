@@ -1,4 +1,4 @@
-# Handoff: code review findings (2026-10-12)
+# Handoff: code review findings (2026-10-12; second review 2026-10-22, section D)
 
 A bug + security review of the project's own code: the applied patches in the three submodules
 (`git diff` in `lib/ModernGekko`, `lib/ModernGekko/vendor/dolphin`, and the nested
@@ -15,6 +15,13 @@ the working tree on 2026-10-12 morning (commit `35d1a4d`).
 
 Tick the box and note the commit when done. Anything that touches a submodule file goes through the
 matching `patches/*.patch` (`tools/regen-recompcore-patch.sh`, `patches/README.md`).
+
+**Second review (2026-10-22): section D**, open. The code written since this review (the Japanese
+disc, Uncensored, the Dreamcast music's streams and reverb, the European disc at 60 Hz, HD textures
+and nested archives, the data folder, romhacks, language, state folders, field speed, battle
+specials, the overclock timebase, macOS, Android orientation). Still no remote-exploitable issue; the
+only untrusted inputs are files the player downloads. Its own additions to *Checked and OK* are at
+the end.
 
 **Status after v0.10.0-beta (2026-10-17):** B7 is closed (the repo went public; environments `ci` / `release` and the rulesets `main` / `release tags` exist, validate.yml's jobs run in `ci` and `android-sign` in `release`; HANDOFF-release *Status*). Still open: the state header's triple read.
 
@@ -634,6 +641,244 @@ Tools:
   Left: the state header read three times (a desktop picker file changing between reads only gets
   refused or imported as it is then); the u32 sum was already 64-bit.
 
+## D. Second review (2026-10-22)
+
+The same kind of review on `dev` `8bf2116` (v0.82.0-beta's version strings; the code is that of
+`1125b1b`): every patch applied to fresh submodules (`tools/apply-patches.sh`) in a scratch worktree,
+six reviewers (desktop launcher and file imports; Dreamcast music, Uncensored and the European
+streams; core, video and DolRecomp; settings menu, input and platforms; the Android app; game
+patches, tools and CI). Every Medium below was then re-read in the code; the Lows are as the
+reviewers traced them. Nothing was built, run or changed, and no device was touched. Same
+abbreviations and the same rule for submodule files as above; line numbers are from the patched
+working copies of `8bf2116`.
+
+### Medium
+
+- [ ] **D1 Medium: camera control is inert on the European and Japanese discs.**
+  `patches/game/camera.c:54` (`#define FIELD_CAMERA_EYE 0x80302F94u`), `tools/gamepatch.py:42`.
+  `ADDRESS` (`\b(fn_|lbl_|0x)(80[0-9A-Fa-f]{6})\b`) needs a word boundary after the eighth digit, so
+  the `u` suffix hides this literal from the region translation: the EU and JP DOLs compare against
+  the USA address (the tables map it to `0x80306614` and `0x80302A14`). `cam_view` (`camera.c:124-131`)
+  calls `cam_orbit` only when `manager[MANAGER_EYE_SOURCE] == FIELD_CAMERA_EYE`, which never holds
+  there: hold Z + C-stick / R / L does nothing, while the hook itself is installed (so the frontend's
+  hook check passes). The only suffixed `0x80…` literal that is a table entry (the others are the
+  `0x80000000u` RAM-range checks). `HALF` (line 43) has the same gap. **Fix:** drop the `u`; make the
+  regex suffix-tolerant (`(?<![\w.])(fn_|lbl_|0x)(80[0-9A-Fa-f]{6})(?![0-9A-Fa-f])`, the same for
+  `HALF`) and have the translation fail on any untranslated `0x80xxxxxx` left that isn't an identity
+  entry; new EU / JP `.dolpatch` files, camera checked on both discs.
+
+- [ ] **D2 Medium: a texture pack can write outside its import folder (zip-slip).**
+  `RC/Core/VideoCommon/TexturePackImport.cpp:101-116` (`InGameFolder`), `254-277` (`Target`),
+  `279-299` (`Begin`), `350-362` (`Commit`); desktop and Android (`RC/Android/jni/SkiesImport.cpp`).
+  `Target` checks only the file name (`IsTexture`: `tex1_*.png` / `.dds`); the folders before it are
+  taken as they are, from `InGameFolder` (everything after `GEA/`) or, for a pack without one, the
+  whole entry path. `Begin` then does `File::CreateFullPath` + `IOFile(m_temp + relative, "wb")`, and
+  `Commit` renames `m_temp + relative` to `target + "/" + relative`. An entry
+  `GEA/../../../../Config/tex1_x.png` (zip or 7z; minizip's own path cleaning is only in the
+  extract-to-file call, which isn't used, and 7z names come raw from `SzArEx_GetFileNameUtf16`)
+  creates folders and writes or truncates a `tex1_*` file anywhere the app can write: the user folder,
+  app data, shared storage with All files access. Nested archives (`ImportArchives`) go through the
+  same `Target`. Not code execution (the name is constrained), but a write outside the folder from a
+  downloaded file; in a debug APK it can reach `Automation/commands/` (D15). **Fix:** reject an entry
+  with an empty, `.` or `..` segment, `:`, `\` (after the `/` conversion), a control character or a
+  leading `/`; `NameProblem` in `MG/tools/disc_extract.cpp:35-56` is the rule to reuse.
+
+- [ ] **D3 Medium: a damaged `BONITO.DRV` crashes the game at every start (Dreamcast music on).**
+  `RC/Core/AudioCommon/DCMusic.cpp:105-106`. `image_size = min(Read32(d + 8), drv.size()) - 0x20`
+  wraps in u32 when the driver header's size word is below 0x20, and
+  `lib/HighlyTheoretical/Core/dcsound.c:429-440` (`dcsound_upload_to_ram`) masks only the destination,
+  so it reads `src[i]` for ~4 GB past the file's buffer. `Load` checks only "SDRV" and at least
+  0x120 bytes; the import (`RC/Core/AudioCommon/DCMusicImport.cpp:424-446`) copies any
+  `BONITO.DRV`. A damaged or crafted Dreamcast disc → SIGSEGV at every boot until the import is
+  removed. The reviewer's harness (`drv_size.cpp`, not kept) printed `image_size = 0xFFFFFFF0` for a
+  288-byte buffer. **Fix:** refuse `Read32(d + 8) < 0x20`, `> drv.size()` or `> 2 MB` in `Load`, and
+  check the "SDRV" / "SMLT" magic and sizes at import, so a bad disc is refused there.
+
+- [ ] **D4 Medium: a failed Dreamcast music start is retried every frame.**
+  `RC/Core/Core/SkiesMusic.cpp:442-444` (`if (want && !s_running) s_running = DCMusic::Start();`),
+  `RC/Core/AudioCommon/DCMusic.cpp:496-526`. Nothing remembers the failure: an `ARESNEW.MLT` without
+  "SMLT", a `BONITO.DRV` whose work-table pointers are ≥ 0x200000 (`DCMusic.cpp:114`), or D3's fixed
+  refusal → every poll reads both files, allocates and clears the ~8.5 MB chip state, uploads the
+  driver and runs 0.25 s of ARM emulation (`Render(nullptr, AICA_RATE / 4)`, ~9 ms on desktop,
+  ~17 ms on the Retroid) before failing again. The game runs at about half speed with no message for
+  as long as the option is on. **Fix:** latch the failure until the option is changed or the import
+  changes, and say so in the Dreamcast tab.
+
+- [ ] **D5 Medium: the auto-save deletes the oldest auto-save before the new one exists.**
+  `RC/Core/VideoCommon/SkiesMenu.cpp:1334-1345` (`autosave::Save`). `PruneAutomatic(directory,
+  AUTO_KEEP - 1, ...)` runs first; `State::SaveAs` only queues the compress-and-write on Dolphin's
+  dump thread, and a failed write (disk full, folder not writable) shows only an OSD line. Disk full
+  with three auto-saves → the oldest goes, the new one isn't written: two left, and every later
+  interval prunes (a no-op at two) and fails again. A crash between the prune and the write loses one
+  too. **Fix:** prune after the write has succeeded (State's after-save callback, or keep
+  `AUTO_KEEP` and prune the surplus after `SaveAs`).
+
+- [ ] **D6 Medium: the frame interpolator can read freed memory when the second EFB can't be made.**
+  `RC/Core/VideoCommon/FrameInterpolator.cpp:1897-1933` (`PictureForRetrace`), `1462-1468`
+  (`RunJob`), `1880-1882` (`Shutdown`). `PictureForRetrace` keeps `current = &s_shown[i]` and, on the
+  second retrace, calls `FinishJob()` → `RunJob` → `SwapEFB()` fails (high resolution + MSAA on a
+  phone GPU, the case the code handles) → `Shutdown()` → `s_shown.clear()` → then reads
+  `current->interp` / `current->real` (line 1933) through the dangling pointer: a crash or a garbage
+  picture. Reached when the GPU thread is a frame behind (`PullEvents` before FIFO work: a pipeline
+  compile hitch). `EndFrame`'s own leading `FinishJob()` (1602) survives it but then pushes a stale
+  `Shown` into the disabled interpolator. **Fix:** don't shut down inside `RunJob`; set a flag there
+  and apply it (`Shutdown` + `s_enabled = 0`) at a safe point (`ApplyPendingEnabled`, start of
+  `EndFrame`), or re-find the frame after `FinishJob()` and return `{}` if it's gone.
+
+- [ ] **D7 Medium (Android): save import, backup restore and export, and driver install have no busy
+  state.** `RC/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt:386-420`
+  (`importSave`), `449-468` (`importBackupEntries`), `484-521` (`exportSaves`), `523-550`
+  (`installDriver`). Unlike the disc, texture, music imports and the data move, they never set
+  `importRunning`; "never while the game runs" (the comment at 364-366) is checked only before the
+  picker and once before the import. A large backup restore (the zip copied first, up to 1 GiB, then
+  up to 400 entries one by one) looks idle; one Back (`panel.back()` → `close()`) gives the live home
+  screen, Continue boots the game, and `GCMemcardDirectory` reads `GC/USA/Card A` while card files are
+  still being written and renamed there: the later ones are missing from the session and can be lost
+  at its card flush. The same window lets Back up saves zip files the booting game rewrites, and a
+  driver install re-extract the driver folder Start is loading. `save_import.cpp` has no core check of
+  its own. **Fix:** the `importRunning` state (with `showImporting()`) for all four, and re-check
+  `NativeLibrary.IsRunning()` before each entry of the backup loop.
+
+- [ ] **D8 Medium (Android): the Dreamcast and texture-pack Remove buttons don't wait for the game to
+  close.** `RC/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt:470-473`
+  (Dreamcast), `426-430` (textures) → `RC/Android/jni/SkiesImport.cpp:576-584`. Every other
+  file-replacing action goes through `afterGameClosed {}`. With a game left running without its screen
+  (the "Game in progress" case, `SkiesLauncherActivity.kt:752-768`), Remove deletes `DreamcastMusic/`
+  (with `STREAMS/`) and `DreamcastUncensor/` under it; the next read of a file
+  `SkiesUncensor::Redirect` / `SkiesStreams::Redirect` still points at fails (`DVDThread.cpp:322-323`
+  empties the buffer → "The disc could not be read", lines 294-300) and the session is lost. Removing
+  a multi-GB pack runs `DeleteDirRecursively` on the main thread (ANR). **Fix:** `afterGameClosed {}`
+  and a worker thread for both; also have `DiscContent::Read` (`RC/Core/DiscIO/DirectoryBlob.cpp:98-103`)
+  fall back to the disc's own file when a redirected one can't be opened (covers D19's cache too).
+
+- [ ] **D9 Medium, plausible: Continue on the Japanese disc may write past the card task's work area.**
+  `patches/game/autoload.c:97` (`dl_work = fn_801E1C7C(0x270)`), against `patches/game/README.md:60-61`:
+  the Japanese `fn_801A4070` also probes `EA_LEGEND_EXTRA #00`-`#02` at mount (`fn_801A3BB4`) "into the
+  task's work +0x270", i.e. from the end of this allocation on. The documented JP Continue tests pass,
+  likely the allocator's rounding slack (0x270 isn't 32-byte aligned). Not checked against the
+  decomp. **Fix:** allocate the size the Japanese load screen's own task uses (0x300 covers the three
+  probe results by any reading); a heap pointer, so no layout or state change.
+
+- [ ] **D10 Medium, plausible: netplay desyncs when the players' gameplay options differ.**
+  `RC/Core/VideoCommon/SkiesMenu.cpp:1186-1208` (`qol::Write`), `986-1000` (`camera::Write`),
+  `RC/Core/Core/SkiesSettings.cpp:119-138`. The launcher offers netplay (`MG/tools/moderngekko_launcher.cpp:1396-1403`),
+  but encounters, rewards, battle / field speed, Invincible and Hold B are written into guest RAM from
+  each player's own config every poll, while only pad input is shared (`NetPlayClientInput.cpp:239`).
+  One player at `Encounters = 50` or `BattleSpeed = 2` → `qol_encounter_rand` / the retrace skipping
+  differ → desync within the first walk. Only the language restart checks
+  `NetPlay::IsNetPlayRunning()` (`SkiesMenu.cpp:311-314`). The netplay layer itself wasn't traced.
+  **Fix:** during netplay write the defaults (100 / 100 / 100 / 100 / 1x / off / off) and grey out the
+  Gameplay tab, or send the values with the netplay settings.
+
+### Low
+
+Android:
+- [ ] **D11:** picker results use the user folder before the asynchronous directory init.
+  `SkiesLauncherActivity.kt:1231` (`startImport`), `485`, `408`, `1053`, `544`;
+  `RC/Android/.../utils/DirectoryInitialization.kt:206-213`. `getUserDirectory()` throws until the
+  init is done; `onCreate` (226-231) waits with `AfterDirectoryInitializationRunner`, the result
+  handlers don't. The OS kills the backgrounded launcher while the system picker is up (low RAM, or
+  "Don't keep activities") → recreated activity, the result arrives before the init → crash (the
+  save import's worker thread too); texture and music imports run with empty paths. A1's class. **Fix:**
+  run each handler through `AfterDirectoryInitializationRunner().runWithLifecycle(this) { ... }`.
+- [ ] **D12:** the results of save import, backup and driver install are posted to the Activity that
+  started them; a rotation or dark-mode change in between (no orientation lock,
+  `AndroidManifest.xml:75`) recreates it and the result panel goes to the old one: the player never
+  sees whether it worked. **Fix:** the companion-object result pattern the disc import uses.
+- [ ] **D13:** `onCleanExit` in `EmulationActivity.onPause` runs whenever the activity finishes,
+  including a frontend's CLEAR_TASK relaunch with the core still running: the driver guard's pending
+  marker is cleared and a later crash of that session isn't caught. **Fix:** only when the core is
+  stopping; skip `checkDriver()` while `IsRunning()`.
+- [ ] **D14:** `checkDriver()` runs from `onResume` during a data-folder move (`SkiesLauncherActivity.kt:291-307`);
+  "Keep this GPU driver?" then saves `GFX.ini` into the folder being moved (lost, or an orphan
+  `Config/` left behind). **Fix:** return early while `dataMoveRunning`.
+- [ ] **D15:** debug builds only: the automation channel (`RC/Android/jni/Automation.cpp:9-10, 293-310`;
+  pad input, guest memory read / write, states to any path) trusts `<User>/Automation/`, which after
+  a data-folder move is in shared storage that other apps with All files access can write (and D2
+  can reach). Release APKs don't have it (`build.gradle.kts:98-103`). **Fix:** anchor it in
+  `filesDir`, or require a marker there.
+
+Dreamcast music, Uncensored, European streams:
+- [ ] **D16:** the Dreamcast import puts ISO 9660 names in the output path as they are
+  (`DCMusicImport.cpp:284-294, 314-319, 442-446`): `Wanted()` only needs `SOUND/M…MLT`, so
+  `M\..\..\..\X.MLT` passes, and on Windows `CreateFileW` resolves the `..` (a `*.MLT` written outside
+  the music folder; Linux and Android fail on the missing `M`). No cap on the number of wanted
+  entries (a 2 MB directory of 4 MB files on the same sectors fills the disk). **Fix:** the
+  `NameProblem` rule; a total-size cap (~300 MB).
+- [ ] **D17:** `ApplyRequests` reads an MLT (up to 4 MB) with `File::ReadFileToString` inside the
+  audio callback under `m_queue_lock` on a song's first play (`DCMusic.cpp:298-359, 374-389`):
+  an audio dropout, and the CPU thread's `Send()` waits on the same lock. **Fix:** read it on the CPU
+  thread in `SkiesMusic::Play` and pass the bytes with the request.
+- [ ] **D18:** `BuildPal60` runs on every disc, USA and Japanese too, and reads all 446 stream files
+  in full (>100 MB) at every boot just to compare their headers, before the cache key is computed
+  (`SkiesStreams.cpp:648-658, 696-757, 790-810`). **Fix:** only on GEAP8P, and read only the 0x60-byte
+  headers.
+- [ ] **D19:** the 60 Hz copies served live are in `Cache/SkiesPal60/` (Android: `externalCacheDir`,
+  `DirectoryInitialization.kt:125`), which the OS or "Clear cache" can delete mid-session; the next
+  read of one ends the session as in D8. **Fix:** D8's fallback, or keep them under the user folder.
+- [ ] **D20:** first run only: a pal60 copy published while the game is part-way through the original
+  stream can pair the European header with the shortened data (`SkiesStreams.cpp:713-717`); unlike
+  `SkiesUncensor::Redirect` (`SkiesUncensor.cpp:402-410`) there is no choice latched at offset 0.
+  Cosmetic. **Fix:** latch at offset 0 the same way.
+- [ ] **D21:** the detached conversion threads (Uncensored, pal60; up to ~50 s on the first run)
+  use `File::GetUserPath` / manifest statics, so quitting during them can crash in static destructors
+  (`SkiesUncensor.cpp:382-391`, `SkiesStreams.cpp:805, 840`). After the config is saved, so low
+  impact. **Fix:** a shutdown flag checked between files, or join from `Core::Shutdown`.
+
+Texture packs:
+- [ ] **D22:** no cap on the bytes a pack writes: LZMA / LZMA2 / stored folders stream straight to
+  disk (only the in-memory PPMd / filter path has the 1 GiB cap, `TexturePackImport.cpp:619`); a
+  decompression bomb fills the drive (reported as "Is the disk full?", staging removed). And
+  `Commit` (335-397) deletes each same-named texture before renaming the new one in, so an I/O error
+  part-way leaves a second import half applied (re-importable). **Fix:** a total cap well above real
+  packs (~9 GB); delete an old file only after its replacement is in.
+
+Settings menu and input:
+- [ ] **D23:** "Reset keyboard keys" with no keyboard found (`FindKeyboard()` null: Wayland, an
+  Android device without one) strips every keyboard binding and adds none, then saves, and says
+  "Keyboard keys reset" (`RC/Core/Core/SkiesInput.cpp:681-687`, `235`, `241`). **Fix:** "No keyboard
+  connected", as `StartCapture` does (612).
+- [ ] **D24:** smaller menu items, `SkiesMenu.cpp`: `s_texture_pack` is read in `Draw` outside the
+  lock, the one value not in its copy (389, 394-395, 2176); `autoload::Active` saves the config under
+  `s_mutex` on the video thread (1397-1398; a few ms once per boot); `CycleSpeed` steps from an
+  unclamped `BattleSpeed` (1086-1089, 1284-1287: `BattleSpeed = -5` shows "-4x"); texture filter,
+  anisotropy and scaling are read from `GFX.ini` unclamped (405-407; `1 << v.anisotropy` at 2095 with
+  `MaxAnisotropy = 40`); the autoload request block is written without a release fence before its
+  magic word (1406-1409; the game reads magic, then file; on ARM64 a Continue can rarely fail with
+  "save wasn't found"). **Fix:** copy under the lock, defer the save, clamp the three as
+  `field_speed` is (415), a release fence before the magic store.
+
+Core, video, platforms:
+- [ ] **D25:** `FrameInterpolator::detail::ReadEnabled` (1033-1050) initialises lazily from whichever
+  thread calls `IsEnabled()` first, writing plain bools: a formal data race at boot (same values).
+  **Fix:** initialise at video-backend init, or `std::call_once`.
+- [ ] **D26:** the GPU loop's batching (`Fifo.cpp:339-351`) checks `AtBreakpoint` between batches of
+  up to 2 KiB only (upstream: every 32 bytes), so a CP breakpoint inside a batch is stepped over. Skies
+  doesn't use FIFO breakpoints; only matters for the generic core. And `WaitForGpuToDrain` gives up
+  after 250 ms (`Fifo.cpp:626-657`): a longer GPU-thread stall (a first pipeline compile on a slow
+  Android driver) returns a stale token, and the game's "GPU hung" recovery is what the wait exists to
+  prevent. **Fix:** stop the batch at `CPBreakpoint` when enabled; no cap while the GPU is making
+  progress.
+- [ ] **D27:** macOS `applicationShouldTerminate:` returns `NSTerminateCancel` after `Stop()`
+  (`RC/Core/DolphinNoGUI/PlatformMacos.mm`, ~100-108): a logout or shutdown with the game running is
+  aborted ("the app refused to quit"), although it exits a moment later. **Fix:** `NSTerminateLater`,
+  then `replyToApplicationShouldTerminate:YES` when the main loop ends.
+- [ ] **D28:** `PlatformWin32.cpp:159, 316, 356` import `GetDpiForWindow` and
+  `SetProcessDpiAwarenessContext` statically, so the runner needs Windows 10 1703 or later (the
+  README says Windows 10 or 11). **Fix:** `GetProcAddress`, or state the minimum.
+
+Tools and CI:
+- [ ] **D29:** `tools/dcmusic/gdrom.py:57, 74-80` writes `os.path.join(out, name)` with the ISO 9660
+  name as it is (a record `../../x` writes outside OUTDIR). Developer tool. **Fix:** reject `/`, `\`,
+  `..`, or check the real path stays under `out`.
+- [ ] **D30:** `tools/sign-apk.sh:11, 25-26` has `set -eu` without `pipefail`, so the testOnly check
+  (`aapt2 dump ... | grep -q ...`) passes when `aapt2` fails; `tools/set-release-secrets.sh:67, 84, 86`
+  the same (a failed `openssl` / `base64` stores an empty secret; validate.yml's `test -n` then fails
+  safe). **Fix:** `set -o pipefail`; check aapt2's exit; `put` refuses an empty value.
+- [ ] **D31:** validate.yml's Linux job uses `container: image: ubuntu:22.04` by tag (383-384), and
+  the macOS job runs `brew install ninja` (494-495) after the Decrypt step (483-492), with the
+  decrypted codegen in the workspace. **Fix:** pin the image by digest; install before decrypting.
+
 ## The tabled battle-speed freeze (fixed 2026-10-21)
 
 Changing battle speed while a round plays out can freeze the battle (NOTES *Known issues*, tabled by
@@ -717,3 +962,99 @@ overclock, or the audio / DSP timing the game waits on), not at the C patch.
   negative (≤ 0 → 16383, divide guarded); ship-results scaling happens once (`fn_80144E60` is called
   once from `fn_8015C6A8`). `gamepatch.py`: `subprocess` with argv lists, section overlap / cave bounds
   / `bl` range checked, `redirect_sites` fail unless the expected `bl` is there.
+
+### Checked and OK in the second review (2026-10-22)
+
+- **Withdrawn:** "the 7z LZMA window is smaller than the decoder's minimum dictionary" (a read before
+  the window, `TexturePackImport.cpp:665-704`) was reported and then withdrawn by the same reviewer,
+  and doesn't hold: the window is `max(min(dictionary, unpack_size), 1)`; when the stream is no
+  longer than the dictionary the ring buffer never wraps and every match distance is below the bytes
+  decoded so far; when it is longer, the buffer wraps at `dicBufSize` as LzmaDec expects; a 0-byte
+  folder never writes. Don't report it again.
+- Desktop imports: `disc_extract.cpp`'s `CheckDiscFileNames` / `NameProblem` (empty, `.`, `..`,
+  `/ \ :`, control characters, trailing dot or space, Windows device names, case-insensitive
+  duplicates) before any write, depth 32 and 2^20 entries, collisions and size mismatches refused,
+  `ReplaceDirectory` keeps the old game when the swap fails (A2 / A7 hold). `dol_patch.cpp`: B1 holds;
+  output ≤ 64 MiB; data-original and known-change runs bounded by the input; output hash checked
+  before temp + rename. `save_import.cpp`: A5 / A6 / B14 hold (block counts, the 3-block identity,
+  single-save size cap, state size 1..1 GiB with the LZ4 chain walked at a 255x ratio cap, numbered
+  backups, staged copy + rename, region and game ID before writing, name from `GenerateFilename`).
+  `user_directory.cpp`: same-folder and nested moves refused (`weakly_canonical`), `<to>.moving`,
+  free space, pointer tmp + rename, `RemoveUserData` only ever removes the real current folder, an
+  absolute pointer only, a missing moved folder reported rather than created. Runner: argv array, no
+  shell, `--load-state` re-checked, port range checked, resolution write-back atomic (B3).
+  Continue / state folders: `state-skies-` / `recovery-skies-` filter, romhack states apart,
+  `MoveDiscStates` by the header's disc ID.
+- Dreamcast music, Uncensored, European streams: GDI / CHD (`FindTrack` bounds, u64 offsets,
+  libchdr's hunk range check, `hunkbytes % 2448`), ISO 9660 records (length ≥ 34, name within the
+  record, directories capped at 1024 sectors, depth 1), per-file caps 4 / 16 MB, `.part` + rename,
+  the NTSC-over-PAL keep rule, Remove limited to its two folders. `DownloadUnits` bounds; Highly
+  Theoretical's ARM loads / stores and AICA sample reads are masked; a bad ARM instruction fails the
+  engine for good (silence, no spin). Locking: `s_lock` → `m_queue_lock` on both threads, the audio
+  thread only try-locks `s_lock`. Uncensored: both inputs SHA-1-checked before parsing, the result's
+  SHA-1 and exact size checked, `Current()` needs the size and a `.src` stamp, the choice latched at
+  offset 0, a failed conversion deletes its output (same size, so states load either way). Pal60:
+  banks by size + SHA-1 prefix, streams by both channels' header counts, the cache key includes
+  headers, sizes and version, published only after both channels are written atomically.
+- Core and video (re-checked on the current code, since Fifo, the interpolator, CoreTiming and
+  StaticRecompCore changed after the first review): the dual-core state hold (`State.cpp:98-110`,
+  `Fifo::PauseAndLock` while `PullEvents` keeps the blocking event alive, restored by ScopeGuard);
+  no new fields in any `DoState` and `STATE_VERSION` unchanged, so states load both ways; the
+  interpolator is shut down on a state load on the GPU thread after video state is restored and
+  before the texture cache dies; the gather pipe's ref is rebuilt by `GPFifoManager::DoState`, at most
+  39 bytes queued in a 512-byte buffer, the fast path only without REL modules and lockstep; the
+  overclock timebase (`last_OC_factor_inverted` changes only in `CoreTiming::Advance`, never in a
+  burst; fractions carried in double, no overflow); `WaitForFifoSpace` exits on every condition with a
+  2 s cap; PE token read; `RestoreBootDolCode` bounds and the 24 MiB cap; `RecordArrays` (≤ 12
+  arrays, 1 MiB per copy, `GetPointerForRange`), 64 MiB recording cap, `Align` capped at 200k cells,
+  `s_shown` ≤ 3, replay never touches RAM, cache, token, draw-done, bbox, TLUT or TMEM preload; FIFO
+  wrap at `CPEnd`; the Vulkan pipeline-cache thread joined everywhere. DolRecomp: `lhbrx` / `sthbrx`
+  (BSWAP32 then LSHR 16) correct for load and store; the `mtmsr` leader test; the Win64 sjlj frame
+  with `"frame-pointer"="all"`; `test_module_abi.c` offsets 3536 / 3544 / 3552.
+- Settings menu and input: every menu static under `s_mutex` or on the CPU thread (D24 the
+  exceptions), CPU-thread config writes after unlock, consistent lock order down to the
+  `ControllerInterface` devices mutex, no deadlock found; the language restart only clears
+  `m_running` and tears down on the host thread after `MainLoop`, `--load-state` stripped; state ops
+  are host jobs that pause the CPU; guest writes clamped (encounters / rewards 0..400, battle speed
+  1..4, field speed quarters 4..12, camera offsets, aspects from fixed tables, Match screen 4:3..32:9)
+  and gated on each hook word; slots 1..5 / 0..5; `PruneAutomatic` prefix-filtered (player and
+  imported states survive); `SplitExpression` / `ParseTerm` safe on any string, out-of-list values
+  clamped; `Follow` holds `shared_ptr`s, so an unplug can't dangle; A / B can't be cleared; Win32,
+  Wayland, X11 and Quartz input handling bounded. Note: this Dolphin's state loader has no game-ID
+  check, so the per-version folders are the only guard against loading another version's state.
+- Android: no new exported components; `SkiesLauncherActivity` reads no intent data; the brand's
+  `dolphinExported=false`, non-exported picker and FileProvider; `DocumentProvider` behind
+  `MANAGE_DOCUMENTS`, now confined to the canonical root with `/`, `.`, `..` and NUL refused in names
+  and whole-segment `isChildDocument`; `src/skies/AndroidManifest.xml` only removes; `allowBackup=false`,
+  no cleartext, debuggable only in debug. Both `ZipUtils.unzip` overloads canonicalise and
+  prefix-check; driver packages capped at 256 MiB, `libraryName` a plain file; backup restore never
+  uses entry names as paths (temp copy, content sniffed, deleted in `finally`; 400 entries, 1 GiB
+  each). Data-folder move as on desktop; revoked All files access or a missing SD card starts in a
+  throwaway cache folder and asks, nothing is recreated in the moved folder. A1 holds; disc / texture /
+  music imports and the move keep their results in companion statics; orientation changes ride the
+  upstream recreation path. JNI strings, local refs and pending exceptions handled; `ImportDisc`
+  checks ID, revision, FST names and free space before writing. API-30/31 calls behind `SDK_INT`.
+  (`MANAGE_EXTERNAL_STORAGE` is declared in `src/main`, so the stock-Dolphin flavour asks for it too;
+  policy, not security.)
+- Game patches: every `fn_` / `lbl_` / `0x80…` token in the `.c`, `.S`, `.json` and `cave.ld` is in
+  both region tables (256 addresses; D1's suffixed literal the one escape), the two tables have the
+  same keys; the shipped `.dolpatch` files' MetroTRK-area run is 0x2BA0 bytes (< 0x3210) and the
+  cutscene stubs sit at +0x26F4 in all three (the ws32 pin); `cs_camera_command` / `UNWIDE` /
+  `SQUEEZED` frames and registers; `cs_note` bounds before hashing; `pal60.c`'s window keeps reads in
+  the copy and rewrites only `04000000 3F99999A 00000013`; `qol.c` dereferences every battle pointer
+  after `qol_ram`, with the phase, slot, unit and target bounds; `dcmusic.c` and `autoload.c` bounds;
+  `cave.ld` asserts; `gamepatch.py`, `mkdolpatch.py`, `applydolpatch.py`, `dolknown.py` checks.
+- Tools and CI: no `shell=True`, `os.system` or `eval` on untrusted input; `drive.py` is a file-drop
+  client, no listener; automation off in release builds; release scripts' ancestry, tag and green-run
+  checks; signer digest pinned; `ci-codegen.sh` refuses any DOL in its output. PII sweep outside `lib/`:
+  only the `/home/someone` placeholders and the `regen@invalid` identity. CI: no `pull_request` /
+  `pull_request_target`; `contents: read` with only `publish` writing; every action pinned to a full
+  SHA; `persist-credentials: false`; no event or input interpolated into `run:`; codegen encrypted
+  before every upload (cache key includes the key's digest), private inputs deleted in `always()`;
+  environments `ci` / `release`; the keystore in `$RUNNER_TEMP`; publish downloads only the named
+  artifacts and refuses any original or patched DOL by hash.
+- Not assessed: the LZMA SDK's 7z header parser (`7zArcIn.c`) against a crafted `.7z` (memory-unsafe
+  C, not fuzzed: an open risk, not a finding); Highly Theoretical's AICA / DSP internals beyond the
+  masking checks; anything needing the DOLs or the decomp (the argument conventions of the hooked
+  functions, whether a USA / JP script contains pal60's sequence); the netplay layer (D10); whether
+  the pinned action SHAs match the tags in their comments; everything on a device.
