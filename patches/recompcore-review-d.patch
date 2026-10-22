@@ -1533,10 +1533,18 @@ index 3ccb36493c..24d2ddda71 100644
          return {"HD textures", "Off",
                  "Needs a texture pack you downloaded: import it in the launcher's Settings, "
 diff --git a/Source/Core/VideoCommon/TexturePackImport.cpp b/Source/Core/VideoCommon/TexturePackImport.cpp
-index 490369ea8b..fc5fc6a39b 100644
+index 490369ea8b..3a3db857ff 100644
 --- a/Source/Core/VideoCommon/TexturePackImport.cpp
 +++ b/Source/Core/VideoCommon/TexturePackImport.cpp
-@@ -96,6 +96,33 @@ bool IsMacResourceFork(const std::string& path)
+@@ -19,6 +19,7 @@
+ #include <cstdio>
+ #include <cstdlib>
+ #include <cstring>
++#include <filesystem>
+ #include <map>
+ #include <memory>
+ #include <new>
+@@ -96,6 +97,33 @@ bool IsMacResourceFork(const std::string& path)
    return path.starts_with("__MACOSX/") || path.find("/__MACOSX/") != std::string::npos;
  }
  
@@ -1570,7 +1578,7 @@ index 490369ea8b..fc5fc6a39b 100644
  // The part of a path in the pack that is inside its game folder:
  // "SoA_HD_v0.06_DDS/GEA/UI/Main/tex1_....dds" -> "UI/Main/tex1_....dds".
  std::optional<std::string> InGameFolder(std::string path)
-@@ -257,7 +284,9 @@ public:
+@@ -257,7 +285,9 @@ public:
      {
        std::string path = pack_path;
        std::ranges::replace(path, '\\', '/');
@@ -1581,7 +1589,7 @@ index 490369ea8b..fc5fc6a39b 100644
      }
      std::optional<std::string> inside;
      if (m_game_folder)
-@@ -271,7 +300,7 @@ public:
+@@ -271,7 +301,7 @@ public:
        if (IsMacResourceFork(*inside))
          return std::nullopt;
      }
@@ -1590,3 +1598,38 @@ index 490369ea8b..fc5fc6a39b 100644
        return std::nullopt;
      return inside;
    }
+@@ -306,6 +336,11 @@ public:
+       return true;
+     if (m_dds && m_header.size() < 132)
+       m_header.insert(m_header.end(), data, data + std::min(size, 132 - m_header.size()));
++    // Well above any real pack (the 4x pack, all six archives, is 8.7 GB unpacked; a nested archive
++    // adds its own size): a decompression bomb stops here instead of filling the disk (review D22)
++    constexpr u64 MAX_BYTES = u64{24} << 30;
++    if (m_bytes + size > MAX_BYTES)
++      return Fail("The pack unpacks to more than 24 GB; is it really a texture pack?");
+     if (!m_file.WriteBytes(data, size))
+       return Fail("Can't write the textures. Is the disk full?");
+     // An archive in the pack can be gigabytes
+@@ -352,14 +387,20 @@ public:
+       std::map<std::string, std::string> imported;  // by file name: Dolphin's key
+       for (const auto& [relative, physical] : files)
+         imported.emplace(Lower(FileName(relative)), physical);
++      // Each new texture is in before the old one of its name goes (review D22: an error part-way
++      // used to leave textures deleted and not replaced); a rename over the same path replaces it.
+       for (const std::string& relative : m_written)
+       {
+-        if (const auto it = imported.find(Lower(FileName(relative))); it != imported.end())
+-          File::Delete(it->second);
+         const std::string path = Native(target + "/" + relative);
+         File::CreateFullPath(path);
+         if (!File::Rename(Native(m_temp + relative), path))
+           return Fail("Can't move the textures into " + target);
++        if (const auto it = imported.find(Lower(FileName(relative))); it != imported.end())
++        {
++          std::error_code error;
++          if (!std::filesystem::equivalent(StringToPath(it->second), StringToPath(path), error))
++            File::Delete(it->second);
++        }
+       }
+       File::DeleteDirRecursively(temp);
+ 

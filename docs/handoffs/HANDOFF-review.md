@@ -871,12 +871,16 @@ Dreamcast music, Uncensored, European streams:
   identical to the old cache.
 
 Texture packs:
-- [ ] **D22:** no cap on the bytes a pack writes: LZMA / LZMA2 / stored folders stream straight to
+- [x] **D22:** no cap on the bytes a pack writes: LZMA / LZMA2 / stored folders stream straight to
   disk (only the in-memory PPMd / filter path has the 1 GiB cap, `TexturePackImport.cpp:619`); a
   decompression bomb fills the drive (reported as "Is the disk full?", staging removed). And
   `Commit` (335-397) deletes each same-named texture before renaming the new one in, so an I/O error
   part-way leaves a second import half applied (re-importable). **Fix:** a total cap well above real
   packs (~9 GB); delete an old file only after its replacement is in.
+  FIXED 2026-10-22 (branch `review`): a 24 GB cap on the bytes an import writes (above the 4x pack's
+  8.7 GB plus a nested archive); `Commit` renames each new texture in first and then deletes the old
+  one of that name when it was elsewhere. Linux: a real pack imported twice (745 both times), and a
+  texture moved to another folder by a second import (old copy gone, still 745).
 
 Settings menu and input:
 - [x] **D23:** "Reset keyboard keys" with no keyboard found (`FindKeyboard()` null: Wayland, an
