@@ -1,3 +1,386 @@
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
+index 7a242e8b0c..6e6fd8f717 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
+@@ -101,6 +101,73 @@ class SkiesLauncherActivity : FragmentActivity() {
+         /** Which of the picked texture pack archives is importing ("Archive 2 of 6"), "" for one. */
+         @Volatile
+         var importStep = ""
++
++        /** The busy screen's first line while something other than the disc imports; "" for the disc's. */
++        @Volatile
++        var importTitle = ""
++
++        /**
++         * Settings, Saves: Import a save and Back up saves, as the music import's result. They run with
++         * importRunning set too, so nothing starts the game or another import meanwhile (review D7).
++         */
++        @Volatile
++        var savesResult: Array<String>? = null
++
++        /** Settings, Graphics: a GPU driver install's result, as the saves'. */
++        @Volatile
++        var driverResult: Array<String>? = null
++
++        /** Copies a save, refusing more than the largest file the import accepts (a save state). */
++        private fun copyCapped(input: java.io.InputStream, output: java.io.OutputStream) {
++            val buffer = ByteArray(1 shl 16)
++            var total = 0L
++            while (true) {
++                val n = input.read(buffer)
++                if (n < 0) break
++                total += n
++                if (total > MAX_IMPORT_BYTES) throw java.io.IOException("it is too big to be a save")
++                output.write(buffer, 0, n)
++            }
++        }
++
++        private fun isZip(file: File): Boolean {
++            val head = ByteArray(4)
++            val n = file.inputStream().use { it.read(head) }
++            return n == 4 && head.contentEquals(byteArrayOf(0x50, 0x4B, 0x03, 0x04))
++        }
++
++        /**
++         * Import a save, given a backup (Back up saves): each file in it imported as if picked on its own,
++         * oldest first, so the newest save state is still the one Continue picks. Stops if the game
++         * starts meanwhile (it would read the memory card while files are still written there).
++         */
++        private fun importBackup(file: File, cache: File, user: String): Array<String> {
++            java.util.zip.ZipFile(file).use { zip ->
++                val entries = zip.entries().toList().filter { !it.isDirectory }.sortedBy { it.time }
++                if (entries.isEmpty()) return arrayOf("That .zip has no saves in it.", "")
++                if (entries.size > MAX_BACKUP_ENTRIES) return arrayOf("That .zip holds too many files to be a backup of saves.", "")
++                var imported = 0
++                var failure = ""
++                for ((i, entry) in entries.withIndex()) {
++                    if (org.dolphinemu.dolphinemu.NativeLibrary.IsRunning()) {
++                        return arrayOf("The game started during the import, so it stopped: imported " +
++                            "$imported of ${entries.size} files from the backup.", "")
++                    }
++                    importStep = "File ${i + 1} of ${entries.size}"
++                    val part = File.createTempFile("save-import", null, cache)
++                    try {
++                        zip.getInputStream(entry).use { input -> part.outputStream().use { output -> copyCapped(input, output) } }
++                        val result = SkiesNative.importSave(part.absolutePath, user)
++                        if (result.getOrNull(1) == "ok") imported++
++                        else if (failure.isEmpty()) failure = "\n${entry.name.substringAfterLast('/')}: ${result[0]}"
++                    } finally {
++                        part.delete()
++                    }
++                }
++                return arrayOf("Imported $imported of ${entries.size} files from the backup.$failure",
++                    if (imported == entries.size) "ok" else "")
++            }
++        }
+     }
+ 
+     private lateinit var message: TextView
+@@ -318,6 +385,14 @@ class SkiesLauncherActivity : FragmentActivity() {
+             textureResult = null
+             openSettings(mainDol.isFile, "Graphics", result)
+         }
++        savesResult?.let { result ->
++            savesResult = null
++            openSettings(mainDol.isFile, "Saves", result)
++        }
++        driverResult?.let { result ->
++            driverResult = null
++            openSettings(mainDol.isFile, "Graphics", result)
++        }
+     }
+ 
+     /** After a game session: a custom GPU driver that crashed is undone; a new one, kept or not.
+@@ -387,84 +462,35 @@ class SkiesLauncherActivity : FragmentActivity() {
+ 
+     /** Copies the picked document into the cache (a content URI has no path) and imports that. */
+     private fun importSave(uri: Uri) {
+-        Thread {
++        // Only values go to the thread, never this Activity (it can be gone when the import ends)
++        val resolver = applicationContext.contentResolver
++        val cache = cacheDir
++        val user = userDirectory.absolutePath
++        startTask("Importing the save…", "SkiesSaveImport", { savesResult = it }) {
+             // Its own name per import; no bigger than the largest file the import accepts (a save
+             // state of at most 1 GiB, save_import.cpp), so a huge pick can't fill the storage
+             val copy = try {
+-                File.createTempFile("save-import", null, cacheDir)
++                File.createTempFile("save-import", null, cache)
+             } catch (e: java.io.IOException) {
+-                handler.post { openSettings(mainDol.isFile, "Saves", arrayOf("Could not copy that file: ${e.message}", "")) }
+-                return@Thread
++                return@startTask arrayOf("Could not copy that file: ${e.message}", "")
+             }
+-            val result = try {
+-                contentResolver.openInputStream(uri)?.use { input ->
++            try {
++                resolver.openInputStream(uri)?.use { input ->
+                     copy.outputStream().use { output -> copyCapped(input, output) }
+                 }
+                 if (org.dolphinemu.dolphinemu.NativeLibrary.IsRunning()) {
+                     arrayOf("The game started while the file was being chosen, so nothing was imported.", "")
+                 } else if (isZip(copy)) {
+-                    importBackup(copy)
++                    importBackup(copy, cache, user)
+                 } else {
+-                    SkiesNative.importSave(copy.absolutePath, userDirectory.absolutePath)
++                    SkiesNative.importSave(copy.absolutePath, user)
+                 }
+             } catch (e: Exception) {
+                 arrayOf("Could not read that file: ${e.message}", "")
+             } finally {
+                 copy.delete()
+             }
+-            handler.post {
+-                refresh()
+-                openSettings(mainDol.isFile, "Saves", result)
+-            }
+-        }.start()
+-    }
+-
+-    /** Copies a save, refusing more than the largest file the import accepts (a save state). */
+-    private fun copyCapped(input: java.io.InputStream, output: java.io.OutputStream) {
+-        val buffer = ByteArray(1 shl 16)
+-        var total = 0L
+-        while (true) {
+-            val n = input.read(buffer)
+-            if (n < 0) break
+-            total += n
+-            if (total > MAX_IMPORT_BYTES) throw java.io.IOException("it is too big to be a save")
+-            output.write(buffer, 0, n)
+-        }
+-    }
+-
+-    private fun isZip(file: File): Boolean {
+-        val head = ByteArray(4)
+-        val n = file.inputStream().use { it.read(head) }
+-        return n == 4 && head.contentEquals(byteArrayOf(0x50, 0x4B, 0x03, 0x04))
+-    }
+-
+-    /**
+-     * Import a save, given a backup (Back up saves): each file in it imported as if picked on its own,
+-     * oldest first, so the newest save state is still the one Continue picks.
+-     */
+-    private fun importBackup(file: File): Array<String> {
+-        java.util.zip.ZipFile(file).use { zip -> return importBackupEntries(zip) }
+-    }
+-
+-    private fun importBackupEntries(zip: java.util.zip.ZipFile): Array<String> {
+-        val entries = zip.entries().toList().filter { !it.isDirectory }.sortedBy { it.time }
+-        if (entries.isEmpty()) return arrayOf("That .zip has no saves in it.", "")
+-        if (entries.size > MAX_BACKUP_ENTRIES) return arrayOf("That .zip holds too many files to be a backup of saves.", "")
+-        var imported = 0
+-        var failure = ""
+-        for (entry in entries) {
+-            val part = File.createTempFile("save-import", null, cacheDir)
+-            try {
+-                zip.getInputStream(entry).use { input -> part.outputStream().use { output -> copyCapped(input, output) } }
+-                val result = SkiesNative.importSave(part.absolutePath, userDirectory.absolutePath)
+-                if (result.getOrNull(1) == "ok") imported++
+-                else if (failure.isEmpty()) failure = "\n${entry.name.substringAfterLast('/')}: ${result[0]}"
+-            } finally {
+-                part.delete()
+-            }
+         }
+-        return arrayOf("Imported $imported of ${entries.size} files from the backup.$failure",
+-            if (imported == entries.size) "ok" else "")
+     }
+ 
+     /** Settings, Saves: Back up saves. With the game closed, as for Import: it holds the card in memory. */
+@@ -483,7 +509,8 @@ class SkiesLauncherActivity : FragmentActivity() {
+      */
+     private fun exportSaves(uri: Uri) {
+         val user = userDirectory
+-        Thread {
++        val contentResolver = applicationContext.contentResolver
++        startTask("Saving the backup…", "SkiesSaveExport", { savesResult = it }) {
+             val cards = File(user, "GC").listFiles { f -> f.isDirectory }.orEmpty().flatMap { region ->
+                 File(region, "Card A").listFiles { f -> f.isFile && f.name.endsWith(".gci") }.orEmpty()
+                     .map { "GC/${region.name}/Card A/${it.name}" to it }
+@@ -516,37 +543,56 @@ class SkiesLauncherActivity : FragmentActivity() {
+                 }
+                 arrayOf("Could not save the backup: ${e.message}", "")
+             }
+-            handler.post { openSettings(mainDol.isFile, "Saves", result) }
+-        }.start()
++            result
++        }
++    }
++
++    /**
++     * Settings, Graphics / Dreamcast: Remove, once no game runs (a running session would still read the
++     * removed files) and on its own thread (a pack can be gigabytes); the tab comes back with the result.
++     */
++    private fun removeTexturePack() {
++        startTask("Removing the texture pack…", "SkiesTextureRemove", { textureResult = it }) {
++            val removed = SkiesNative.removeTexturePack()
++            NativeConfig.setBoolean(NativeConfig.LAYER_BASE, Settings.FILE_GFX, "Settings",
++                "HiresTextures", false)
++            NativeConfig.save(NativeConfig.LAYER_BASE)
++            if (removed) arrayOf("The imported textures were removed.", "ok") else arrayOf("Couldn't remove them.", "")
++        }
++    }
++
++    private fun removeDreamcastMusic() {
++        startTask("Removing the Dreamcast files…", "SkiesMusicRemove", { musicResult = it }) {
++            val removed = SkiesNative.removeDreamcastMusic()
++            NativeConfig.setInt(NativeConfig.LAYER_BASE, Settings.FILE_DOLPHIN, "Skies", "DreamcastMusic", 0)
++            NativeConfig.setInt(NativeConfig.LAYER_BASE, Settings.FILE_DOLPHIN, "Skies", "Uncensored", 0)
++            NativeConfig.save(NativeConfig.LAYER_BASE)
++            if (removed) arrayOf("The Dreamcast files were removed.", "ok") else arrayOf("Couldn't remove them.", "")
++        }
+     }
+ 
+     private fun installDriver(uri: Uri) {
+-        message.text = "Installing the GPU driver…"
+-        Thread {
++        val app = applicationContext
++        startTask("Installing the GPU driver…", "SkiesDriverInstall", { driverResult = it }) {
+             var installed: org.dolphinemu.dolphinemu.model.GpuDriverMetadata? = null
+             val result = try {
+-                contentResolver.openInputStream(uri)?.use {
++                app.contentResolver.openInputStream(uri)?.use {
+                     org.dolphinemu.dolphinemu.utils.GpuDriverHelper.installDriver(it)
+                 }.also { installed = org.dolphinemu.dolphinemu.utils.GpuDriverHelper.getInstalledDriverMetadata() }
+             } catch (e: Exception) {
+                 null
+             }
+-            handler.post {
+-                val driver = installed
+-                if (result == org.dolphinemu.dolphinemu.utils.GpuDriverInstallResult.Success &&
+-                    driver != null) {
+-                    SkiesDriverGuard.select(this, driver.libraryName)
+-                    message.text = "GPU driver ${SkiesDriverGuard.customName()} installed. Start the " +
+-                        "game to try it."
+-                } else {
+-                    // The install removed the old driver first: back to the device's own, so the
+-                    // setting doesn't name a driver that is gone
+-                    SkiesDriverGuard.useSystemDriver(this)
+-                    message.text = "That isn't a GPU driver package this app can use (${result ?: "unreadable"})."
+-                }
+-                openSettings(mainDol.isFile, "Graphics")
++            val driver = installed
++            if (result == org.dolphinemu.dolphinemu.utils.GpuDriverInstallResult.Success && driver != null) {
++                SkiesDriverGuard.select(app, driver.libraryName)
++                arrayOf("GPU driver ${SkiesDriverGuard.customName()} installed. Start the game to try it.", "ok")
++            } else {
++                // The install removed the old driver first: back to the device's own, so the
++                // setting doesn't name a driver that is gone
++                SkiesDriverGuard.useSystemDriver(app)
++                arrayOf("That isn't a GPU driver package this app can use (${result ?: "unreadable"}).", "")
+             }
+-        }.start()
++        }
+     }
+ 
+     /** The licences (assets/licenses, from the recomp repo's COPYING and release/ notices). */
+@@ -819,7 +865,9 @@ class SkiesLauncherActivity : FragmentActivity() {
+             { confirmImportSave() }, { startExport() },
+             { afterGameClosed { pickDreamcastDisc.launch(arrayOf("*/*")) } },
+             { afterGameClosed { chooseDataFolder() } },
+-            { afterGameClosed { pickTexturePack.launch(arrayOf("*/*")) } }, { showLicences() }) {
++            { afterGameClosed { pickTexturePack.launch(arrayOf("*/*")) } },
++            { afterGameClosed { removeTexturePack() } }, { afterGameClosed { removeDreamcastMusic() } },
++            { showLicences() }) {
+             column.descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
+             settings = null
+             buttons.getChildAt(buttons.childCount - 1)?.requestFocus()
+@@ -945,7 +993,7 @@ class SkiesLauncherActivity : FragmentActivity() {
+                 return
+             }
+             val status = SkiesNative.importStatus()
+-            message.text = getString(R.string.skies_importing) +
++            message.text = importTitle.ifEmpty { getString(R.string.skies_importing) } +
+                 (if (importStep.isNotEmpty()) "\n" + importStep else "") +
+                 if (status.isNotEmpty()) "\n" + status else ""
+             handler.postDelayed(this, 250)
+@@ -1149,10 +1197,40 @@ class SkiesLauncherActivity : FragmentActivity() {
+         handler.post(movePoll)
+     }
+ 
++    /**
++     * Runs [work] on its own thread behind the busy screen (as the imports do), titled [title]; its
++     * result goes to [publish] for whichever launcher instance shows next. False if another import
++     * or task runs: then only the busy screen is shown.
++     */
++    private fun startTask(title: String, name: String, publish: (Array<String>) -> Unit,
++                          work: () -> Array<String>): Boolean {
++        if (importRunning) {
++            showImporting()
++            return false
++        }
++        importRunning = true
++        importTitle = title
++        Thread({
++            var result = arrayOf("It stopped.", "")
++            try {
++                result = work()
++            } catch (e: Exception) {
++                result = arrayOf("It stopped: ${e.message}", "")
++            } finally {
++                importStep = ""
++                importTitle = ""
++                publish(result)
++                importRunning = false
++            }
++        }, name).start()
++        showImporting()
++        return true
++    }
++
+     private fun showImporting() {
+         settings?.close()
+         buttons.removeAllViews()
+-        message.text = getString(R.string.skies_importing)
++        message.text = importTitle.ifEmpty { getString(R.string.skies_importing) }
+         handler.removeCallbacks(importPoll)
+         handler.post(importPoll)
+     }
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+index ea754e10b2..489eac2aa9 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+@@ -43,6 +43,9 @@ class SkiesSettingsPanel(
+     private val onImportDreamcastMusic: () -> Unit,
+     private val onChangeDataFolder: () -> Unit,
+     private val onImportTexturePack: () -> Unit,
++    /** Remove (Graphics, Dreamcast): the activity removes the files once no game runs (review D8). */
++    private val onRemoveTexturePack: () -> Unit,
++    private val onRemoveDreamcastMusic: () -> Unit,
+     private val onLicences: () -> Unit,
+     private val onClosed: () -> Unit
+ ) {
+@@ -423,13 +426,8 @@ class SkiesSettingsPanel(
+         if (imported.isNotEmpty()) {
+             line.addView(View(activity), LinearLayout.LayoutParams(dp(10f), 1))
+             line.addView(button("Remove", BUTTON) {
+-                val removed = SkiesNative.removeTexturePack()
+-                NativeConfig.setBoolean(NativeConfig.LAYER_BASE, Settings.FILE_GFX, "Settings",
+-                    "HiresTextures", false)
+-                NativeConfig.save(NativeConfig.LAYER_BASE)
+-                importMessage = if (removed) "The imported textures were removed." else "Couldn't remove them."
+-                importOk = removed
+-                show()
++                close()
++                onRemoveTexturePack()
+             })
+         }
+         describe(rows, "A Skies of Arcadia texture pack you downloaded, as its .7z or .zip file. " +
+@@ -467,12 +465,8 @@ class SkiesSettingsPanel(
+         if (imported.isNotEmpty()) {
+             line.addView(View(activity), LinearLayout.LayoutParams(dp(10f), 1))
+             line.addView(button("Remove", BUTTON) {
+-                val removed = SkiesNative.removeDreamcastMusic()
+-                writeInt(Settings.FILE_DOLPHIN, "Skies", "DreamcastMusic", 0)
+-                writeInt(Settings.FILE_DOLPHIN, "Skies", "Uncensored", 0)
+-                importMessage = if (removed) "The Dreamcast files were removed." else "Couldn't remove them."
+-                importOk = removed
+-                show()
++                close()
++                onRemoveDreamcastMusic()
+             })
+         }
+         describe(rows, "Your own Skies of Arcadia Dreamcast disc, as a CHD file. Either disc has most " +
 diff --git a/Source/Core/Core/State.cpp b/Source/Core/Core/State.cpp
 index 2684dbf834..6d498f55bb 100644
 --- a/Source/Core/Core/State.cpp
