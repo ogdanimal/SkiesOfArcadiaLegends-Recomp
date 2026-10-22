@@ -861,11 +861,13 @@ Texture packs:
   packs (~9 GB); delete an old file only after its replacement is in.
 
 Settings menu and input:
-- [ ] **D23:** "Reset keyboard keys" with no keyboard found (`FindKeyboard()` null: Wayland, an
+- [x] **D23:** "Reset keyboard keys" with no keyboard found (`FindKeyboard()` null: Wayland, an
   Android device without one) strips every keyboard binding and adds none, then saves, and says
   "Keyboard keys reset" (`RC/Core/Core/SkiesInput.cpp:681-687`, `235`, `241`). **Fix:** "No keyboard
   connected", as `StartCapture` does (612).
-- [ ] **D24:** smaller menu items, `SkiesMenu.cpp`: `s_texture_pack` is read in `Draw` outside the
+  FIXED 2026-10-22 (branch `review`, `recompcore-review-d.patch`): `ResetDefaults` returns false and changes
+  nothing without a keyboard; the menu says "No keyboard connected". Not run (WSL always has one).
+- [x] **D24:** smaller menu items, `SkiesMenu.cpp`: `s_texture_pack` is read in `Draw` outside the
   lock, the one value not in its copy (389, 394-395, 2176); `autoload::Active` saves the config under
   `s_mutex` on the video thread (1397-1398; a few ms once per boot); `CycleSpeed` steps from an
   unclamped `BattleSpeed` (1086-1089, 1284-1287: `BattleSpeed = -5` shows "-4x"); texture filter,
@@ -874,25 +876,43 @@ Settings menu and input:
   magic word (1406-1409; the game reads magic, then file; on ARM64 a Continue can rarely fail with
   "save wasn't found"). **Fix:** copy under the lock, defer the save, clamp the three as
   `field_speed` is (415), a release fence before the magic store.
+  FIXED 2026-10-22 (branch `review`): the texture-pack flag is in `Values` (copied under the lock); the
+  three `GFX.ini` values and the battle speed are clamped; the consumed `AutoLoadCard` is saved by
+  `FilterPad` after it unlocks; a release fence before the magic store. WSL: Continue done, the
+  setting back to 0 in the file.
 
 Core, video, platforms:
-- [ ] **D25:** `FrameInterpolator::detail::ReadEnabled` (1033-1050) initialises lazily from whichever
+- [x] **D25:** `FrameInterpolator::detail::ReadEnabled` (1033-1050) initialises lazily from whichever
   thread calls `IsEnabled()` first, writing plain bools: a formal data race at boot (same values).
   **Fix:** initialise at video-backend init, or `std::call_once`.
-- [ ] **D26:** the GPU loop's batching (`Fifo.cpp:339-351`) checks `AtBreakpoint` between batches of
+  FIXED 2026-10-22 (branch `review`): `ReadEnabled` runs once (`std::call_once`), and a value
+  `SetEnabled` stored meanwhile is kept (compare-exchange from -1). WSL: 60 fps on as before.
+- [x] **D26:** the GPU loop's batching (`Fifo.cpp:339-351`) checks `AtBreakpoint` between batches of
   up to 2 KiB only (upstream: every 32 bytes), so a CP breakpoint inside a batch is stepped over. Skies
   doesn't use FIFO breakpoints; only matters for the generic core. And `WaitForGpuToDrain` gives up
   after 250 ms (`Fifo.cpp:626-657`): a longer GPU-thread stall (a first pipeline compile on a slow
   Android driver) returns a stale token, and the game's "GPU hung" recovery is what the wait exists to
   prevent. **Fix:** stop the batch at `CPBreakpoint` when enabled; no cap while the GPU is making
   progress.
+  FIXED in part 2026-10-22 (branch `review`): the breakpoint half already holds (an armed
+  `bFF_BPEnable` drops the batch to one 32-byte chunk, so `AtBreakpoint` is checked per chunk as
+  upstream); `WaitForGpuToDrain` now waits up to 1 s (below `WaitForFifoSpace`'s 2 s) and logs when it
+  gives up. A no-cap-while-progressing rule wouldn't cover a pipeline compile (no FIFO progress
+  while it runs). WSL with 60 fps: no give-up logged.
 - [ ] **D27:** macOS `applicationShouldTerminate:` returns `NSTerminateCancel` after `Stop()`
   (`RC/Core/DolphinNoGUI/PlatformMacos.mm`, ~100-108): a logout or shutdown with the game running is
   aborted ("the app refused to quit"), although it exits a moment later. **Fix:** `NSTerminateLater`,
   then `replyToApplicationShouldTerminate:YES` when the main loop ends.
-- [ ] **D28:** `PlatformWin32.cpp:159, 316, 356` import `GetDpiForWindow` and
+  OPEN, needs the Mac (2026-10-22): `NSTerminateLater` makes AppKit's `terminate:` run a modal loop
+  until the reply, and `terminate:` is called from inside `ProcessEvents`' `sendEvent:`, so the main
+  loop would never get back to `UpdateRunningFlag` (a hang, worse than the cancel). A fix has to reply
+  from that modal loop (a timer in `NSModalPanelRunLoopMode` that finishes the shutdown) and be tried
+  on a Mac.
+- [x] **D28:** `PlatformWin32.cpp:159, 316, 356` import `GetDpiForWindow` and
   `SetProcessDpiAwarenessContext` statically, so the runner needs Windows 10 1703 or later (the
   README says Windows 10 or 11). **Fix:** `GetProcAddress`, or state the minimum.
+  FIXED 2026-10-22 (branch `review`) by stating it: README and release README say Windows 10 version
+  1703 or later (or 11).
 
 Tools and CI:
 - [x] **D29:** `tools/dcmusic/gdrom.py:57, 74-80` writes `os.path.join(out, name)` with the ISO 9660

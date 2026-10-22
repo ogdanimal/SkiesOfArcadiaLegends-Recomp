@@ -427,6 +427,39 @@ index 5481cf5929..6bdc69693e 100644
      const std::string path = dir + name;
      const std::string temp = path + ".part";
      if (!File::WriteStringToFile(temp, std::string(data.begin(), data.end())) ||
+diff --git a/Source/Core/Core/SkiesInput.cpp b/Source/Core/Core/SkiesInput.cpp
+index 1f775bc87c..6c1c95ec69 100644
+--- a/Source/Core/Core/SkiesInput.cpp
++++ b/Source/Core/Core/SkiesInput.cpp
+@@ -678,11 +678,15 @@ void Clear(int input, Slot slot)
+   Save();
+ }
+ 
+-void ResetDefaults(Slot slot)
++bool ResetDefaults(Slot slot)
+ {
+   const auto keyboard = FindKeyboard();
++  // Without one, AddDefaults would strip every key and add none (review D23)
++  if (slot == Slot::Keyboard && !keyboard)
++    return false;
+   const auto lock = ControllerEmu::EmulatedController::GetStateLock();
+   AddDefaults(slot, true, keyboard.get());
+   Save();
++  return true;
+ }
+ }  // namespace SkiesInput
+diff --git a/Source/Core/Core/SkiesInput.h b/Source/Core/Core/SkiesInput.h
+index 20c14278a6..98363b45f9 100644
+--- a/Source/Core/Core/SkiesInput.h
++++ b/Source/Core/Core/SkiesInput.h
+@@ -47,5 +47,6 @@ enum class CaptureState
+ CaptureState PollCapture();
+ void CancelCapture();
+ void Clear(int input, SkiesBindings::Slot slot);
+-void ResetDefaults(SkiesBindings::Slot slot);
++// False, changing nothing, for the keyboard slot with no keyboard connected
++bool ResetDefaults(SkiesBindings::Slot slot);
+ }  // namespace SkiesInput
 diff --git a/Source/Core/Core/SkiesMusic.cpp b/Source/Core/Core/SkiesMusic.cpp
 index baacb2e16c..c411a51662 100644
 --- a/Source/Core/Core/SkiesMusic.cpp
@@ -596,11 +629,48 @@ index 1c4eeb0554..bb05f484f7 100644
  void LoadAs(Core::System& system, std::string filename);
  
  void LoadLastSaved(Core::System& system, int i = 1);
+diff --git a/Source/Core/VideoCommon/Fifo.cpp b/Source/Core/VideoCommon/Fifo.cpp
+index c9ca59a0c7..07e53ea3bd 100644
+--- a/Source/Core/VideoCommon/Fifo.cpp
++++ b/Source/Core/VideoCommon/Fifo.cpp
+@@ -634,7 +634,10 @@ void FifoManager::WaitForGpuToDrain(int reason)
+   }};
+   auto& command_processor = m_system.GetCommandProcessor();
+   auto& fifo = command_processor.GetFifo();
+-  const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(250);
++  // 1 s, not the 250 ms it was (review D26): a first pipeline compile on a slow Android driver
++  // holds the GPU thread for hundreds of milliseconds, and giving up then hands the game a stale
++  // token, which is what its "GPU hung" recovery acts on. Still below WaitForFifoSpace's 2 s.
++  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+   // Wake the GPU thread once; waking it on every spin takes its lock each time and slows it down.
+   m_gpu_mainloop.Wakeup();
+   // Spin: the CPU thread has nothing else to do, and short sleeps overshoot (by a millisecond or
+@@ -645,7 +648,12 @@ void FifoManager::WaitForGpuToDrain(int reason)
+          m_emu_running_state.IsSet())
+   {
+     if (std::chrono::steady_clock::now() > deadline)
++    {
++      static std::atomic<u32> s_timeouts{0};
++      if (s_timeouts.fetch_add(1, std::memory_order_relaxed) < 8)
++        WARN_LOG_FMT(COMMANDPROCESSOR, "GPU thread still busy after 1 s: the CPU thread goes on");
+       break;
++    }
+     std::this_thread::yield();
+   }
+ }
 diff --git a/Source/Core/VideoCommon/FrameInterpolator.cpp b/Source/Core/VideoCommon/FrameInterpolator.cpp
-index 3d18d7b56e..9c74d9ed11 100644
+index 3d18d7b56e..8f3e868800 100644
 --- a/Source/Core/VideoCommon/FrameInterpolator.cpp
 +++ b/Source/Core/VideoCommon/FrameInterpolator.cpp
-@@ -219,6 +219,8 @@ bool s_verbose = false;  // RECOMP_FRAME_INTERPOLATION=2: statistics every 300 f
+@@ -19,6 +19,7 @@
+ #include <string>
+ #include <deque>
+ #include <map>
++#include <mutex>
+ #include <tuple>
+ #include <utility>
+ #include <vector>
+@@ -219,6 +220,8 @@ bool s_verbose = false;  // RECOMP_FRAME_INTERPOLATION=2: statistics every 300 f
  // Test switches (files in the user directory), to measure the parts' costs:
  // FrameInterpolation.noreplay records but never replays, .norecord doesn't record either.
  bool s_test_noreplay = false, s_test_norecord = false;
@@ -609,15 +679,54 @@ index 3d18d7b56e..9c74d9ed11 100644
  using detail::s_replaying;
  // Whether this frame's stream is being recorded: not while the budget keeps interpolation off,
  // except for the frames just before it would come back on.
-@@ -1043,6 +1045,7 @@ bool ReadEnabled()
-   s_verbose = (env && env[0] == '2') ||
-               File::Exists(File::GetUserPath(D_USER_IDX) + "FrameInterpolation.stats");
-   s_test_norecord = File::Exists(File::GetUserPath(D_USER_IDX) + "FrameInterpolation.norecord");
-+  s_test_failefb = File::Exists(File::GetUserPath(D_USER_IDX) + "FrameInterpolation.failefb");
-   s_test_noreplay =
-       s_test_norecord || File::Exists(File::GetUserPath(D_USER_IDX) + "FrameInterpolation.noreplay");
-   if (enabled)
-@@ -1053,6 +1056,9 @@ bool ReadEnabled()
+@@ -1030,29 +1033,39 @@ namespace detail
+ std::atomic<s8> s_enabled{-1};
+ std::atomic<bool> s_replaying{false};
+ 
++// Once, whichever thread asks first (review D25: two threads at boot used to write the test
++// switches together); a value SetEnabled stored meanwhile is kept.
+ bool ReadEnabled()
+ {
+-  const char* env = std::getenv("RECOMP_FRAME_INTERPOLATION");
+-  // Without the variable (Android has no frontend to set it), a file named
+-  // FrameInterpolation.on in the user directory turns it on.
+-  // The [Skies] FrameMode setting wins when it's set (Core/SkiesSettings.cpp).
+-  const int mode = Config::Get(Config::SKIES_FRAME_MODE);
+-  const bool enabled = mode >= 0 ? mode >= 1 :
+-                       env       ? (env[0] == '1' || env[0] == '2') :
+-                                   File::Exists(File::GetUserPath(D_USER_IDX) + "FrameInterpolation.on");
+-  s_verbose = (env && env[0] == '2') ||
+-              File::Exists(File::GetUserPath(D_USER_IDX) + "FrameInterpolation.stats");
+-  s_test_norecord = File::Exists(File::GetUserPath(D_USER_IDX) + "FrameInterpolation.norecord");
+-  s_test_noreplay =
+-      s_test_norecord || File::Exists(File::GetUserPath(D_USER_IDX) + "FrameInterpolation.noreplay");
+-  if (enabled)
+-    Log( "[interp] frame interpolation on\n");
+-  s_enabled = enabled ? 1 : 0;
+-  return enabled;
++  static std::once_flag once;
++  std::call_once(once, [] {
++    const char* env = std::getenv("RECOMP_FRAME_INTERPOLATION");
++    // Without the variable (Android has no frontend to set it), a file named
++    // FrameInterpolation.on in the user directory turns it on.
++    // The [Skies] FrameMode setting wins when it's set (Core/SkiesSettings.cpp).
++    const int mode = Config::Get(Config::SKIES_FRAME_MODE);
++    const bool enabled = mode >= 0 ? mode >= 1 :
++                         env       ? (env[0] == '1' || env[0] == '2') :
++                                     File::Exists(File::GetUserPath(D_USER_IDX) + "FrameInterpolation.on");
++    s_verbose = (env && env[0] == '2') ||
++                File::Exists(File::GetUserPath(D_USER_IDX) + "FrameInterpolation.stats");
++    s_test_norecord = File::Exists(File::GetUserPath(D_USER_IDX) + "FrameInterpolation.norecord");
++    s_test_failefb = File::Exists(File::GetUserPath(D_USER_IDX) + "FrameInterpolation.failefb");
++    s_test_noreplay =
++        s_test_norecord || File::Exists(File::GetUserPath(D_USER_IDX) + "FrameInterpolation.noreplay");
++    if (enabled)
++      Log( "[interp] frame interpolation on\n");
++    s8 unread = -1;
++    s_enabled.compare_exchange_strong(unread, enabled ? 1 : 0);
++  });
++  return s_enabled.load() > 0;
+ }
  }  // namespace detail
  
  static std::atomic<s8> s_pending_enabled{-1};
@@ -627,7 +736,7 @@ index 3d18d7b56e..9c74d9ed11 100644
  
  void RequestEnabled(bool enabled)
  {
-@@ -1061,6 +1067,8 @@ void RequestEnabled(bool enabled)
+@@ -1061,6 +1074,8 @@ void RequestEnabled(bool enabled)
  
  void ApplyPendingEnabled()
  {
@@ -636,7 +745,7 @@ index 3d18d7b56e..9c74d9ed11 100644
    const s8 pending = s_pending_enabled.exchange(-1);
    if (pending < 0 || pending == detail::s_enabled)
      return;
-@@ -1459,12 +1467,15 @@ static bool RunJob(bool whole)
+@@ -1459,12 +1474,15 @@ static bool RunJob(bool whole)
    // dark garbage texture for one game frame, now and then, on the Retroid.
    std::vector<u8> game_state = SaveState();
    std::array<RcTcacheEntry, 8> game_bound = g_texture_cache->GetBoundTextures();
@@ -655,7 +764,7 @@ index 3d18d7b56e..9c74d9ed11 100644
      Log("[interp] frame interpolation off: the second EFB can't be created\n");
      OSD::AddMessage("60 fps is off: not enough graphics memory at this resolution", 10000);
      return false;
-@@ -1600,6 +1611,9 @@ static void EndFrame(u32 dest_address)
+@@ -1600,6 +1618,9 @@ static void EndFrame(u32 dest_address)
  {
    // The previous replay has to be done before its frame's data are replaced.
    FinishJob();
@@ -665,7 +774,7 @@ index 3d18d7b56e..9c74d9ed11 100644
  
    // Number the loads now that every key is known.
    std::map<std::tuple<u16, u8, u64>, u32> seen;
-@@ -1879,6 +1893,7 @@ RcTcacheEntry FindReplayCopy(u32 address, TextureFormat format, u32 width, u32 h
+@@ -1879,6 +1900,7 @@ RcTcacheEntry FindReplayCopy(u32 address, TextureFormat format, u32 width, u32 h
  
  void Shutdown()
  {
@@ -674,10 +783,77 @@ index 3d18d7b56e..9c74d9ed11 100644
    s_job = {};
    s_replay_copies.clear();
 diff --git a/Source/Core/VideoCommon/SkiesMenu.cpp b/Source/Core/VideoCommon/SkiesMenu.cpp
-index 3ccb36493c..e6a89d44cd 100644
+index 3ccb36493c..24d2ddda71 100644
 --- a/Source/Core/VideoCommon/SkiesMenu.cpp
 +++ b/Source/Core/VideoCommon/SkiesMenu.cpp
-@@ -1331,17 +1331,27 @@ void Poll(Memory::MemoryManager& memory)
+@@ -183,6 +183,7 @@ struct Values
+   int frame_mode = 0;
+   int efb_scale = 1;
+   int msaa = 1;
++  bool texture_pack = false;  // a texture pack is imported (TexturePackImport.h), read with the rest
+   int texture_filter = 0;  // Dolphin's TextureFilteringMode: 0 the game's, 1 nearest, 2 linear
+   int anisotropy = -1;     // AnisotropicFilteringMode: -1 the game's, 0-4 = 1x-16x
+   int scaling = 0;         // OutputResamplingMode
+@@ -385,13 +386,10 @@ void Write(int dead_zone, bool rumble)
+ }
+ }  // namespace pad
+ 
+-// Whether a texture pack is imported (VideoCommon/TexturePackImport.h); read when the menu opens.
+-bool s_texture_pack = false;
+-
+ Values ReadValues()
+ {
+   Values values;
+-  s_texture_pack =
++  values.texture_pack =
+       !TexturePackImport::Describe(File::GetUserPath(D_HIRESTEXTURES_IDX)).empty();
+   values.hd_textures = Config::Get(Config::GFX_HIRES_TEXTURES) ? 1 : 0;
+   const int widescreen = Config::Get(Config::SKIES_WIDESCREEN);
+@@ -402,16 +400,20 @@ Values ReadValues()
+   values.frame_mode = frame_mode < 0 ? 0 : frame_mode;
+   values.efb_scale = Config::Get(Config::GFX_EFB_SCALE);
+   values.msaa = static_cast<int>(Config::Get(Config::GFX_MSAA));
+-  values.texture_filter = static_cast<int>(Config::Get(Config::GFX_ENHANCE_FORCE_TEXTURE_FILTERING));
+-  values.anisotropy = static_cast<int>(Config::Get(Config::GFX_ENHANCE_MAX_ANISOTROPY));
+-  values.scaling = static_cast<int>(Config::Get(Config::GFX_ENHANCE_OUTPUT_RESAMPLING));
++  // Clamped like the speeds: GFX.ini is the player's to edit (MaxAnisotropy = 40 drew "1x" shifted)
++  values.texture_filter =
++      std::clamp(static_cast<int>(Config::Get(Config::GFX_ENHANCE_FORCE_TEXTURE_FILTERING)), 0, 2);
++  values.anisotropy =
++      std::clamp(static_cast<int>(Config::Get(Config::GFX_ENHANCE_MAX_ANISOTROPY)), -1, 4);
++  values.scaling =
++      std::clamp(static_cast<int>(Config::Get(Config::GFX_ENHANCE_OUTPUT_RESAMPLING)), 0, 6);
+   values.camera = Config::Get(Config::SKIES_CAMERA_CONTROL) != 0 ? 1 : 0;
+   values.encounters = Config::Get(Config::SKIES_ENCOUNTERS);
+   values.hold_b = Config::Get(Config::SKIES_HOLD_B) != 0 ? 1 : 0;
+   values.exp = Config::Get(Config::SKIES_EXP);
+   values.gold = Config::Get(Config::SKIES_GOLD);
+   values.magic_exp = Config::Get(Config::SKIES_MAGIC_EXP);
+-  values.battle_speed = Config::Get(Config::SKIES_BATTLE_SPEED);
++  values.battle_speed = std::clamp(Config::Get(Config::SKIES_BATTLE_SPEED), 1, BATTLE_SPEEDS.back());
+   values.field_speed = std::clamp(Config::Get(Config::SKIES_FIELD_SPEED), 100, FIELD_SPEEDS.back());
+   values.invincible = Config::Get(Config::SKIES_INVINCIBLE) != 0 ? 1 : 0;
+   values.vsync = Config::Get(Config::GFX_VSYNC);
+@@ -742,7 +744,7 @@ void Change(Option option, int direction, bool wrap)
+       v.uncensored = v.uncensored ? 0 : 1;
+     break;
+   case Option::HdTextures:
+-    if (s_texture_pack)
++    if (v.texture_pack)
+       v.hd_textures = v.hd_textures ? 0 : 1;
+     break;
+   case Option::Language:
+@@ -1085,7 +1087,8 @@ Place WhereNow(Memory::MemoryManager& memory)
+ 
+ int BattleSpeed()
+ {
+-  return s_speed_pending ? s_speed_pending : Config::Get(Config::SKIES_BATTLE_SPEED);
++  return s_speed_pending ? s_speed_pending :
++                           std::clamp(Config::Get(Config::SKIES_BATTLE_SPEED), 1, BATTLE_SPEEDS.back());
+ }
+ 
+ // Percent (100 = normal)
+@@ -1331,17 +1334,27 @@ void Poll(Memory::MemoryManager& memory)
    s_pending = true;
  }
  
@@ -708,6 +884,74 @@ index 3ccb36493c..e6a89d44cd 100644
  }
  }  // namespace autosave
  
+@@ -1369,6 +1382,9 @@ enum : u32
+ 
+ int s_file = 0;  // 1..99: the file asked for (0 = nothing running)
+ Clock::time_point s_deadline;
++// The consumed AutoLoadCard is saved by FilterPad after it lets go of s_mutex, not here: Active runs
++// under it, on the video thread too
++bool s_save_pending = false;
+ 
+ void Stop(const char* message)
+ {
+@@ -1395,7 +1411,7 @@ bool Active()
+   if (site >> 26 != 18)  // not a bl yet
+     return false;
+   Config::SetBase(AUTO_LOAD_CARD, 0);
+-  Config::Save();
++  s_save_pending = true;
+   if (file < 1 || file > 99)
+     return false;
+   if (site == HOOK_ORIGINAL)
+@@ -1406,6 +1422,8 @@ bool Active()
+   memory.Write_U32(0, REQUEST + 8);
+   memory.Write_U32(0, REQUEST + 12);
+   memory.Write_U32(static_cast<u32>(file), REQUEST + 4);
++  // The game reads the magic, then the file: the block is in before the magic on ARM64 too
++  std::atomic_thread_fence(std::memory_order_release);
+   memory.Write_U32(REQUEST_MAGIC, REQUEST);
+   s_file = file;
+   s_deadline = Clock::now() + std::chrono::seconds(30);
+@@ -1629,10 +1647,13 @@ GCPadStatus FilterMapping(const GCPadStatus& raw)
+     }
+     else
+     {
+-      SkiesInput::ResetDefaults(s_map_row == count ? SkiesBindings::Slot::Controller :
+-                                                     SkiesBindings::Slot::Keyboard);
++      const bool reset = SkiesInput::ResetDefaults(
++          s_map_row == count ? SkiesBindings::Slot::Controller : SkiesBindings::Slot::Keyboard);
+       ReadMapping();
+-      OSD::AddMessage(s_map_row == count ? "Controller buttons reset" : "Keyboard keys reset", 2000);
++      OSD::AddMessage(s_map_row == count ? "Controller buttons reset" :
++                      reset              ? "Keyboard keys reset" :
++                                           "No keyboard connected",
++                      2000);
+     }
+   }
+   else if ((pressed & PAD_BUTTON_X) && Clearable(s_map_row, s_map_column))
+@@ -1871,6 +1892,13 @@ GCPadStatus FilterPad(int pad_num, const GCPadStatus& raw)
+                     2000);
+     return out;
+   }
++  if (autoload::s_save_pending)
++  {
++    autoload::s_save_pending = false;
++    lock.unlock();
++    Config::Save();
++    return out;
++  }
+   if (s_slow_note_save)
+   {
+     s_slow_note_save = false;
+@@ -2173,7 +2201,7 @@ void Draw(float scale)
+               "Bellena's outfit, the tavern sign, the drinks, Gilder's victory pose, Vigoro's "
+               "outfit), from the next area or scene."};
+     case Option::HdTextures:
+-      if (!s_texture_pack)
++      if (!v.texture_pack)
+       {
+         return {"HD textures", "Off",
+                 "Needs a texture pack you downloaded: import it in the launcher's Settings, "
 diff --git a/Source/Core/VideoCommon/TexturePackImport.cpp b/Source/Core/VideoCommon/TexturePackImport.cpp
 index 490369ea8b..fc5fc6a39b 100644
 --- a/Source/Core/VideoCommon/TexturePackImport.cpp

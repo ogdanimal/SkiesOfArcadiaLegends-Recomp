@@ -54,7 +54,7 @@ replaces it.
 
 | | |
 |---|---|
-| **Windows** | 64-bit Windows 10 or 11 |
+| **Windows** | 64-bit Windows 10 (version 1703 or later) or 11 |
 | **Linux** | 64-bit (x86_64), with a Vulkan or OpenGL driver |
 | **macOS** | macOS 13 or later on an Apple Silicon Mac (M1 or newer) |
 | **Android** | 7.0+, a 64-bit (`arm64-v8a`) device |
