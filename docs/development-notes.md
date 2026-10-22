@@ -1862,7 +1862,8 @@ and seeds on the ws30 and ws31 static modules, 9 shots each during the deck part
 on 4, ws31 on none; the rest of the pose and the results screen as before. Retroid Pocket Nova (local
 test APK `skies-recomp-ws31-2026-10-22-test.apk`, PGO from the main checkout's profile): the launcher
 re-patched the imported USA disc to ws31 on its own (`7ef9451c`); the same battle state, three seeds,
-9 shots across Drachma's pose: all full width.
+9 shots across Drachma's pose: all full width. Retroid Pocket 5 (the same APK over the Aurora session's
+test build; its USA disc re-patched to ws31 too): three seeds, 12 shots, all full width.
 
 ### Match screen: ultrawide and any other shape (2026-10-17 night)
 

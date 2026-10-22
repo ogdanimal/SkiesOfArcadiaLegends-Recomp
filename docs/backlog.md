@@ -164,7 +164,7 @@ Sandbowl, against v0.80.0-beta, with a video: in 16:9 Drachma's victory pose "re
 copies the screen and draws it back on a plane in front of the camera (a shake), sized to the game's
 own field of view, so the whole picture was squeezed into the middle 4:3 with black sides. Game patch
 ws31 draws that plane at the game's field of view (development notes *Battle screen plane*). Checked on
-WSL and the Retroid Pocket Nova; not released yet.
+WSL, the Retroid Pocket Nova and the Retroid Pocket 5; not released yet.
 
 ## Both landscape orientations on Android — issue #12, done on dev, 2026-10-22
 
