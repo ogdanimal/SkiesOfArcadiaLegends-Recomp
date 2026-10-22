@@ -669,7 +669,8 @@ working copies of `8bf2116`.
   `HALF`) and have the translation fail on any untranslated `0x80xxxxxx` left that isn't an identity
   entry; new EU / JP `.dolpatch` files, camera checked on both discs.
 
-- [ ] **D2 Medium: a texture pack can write outside its import folder (zip-slip).**
+- [x] **D2 Medium: a texture pack can write outside its import folder (zip-slip).** FIXED 2026-10-22
+  (`recompcore-review-d.patch`, `StaysInside` in `Target`; reproduced and checked on Linux).
   `RC/Core/VideoCommon/TexturePackImport.cpp:101-116` (`InGameFolder`), `254-277` (`Target`),
   `279-299` (`Begin`), `350-362` (`Commit`); desktop and Android (`RC/Android/jni/SkiesImport.cpp`).
   `Target` checks only the file name (`IsTexture`: `tex1_*.png` / `.dds`); the folders before it are

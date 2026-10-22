@@ -15,6 +15,8 @@
   (review D7, D8): `recompcore-review-d.patch`. Kotlin compiled; not on a device yet (one APK at the
   end of the review work, the user's call).
 - Review section D (HANDOFF-review) is on `dev`; D1, D5, D6, D7 and D8 done, the rest open.
+- On the local branch `review` (pal60 worktree, not pushed; the user pushes when ready): D2 (texture
+  pack entries can't leave the import folder).
 
 ## Released (2026-10-22 UTC): v0.82.0-beta
 
