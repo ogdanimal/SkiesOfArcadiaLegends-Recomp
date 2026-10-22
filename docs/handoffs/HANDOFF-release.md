@@ -15,6 +15,8 @@ New: #12, Fixed: #9, reporters linked):
   GLEclipseGaming's two comments. `release/*.dolpatch` are ws32 now (outputs USA `0886a47b`, Europe
   `baa96638`, Japan `cf86fb7b`, each checked with `tools/applydolpatch.py`). The cutscene stubs are
   pinned where ws29-ws31 had them, so ws31 states load and zoom.
+  Checked: WSL (static ws32 module) and the Retroid Pocket 5 (`skies-recomp-ws32-2026-10-22-test.apk`,
+  now on its `.test` app, USA disc re-patched to ws32; the Nova keeps the Aurora session's build).
 - **#12 Android: both landscapes**: `recompcore-android-orientation.patch` (`af2d899`). A Retroid's
   firmware overlay forces landscape, so it can only be seen on a phone (development notes, Android app).
 - Checked: WSL (static modules, ws30 against ws31), Retroid Pocket Nova and Pocket 5 (local test APK

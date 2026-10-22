@@ -2097,6 +2097,11 @@ of the opening plays all three opening shots at their zooms (1.147, 1.307, 1.288
 map, a deck battle, the Antonio fight) load and run at speed 1.00. States for the lookout:
 `build/savestates/20-pirate-isle-fina-meets-mom-ws32.sav` (card save #3 of the Retroid backup, in the
 house), `21-pirate-isle-before-lookout-ws32.sav`, `22-lookout-scene-ws32.sav` (the scene's first frame).
+Retroid Pocket 5 (local test APK `skies-recomp-ws32-2026-10-22-test.apk` over the Aurora session's
+test build; the launcher re-patched the USA disc to ws32 on its own): the lookout shot zooms 1.334 and its
+end matches WSL's frame; from the ws31 opening state the horizon shot zooms 1.147, the moon at the right
+edge and no hull 40 and 117 frames in (captures timed by the game's frame count, not adb polling, which
+lags by seconds). Not run: Windows, Linux, macOS (game code, the same on every platform).
 
 ### Widescreen 4:3 setting: identical to the unpatched game (2026-10-10 night, DOL `7cb9de68`, `GEAE8P-ws10`)
 
