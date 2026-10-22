@@ -686,7 +686,8 @@ working copies of `8bf2116`.
   with an empty, `.` or `..` segment, `:`, `\` (after the `/` conversion), a control character or a
   leading `/`; `NameProblem` in `MG/tools/disc_extract.cpp:35-56` is the rule to reuse.
 
-- [ ] **D3 Medium: a damaged `BONITO.DRV` crashes the game at every start (Dreamcast music on).**
+- [x] **D3 Medium: a damaged `BONITO.DRV` crashes the game at every start (Dreamcast music on).**
+  FIXED 2026-10-22 (`recompcore-review-d.patch`: size bounded in `Load`, both files checked at import).
   `RC/Core/AudioCommon/DCMusic.cpp:105-106`. `image_size = min(Read32(d + 8), drv.size()) - 0x20`
   wraps in u32 when the driver header's size word is below 0x20, and
   `lib/HighlyTheoretical/Core/dcsound.c:429-440` (`dcsound_upload_to_ram`) masks only the destination,
@@ -697,7 +698,8 @@ working copies of `8bf2116`.
   288-byte buffer. **Fix:** refuse `Read32(d + 8) < 0x20`, `> drv.size()` or `> 2 MB` in `Load`, and
   check the "SDRV" / "SMLT" magic and sizes at import, so a bad disc is refused there.
 
-- [ ] **D4 Medium: a failed Dreamcast music start is retried every frame.**
+- [x] **D4 Medium: a failed Dreamcast music start is retried every frame.** FIXED 2026-10-22: latched
+  on the files' sizes and dates, an on-screen message (not in the Dreamcast tab).
   `RC/Core/Core/SkiesMusic.cpp:442-444` (`if (want && !s_running) s_running = DCMusic::Start();`),
   `RC/Core/AudioCommon/DCMusic.cpp:496-526`. Nothing remembers the failure: an `ARESNEW.MLT` without
   "SMLT", a `BONITO.DRV` whose work-table pointers are ≥ 0x200000 (`DCMusic.cpp:114`), or D3's fixed

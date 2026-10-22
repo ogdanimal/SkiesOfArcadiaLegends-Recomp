@@ -381,6 +381,114 @@ index ea754e10b2..489eac2aa9 100644
              })
          }
          describe(rows, "Your own Skies of Arcadia Dreamcast disc, as a CHD file. Either disc has most " +
+diff --git a/Source/Core/AudioCommon/DCMusic.cpp b/Source/Core/AudioCommon/DCMusic.cpp
+index b1e7d75ba4..2276b588c0 100644
+--- a/Source/Core/AudioCommon/DCMusic.cpp
++++ b/Source/Core/AudioCommon/DCMusic.cpp
+@@ -98,11 +98,17 @@ public:
+       return false;
+     }
+ 
++    const u8* d = reinterpret_cast<const u8*>(drv.data());
++    // The image's size from the header, at most the file's, and no more than the chip's 2 MB of RAM.
++    // A size word below 0x20 wrapped to ~4 GB and the upload read that far past the file: a damaged
++    // or crafted disc crashed every start (review D3).
++    const u32 size = std::min<u32>(Read32(d + 8), static_cast<u32>(drv.size()));
++    if (size < 0x120 || size - 0x20 > 0x200000)
++      return false;
++    const u32 image_size = size - 0x20;
++
+     m_state.reset(new u8[dcsound_get_state_size()]);
+     dcsound_clear_state(m_state.get());
+-
+-    const u8* d = reinterpret_cast<const u8*>(drv.data());
+-    const u32 image_size = std::min<u32>(Read32(d + 8), static_cast<u32>(drv.size())) - 0x20;
+     dcsound_upload_to_ram(m_state.get(), 0, const_cast<u8*>(d + 0x20), image_size);
+     // The driver's work table (sd library's sdDrvGetInfo): port status, system block (the host
+     // command flag), bank table, host command buffer.
+diff --git a/Source/Core/AudioCommon/DCMusicImport.cpp b/Source/Core/AudioCommon/DCMusicImport.cpp
+index 5481cf5929..6bdc69693e 100644
+--- a/Source/Core/AudioCommon/DCMusicImport.cpp
++++ b/Source/Core/AudioCommon/DCMusicImport.cpp
+@@ -439,6 +439,16 @@ std::string Import(const std::string& image, const std::string& music_dir, std::
+         return "Reading " + name + " failed.";
+       std::memcpy(data.data() + i * 2048, sector.data(), std::min<u32>(2048, entry.size - i * 2048));
+     }
++    // The driver and the common banks as DCMusic's Load reads them, so a damaged disc is refused
++    // here rather than failing (or, before review D3, crashing) at every start
++    if (name == "BONITO.DRV" &&
++        (data.size() < 0x120 || std::memcmp(data.data(), "SDRV", 4) != 0 ||
++         (u32(data[8]) | u32(data[9]) << 8 | u32(data[10]) << 16 | u32(data[11]) << 24) < 0x120))
++    {
++      return "The disc's sound driver (BONITO.DRV) is damaged.";
++    }
++    if (name == "ARESNEW.MLT" && (data.size() < 0x20 || std::memcmp(data.data(), "SMLT", 4) != 0))
++      return "The disc's sound banks (ARESNEW.MLT) are damaged.";
+     const std::string path = dir + name;
+     const std::string temp = path + ".part";
+     if (!File::WriteStringToFile(temp, std::string(data.begin(), data.end())) ||
+diff --git a/Source/Core/Core/SkiesMusic.cpp b/Source/Core/Core/SkiesMusic.cpp
+index baacb2e16c..c411a51662 100644
+--- a/Source/Core/Core/SkiesMusic.cpp
++++ b/Source/Core/Core/SkiesMusic.cpp
+@@ -8,6 +8,7 @@
+ #include <algorithm>
+ #include <array>
+ #include <cstring>
++#include <filesystem>
+ #include <map>
+ #include <string>
+ 
+@@ -20,6 +21,7 @@
+ #include "Core/Config/ConfigManager.h"
+ #include "Core/HW/Memmap.h"
+ #include "DiscIO/SkiesStreams.h"
++#include "VideoCommon/OnScreenDisplay.h"
+ 
+ namespace SkiesMusic
+ {
+@@ -92,6 +94,24 @@ struct Song
+ 
+ const Addresses* s_addr = nullptr;
+ bool s_running = false;
++// The driver files' sizes and dates when DCMusic::Start last failed: not tried again until they
++// change (each try reads both files and runs a quarter second of the driver, so a try every poll
++// halved the game's speed with no word; review D4).
++std::string s_failed_files;
++
++std::string FilesStamp()
++{
++  std::string stamp;
++  for (const char* name : {"BONITO.DRV", "ARESNEW.MLT"})
++  {
++    std::error_code ec;
++    const std::filesystem::path path = DCMusic::Directory() + name;
++    const auto size = std::filesystem::file_size(path, ec);
++    const auto time = std::filesystem::last_write_time(path, ec);
++    stamp += std::to_string(size) + ":" + std::to_string(time.time_since_epoch().count()) + ";";
++  }
++  return stamp;
++}
+ u32 s_read = 0;  // events taken from the ring so far
+ Song s_current, s_paused;
+ std::array<std::array<std::string, 16>, DCMusic::PLAYERS> s_resident;  // per player and bank: MLT
+@@ -440,9 +460,15 @@ void Poll(Memory::MemoryManager& memory)
+   // and pair) even while the GameCube's plays, so turning the option on mid-song can take it over.
+   InitBlock(memory);
+   const bool want = Config::Get(Config::SKIES_DC_MUSIC) != 0 && DCMusic::Installed();
+-  if (want && !s_running)
++  if (want && !s_running && FilesStamp() != s_failed_files)
+   {
+     s_running = DCMusic::Start();
++    s_failed_files = s_running ? std::string() : FilesStamp();
++    if (!s_running)
++    {
++      OSD::AddMessage("The Dreamcast music couldn't start: its files are damaged. Import the "
++                      "Dreamcast disc again.", 10000);
++    }
+     for (auto& resident : s_resident)
+       resident.fill({});
+     s_banks.clear();
 diff --git a/Source/Core/Core/State.cpp b/Source/Core/Core/State.cpp
 index 2684dbf834..6d498f55bb 100644
 --- a/Source/Core/Core/State.cpp
