@@ -24,6 +24,15 @@ typedef unsigned char u8;
 
 #define TRK_CAVE __attribute__((section(".trkcave")))
 
+/* The load screen's work (SaveLoadOpenLoad / SaveLoadOpenSave allocate it): 0x270 bytes on the USA
+ * and European discs, 0x274 on the Japanese, whose fn_801A4070 stores the EA_LEGEND_EXTRA probe's
+ * result as a word at +0x270 (review D9). gamepatch.py defines GAME_<ID>. */
+#ifdef GAME_GEAJ8P
+#define DL_WORK_SIZE 0x274
+#else
+#define DL_WORK_SIZE 0x270
+#endif
+
 extern void fn_80228A20(void);              /* the title, once a frame */
 extern int FontIsReady(void);
 extern int FontUpdate(void);                /* one step of the font's loading */
@@ -94,13 +103,13 @@ TRK_CAVE static int dl_step(void) {
       load_request.status = LOAD_FAILED;
       return 0;
     }
-    dl_work = fn_801E1C7C(0x270);
+    dl_work = fn_801E1C7C(DL_WORK_SIZE);
     if (!dl_work) {
       load_request.error = 1;
       load_request.status = LOAD_FAILED;
       return 0;
     }
-    for (int i = 0; i < 0x270; i++)
+    for (int i = 0; i < DL_WORK_SIZE; i++)
       dl_work[i] = 0;
     for (int i = 0; i < 0x28; i++)
       dl_task[i] = 0;

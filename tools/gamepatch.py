@@ -176,7 +176,7 @@ def build(specs, work, region):
                 with open(translated, "w") as f:
                     f.write(region.text(open(source).read(), src))
                 source = translated
-            run(CLANG, *CFLAGS, "-c", source, "-o", obj)
+            run(CLANG, *CFLAGS, f"-DGAME_{region.game_id}", "-c", source, "-o", obj)
             objects.append(obj)
     undefined = set()
     for obj in objects:
