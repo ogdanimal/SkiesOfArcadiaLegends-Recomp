@@ -1,0 +1,174 @@
+diff --git a/module-template/CMakeLists.txt b/module-template/CMakeLists.txt
+index b25bd9fc12..9753ac831b 100644
+--- a/module-template/CMakeLists.txt
++++ b/module-template/CMakeLists.txt
+@@ -101,6 +101,7 @@ endif()
+ 
+ add_library(${MODULE_NAME} SHARED
+   module_export.c
++  host_fma.c
+   "${MODULE_TABLES}"
+   "${GXRUNTIME_DIR}/src/core/cpu.c"
+   "${GXRUNTIME_DIR}/src/core/cpu_exception.c"
+@@ -132,7 +133,11 @@ target_include_directories(${MODULE_NAME} PRIVATE
+   "${CMAKE_CURRENT_BINARY_DIR}")
+ 
+ if(NOT WIN32)
+-  target_link_libraries(${MODULE_NAME} PRIVATE m)
++  target_link_libraries(${MODULE_NAME} PRIVATE m ${CMAKE_DL_LIBS})
++endif()
++# host_fma.c defines fma() itself (x86-64 only; empty elsewhere)
++if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
++  set_source_files_properties(host_fma.c PROPERTIES COMPILE_OPTIONS "-fno-builtin-fma")
+ endif()
+ if(UNIX AND NOT APPLE)
+   target_link_options(${MODULE_NAME} PRIVATE
+diff --git a/module-template/host_fma.c b/module-template/host_fma.c
+new file mode 100644
+index 0000000000..7455de2175
+--- /dev/null
++++ b/module-template/host_fma.c
+@@ -0,0 +1,143 @@
++// fma() for the module on x86-64, so CPUs without FMA3 don't pay for a software fma.
++//
++// The generated code and the CPU runtime call fma() for every guest fmadd / ps_madd family
++// instruction (the generic x86-64 target has no fused multiply-add instruction). The C runtime
++// answers that with the FMA3 instruction where the CPU has one, otherwise with a software routine
++// (UCRT: about 25 ns a call on a 12th-gen Core, against 2 ns) — millions of calls a second, so a
++// pre-Haswell CPU ran the game at a fraction of its speed (issue #13).
++//
++// With FMA3: the instruction itself, as the C runtime would use it.
++// Without: most calls are single-precision values (24-bit operands, a 25-bit rounded multiplier),
++// whose product is exact in a double, so a separate multiply and add rounds once, like the fused
++// operation: same result bits, rounding mode and flags. Only those calls take that path (finite
++// operands, product neither overflowing nor losing bits); the rest go to the C runtime's fma.
++//
++// MODERNGEKKO_NO_FMA3=1 takes the no-FMA3 path on any CPU, for testing.
++
++#if (defined(__x86_64__) || defined(_M_X64)) && !defined(__APPLE__)
++
++#include <immintrin.h>
++#include <stdint.h>
++#include <stdlib.h>
++#include <string.h>
++
++#if defined(_WIN32)
++#include <intrin.h>
++#include <windows.h>
++#else
++#include <cpuid.h>
++#include <dlfcn.h>
++#endif
++
++#pragma STDC FENV_ACCESS ON
++#pragma STDC FP_CONTRACT OFF
++
++typedef double (*fma_fn)(double, double, double);
++
++// 0 = not chosen yet, 1 = FMA3, 2 = without; written once, every thread chooses the same
++static volatile int s_mode;
++static fma_fn volatile s_runtime_fma;
++
++static int cpu_has_fma3(void)
++{
++    unsigned int eax, ebx, ecx, edx;
++#if defined(_WIN32)
++    int leaf[4];
++    __cpuid(leaf, 1);
++    ecx = (unsigned int)leaf[2];
++    (void)eax, (void)ebx, (void)edx;
++#else
++    if (!__get_cpuid(1, &eax, &ebx, &ecx, &edx))
++        return 0;
++#endif
++    // FMA, OSXSAVE, AVX, and the OS saving the YMM state
++    const unsigned int required = (1u << 12) | (1u << 27) | (1u << 28);
++    if ((ecx & required) != required)
++        return 0;
++#if defined(_WIN32)
++    return (_xgetbv(0) & 6u) == 6u;
++#else
++    unsigned int xcr0_low, xcr0_high;
++    __asm__ volatile("xgetbv" : "=a"(xcr0_low), "=d"(xcr0_high) : "c"(0));
++    return (xcr0_low & 6u) == 6u;
++#endif
++}
++
++static fma_fn find_runtime_fma(void)
++{
++#if defined(_WIN32)
++    HMODULE crt = GetModuleHandleW(L"ucrtbase.dll");
++    if (!crt)
++        crt = LoadLibraryW(L"ucrtbase.dll");
++    return crt ? (fma_fn)(void*)GetProcAddress(crt, "fma") : NULL;
++#else
++    fma_fn found = (fma_fn)dlsym(RTLD_DEFAULT, "fma");
++    if (!found)
++    {
++        void* libm = dlopen("libm.so.6", RTLD_NOW | RTLD_LOCAL);
++        if (libm)
++            found = (fma_fn)dlsym(libm, "fma");
++    }
++    return found;
++#endif
++}
++
++static int choose_mode(void)
++{
++    const char* forced = getenv("MODERNGEKKO_NO_FMA3");
++    int mode = (!(forced && forced[0] == '1') && cpu_has_fma3()) ? 1 : 2;
++    if (mode == 2)
++    {
++        // always there (UCRT, glibc); without it there is no exact answer to give
++        s_runtime_fma = find_runtime_fma();
++        if (!s_runtime_fma)
++            abort();
++    }
++    s_mode = mode;
++    return mode;
++}
++
++__attribute__((target("fma"))) static double fma3(double a, double b, double c)
++{
++    return _mm_cvtsd_f64(_mm_fmadd_sd(_mm_set_sd(a), _mm_set_sd(b), _mm_set_sd(c)));
++}
++
++static inline uint64_t bits_of(double value)
++{
++    uint64_t bits;
++    memcpy(&bits, &value, sizeof(bits));
++    return bits;
++}
++
++// a * b is exact in a double and c is finite, so a * b + c rounds once, as fma(a, b, c) does
++static inline int product_is_exact(double a, double b, double c)
++{
++    const uint64_t ua = bits_of(a), ub = bits_of(b), uc = bits_of(c);
++    const int ea = (int)((ua >> 52) & 0x7ff), eb = (int)((ub >> 52) & 0x7ff);
++    if (ea == 0x7ff || eb == 0x7ff || ((uc >> 52) & 0x7ff) == 0x7ff)
++        return 0;
++    // at most 26 significant bits each (the low 27 of the 52 stored ones clear): a 52-bit product
++    if ((ua & 0x7ffffffu) || (ub & 0x7ffffffu))
++        return 0;
++    // a zero factor gives an exact zero; a denormal one has fewer bits but isn't worth the care
++    if (ea == 0 || eb == 0)
++        return (ua << 1) == 0 || (ub << 1) == 0;
++    // the product's exponent well inside the normal range: no overflow, no denormal product
++    const int product = ea + eb - 1023;
++    return product > 64 && product < 2046 - 64;
++}
++
++double fma(double a, double b, double c)
++{
++    int mode = s_mode;
++    if (mode == 0)
++        mode = choose_mode();
++    if (mode == 1)
++        return fma3(a, b, c);
++    // (no fusing here: this function isn't compiled for FMA3)
++    if (product_is_exact(a, b, c))
++        return a * b + c;
++    return s_runtime_fma(a, b, c);
++}
++
++#endif

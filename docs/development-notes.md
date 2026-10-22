@@ -2606,6 +2606,47 @@ Upstream context: ModernGekko `8f7a642`/`ecd3188` show CPU-limited Mario Kart: D
 module ABI than our pin. PGO (`moderngekko-port pgo-run`) is untried; on the LLVM backend it needs
 `clang-20` to match.
 
+### CPUs without FMA3 (issue #13, 2026-10-22)
+
+Kaito0 (#13): 5-10 fps on an Ivy Bridge CPU with a GTX 1050 Ti, where Dolphin holds 30. The x86-64
+modules are built for the generic target, which has no fused multiply-add instruction, so every guest
+`fmadd` / `fmadds` / `ps_madd` family instruction became a call to the C runtime's `fma()` (the
+generated code's `llvm.experimental.constrained.fma`, and `ppc_fma` in the CPU runtime): about 13
+million calls per game second in the opening, 6 million in the first battle. The C runtime uses the
+FMA3 instruction where the CPU has one (Haswell, 2013, and later; AMD Piledriver and later) and a
+software routine where it doesn't: UCRT's took 26.5 ns a call against 2.2 ns on the i7-12700K
+(`_set_FMA3_enable(0)`), glibc's is similar. Dolphin's JIT avoids it by a separate multiply and add on
+such CPUs (`Config::SESSION_USE_FMA`, Jit64 `fmaddXX`), which rounds differently.
+
+Fix (`recompcore-module-fma.patch`, `module-template/host_fma.c`): the module defines `fma()` itself, so
+neither the generated code nor the runtime reaches the C runtime's. With FMA3 it is the instruction.
+Without, a call whose operands each have at most 26 significant bits (the low 27 stored bits clear),
+are finite, and whose product's exponent is well inside the normal range, has an exact product in a
+double, so `a * b + c` rounds once like the fused operation: same bits, rounding mode, flags, and
+denormals-are-zero / flush-to-zero behaviour. That is 94% of the game's calls (single-precision
+values, the 25-bit `ps_madd` multiplier); the rest still go to the C runtime's `fma` (`ucrtbase.dll`'s
+by `GetProcAddress`, glibc's by `dlsym(RTLD_DEFAULT)`). A NaN result may name either NaN input, as the
+C runtime's may; `ppc_fma` and DolRecomp's `preferPairedFMANaN` replace it with the PowerPC's choice.
+No code generation change, so the PGO profiles and the codegen cache stay valid. Empty on arm64
+(Android, macOS: the instruction is always there and inlined). `MODERNGEKKO_NO_FMA3=1` takes the
+no-FMA3 path on any CPU, for testing.
+
+Checks:
+
+- `tools/fma-exact-test.c`: 80 million cases on the no-FMA3 path and 24 million on the FMA3 one
+  against the instruction, all four rounding modes, DAZ/FTZ on and off: no difference in result or
+  flags (host_fma.c built with GCC and with clang).
+- WSL (ws32 module and game, i7-12700K, the calls that reach the C runtime slowed by 25 ns to stand in
+  for a CPU without FMA3): lookout scene 0.837 before, 1.569 after (1.569 with FMA3 before); Pirate
+  Isle 0.721 before, 1.322 after (1.323). With FMA3 the Linux module is 7-9% faster than before (no
+  call through glibc's `fma` PLT and resolver): 1.677 / 1.438.
+- Windows (v0.82 runtime, ws34 USA module relinked from the same objects, both scenes): with FMA3
+  2.483 / 2.290 against 2.462 / 2.279; the no-FMA3 path forced, 2.398 / 2.210 (its exactness test and
+  the 6% left to the C runtime, which on a real CPU without FMA3 still pays the software routine, 6% of
+  the old fma cost). `fallback=0` in every run; the DLL imports `fmaf` (never called) but not `fma`.
+- Not run: a real CPU without FMA3. The reporter's speed after the fix depends on the rest of their
+  CPU and GPU; the WSL figures say the fma cost is gone, not that an Ivy Bridge reaches full speed.
+
 ## Native Windows build
 
 Two separate limits showed up under WSL:
