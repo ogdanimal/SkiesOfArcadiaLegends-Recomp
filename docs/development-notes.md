@@ -559,7 +559,11 @@ names (`SkiesNative.ensurePadProfile`). The game screen turns with the device be
 landscapes (`SCREEN_ORIENTATION_USER_LANDSCAPE`, so the system's rotation lock still holds it;
 `recompcore-android-orientation.patch`, issue #12, 2026-10-22): it took Dolphin's own setting before,
 plain landscape, which no Skies screen can change. A 180-degree turn keeps the configuration, so the
-Activity isn't recreated.
+Activity isn't recreated. On the Retroid Pocket Nova (ws31 test APK) the game Activity requests
+`SCREEN_ORIENTATION_USER_LANDSCAPE` (`dumpsys activity`), but the display stays at the normal landscape
+whatever the rotation lock says: the Retroid firmware keeps a 1x1 invisible overlay (`com.rp.settings`,
+`ty=MAGNIFICATION_OVERLAY`) that requests landscape and decides the orientation, so Retroids can't show
+it either way. Phones (the request came from a Pixel) have no such window.
 
 ### A missing game module (2026-10-17 night)
 
@@ -1855,7 +1859,10 @@ the whole picture. The wrappers are in a new input section, `.trkcave_late`, whi
 after all other MetroTRK-area code, so no older symbol moved (the script VM's handler table holds
 pointers to the cutscene stubs, and a state brings the old table back). Checked on WSL: the same state
 and seeds on the ws30 and ws31 static modules, 9 shots each during the deck part of the pose: ws30 boxed
-on 4, ws31 on none; the rest of the pose and the results screen as before.
+on 4, ws31 on none; the rest of the pose and the results screen as before. Retroid Pocket Nova (local
+test APK `skies-recomp-ws31-2026-10-22-test.apk`, PGO from the main checkout's profile): the launcher
+re-patched the imported USA disc to ws31 on its own (`7ef9451c`); the same battle state, three seeds,
+9 shots across Drachma's pose: all full width.
 
 ### Match screen: ultrawide and any other shape (2026-10-17 night)
 

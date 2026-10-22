@@ -164,13 +164,15 @@ Sandbowl, against v0.80.0-beta, with a video: in 16:9 Drachma's victory pose "re
 copies the screen and draws it back on a plane in front of the camera (a shake), sized to the game's
 own field of view, so the whole picture was squeezed into the middle 4:3 with black sides. Game patch
 ws31 draws that plane at the game's field of view (development notes *Battle screen plane*). Checked on
-WSL; not released yet.
+WSL and the Retroid Pocket Nova; not released yet.
 
 ## Both landscape orientations on Android — issue #12, done on dev, 2026-10-22
 
 MK13X (Pixel): the game is locked to one landscape; wanted the reverse one too. The game screen now
 follows the device between both landscapes, unless the system's rotation lock is on
-(`recompcore-android-orientation.patch`). Not checked on a device yet.
+(`recompcore-android-orientation.patch`). On a Retroid the firmware's own landscape overlay
+(`com.rp.settings`) decides the orientation, so it can't be seen there; the Activity's request was
+checked with `dumpsys` on the Nova. Needs a phone to see it turn.
 
 ## ~~Ship battle command grid stretched in the first tutorial~~ — issue #11, FIXED in v0.81.0-beta (ws30)
 
