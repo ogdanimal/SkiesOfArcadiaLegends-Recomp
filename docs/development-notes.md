@@ -3045,7 +3045,7 @@ rights: BUILDING *macOS*.
   the 60 fps replay when its second EFB can't be made, D5 the auto-save deleting a good save before a
   failed write, D7 / D8 the Android launcher's save, backup, driver and Remove actions racing the game,
   D2 texture packs writing outside their folder, D3 / D4 a damaged Dreamcast driver crashing or
-  halving the speed (`recompcore-review-d.patch`; D2-D4 on the local branch `review` until pushed),
+  halving the speed (`recompcore-review-d.patch`; all of section D shipped in v0.83.0-beta),
   D9 the Japanese Continue writing one word past its card work (ws34, *Japanese Continue's card work*).
   Not fixed: D10 (netplay with differing gameplay options; the project doesn't use netplay). The Lows
   D11-D26 and D28-D31 (HANDOFF-review, each item's notes; `recompcore-review-d.patch` for the

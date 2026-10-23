@@ -158,21 +158,21 @@ and publish the `.zsync` beside the AppImage, so AppImageUpdate works), and a "m
 screenshot shows the launcher without the background art, which loads within 3 s under Xvfb here
 (software GL), so likely the bot's sandbox; the launcher's own dark look is by design.
 
-## Drachma's victory pose squeezed into 4:3 — issue #9, fixed on dev (ws31), 2026-10-22
+## ~~Drachma's victory pose squeezed into 4:3~~ — issue #9, FIXED in v0.82.0-beta (ws31)
 
 Sandbowl, against v0.80.0-beta, with a video: in 16:9 Drachma's victory pose "reverts back to 4:3". It
 copies the screen and draws it back on a plane in front of the camera (a shake), sized to the game's
 own field of view, so the whole picture was squeezed into the middle 4:3 with black sides. Game patch
 ws31 draws that plane at the game's field of view (development notes *Battle screen plane*). Checked on
-WSL, the Retroid Pocket Nova and the Retroid Pocket 5; not released yet.
+WSL, the Retroid Pocket Nova and the Retroid Pocket 5. Released in v0.82.0-beta; #9 closed.
 
-## Both landscape orientations on Android — issue #12, done on dev, 2026-10-22
+## ~~Both landscape orientations on Android~~ — issue #12, DONE in v0.82.0-beta
 
 MK13X (Pixel): the game is locked to one landscape; wanted the reverse one too. The game screen now
 follows the device between both landscapes, unless the system's rotation lock is on
 (`recompcore-android-orientation.patch`). On a Retroid the firmware's own landscape overlay
 (`com.rp.settings`) decides the orientation, so it can't be seen there; the Activity's request was
-checked with `dumpsys` on the Nova. Needs a phone to see it turn.
+checked with `dumpsys` on the Nova. Needs a phone to see it turn. Released in v0.82.0-beta; #12 closed.
 
 ## ~~Ship battle command grid stretched in the first tutorial~~ — issue #11, FIXED in v0.81.0-beta (ws30)
 
@@ -191,3 +191,19 @@ cutscenes (255 scripts, 5,493 distinct camera commands) aren't surveyed: list sh
 them, or survey a scene at a time with the 16:9 / 4:3 shot log. Data-only alternative players can use
 today: SPICE (github.com/SoAModTools/SPICE) edits `.sct` camera poses, lens and object placement, and
 the port plays such a romhack (it changes the 4:3 picture too).
+
+Reported 2026-10-22 night, not looked at yet: the Nasr merchant appearing out of nowhere
+(GLEclipseGaming) and Vyse popping up at the far right in a cutscene with Alfonso (Renatodep), both
+likely more shots that show past their set pieces; and Alphonso's ship clipping through Fina's ship,
+plus a scene panned to hide the sky and an outside wall (GLEclipseGaming, both as in the original).
+
+## Fina's face shows the mesh's edges when her expression texture changes — issue #10 comment, 2026-10-22
+
+Renatodep (with and without HD textures, a video in #10); GLEclipseGaming thinks it's fine at 30 fps,
+so likely the 60 fps frame interpolation (a frame drawn with the old and new face textures mixed, or
+the replay's texture at the change). Not reproduced yet.
+
+## More save state slots — issue #15, requested 2026-10-23
+
+Renatodep: more than the five save state slots (the in-game menu's Saves tab; the auto-save keeps its
+newest three separately).

@@ -1,6 +1,27 @@
 # Handoff: releases (Windows, Linux, macOS, Android)
 
-## On dev after v0.82.0-beta (2026-10-22)
+## Released (2026-10-23 UTC): v0.83.0-beta
+
+**v0.83.0-beta is the current release** (prerelease, the user's version number; tag on `88f81ea`, `main`
+fast-forwarded to it from `8bf2116`, release run 39876847680, published 00:38:57 UTC; `android-sign`
+approved by the user): https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/releases/tag/v0.83.0-beta.
+Notes: `build/notes-0.83.0-beta.md` in the main checkout (0.82 layout). Game patch **ws34** (European and
+Japanese DOLs changed since 0.82, ws33 / ws34; USA unchanged), so European and Japanese imports re-patch once.
+
+- Before the tag: validate 39874311668 green on `88f81ea`; version strings bumped (`4d4203c`); PII sweep of
+  the tree clean (only the `/home/someone` placeholders and images' "User time"); every pushed commit's
+  author and committer the noreply address; `release.yml` unchanged since 0.82, `validate.yml` only D31.
+- **Fast-forward `main` to the release commit before pushing the tag:** the first run of the tag failed its
+  guard ("not on main"); nothing was built. `main` was fast-forwarded and the run re-run.
+- After: SHA256SUMS match all five downloads; APK signer `e2c00b0b...a92f` (the pinned one), versionCode
+  424821, versionName 0.83.0-beta, no testOnly / debuggable; three modules in every package, no game files
+  (DOL, disc images, card saves, RELs); no `fma` import in any x86 module (the 0.82 DLL has one).
+- Issues: #13 answered (asks for CPU and resolution), #14 answered and closed. The Reddit replies were
+  the user's. The Pocket 5's `.test` app has `skies-recomp-padfollow-2026-10-22-test.apk`; the release
+  apps on both Retroids are still on 0.81. `C:\dev\fmabench` (#13 test copy, ~1.2 GB; `game-ws34\files` is a
+  junction to `C:\dev\SkiesRecomp`'s extracted files: remove it with `rmdir`) awaits the user's OK to delete.
+
+## Shipped in v0.83.0-beta (was: on dev after v0.82.0-beta, and the local branch `review`)
 
 - **Camera control on the European and Japanese discs** (code review D1): game patch **ws33**. Only
   `release/skies-widescreen-eu.dolpatch` (output `6a246b64`) and `-jp` (`98a49ed7`) changed, each
@@ -15,10 +36,11 @@
   (review D7, D8): `recompcore-review-d.patch`. Device-checked on the Retroid Pocket 5 (below).
 - Review section D (HANDOFF-review) is on `dev` up to D8 (D1, D5, D6, D7, D8).
 
-## On the local branch `review` (pal60 worktree, on `origin/dev` `fec46d6`, not pushed)
+Then, from the local branch `review`:
 
-The user pushes when ready; before that, read the whole PII sweep and check that every author is the
-noreply address. The rest of review section D, all of it but D10 (netplay, not used: not fixed):
+
+The rest of review section D, all of it but D10 (netplay, not used: not fixed), from the local branch
+`review` (pal60 worktree), pushed after the full PII sweep with every author the noreply address:
 - **Game patch ws34** (`0dc57fe`, review D9): the Japanese Continue's card work at the Japanese load
   screen's size (0x274; it wrote one word past 0x270). Only `release/skies-widescreen-jp.dolpatch`
   changed (output `fdd1ce0f`); the USA and European DOLs are byte-identical to ws33, so their players
@@ -39,13 +61,20 @@ noreply address. The rest of review section D, all of it but D10 (netplay, not u
 - **#13 CPUs without FMA3** (`192f0bf`, `recompcore-module-fma.patch`, last in the series): the module's
   own `fma()`, exact (`tools/fma-exact-test.c`); development notes *CPUs without FMA3*. WSL simulation
   0.84 -> 1.57; Windows (v0.82 runtime, relinked ws34 USA DLL in `C:\dev\fmabench`) unchanged on FMA3,
-  no-FMA3 path forced plays (`fallback=0`). No codegen change. Not run on a real non-FMA3 CPU; the #13
-  reply (asking for the CPU model and resolution) waits for the user.
-- Release notes draft: `build/notes-next.md` in the main checkout covers all of the above.
+  no-FMA3 path forced plays (`fallback=0`). No codegen change. Not run on a real non-FMA3 CPU; #13 asked
+  for the CPU model and resolution (open until the reporter answers). `d85ce7b`: `_GNU_SOURCE` for
+  `RTLD_DEFAULT` (glibc 2.35 in the CI image; validate 39869561187 and 39871501055 failed only Linux).
+- **Android: controller 1 follows the gamepad pressed** (`e5edfa7`, `recompcore-android-pad-follow.patch`;
+  Reddit, an Odin 2 player's Bluetooth pad did nothing): checked on the Pocket 5 `.test` app with a
+  DualSense Edge, both ways (HANDOFF-input).
+- **#14 launcher "could not be monitored" when Steam closes the game** (`88f81ea`,
+  `moderngekko-launcher-signal.patch`, after the macOS patch in `apply-patches.sh` / `check-patches.sh`):
+  reproduced with SDL 3.4.4; the new wait checked for a SIGTERM to the launcher, to the process group
+  and none. Not tried on a Steam Machine. #14 closed.
 
-## Released (2026-10-22 UTC): v0.82.0-beta
+## Earlier release (2026-10-22 UTC): v0.82.0-beta
 
-**v0.82.0-beta is the current release** (prerelease, the user's version number; tag on `8bf2116`, `main`
+**v0.82.0-beta was the current release** (prerelease, the user's version number; tag on `8bf2116`, `main`
 fast-forwarded to it from `1bd19c7`, release run 39838808411, published 19:59 UTC; `android-sign`
 approved by the user): https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/releases/tag/v0.82.0-beta.
 Notes: `build/notes-0.82.0-beta.md` in the main checkout (0.81 layout). Carries #12 (both landscapes),

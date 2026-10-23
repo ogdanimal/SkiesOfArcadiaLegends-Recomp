@@ -643,6 +643,8 @@ Tools:
 
 ## D. Second review (2026-10-22)
 
+**Shipped (2026-10-23): every item but D10 is in v0.83.0-beta** (tag on `88f81ea`; HANDOFF-release).
+
 **Status (2026-10-22 evening).** Fixed and on `origin/dev`: D1 (game patch ws33), D6, D5, D7, D8
 (`patches/recompcore-review-d.patch`, last in `recompcore.series`, holds section D's RecompCore
 fixes). Fixed on the local branch `review` in the `pal60` worktree, not pushed (the user pushes when
