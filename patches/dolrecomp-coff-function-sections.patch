@@ -1,0 +1,56 @@
+diff --git a/src/backend/llvm/llvm_backend.cpp b/src/backend/llvm/llvm_backend.cpp
+index 442e199..715acb7 100644
+--- a/src/backend/llvm/llvm_backend.cpp
++++ b/src/backend/llvm/llvm_backend.cpp
+@@ -246,9 +246,10 @@ extern "C" bool dolllvm_codegen_fingerprint(const DolLLVMOptions *options,
+       "state-count=%u|calling=fastcc|control=pc32x2|return=i64-lanes|"
+       "escape=sjlj|memory=proven-mem1-v1|cycles=return-or-chain|"
+       "x86-return-registers=3|"
+-      "aarch64-return-registers=8|reloc=pic|pipeline=default-per-module",
++      "aarch64-return-registers=8|reloc=pic|pipeline=default-per-module%s",
+       LLVM_VERSION_STRING, profile.triple.c_str(), profile.cpu.c_str(),
+       profile.features.c_str(), DOLLLVM_NATIVE_ABI_VERSION,
+-      DOLIR_STATE_MASK_WORDS, DOLIR_STATE_COUNT);
++      DOLIR_STATE_MASK_WORDS, DOLIR_STATE_COUNT,
++      dolllvm::functionSections(profile) ? "|sections=function" : "");
+   return written >= 0 && static_cast<size_t>(written) < size;
+ }
+diff --git a/src/backend/llvm/target.cpp b/src/backend/llvm/target.cpp
+index 36dc8fa..4ddd482 100644
+--- a/src/backend/llvm/target.cpp
++++ b/src/backend/llvm/target.cpp
+@@ -128,6 +128,14 @@ static CodeGenOptLevel codegenLevel(int level) {
+   return CodeGenOptLevel::Aggressive;
+ }
+ 
++// COFF only puts PGO's hot / unlikely function prefixes in the section name (.text$hot,
++// .text$unlikely, which the linker groups across every chunk) with a section per function;
++// without one, a chunk's functions all go to its plain .text, hot and cold interleaved chunk by
++// chunk. ELF names the prefixes either way (.text.hot. / .text.unlikely.).
++bool functionSections(const TargetProfile &profile) {
++  return Triple(profile.triple).isOSBinFormatCOFF();
++}
++
+ std::unique_ptr<TargetMachine>
+ createTargetMachine(const TargetProfile &profile, int optimization_level,
+                     DolLLVMSemantics semantics,
+@@ -140,6 +148,7 @@ createTargetMachine(const TargetProfile &profile, int optimization_level,
+   options.AllowFPOpFusion = semantics == DOLLLVM_SEMANTICS_FAST
+                                 ? FPOpFusion::Fast
+                                 : FPOpFusion::Strict;
++  options.FunctionSections = functionSections(profile);
+   return std::unique_ptr<TargetMachine>(target->createTargetMachine(
+       profile.triple, profile.cpu, profile.features, options, Reloc::PIC_,
+       std::nullopt, codegenLevel(optimization_level)));
+diff --git a/src/backend/llvm/target.h b/src/backend/llvm/target.h
+index 9392426..edd6760 100644
+--- a/src/backend/llvm/target.h
++++ b/src/backend/llvm/target.h
+@@ -29,6 +29,7 @@ std::unique_ptr<llvm::TargetMachine>
+ createTargetMachine(const TargetProfile &profile, int optimization_level,
+                     DolLLVMSemantics semantics,
+                     std::string &error);
++bool functionSections(const TargetProfile &profile);
+ bool objectMatchesProfile(const char *path, const TargetProfile &profile);
+ void initializeTargets();
+ 

@@ -1,0 +1,21 @@
+diff --git a/module-template/CMakeLists.txt b/module-template/CMakeLists.txt
+index 9753ac8..6f4e14d 100644
+--- a/module-template/CMakeLists.txt
++++ b/module-template/CMakeLists.txt
+@@ -145,6 +145,16 @@ if(UNIX AND NOT APPLE)
+   set_property(TARGET ${MODULE_NAME} APPEND PROPERTY LINK_DEPENDS
+     "${CMAKE_CURRENT_SOURCE_DIR}/module.exports")
+ endif()
++# Hot code together: PGO puts each generated function in a hot / unlikely section, which the
++# linker must group across the thousands of chunk objects. COFF groups .text$hot by itself (the
++# chunks have a section per function there), but every function is then a COMDAT, so identical
++# ones would be folded into one address: keep them apart, as before. lld (Android) merges
++# .text.hot.* into .text in object order unless told to keep the prefixes; GNU ld groups them.
++if(WIN32)
++  target_link_options(${MODULE_NAME} PRIVATE "LINKER:/OPT:NOICF")
++elseif(ANDROID)
++  target_link_options(${MODULE_NAME} PRIVATE "LINKER:-z,keep-text-section-prefix")
++endif()
+ 
+ option(RECOMPCORE_MODULE_ENABLE_IPO "Enable Clang module interprocedural optimization when supported" ON)
+ set(RECOMPCORE_MODULE_OPT_LEVEL "2" CACHE STRING

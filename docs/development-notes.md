@@ -2706,6 +2706,47 @@ than the v0.83 module in 01/02/04 (WSL), and on Windows (RTX 5080, uncapped, int
 live in separate `fpr[]`/`ps1[]` arrays of `CPUState`, so each pair is two loads and two stores), the FIFO
 ~9%.
 
+### Hot code layout on Windows and Android (issue #13, 2026-10-23)
+
+The reporter on `perftest1` (i7-3770K at 4.15 GHz, GTX 1050 Ti, 2x (720p), 30 fps, no interpolation): +5-7
+fps, opening cutscene 20-25, battle 25-30, the process at 20-30% CPU. 20-30% of 8 logical CPUs is the game
+thread on one core plus the GPU thread and the driver: the game thread is the limit, not a sign of idle
+CPU. On the dev PC the same build runs the cutscene at 2.69x uncapped, so the 3770K is ~3.2-4x slower
+here, more than the ~2x single-thread gap between the two CPUs. Notes:
+
+- **Dolphin runs Skies single-core.** Its `GameSettings/GEA.ini` sets `CPUThread = False` (ours sets
+  `True`), so the reporter's stable 30 fps is CPU emulation and the whole GPU command stream on one Ivy
+  Bridge core. The recomp's game thread alone doesn't fit there.
+- **No CPU-feature path left between the two CPUs.** The desktop modules are built for LLVM's generic
+  x86-64 (`-` in `tools/codegen-targets.txt`: SSE2, no runtime variants), so the 3770K runs the same
+  machine code as the dev PC. Of the emitter's intrinsics only the constrained `fma` becomes a C runtime
+  call there (`lrint`, `ctlz`, `bswap` and the rest are inline SSE2 / base x86-64), and fast FP no longer
+  emits it. What's left is the microarchitecture: a 256 KB L2, a 1.5K-uop cache and 512 second-level
+  TLB entries on Ivy Bridge, against 1.25 MB, 4K and 2048 on the dev PC's P-cores. Code that misses the
+  front end costs the older CPU much more.
+- **The Windows module had no hot/cold layout.** With a profile LLVM marks each function hot or unlikely,
+  but on COFF it writes that into the section name (`.text$hot`, `.text$unlikely`, which the linker groups
+  across all objects) only with a section per function. DolRecomp emitted none, so every chunk's functions
+  went to its plain `.text`: the Windows module's hot code lay in guest address order, cold code between,
+  over the whole text of 5,452 chunks. ELF names the prefixes either way (`.text.hot.`, `.text.unlikely.`),
+  and GNU ld groups them, so the Linux module (and every WSL measurement) already had the layout; Android
+  links with lld, which merges `.text.hot.*` into `.text` in object order unless given
+  `-z keep-text-section-prefix`, so Android didn't. Checked with `llc` and `lld-link` / `ld.lld` / GNU ld
+  on two small profiled objects: Windows before `hotA coldA warmA hotB coldB warmB`, after
+  `warmA warmB hotA hotB coldA coldB`; lld the same with the flag. Fixed by
+  `dolrecomp-coff-function-sections.patch` (COFF only, in the codegen fingerprint) and
+  `recompcore-module-layout.patch` (`/OPT:NOICF`, since every COFF function is a COMDAT now and the
+  linker's default identical-code folding would otherwise merge identical functions; the Android flag).
+  Linux, macOS and the Android objects are unchanged; macOS's ld64 has no prefixes and would need an
+  order file.
+- **Not measured on the game yet** (no DOL in this session). To check: Windows A/B of the same codegen and
+  profile with and without the patch (`tools/bench-win.sh`, 01/02/04 uncapped, interleaved), and the
+  Retroid. Gains from hot/cold layout grow with the gap between the hot set and the caches, so a 12th-gen
+  P-core shows the least of it; a pre-Haswell CPU or a small-cache laptop chip is the real test.
+- Also open: the runtime forces hybrid ubershaders (`moderngekko-local.patch`), while Dolphin's default is
+  specialized shaders. That's GPU work on the 1050 Ti, at 2x. The reporter's numbers point at the CPU
+  (other programs slow the game down), but GPU load in Task Manager at Native (480p) would rule it out.
+
 ## Native Windows build
 
 Two separate limits showed up under WSL:
