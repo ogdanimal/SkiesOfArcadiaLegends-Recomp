@@ -6,7 +6,7 @@
 # CI generates and caches each target and region on its own (validate.yml's codegen matrix, which
 # lists the names too), under a key with the target's line: a line added or changed here
 # regenerates only that target.
-windows  windows  -           x86_64-pc-windows-msvc
-linux    windows  -           x86_64-pc-linux-gnu
+windows  windows  -           x86_64-pc-windows-msvc           --semantics fast
+linux    windows  -           x86_64-pc-linux-gnu              --semantics fast
 android  android  cortex-a77  aarch64-unknown-linux-android24  --targets=aarch64
 macos    macos    apple-m1    arm64-apple-macosx13.0           --targets=aarch64

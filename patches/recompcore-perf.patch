@@ -1,0 +1,531 @@
+diff --git a/GXRuntime/include/core/cpu.h b/GXRuntime/include/core/cpu.h
+index 26cb11d..e67fc24 100644
+--- a/GXRuntime/include/core/cpu.h
++++ b/GXRuntime/include/core/cpu.h
+@@ -3,6 +3,7 @@
+ #define DOLRECOMP_CPU_H
+ 
+ #include "types.h"
++#include <stddef.h>
+ #ifdef __cplusplus
+ extern "C" {
+ #endif
+@@ -229,7 +230,7 @@ static GXRUNTIME_ALWAYS_INLINE bool gather_pipe_write(CPUState* cpu, u32 addr, u
+     }
+     cursor += size;
+     *cpu->gather_pipe_ptr_ref = cursor;
+-    if ((size_t)(cursor - cpu->gather_pipe_base) >= 32u)
++    if ((ptrdiff_t)(cursor - cpu->gather_pipe_base) >= 32)
+         cpu->gather_pipe_flush(cpu);
+     return true;
+ }
+diff --git a/Source/Core/Core/Config/StaticRecompSettings.cpp b/Source/Core/Core/Config/StaticRecompSettings.cpp
+index 653deac..4f17139 100644
+--- a/Source/Core/Core/Config/StaticRecompSettings.cpp
++++ b/Source/Core/Core/Config/StaticRecompSettings.cpp
+@@ -6,6 +6,16 @@ namespace Config
+ {
+ const Info<bool> MAIN_STATICRECOMP_MODULE{{System::Main, "Core", "StaticRecompModule"}, true};
+ const Info<u32> MAIN_STATICRECOMP_IDLE_PC{{System::Main, "Core", "StaticRecompIdlePC"}, 0};
++// A wait loop with calls in it (StaticRecompIdlePC's single-instruction check can't see why it
++// waits): at StaticRecompWaitPC, skip to the
++// next event while the u32 at StaticRecompWaitCounter equals the one at StaticRecompWaitLast
++// (nothing to wait for has happened) and the u32 at StaticRecompWaitEmpty is 0 (the loop's work
++// queue is empty). Any address 0: off.
++const Info<u32> MAIN_STATICRECOMP_WAIT_PC{{System::Main, "Core", "StaticRecompWaitPC"}, 0};
++const Info<u32> MAIN_STATICRECOMP_WAIT_COUNTER{{System::Main, "Core", "StaticRecompWaitCounter"},
++                                               0};
++const Info<u32> MAIN_STATICRECOMP_WAIT_LAST{{System::Main, "Core", "StaticRecompWaitLast"}, 0};
++const Info<u32> MAIN_STATICRECOMP_WAIT_EMPTY{{System::Main, "Core", "StaticRecompWaitEmpty"}, 0};
+ const Info<std::string> MAIN_STATICRECOMP_FALLBACK_RANGES{
+     {System::Main, "Core", "StaticRecompFallbackRanges"}, ""};
+ }  // namespace Config
+diff --git a/Source/Core/Core/Config/StaticRecompSettings.h b/Source/Core/Core/Config/StaticRecompSettings.h
+index fbfccca..2146254 100644
+--- a/Source/Core/Core/Config/StaticRecompSettings.h
++++ b/Source/Core/Core/Config/StaticRecompSettings.h
+@@ -7,5 +7,9 @@ namespace Config
+ {
+ extern const Info<bool> MAIN_STATICRECOMP_MODULE;
+ extern const Info<u32> MAIN_STATICRECOMP_IDLE_PC;
++extern const Info<u32> MAIN_STATICRECOMP_WAIT_PC;
++extern const Info<u32> MAIN_STATICRECOMP_WAIT_COUNTER;
++extern const Info<u32> MAIN_STATICRECOMP_WAIT_LAST;
++extern const Info<u32> MAIN_STATICRECOMP_WAIT_EMPTY;
+ extern const Info<std::string> MAIN_STATICRECOMP_FALLBACK_RANGES;
+ }  // namespace Config
+diff --git a/Source/Core/Core/HW/GPFifo.cpp b/Source/Core/Core/HW/GPFifo.cpp
+index 0de434b..215658b 100644
+--- a/Source/Core/Core/HW/GPFifo.cpp
++++ b/Source/Core/Core/HW/GPFifo.cpp
+@@ -15,6 +15,7 @@
+ #include "Core/PowerPC/PowerPC.h"
+ #include "Core/System.h"
+ #include "VideoCommon/CommandProcessor.h"
++#include "VideoCommon/Fifo.h"
+ 
+ namespace GPFifo
+ {
+@@ -111,6 +112,39 @@ void GPFifoManager::UpdateGatherPipe()
+   SetGatherPipeCount(pipe_count);
+ }
+ 
++void GPFifoManager::UpdateGatherPipeBatched()
++{
++  size_t pipe_count = GetGatherPipeCount();
++  if (pipe_count < GATHER_PIPE_SIZE)
++    return;
++  auto& system = m_system;
++  auto& command_processor = system.GetCommandProcessor();
++  if (!command_processor.IsGatherPipeLinked())
++  {
++    UpdateGatherPipe();
++    return;
++  }
++  auto& memory = system.GetMemory();
++  auto& processor_interface = system.GetProcessorInterface();
++  const u32 bursts = static_cast<u32>(pipe_count / GATHER_PIPE_SIZE);
++  // Room for the whole batch before any of it is copied (WaitForFifoSpace's guarantee, for N)
++  system.GetFifo().WaitForFifoSpace(bursts * GATHER_PIPE_SIZE);
++  size_t processed = 0;
++  for (u32 i = 0; i < bursts; ++i, processed += GATHER_PIPE_SIZE)
++  {
++    memory.CopyToEmu(processor_interface.m_fifo_cpu_write_pointer, m_gather_pipe + processed,
++                     GATHER_PIPE_SIZE);
++    if (processor_interface.m_fifo_cpu_write_pointer == processor_interface.m_fifo_cpu_end)
++      processor_interface.m_fifo_cpu_write_pointer = processor_interface.m_fifo_cpu_base;
++    else
++      processor_interface.m_fifo_cpu_write_pointer += GATHER_PIPE_SIZE;
++  }
++  command_processor.GatherPipeBurstedN(bursts);
++  pipe_count -= processed;
++  memmove(m_gather_pipe, m_gather_pipe + processed, pipe_count);
++  SetGatherPipeCount(pipe_count);
++}
++
+ void GPFifoManager::FastCheckGatherPipe()
+ {
+   if (GetGatherPipeCount() >= GATHER_PIPE_SIZE)
+diff --git a/Source/Core/Core/HW/GPFifo.h b/Source/Core/Core/HW/GPFifo.h
+index 006c8ed..80fde50 100644
+--- a/Source/Core/Core/HW/GPFifo.h
++++ b/Source/Core/Core/HW/GPFifo.h
+@@ -33,6 +33,10 @@ public:
+   // ResetGatherPipe
+   void ResetGatherPipe();
+   void UpdateGatherPipe();
++  // Every full burst at once with one round of CP bookkeeping (static recomp: the gather pipe
++  // is flushed in batches and at every dispatch boundary).
++  void UpdateGatherPipeBatched();
++  size_t QueuedBytes() { return GetGatherPipeCount(); }
+   void CheckGatherPipe();
+   void FastCheckGatherPipe();
+ 
+diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.cpp b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.cpp
+index 3673925..5264e4e 100644
+--- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.cpp
++++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.cpp
+@@ -151,6 +151,11 @@ void StaticRecompCore::Init()
+   g_static_recomp_core = this;
+   RefreshConfig();
+   m_collect_dispatch_samples = std::getenv("STATICRECOMP_DISPATCH_SAMPLES") != nullptr;
++  m_exit_stats = std::getenv("STATICRECOMP_EXIT_STATS") != nullptr;
++  {
++    const char* batch = std::getenv("STATICRECOMP_GP_BATCH");
++    m_gp_batch = !batch || batch[0] != '0';
++  }
+   m_collect_fallback_samples = std::getenv("STATICRECOMP_FALLBACK_SAMPLES") != nullptr;
+   const char* fallback_override = std::getenv("STATICRECOMP_FALLBACK_RANGES");
+   std::istringstream fallback_ranges(fallback_override ? fallback_override :
+@@ -186,6 +191,12 @@ void StaticRecompCore::Init()
+ 
+   LoadModule();
+   m_idle_pc = Config::Get(Config::MAIN_STATICRECOMP_IDLE_PC);
++  m_wait_pc = Config::Get(Config::MAIN_STATICRECOMP_WAIT_PC);
++  m_wait_counter = Config::Get(Config::MAIN_STATICRECOMP_WAIT_COUNTER);
++  m_wait_last = Config::Get(Config::MAIN_STATICRECOMP_WAIT_LAST);
++  m_wait_empty = Config::Get(Config::MAIN_STATICRECOMP_WAIT_EMPTY);
++  if (!m_wait_counter || !m_wait_last || !m_wait_empty)
++    m_wait_pc = 0;
+   m_lockstep_verifier = std::make_unique<StaticRecompLockstep::StaticRecompLockstepVerifier>(*this);
+   m_lockstep_verifier->Init();
+ 
+@@ -202,6 +213,122 @@ void StaticRecompCore::Init()
+   }
+ }
+ 
++u32 StaticRecompCore::ReadGuestWord(u32 address) const
++{
++  if (address < 0x80000000u || address - 0x80000000u + 4u > m_guest.ram_size)
++    return 0;
++  const u8* code = m_guest.ram + (address - 0x80000000u);
++  return static_cast<u32>(code[0]) << 24 | static_cast<u32>(code[1]) << 16 |
++         static_cast<u32>(code[2]) << 8 | code[3];
++}
++
++namespace
++{
++enum ExitKind
++{
++  EXIT_EXCEPTION,
++  EXIT_SLICE_END,
++  EXIT_AFTER_MTMSR,
++  EXIT_RETURN_AFTER_BL,
++  EXIT_RETURN_AFTER_INDIRECT,
++  EXIT_INDIRECT_CALL,
++  EXIT_DIRECT_CALL,
++  EXIT_SAME_START,
++  EXIT_INDIRECT_JUMP,
++  EXIT_RETURN_BLR,
++  EXIT_OTHER,
++};
++constexpr const char* EXIT_NAMES[] = {
++    "exception", "slice end (downcount <= 0)", "after mtmsr", "return to a lost bl frame",
++    "return after bctrl/blrl", "indirect call (bctrl/blrl)", "direct call (bl target)",
++    "same start (loop)", "indirect jump (pc == ctr)", "return (pc == lr)", "other"};
++constexpr const char* BURST_END_NAMES[] = {"slice end",         "sync exception",
++                                           "external interrupt", "not dispatchable",
++                                           "host call",          "state"};
++
++bool IsBl(u32 inst)
++{
++  return (inst >> 26) == 18 && (inst & 1) != 0;
++}
++bool IsIndirectCall(u32 inst)
++{
++  const u32 xo = (inst >> 1) & 0x3FF;
++  return (inst >> 26) == 19 && (inst & 1) != 0 && (xo == 16 || xo == 528);
++}
++bool IsMtmsr(u32 inst)
++{
++  return (inst & 0xFC0007FEu) == 0x7C000124u;
++}
++u32 BlTarget(u32 inst, u32 at)
++{
++  s32 li = static_cast<s32>(inst & 0x03FFFFFCu);
++  if (li & 0x02000000)
++    li -= 0x04000000;
++  return (inst & 2) ? static_cast<u32>(li) : at + static_cast<u32>(li);
++}
++}  // namespace
++
++void StaticRecompCore::CountDispatchExit(u32 start_pc, bool exception)
++{
++  const u32 pc = m_guest.pc;
++  const u32 before = ReadGuestWord(pc - 4);
++  const u32 lr = m_guest.lr;
++  const u32 call = ReadGuestWord(lr - 4);
++  ExitKind kind;
++  if (exception)
++    kind = EXIT_EXCEPTION;
++  else if (m_system.GetPPCState().downcount <= 0)
++    kind = EXIT_SLICE_END;
++  else if (IsMtmsr(before))
++    kind = EXIT_AFTER_MTMSR;
++  else if (IsBl(before))
++    kind = EXIT_RETURN_AFTER_BL;
++  else if (IsIndirectCall(before))
++    kind = EXIT_RETURN_AFTER_INDIRECT;
++  else if (pc != lr && IsIndirectCall(call))
++    kind = EXIT_INDIRECT_CALL;
++  else if (pc != lr && IsBl(call) && BlTarget(call, lr - 4) == pc)
++    kind = EXIT_DIRECT_CALL;
++  else if (pc == start_pc)
++    kind = EXIT_SAME_START;
++  else if (pc == m_guest.ctr)
++    kind = EXIT_INDIRECT_JUMP;
++  else if (pc == lr)
++    kind = EXIT_RETURN_BLR;
++  else
++    kind = EXIT_OTHER;
++  ++m_exit_counts[kind];
++}
++
++void StaticRecompCore::CountBurstEnd(bool sync_exception, bool dispatchable, bool host_call,
++                                     bool running)
++{
++  auto& ppc = m_system.GetPPCState();
++  std::size_t kind;
++  if (sync_exception)
++    kind = 1;
++  else if (!running)
++    kind = 5;
++  else if (!dispatchable)
++    kind = 3;
++  else if (host_call)
++    kind = 4;
++  else if (ppc.downcount <= 0)
++    kind = 0;
++  else
++    kind = 2;
++  ++m_burst_end_counts[kind];
++}
++
++bool StaticRecompCore::IsWaitingAt(u32 address) const
++{
++  if (address != m_wait_pc || m_wait_pc == 0)
++    return false;
++  auto& memory = m_system.GetMemory();
++  return memory.Read_U32(m_wait_counter) == memory.Read_U32(m_wait_last) &&
++         memory.Read_U32(m_wait_empty) == 0;
++}
++
+ void StaticRecompCore::Shutdown()
+ {
+   g_static_recomp_core = nullptr;
+@@ -213,6 +340,18 @@ void StaticRecompCore::Shutdown()
+                (unsigned long long)m_hook_fallback_instructions, m_failed_chunks,
+                (unsigned long long)m_verifications, (unsigned long long)m_reverify_events,
+                (unsigned long long)m_bursts, (unsigned long long)m_charged_cycles);
++  if (m_wait_pc)
++    std::fprintf(stderr, "[staticrecomp] wait skips at %08x: %llu\n", m_wait_pc,
++                 (unsigned long long)m_idle_skips);
++  if (m_exit_stats)
++  {
++    for (std::size_t i = 0; i < m_exit_counts.size(); ++i)
++      std::fprintf(stderr, "[staticrecomp] exit %-32s %llu\n", EXIT_NAMES[i],
++                   (unsigned long long)m_exit_counts[i]);
++    for (std::size_t i = 0; i < m_burst_end_counts.size(); ++i)
++      std::fprintf(stderr, "[staticrecomp] burst end %-24s %llu\n", BURST_END_NAMES[i],
++                   (unsigned long long)m_burst_end_counts[i]);
++  }
+   std::vector<std::pair<u32, u64>> dispatch_samples(m_dispatch_samples.begin(),
+                                                     m_dispatch_samples.end());
+   std::sort(dispatch_samples.begin(), dispatch_samples.end(),
+diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.h b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.h
+index 02758eb..c0d85fa 100644
+--- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.h
++++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.h
+@@ -3,6 +3,7 @@
+ 
+ #pragma once
+ 
++#include <array>
+ #include <string>
+ #include <unordered_map>
+ #include <unordered_set>
+@@ -247,6 +248,30 @@ private:
+   bool m_collect_dispatch_samples = false;
+   bool m_has_rel_modules = false;
+   u32 m_idle_pc = 0;
++
++  // Idle skipping beyond m_idle_pc (see Config/StaticRecompSettings.cpp)
++  bool IsWaitingAt(u32 address) const;
++  u32 m_wait_pc = 0;
++  u32 m_wait_counter = 0;
++  u32 m_wait_last = 0;
++  u32 m_wait_empty = 0;
++  u64 m_idle_skips = 0;
++
++  // Gather-pipe batching (STATICRECOMP_GP_BATCH=0 turns it off): bursts are handed to the CP
++  // GP_BATCH_BYTES at a time with one round of FIFO bookkeeping, and whatever full bursts are
++  // queued go out at every dispatch boundary, so nothing waits in the pipe for long.
++  static constexpr size_t GP_BATCH_BYTES = 256;
++  bool m_gp_batch = true;
++  void FlushGatherPipe(bool force);
++
++  // STATICRECOMP_EXIT_STATS: why each native dispatch ended (by the guest code around its exit
++  // PC), and why each burst ended. Printed at shutdown.
++  void CountDispatchExit(u32 start_pc, bool exception);
++  void CountBurstEnd(bool sync_exception, bool dispatchable, bool host_call, bool running);
++  u32 ReadGuestWord(u32 address) const;
++  bool m_exit_stats = false;
++  std::array<u64, 11> m_exit_counts{};
++  std::array<u64, 6> m_burst_end_counts{};
+ };
+ 
+ extern StaticRecompCore* g_static_recomp_core;
+diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp
+index 6f943c3..c981c6c 100644
+--- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp
++++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp
+@@ -116,10 +116,23 @@ DOLPHIN_FORCE_INLINE void StaticRecompCore::WriteGatherPipe(u64 value, u8 size)
+   if (static_cast<size_t>(ppc.gather_pipe_ptr - ppc.gather_pipe_base_ptr) >=
+       GPFifo::GATHER_PIPE_SIZE)
+   {
+-    m_system.GetGPFifo().UpdateGatherPipe();
++    FlushGatherPipe(false);
+   }
+ }
+ 
++void StaticRecompCore::FlushGatherPipe(bool force)
++{
++  auto& gpfifo = m_system.GetGPFifo();
++  if (!m_gp_batch)
++  {
++    gpfifo.UpdateGatherPipe();
++    return;
++  }
++  const size_t queued = gpfifo.QueuedBytes();
++  if (queued >= GP_BATCH_BYTES || (force && queued >= GPFifo::GATHER_PIPE_SIZE))
++    gpfifo.UpdateGatherPipeBatched();
++}
++
+ // Gather-pipe stores (immediate-mode vertex data) are the hottest hook: through GPFifo::Write*,
+ // with its out-of-line System lookups, they were ~11% of the game thread on Android. This entry
+ // handles the common case and leaves everything else to HookExternalWriteSlow, kept out of line
+@@ -141,7 +154,7 @@ void StaticRecompCore::HookExternalWrite(CPUState* cpu, u32 ea, u64 value, u8 si
+ void StaticRecompCore::HookGatherPipeFlush(CPUState* cpu)
+ {
+   auto* core = static_cast<StaticRecompCore*>(cpu->external_user_data);
+-  core->m_system.GetGPFifo().UpdateGatherPipe();
++  core->FlushGatherPipe(false);
+ }
+ 
+ STATICRECOMP_NOINLINE void StaticRecompCore::HookExternalWriteSlow(CPUState* cpu, u32 ea,
+diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Run.cpp b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Run.cpp
+index c2abb98..53128a0 100644
+--- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Run.cpp
++++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Run.cpp
+@@ -68,7 +68,10 @@ void StaticRecompCore::Run()
+   // call HookGatherPipeFlush per burst. Lockstep journals each such store in HookExternalWrite,
+   // so under lockstep they stay there.
+   m_guest.gather_pipe_ptr_ref = lockstep_enabled ? nullptr : &ppc.gather_pipe_ptr;
+-  m_guest.gather_pipe_base = ppc.gather_pipe_base_ptr;
++  // Batched: generated stores call the flush hook once GP_BATCH_BYTES are queued (their test is
++  // "cursor - gather_pipe_base >= 32", signed), not after every 32.
++  m_guest.gather_pipe_base =
++      ppc.gather_pipe_base_ptr + (m_gp_batch ? GP_BATCH_BYTES - 32 : 0);
+   m_guest.gather_pipe_flush = HookGatherPipeFlush;
+   const auto fast_dispatchable_at = [this](u32 address) {
+     if (m_has_rel_modules || !m_forced_fallback_ranges.empty())
+@@ -189,11 +192,25 @@ void StaticRecompCore::Run()
+           m_guest.timebase += total_cycles / SystemTimers::TIMER_RATIO;
+           m_timebase_cycle_remainder = total_cycles % SystemTimers::TIMER_RATIO;
+ 
+-          // Idle loop skipping for configured target loops (e.g. Wii Menu OSIdleThread)
++          // Idle loop skipping for configured target loops (e.g. Wii Menu OSIdleThread).
++          // A batched gather pipe hands over its full bursts first, so the GPU never
++          // waits on queued commands while the CPU skips ahead.
+           if (m_guest.pc == m_idle_pc && m_idle_pc != 0)
+           {
++            if (m_gp_batch)
++              FlushGatherPipe(true);
+             m_system.GetCoreTiming().Idle();
+           }
++          else if (IsWaitingAt(m_guest.pc))
++          {
++            if (m_gp_batch)
++              FlushGatherPipe(true);
++            m_system.GetCoreTiming().Idle();
++            ++m_idle_skips;
++          }
++
++          if (m_exit_stats)
++            CountDispatchExit(runtime_dispatch_address, m_guest.exception != 0);
+ 
+           // ctx->timebase is refreshed at burst start (SyncIn), and here we
+           // incrementally advance it by the exact block cycle charges to
+@@ -214,7 +231,15 @@ void StaticRecompCore::Run()
+         } while (m_module_active && fast_dispatchable_at(m_guest.pc) &&
+                  !(m_guest.host_call && IsHostCallAddress(m_guest.pc)) && ppc.downcount > 0 &&
+                  *state_ptr == CPU::State::Running);
++        if (m_exit_stats)
++          CountBurstEnd((ppc.Exceptions & SYNC_EXCEPTION_MASK) != 0,
++                        m_module_active && fast_dispatchable_at(m_guest.pc),
++                        m_guest.host_call && IsHostCallAddress(m_guest.pc),
++                        *state_ptr == CPU::State::Running);
+         m_in_native_burst = false;
++        // Batched gather pipe: everything full goes out before CoreTiming runs again.
++        if (m_gp_batch)
++          FlushGatherPipe(true);
+         SyncOut();
+         if ((ppc.Exceptions & SYNC_EXCEPTION_MASK) != 0)
+           power_pc.CheckExceptions();
+diff --git a/Source/Core/VideoCommon/CommandProcessor.cpp b/Source/Core/VideoCommon/CommandProcessor.cpp
+index 9f64b05..d3ac76e 100644
+--- a/Source/Core/VideoCommon/CommandProcessor.cpp
++++ b/Source/Core/VideoCommon/CommandProcessor.cpp
+@@ -407,6 +407,42 @@ void CommandProcessorManager::GatherPipeBursted()
+              "FIFOs linked but out of sync");
+ }
+ 
++void CommandProcessorManager::GatherPipeBurstedN(u32 bursts)
++{
++  SetCPStatusFromCPU();
++
++  auto& processor_interface = m_system.GetProcessorInterface();
++  for (u32 i = 0; i < bursts; ++i)
++  {
++    if (m_fifo.CPWritePointer.load(std::memory_order_relaxed) ==
++        m_fifo.CPEnd.load(std::memory_order_relaxed))
++    {
++      m_fifo.CPWritePointer.store(m_fifo.CPBase, std::memory_order_relaxed);
++    }
++    else
++    {
++      m_fifo.CPWritePointer.fetch_add(GPFifo::GATHER_PIPE_SIZE, std::memory_order_relaxed);
++    }
++  }
++
++  if (m_cp_ctrl_reg.GPReadEnable && m_cp_ctrl_reg.GPLinkEnable)
++  {
++    processor_interface.m_fifo_cpu_write_pointer =
++        m_fifo.CPWritePointer.load(std::memory_order_relaxed);
++    processor_interface.m_fifo_cpu_base = m_fifo.CPBase.load(std::memory_order_relaxed);
++    processor_interface.m_fifo_cpu_end = m_fifo.CPEnd.load(std::memory_order_relaxed);
++  }
++
++  if (m_fifo.bFF_HiWatermark.load(std::memory_order_relaxed) != 0)
++    m_system.GetCoreTiming().ForceExceptionCheck(0);
++
++  m_fifo.CPReadWriteDistance.fetch_add(GPFifo::GATHER_PIPE_SIZE * bursts,
++                                       std::memory_order_seq_cst);
++
++  m_system.GetFifo().RunGpu();
++  m_system.GetFifo().WaitForFifoSpace();
++}
++
+ void CommandProcessorManager::UpdateInterrupts(u64 userdata)
+ {
+   if (userdata)
+diff --git a/Source/Core/VideoCommon/CommandProcessor.h b/Source/Core/VideoCommon/CommandProcessor.h
+index 976592c..e182d81 100644
+--- a/Source/Core/VideoCommon/CommandProcessor.h
++++ b/Source/Core/VideoCommon/CommandProcessor.h
+@@ -172,6 +172,9 @@ public:
+   void SetCPStatusFromGPU();
+   void SetCPStatusFromCPU();
+   void GatherPipeBursted();
++  // GatherPipeBursted for `bursts` bursts already copied in (linked FIFO only)
++  void GatherPipeBurstedN(u32 bursts);
++  bool IsGatherPipeLinked() const { return m_cp_ctrl_reg.GPLinkEnable; }
+   void UpdateInterrupts(u64 userdata);
+   void UpdateInterruptsFromVideoBackend(u64 userdata);
+ 
+diff --git a/Source/Core/VideoCommon/Fifo.cpp b/Source/Core/VideoCommon/Fifo.cpp
+index 07e53ea..9faa5d6 100644
+--- a/Source/Core/VideoCommon/Fifo.cpp
++++ b/Source/Core/VideoCommon/Fifo.cpp
+@@ -664,7 +664,7 @@ void FifoManager::WaitForGpuToDrain(int reason)
+ // while the GPU thread lags, and then overwrites commands the GPU thread hasn't read ("FIFO is
+ // overflowed by GatherPipe"). Waiting here instead keeps emulated time still, as if the GPU had
+ // kept up.
+-void FifoManager::WaitForFifoSpace()
++void FifoManager::WaitForFifoSpace(u32 bytes)
+ {
+   if (!m_system.IsDualCoreMode() || m_use_deterministic_gpu_thread)
+     return;
+@@ -673,8 +673,7 @@ void FifoManager::WaitForFifoSpace()
+   // The largest distance the overflow check allows.
+   const u32 capacity = fifo.CPEnd.load(std::memory_order_relaxed) -
+                        fifo.CPBase.load(std::memory_order_relaxed);
+-  if (fifo.CPReadWriteDistance.load(std::memory_order_acquire) + GPFifo::GATHER_PIPE_SIZE <=
+-      capacity)
++  if (fifo.CPReadWriteDistance.load(std::memory_order_acquire) + bytes <= capacity)
+   {
+     return;
+   }
+diff --git a/Source/Core/VideoCommon/Fifo.h b/Source/Core/VideoCommon/Fifo.h
+index 0bff258..b878e0b 100644
+--- a/Source/Core/VideoCommon/Fifo.h
++++ b/Source/Core/VideoCommon/Fifo.h
+@@ -71,7 +71,7 @@ public:
+   void WaitForGpuToDrain(int reason = 0);
+   // Dual core, after a gather pipe burst: if one more burst would overflow the FIFO, wait until
+   // the GPU thread is back at the game's high watermark.
+-  void WaitForFifoSpace();
++  void WaitForFifoSpace(u32 bytes = 32);
+ 
+   void PushFifoAuxBuffer(const void* ptr, size_t size);
+   void* PopFifoAuxBuffer(size_t size);

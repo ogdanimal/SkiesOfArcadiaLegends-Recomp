@@ -1,0 +1,225 @@
+diff --git a/src/backend/llvm/emitter.h b/src/backend/llvm/emitter.h
+index 8e18613..598d7aa 100644
+--- a/src/backend/llvm/emitter.h
++++ b/src/backend/llvm/emitter.h
+@@ -264,6 +264,11 @@ private:
+   u32 range_count_ = 0;
+   const DolLLVMFunctionRange *abi_range_ = nullptr;
+   bool native_abi_ = false;
++  // --semantics fast: floating point like Dolphin's JITs with default settings (plain IEEE
++  // operations in the host's rounding mode, unfused multiply-add, no FPRF, no PowerPC NaN
++  // preference, no 25-bit multiplier rounding). Compares, conversions and estimates stay exact.
++  bool fastFP() const { return semantics_ == DOLLLVM_SEMANTICS_FAST; }
++  llvm::Value *fastBinary(unsigned intrinsic, llvm::Value *left, llvm::Value *right);
+   bool cold_escapes_ = false;
+   bool intrinsic_escapes_ = false;
+   const u32 *entry_points_ = nullptr;
+diff --git a/src/backend/llvm/floating_point.cpp b/src/backend/llvm/floating_point.cpp
+index 5064636..bf4d6c2 100644
+--- a/src/backend/llvm/floating_point.cpp
++++ b/src/backend/llvm/floating_point.cpp
+@@ -51,7 +51,48 @@ void FunctionEmitter::emitExactFloat(u64 descriptor) {
+ 
+   DolIRStateSlot destination = fprSlot(d);
+   Value *old = stateValue(destination);
+-  if (op >= DOLIR_EXACT_FADDS && op <= DOLIR_EXACT_FRSP) {
++  const bool fastArithmetic =
++      fastFP() && ((op >= DOLIR_EXACT_FADDS && op <= DOLIR_EXACT_FRSP) ||
++                   (op >= DOLIR_EXACT_FMADD && op <= DOLIR_EXACT_FNMSUBS));
++  const bool fastConvert =
++      fastFP() && (op == DOLIR_EXACT_FCTIW || op == DOLIR_EXACT_FCTIWZ);
++  if (fastArithmetic) {
++    // Inline, like Dolphin's JITs: double math in the host's rounding mode, single results
++    // rounded once and written to both halves; multiply-add unfused.
++    Value *result = nullptr;
++    bool single = false;
++    auto value = [&](u32 reg) { return stateValue(fprSlot(reg)); };
++    switch (op) {
++    case DOLIR_EXACT_FADDS: single = true; [[fallthrough]];
++    case DOLIR_EXACT_FADD: result = builder_.CreateFAdd(value(a), value(b)); break;
++    case DOLIR_EXACT_FSUBS: single = true; [[fallthrough]];
++    case DOLIR_EXACT_FSUB: result = builder_.CreateFSub(value(a), value(b)); break;
++    case DOLIR_EXACT_FMULS: single = true; [[fallthrough]];
++    case DOLIR_EXACT_FMUL: result = builder_.CreateFMul(value(a), value(c)); break;
++    case DOLIR_EXACT_FDIVS: single = true; [[fallthrough]];
++    case DOLIR_EXACT_FDIV: result = builder_.CreateFDiv(value(a), value(b)); break;
++    case DOLIR_EXACT_FRSP: single = true; result = value(b); break;
++    default: {
++      single = op >= DOLIR_EXACT_FMADDS && op <= DOLIR_EXACT_FNMSUBS;
++      bool subtract = op == DOLIR_EXACT_FMSUB || op == DOLIR_EXACT_FNMSUB ||
++                      op == DOLIR_EXACT_FMSUBS || op == DOLIR_EXACT_FNMSUBS;
++      bool negative = op == DOLIR_EXACT_FNMADD || op == DOLIR_EXACT_FNMSUB ||
++                      op == DOLIR_EXACT_FNMADDS || op == DOLIR_EXACT_FNMSUBS;
++      Value *product = builder_.CreateFMul(value(a), value(c));
++      result = subtract ? builder_.CreateFSub(product, value(b))
++                        : builder_.CreateFAdd(product, value(b));
++      if (negative)
++        result = builder_.CreateFNeg(result);
++      break;
++    }
++    }
++    if (single)
++      result = builder_.CreateFPExt(builder_.CreateFPTrunc(result, Type::getFloatTy(context_)),
++                                    f64);
++    builder_.CreateStore(result, state_[destination]);
++    if (single)
++      builder_.CreateStore(result, state_[ps1Slot(d)]);
++  } else if (op >= DOLIR_EXACT_FADDS && op <= DOLIR_EXACT_FRSP) {
+     const char *name = nullptr;
+     switch (op) {
+     case DOLIR_EXACT_FADDS:
+@@ -116,6 +157,33 @@ void FunctionEmitter::emitExactFloat(u64 descriptor) {
+     reloadState(destination);
+     if (single)
+       reloadState(ps1Slot(d));
++  } else if (fastConvert) {
++    // Inline: saturate to s32 (NaN -> 0x80000000), round toward zero or in the host's mode
++    // (set from FPSCR.RN), and keep the helper's 64-bit result layout; no FPSCR flags.
++    Type *i32 = Type::getInt32Ty(context_);
++    Type *i64 = Type::getInt64Ty(context_);
++    Value *value = stateValue(fprSlot(b));
++    Value *integer;
++    if (op == DOLIR_EXACT_FCTIWZ) {
++      integer = builder_.CreateIntrinsic(Intrinsic::fptosi_sat, {i32, f64}, {value});
++    } else {
++      Value *low = ConstantFP::get(f64, -2147483648.0);
++      Value *high = ConstantFP::get(f64, 2147483647.0);
++      Value *clamped = builder_.CreateSelect(builder_.CreateFCmpOLT(value, low), low, value);
++      clamped = builder_.CreateSelect(builder_.CreateFCmpOGT(clamped, high), high, clamped);
++      integer = builder_.CreateIntrinsic(Intrinsic::lrint, {i32, f64}, {clamped});
++    }
++    integer = builder_.CreateSelect(builder_.CreateFCmpUNO(value, value),
++                                    builder_.getInt32(0x80000000u), integer);
++    Value *wide = builder_.CreateOr(builder_.CreateZExt(integer, i64),
++                                    builder_.getInt64(0xFFF8000000000000ull));
++    Value *negativeZero = builder_.CreateAnd(
++        builder_.CreateICmpEQ(integer, builder_.getInt32(0)),
++        builder_.CreateICmpSLT(builder_.CreateBitCast(value, i64), builder_.getInt64(0)));
++    wide = builder_.CreateOr(
++        wide, builder_.CreateSelect(negativeZero, builder_.getInt64(0x100000000ull),
++                                    builder_.getInt64(0)));
++    builder_.CreateStore(builder_.CreateBitCast(wide, f64), state_[destination]);
+   } else if (op == DOLIR_EXACT_FCTIW || op == DOLIR_EXACT_FCTIWZ) {
+     AllocaInst *output = temporary(Type::getInt64Ty(context_), "fctiw.result");
+     builder_.CreateStore(
+@@ -179,7 +247,8 @@ void FunctionEmitter::emitExactFloat(u64 descriptor) {
+                            state_[ps1]);
+     }
+   }
+-  reloadState(DOLIR_STATE_FPSCR);
++  if (!fastArithmetic && !fastConvert)
++    reloadState(DOLIR_STATE_FPSCR);
+   bool singleResult =
+       (op >= DOLIR_EXACT_FADDS && op <= DOLIR_EXACT_FDIVS) ||
+       op == DOLIR_EXACT_FRSP ||
+diff --git a/src/backend/llvm/fpr_state.cpp b/src/backend/llvm/fpr_state.cpp
+index 9c7ee07..ad19a16 100644
+--- a/src/backend/llvm/fpr_state.cpp
++++ b/src/backend/llvm/fpr_state.cpp
+@@ -68,8 +68,23 @@ void FunctionEmitter::writePairF64(u32 reg, Value *pair, bool exactSingle,
+   fp_value_class_[reg] = valueClass;
+ }
+ 
++Value *FunctionEmitter::fastBinary(unsigned intrinsic, Value *left, Value *right) {
++  switch (intrinsic) {
++  case Intrinsic::experimental_constrained_fadd:
++    return builder_.CreateFAdd(left, right, "fast.add");
++  case Intrinsic::experimental_constrained_fsub:
++    return builder_.CreateFSub(left, right, "fast.sub");
++  case Intrinsic::experimental_constrained_fmul:
++    return builder_.CreateFMul(left, right, "fast.mul");
++  default:
++    return builder_.CreateFDiv(left, right, "fast.div");
++  }
++}
++
+ Value *FunctionEmitter::constrainedPairBinary(unsigned intrinsic, Value *left,
+                                               Value *right) {
++  if (fastFP())
++    return fastBinary(intrinsic, left, right);
+   auto *vector = dyn_cast<FixedVectorType>(left->getType());
+   if (vector && vector->getNumElements() == 2 &&
+       vector->getElementType()->isFloatTy()) {
+@@ -93,12 +108,16 @@ Value *FunctionEmitter::roundPairToSingle(Value *pair) {
+   Type *pairType = FixedVectorType::get(Type::getFloatTy(context_), 2);
+   if (pair->getType() == pairType)
+     return pair;
++  if (fastFP())
++    return builder_.CreateFPTrunc(pair, pairType, "ps.round");
+   return builder_.CreateConstrainedFPCast(
+       Intrinsic::experimental_constrained_fptrunc, pair, pairType, nullptr,
+       "ps.round", nullptr, RoundingMode::Dynamic, fp::ebIgnore);
+ }
+ 
+ Value *FunctionEmitter::forcePairedMultiplierPrecision(Value *pair) {
++  if (fastFP())
++    return pair;
+   Type *integerPair = FixedVectorType::get(Type::getInt64Ty(context_), 2);
+   auto splat = [integerPair](u64 value) {
+     return ConstantVector::getSplat(
+@@ -166,7 +185,7 @@ Value *FunctionEmitter::forcePairedMultiplierPrecision(Value *pair) {
+ 
+ Value *FunctionEmitter::preferPairedNaN(Value *result, Value *left,
+                                         Value *right, bool operandsFinite) {
+-  if (operandsFinite)
++  if (operandsFinite || fastFP())
+     return result;
+   Value *resultNaN = builder_.CreateFCmpUNO(result, result);
+   Value *hasExceptionalLane =
+@@ -195,7 +214,10 @@ Value *FunctionEmitter::preferPairedNaN(Value *result, Value *left,
+   return selected;
+ }
+ 
+-void FunctionEmitter::updateFPRF(Value *lane0) { pending_fprf_ = lane0; }
++void FunctionEmitter::updateFPRF(Value *lane0) {
++  if (!fastFP())
++    pending_fprf_ = lane0;
++}
+ 
+ void FunctionEmitter::materializeFPRF() {
+   if (!pending_fprf_)
+diff --git a/src/backend/llvm/gather_pipe.cpp b/src/backend/llvm/gather_pipe.cpp
+index 17e3447..d6f5801 100644
+--- a/src/backend/llvm/gather_pipe.cpp
++++ b/src/backend/llvm/gather_pipe.cpp
+@@ -45,7 +45,7 @@ void FunctionEmitter::gatherPipeWrite(Value *address, Value *value,
+   Value *base = loadOffset(ptr, offsetof(CPUState, gather_pipe_base));
+   Value *queued = builder_.CreatePtrDiff(i8, next, base);
+   builder_.CreateCondBr(
+-      builder_.CreateICmpUGE(queued, builder_.getInt64(32)), flush, done,
++      builder_.CreateICmpSGE(queued, builder_.getInt64(32)), flush, done,
+       MDBuilder(context_).createBranchWeights(1, 7));
+ 
+   builder_.SetInsertPoint(flush);
+diff --git a/src/backend/llvm/paired_fma.cpp b/src/backend/llvm/paired_fma.cpp
+index 672d158..e00c311 100644
+--- a/src/backend/llvm/paired_fma.cpp
++++ b/src/backend/llvm/paired_fma.cpp
+@@ -103,6 +103,9 @@ bool FunctionEmitter::emitVectorPairedFMA(DolIRExactPaired op, u32 d, u32 a,
+ 
+ Value *FunctionEmitter::constrainedPairFMA(Value *left, Value *multiplier,
+                                            Value *addend) {
++  if (fastFP())
++    return builder_.CreateFAdd(builder_.CreateFMul(left, multiplier, "fast.fma.mul"),
++                               addend, "fast.fma");
+   auto *vector = dyn_cast<FixedVectorType>(left->getType());
+   if (vector && vector->getNumElements() == 2 &&
+       vector->getElementType()->isFloatTy()) {
+@@ -131,7 +134,7 @@ Value *FunctionEmitter::constrainedPairFMA(Value *left, Value *multiplier,
+ Value *FunctionEmitter::correctPairedFMARounding(Value *result, Value *left,
+                                                  Value *multiplier,
+                                                  Value *addend) {
+-  if (result->getType()->getScalarType()->isFloatTy())
++  if (fastFP() || result->getType()->getScalarType()->isFloatTy())
+     return result;
+ 
+   Type *integerPair = FixedVectorType::get(Type::getInt64Ty(context_), 2);
+@@ -176,7 +179,7 @@ Value *FunctionEmitter::correctPairedFMARounding(Value *result, Value *left,
+ Value *FunctionEmitter::preferPairedFMANaN(Value *result, Value *left,
+                                            Value *addend, Value *multiplier,
+                                            bool operandsFinite) {
+-  if (operandsFinite)
++  if (operandsFinite || fastFP())
+     return result;
+   Value *resultNaN = builder_.CreateFCmpUNO(result, result);
+   Value *hasNaN =

@@ -2657,6 +2657,55 @@ Checks:
 - Not run: a real CPU without FMA3. The reporter's speed after the fix depends on the rest of their
   CPU and GPU; the WSL figures say the fma cost is gone, not that an Ivy Bridge reaches full speed.
 
+### CPU cost against Dolphin's JIT (issue #13, 2026-10-23)
+
+After the FMA fix the reporter (i7-3770K, Ivy Bridge) still got 15-20 fps in the opening cutscene,
+where stock Dolphin (single core, JIT) holds 30. Measured on WSL (i7-12700K): the same runner with
+`MODERNGEKKO_STATICRECOMP=0` runs Dolphin's Jit64; `--graphics Null`, limiter on (1x), CPU seconds of
+each thread over 30 s after load + 16 s (`/proc/<pid>/task/*/stat`). Uncapped speed misleads here: it
+mostly measures how idle time is skipped.
+
+| CPU-s per 30 game-s | 01 cutscene | 02 battle | 04 ship |
+|---|---|---|---|
+| Recomp (ws34 module, no PGO) | 18.8 | 12.4 | 18.6 |
+| Dolphin Jit64 | 8.5 | 5.8 | 8.8 |
+
+So the recomp needed ~2.2x the JIT's CPU per game-second. What it was, and what was tried:
+
+- **Dispatches: not the cause.** `STATICRECOMP_EXIT_STATS=1` (in `recompcore-perf.patch`) counts why
+  each native dispatch ends: in the cutscene 94M dispatches, 42% returns into a host frame lost to an
+  earlier unwind, 18% indirect calls (`bctrl`/`blrl`), 17% returns after them, 12% `bctr` jumps, 2% slice
+  ends. A prototype that chained indirect branches through the module's dispatcher (call depth limit, the
+  callee's own interception check) cut dispatches by 85% and made the game thread 14% *slower*: the runtime
+  round trip was only ~8% of the thread. Dropped. A census-driven design for chaining is in
+  `docs/perf-dispatch-design.md` for the record.
+- **`--semantics fast` was a no-op** (module byte-identical to exact): the emitter always took the exact
+  paths. `dolrecomp-fast-fp.patch` makes it mean Dolphin's JIT accuracy: scalar FP ops (`fadd[s]`..`frsp`,
+  `fmadd[s]` family, `fctiw[z]`) inline instead of `ppc_*` helper calls, unfused multiply-add, no PowerPC
+  NaN preference, 25-bit multiplier rounding, FMA tie fix-ups or FPRF in paired singles; compares and
+  estimates stay exact. 8-13% of the game thread here, more on CPUs without FMA3. Desktop targets use it
+  (`tools/codegen-targets.txt`); Android and macOS stay exact for now. Pictures of 01/02/04 match the exact
+  build.
+- **Gather pipe:** each 32-byte burst cost a round of CP bookkeeping and a GPU-thread wake-up
+  (`GatherPipeBursted` 9.6% of the thread, ~1.9% in the JIT's single-core profile). Batched 256 bytes at a
+  time (`recompcore-perf.patch`), with everything full forced out at every burst end and before an idle
+  skip; generated stores call the flush hook at 256 bytes through a shifted `gather_pipe_base` (the
+  module's test is signed now). 3-5%. `STATICRECOMP_GP_BATCH=0` turns it off.
+- **End-of-frame wait:** the game spins in `fn_801DC420` (pump the file loader, poll `VIGetRetraceCount`)
+  until the next retrace. `[Core] StaticRecompWaitPC/Counter/Last/Empty` skip to the next event at the
+  loop's return site while the retrace count equals the last frame's and the loader queue is empty
+  (per-region addresses in `release/GEA*8P.ini`, found by the loop's instruction pattern). 3-5%. Dolphin's
+  `PPCAnalyzer::IsBusyWaitLoop` detection (as BlueWake, the Wind Waker recomp, does) found no loops in
+  Skies and was removed.
+- Not it: a cache line of its own for `CPUManager::m_state` (the dispatcher's hottest load is skid).
+
+Result, all three plus a desktop PGO profile retrained on the new code (`build/perf/pgo.sh` in the perf
+worktree; the secrets' `pgo/windows.profdata` needs the new profile): the game thread uses 17-30% less CPU
+than the v0.83 module in 01/02/04 (WSL), and on Windows (RTX 5080, uncapped, interleaved) 01 2.07x ->
+2.69x, 02 3.47x -> 4.41x, 04 2.14x -> 2.79x. Left: game code is ~55% of the thread (paired-single halves
+live in separate `fpr[]`/`ps1[]` arrays of `CPUState`, so each pair is two loads and two stores), the FIFO
+~9%.
+
 ## Native Windows build
 
 Two separate limits showed up under WSL:
