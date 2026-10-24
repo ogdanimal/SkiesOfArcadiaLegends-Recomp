@@ -2739,9 +2739,11 @@ here, more than the ~2x single-thread gap between the two CPUs. Notes:
   linker's default identical-code folding would otherwise merge identical functions; the Android flag).
   Linux, macOS and the Android objects are unchanged; macOS's ld64 has no prefixes and would need an
   order file.
-- **Not measured on the game yet** (no DOL in this session). To check: Windows A/B of the same codegen and
-  profile with and without the patch (`tools/bench-win.sh`, 01/02/04 uncapped, interleaved), and the
-  Retroid. Gains from hot/cold layout grow with the gap between the hot set and the caches, so a 12th-gen
+- **Not measured on the game yet** (no DOL in this session). `tools/ab-layout-win.sh PROFDATA` does the
+  Windows A/B: two modules from the same DolRecomp, DOL and profile, the old layout through
+  `DOLRECOMP_FUNCTION_SECTIONS=0`, checked to differ only in their `.text$hot` sections, then
+  `tools/bench-win.sh` on 01/02/04 (limiter off, a warmup each, interleaved rounds); results and the
+  per-state change in `build/ab-layout.txt`. Then the Retroid. Gains from hot/cold layout grow with the gap between the hot set and the caches, so a 12th-gen
   P-core shows the least of it; a pre-Haswell CPU or a small-cache laptop chip is the real test.
 - Also open: the runtime forces hybrid ubershaders (`moderngekko-local.patch`), while Dolphin's default is
   specialized shaders. That's GPU work on the 1050 Ti, at 2x. The reporter's numbers point at the CPU

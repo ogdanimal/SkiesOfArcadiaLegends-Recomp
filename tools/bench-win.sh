@@ -5,6 +5,7 @@
 #        'build\modules-clang\GEAE8P\<hash>\gGEAE8P_recomp.dll'; STATE defaults to 01-opening-cutscene)
 #   WIN_ROOT defaults to /mnt/c/dev/SkiesRecomp. RUNTIME / USER_DIR are passed to run-win.bat
 #   (Windows paths, e.g. USER_DIR='build\user-bench' for the frame limiter off).
+#   GAME another game root (run-win.bat), e.g. build\game\GEAE8P-ws.
 set -eu
 NAME=$1 MODULE=$2 STATE=${3:-01-opening-cutscene}
 WIN_ROOT=${WIN_ROOT:-/mnt/c/dev/SkiesRecomp}
@@ -14,6 +15,7 @@ mkdir -p build/shots
 SETS="set MODULE=$MODULE&& "
 [ -n "${RUNTIME:-}" ] && SETS+="set RUNTIME=$RUNTIME&& "
 [ -n "${USER_DIR:-}" ] && SETS+="set USER_DIR=$USER_DIR&& "
+[ -n "${GAME:-}" ] && SETS+="set GAME=$GAME&& "
 cmd.exe /c "$SETS$WINDIR\\tools\\run-win.bat build\\bench-$NAME.log --load-state build\\savestates\\$STATE.sav" &
 RUN=$!
 sleep 3

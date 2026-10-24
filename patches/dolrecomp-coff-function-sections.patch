@@ -16,10 +16,10 @@ index 442e199..715acb7 100644
    return written >= 0 && static_cast<size_t>(written) < size;
  }
 diff --git a/src/backend/llvm/target.cpp b/src/backend/llvm/target.cpp
-index 36dc8fa..4ddd482 100644
+index 36dc8fa..d4280cc 100644
 --- a/src/backend/llvm/target.cpp
 +++ b/src/backend/llvm/target.cpp
-@@ -128,6 +128,14 @@ static CodeGenOptLevel codegenLevel(int level) {
+@@ -128,6 +128,17 @@ static CodeGenOptLevel codegenLevel(int level) {
    return CodeGenOptLevel::Aggressive;
  }
  
@@ -27,14 +27,17 @@ index 36dc8fa..4ddd482 100644
 +// .text$unlikely, which the linker groups across every chunk) with a section per function;
 +// without one, a chunk's functions all go to its plain .text, hot and cold interleaved chunk by
 +// chunk. ELF names the prefixes either way (.text.hot. / .text.unlikely.).
++// DOLRECOMP_FUNCTION_SECTIONS=0 keeps the old layout (A/B measurements).
 +bool functionSections(const TargetProfile &profile) {
++  if (const char *set = std::getenv("DOLRECOMP_FUNCTION_SECTIONS"); set && set[0] == '0')
++    return false;
 +  return Triple(profile.triple).isOSBinFormatCOFF();
 +}
 +
  std::unique_ptr<TargetMachine>
  createTargetMachine(const TargetProfile &profile, int optimization_level,
                      DolLLVMSemantics semantics,
-@@ -140,6 +148,7 @@ createTargetMachine(const TargetProfile &profile, int optimization_level,
+@@ -140,6 +151,7 @@ createTargetMachine(const TargetProfile &profile, int optimization_level,
    options.AllowFPOpFusion = semantics == DOLLLVM_SEMANTICS_FAST
                                  ? FPOpFusion::Fast
                                  : FPOpFusion::Strict;
