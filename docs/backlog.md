@@ -183,8 +183,12 @@ runtime, with Aurora drawing; the Dolphin build ships until the standalone one r
 gates and the survey in [handoffs/HANDOFF-emulator-free.md](handoffs/HANDOFF-emulator-free.md). Hard
 gaps: audio (Skies mixes with MusyX 2.0 on the DSP and GXRuntime has no DSP emulation: a DSP emulator or
 a native MusyX engine such as AxioDL's amuse), the 60 fps interpolator (built into Dolphin's video layer),
-a new Android shell, and about 25,000 lines of port features written against Dolphin's APIs. First step:
-a boot spike to the title screen on desktop.
+a new Android shell, and about 25,000 lines of port features written against Dolphin's APIs. Status
+(2026-10-25): the standalone host plays on desktop (WSL, Windows D3D12) with no Dolphin core: audio
+bit-exact (Skies' MusyX ucode is Dolphin's AX, ported as HLE), card saves, the in-game menu, save states;
+same-machine baseline: faster than the Dolphin build on CPU, more GPU time per frame. Goal set by the user:
+better than the Dolphin build, weaker hardware included. Open: 60 fps, Continue, the remaining features,
+Android.
 
 The Aurora renderer inside Dolphin (`--graphics Aurora`, `AURORA=1`), the groundwork for it: the picture
 matches Dolphin on both Retroids, Windows and WSL (fork fixes: the XF viewport decoded per register;

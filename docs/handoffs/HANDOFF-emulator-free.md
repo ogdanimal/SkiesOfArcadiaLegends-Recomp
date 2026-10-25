@@ -6,6 +6,16 @@ modules the port builds today) runs on **GXRuntime**, ModernGekko's standalone r
 high-level emulation of the SDK), with **Aurora** drawing the picture. The Dolphin build keeps shipping
 until the standalone build reaches parity; nothing here changes the default builds.
 
+**Performance goal (the user's, 2026-10-25):** the standalone must run *better* than the Dolphin build, and
+weaker hardware must run it better too. The baseline is the last section (*Speed against the Dolphin
+build*): ahead on CPU (25% on a desktop CPU, 45-65% on E-cores, 0.45 vs 0.60 cores at full speed), behind
+on GPU time per frame (about 30% more than Dolphin's Vulkan renderer on an iGPU).
+
+**Status (2026-10-25):** phases 1-3 done (title screen, audio bit-exact with Dolphin's AX HLE, first
+battle at full speed, card saves); phase 4 under way (in-game menu, save states and auto-save done; 60 fps,
+Continue, Language, Dreamcast, HD textures, mapping, rumble open); phase 5 (Android) not started. The
+latest sections at the end of this file come first when picking up.
+
 Why this and not the Aurora-inside-Dolphin backend alone: inside Dolphin, Aurora only reaches parity with
 Dolphin's Vulkan renderer (sessions 5-6, `HANDOFF-aurora.md`); it pays off once the port leaves Dolphin
 (a smaller program, no emulator, a renderer and runtime the port owns). A decompilation port in the
@@ -42,8 +52,8 @@ written against Dolphin's APIs:
 | dcmusic-streams, data-folder, field-speed, language, japan, romhack, match-screen, hud, ... | ~4,000 | various |
 | aurora | 5,687 | the Aurora backend itself (most of it carries over) |
 
-Save states are Dolphin's format and will not load in the standalone build. Memory card saves are plain
-GCI files and carry over.
+The Dolphin build's save states are Dolphin's format and don't load in the standalone build (it has its own,
+see *Save states*). Memory card saves are plain GCI files and carry over.
 
 ## The three hard gaps
 
@@ -68,13 +78,13 @@ GCI files and carry over.
 
 ## Plan, with a gate per phase
 
-1. **Boot spike (about one session).** Build a standalone runner (StrikersRecomp as the template) that loads
+1. **Boot spike (about one session).** *Done 2026-10-24.* Build a standalone runner (StrikersRecomp as the template) that loads
    the existing USA module on GXRuntime on Linux or Windows, Aurora drawing. Gate: the title screen. Decide
    gxcore vs the Aurora gx command path for Skies (the latter is the one verified frame-for-frame).
-2. **Audio decision.** Prototype amuse against a DSP emulator. Gate: the intro music plays, in time.
-3. **Playable on desktop.** Input, card saves, disc reads and streamed audio, speed. Gate: the first battle at
+2. **Audio decision.** *Done: Skies' MusyX ucode is Dolphin's AX, ported as HLE; bit-exact.* Prototype amuse against a DSP emulator. Gate: the intro music plays, in time.
+3. **Playable on desktop.** *Done 2026-10-25 (WSL and Windows D3D12).* Input, card saves, disc reads and streamed audio, speed. Gate: the first battle at
    full speed, a card save written and read back.
-4. **Features re-hosted** in priority order: settings menu (the ImGui overlay exists), 60 fps, then the rest
+4. **Features re-hosted** (*under way: menu and save states done*) in priority order: settings menu (the ImGui overlay exists), 60 fps, then the rest
    of the table above.
 5. **Android shell**, then standalone builds released beside the Dolphin builds until parity.
 
