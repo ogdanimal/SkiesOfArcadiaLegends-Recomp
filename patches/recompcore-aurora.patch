@@ -1228,7 +1228,7 @@ index ad36cc446a..46df2d9293 100644
  }
  } // namespace aurora::gx
 diff --git a/GXRuntime/graphics/aurora/lib/gfx/common.cpp b/GXRuntime/graphics/aurora/lib/gfx/common.cpp
-index 4c672587f0..24276e0a5a 100644
+index 4c672587f0..466eaa6655 100644
 --- a/GXRuntime/graphics/aurora/lib/gfx/common.cpp
 +++ b/GXRuntime/graphics/aurora/lib/gfx/common.cpp
 @@ -22,8 +22,11 @@
@@ -1256,7 +1256,7 @@ index 4c672587f0..24276e0a5a 100644
      enqueue_pass(frame, g_recordingFrameSlot, g_currentRenderPass);
      g_currentRenderPass = UINT32_MAX;
    }
-@@ -556,6 +565,64 @@ void queue_texture_copy(wgpu::TexelCopyTextureInfo src, wgpu::TexelCopyTextureIn
+@@ -556,6 +565,94 @@ void queue_texture_copy(wgpu::TexelCopyTextureInfo src, wgpu::TexelCopyTextureIn
    enqueue_op(frame, g_recordingFrameSlot, opIndex);
  }
  
@@ -1308,6 +1308,36 @@ index 4c672587f0..24276e0a5a 100644
 +  push_command(CommandType::SetScissor, Command::Data{.setScissor = g_cachedScissor});
 +}
 +
++bool clear_at_frame_start(bool clearColor, bool clearAlpha, bool clearDepth, const Vec4<float>& color, float depth) {
++  // The first pass loads with a clear of colour and depth (begin_frame's values). While it holds no draw yet
++  // and the clear would cover the whole target (a clear draw is scissored), the clear's values can be the
++  // load op's. Colour and alpha only together: one of them alone is a masked draw.
++  if (g_currentRenderPass != 0 || g_inOffscreen || clearColor != clearAlpha || (!clearColor && !clearDepth)) {
++    return false;
++  }
++  auto& pass = current_render_passes()[0];
++  if (pass.sealed || pass.offscreen || !pass.clearColor || !pass.clearDepth || !pass.paletteConvs.empty() ||
++      pass.colorLoadOp != wgpu::LoadOp::Undefined || pass.depthLoadOp != wgpu::LoadOp::Undefined) {
++    return false;
++  }
++  const ClipRect full{0, 0, static_cast<int32_t>(pass.targetSize.width), static_cast<int32_t>(pass.targetSize.height)};
++  if (g_cachedScissor != full) {
++    return false;
++  }
++  for (const auto& cmd : pass.commands) {
++    if (cmd.type != CommandType::SetViewport && cmd.type != CommandType::SetScissor) {
++      return false;
++    }
++  }
++  if (clearColor) {
++    pass.clearColorValue = color;
++  }
++  if (clearDepth) {
++    pass.clearDepthValue = depth;
++  }
++  return true;
++}
++
 +void copy_present_source_to(const webgpu::TextureWithSampler& dst) {
 +  const auto& src = webgpu::present_source();
 +  if (!src.texture || !dst.texture || g_recordingFrame == nullptr) {
@@ -1321,7 +1351,7 @@ index 4c672587f0..24276e0a5a 100644
  void begin_color_pass(const ColorPassDescriptor& desc) {
    ZoneScoped;
    auto& frame = current_frame_packet();
-@@ -689,9 +756,17 @@ void resolve_pass(TextureHandle texture, ClipRect rect, bool clearColor, bool cl
+@@ -689,9 +786,17 @@ void resolve_pass(TextureHandle texture, ClipRect rect, bool clearColor, bool cl
    // Push UV transform uniform for tex_copy_conv (crop region in UV space)
    const auto srcW = static_cast<float>(prevPass.targetSize.width);
    const auto srcH = static_cast<float>(prevPass.targetSize.height);
@@ -1341,7 +1371,7 @@ index 4c672587f0..24276e0a5a 100644
        static_cast<float>(rect.width) / srcW,
        static_cast<float>(rect.height) / srcH,
    };
-@@ -1420,6 +1495,84 @@ static void encode_op(wgpu::CommandEncoder& cmd, FramePacket& frame, const Frame
+@@ -1420,6 +1525,84 @@ static void encode_op(wgpu::CommandEncoder& cmd, FramePacket& frame, const Frame
    }
  }
  
@@ -1426,7 +1456,7 @@ index 4c672587f0..24276e0a5a 100644
  static void render(wgpu::CommandEncoder& cmd, FramePacket& frame, RenderPass& passInfo, uint32_t passIndex) {
    ZoneScoped;
    if (!passInfo.sealed) {
-@@ -1526,12 +1679,23 @@ static void render(wgpu::CommandEncoder& cmd, FramePacket& frame, RenderPass& pa
+@@ -1526,12 +1709,23 @@ static void render(wgpu::CommandEncoder& cmd, FramePacket& frame, RenderPass& pa
        };
        cmd.CopyTextureToTexture(&src, &dst, &size);
      }
@@ -1451,10 +1481,10 @@ index 4c672587f0..24276e0a5a 100644
  
  void gpu_synchronize() { render_worker::synchronize(); }
 diff --git a/GXRuntime/graphics/aurora/lib/gfx/common.hpp b/GXRuntime/graphics/aurora/lib/gfx/common.hpp
-index e885be071a..66e2a37c5d 100644
+index e885be071a..d1ad416e00 100644
 --- a/GXRuntime/graphics/aurora/lib/gfx/common.hpp
 +++ b/GXRuntime/graphics/aurora/lib/gfx/common.hpp
-@@ -267,6 +267,21 @@ struct ColorPassDescriptor {
+@@ -267,6 +267,24 @@ struct ColorPassDescriptor {
  void begin_color_pass(const ColorPassDescriptor& desc);
  void end_color_pass();
  void queue_texture_copy(wgpu::TexelCopyTextureInfo src, wgpu::TexelCopyTextureInfo dst, wgpu::Extent3D size);
@@ -1463,6 +1493,9 @@ index e885be071a..66e2a37c5d 100644
 +void restart_efb_pass();
 +// Push the cached viewport and scissor again (after a clear draw, which sets the encoder's own).
 +void reapply_viewport_scissor();
++// Local (fork): a clear made before anything is drawn in the frame's first EFB pass becomes that pass's
++// load-op clear (it clears the whole target already); false when the caller has to draw it.
++bool clear_at_frame_start(bool clearColor, bool clearAlpha, bool clearDepth, const Vec4<float>& color, float depth);
 +// Queue a copy of the whole present source into dst (same size and format), then go on drawing.
 +void copy_present_source_to(const webgpu::TextureWithSampler& dst);
 +// The picture end_frame presents instead of the EFB (null: the EFB). Read when end_frame records
@@ -2112,7 +2145,7 @@ index 45a8ba80e8..e6bfee0b81 100644
    u32 format() const noexcept { return mFormat != aurora::gfx::InvalidTextureFormat ? mFormat : raw_format(); }
    GXTexWrapMode wrap_s() const noexcept { return static_cast<GXTexWrapMode>(get_bits(mode0, 2, 0)); }
 diff --git a/GXRuntime/graphics/aurora/lib/gx/command_processor.cpp b/GXRuntime/graphics/aurora/lib/gx/command_processor.cpp
-index 5b176e702c..d39960eff7 100644
+index 5b176e702c..87e331c6ba 100644
 --- a/GXRuntime/graphics/aurora/lib/gx/command_processor.cpp
 +++ b/GXRuntime/graphics/aurora/lib/gx/command_processor.cpp
 @@ -1,9 +1,15 @@
@@ -2287,7 +2320,7 @@ index 5b176e702c..d39960eff7 100644
  
    // Line/point size (0x22)
    case 0x22: {
-@@ -958,9 +1045,58 @@ static void handle_bp(u32 value, bool bigEndian) {
+@@ -958,9 +1045,69 @@ static void handle_bp(u32 value, bool bigEndian) {
    case 0x52: {
      const bool clear = bp_get(value, 1, 11) != 0;
      if (bp_get(value, 1, 14) != 0) {
@@ -2310,7 +2343,18 @@ index 5b176e702c..d39960eff7 100644
 +        const char* env = std::getenv("AURORA_DISPLAY_COPY_CLEAR");
 +        return env == nullptr || env[0] != '0';
 +      }();
-+      if (applyClear && clear && (g_gxState.colorUpdate || g_gxState.alphaUpdate || g_gxState.depthUpdate)) {
++      static const bool atFrameStart = [] {
++        const char* env = std::getenv("AURORA_CLEAR_AT_FRAME_START");
++        return env == nullptr || env[0] != '0';
++      }();
++      if (applyClear && clear && (g_gxState.colorUpdate || g_gxState.alphaUpdate || g_gxState.depthUpdate) &&
++          atFrameStart && !in_replay_context() &&
++          gfx::clear_at_frame_start(g_gxState.colorUpdate, g_gxState.alphaUpdate, g_gxState.depthUpdate,
++                                    g_gxState.clearColor, clear_depth_value())) {
++        if (::aurora_debug_draw_log) {
++          std::fprintf(stderr, "  display copy clear as the frame's load-op clear\n");
++        }
++      } else if (applyClear && clear && (g_gxState.colorUpdate || g_gxState.alphaUpdate || g_gxState.depthUpdate)) {
 +        gfx::push_draw_command(gfx::clear::DrawData{
 +            .pipeline = gfx::pipeline_ref(gfx::clear::PipelineConfig{
 +                .msaaSamples = gfx::get_sample_count(),
@@ -2347,7 +2391,7 @@ index 5b176e702c..d39960eff7 100644
        if (g_gxState.texCopyDest != nullptr) {
          copy_tex(g_gxState.texCopyDest, clear);
        } else {
-@@ -1310,12 +1446,21 @@ static void handle_bp(u32 value, bool bigEndian) {
+@@ -1310,12 +1457,21 @@ static void handle_bp(u32 value, bool bigEndian) {
    }
  }
  
@@ -2370,7 +2414,7 @@ index 5b176e702c..d39960eff7 100644
      vd[GX_VA_PNMTXIDX] = static_cast<GXAttrType>(bp_get(value, 1, 0));
      vd[GX_VA_TEX0MTXIDX] = static_cast<GXAttrType>(bp_get(value, 1, 1));
      vd[GX_VA_TEX1MTXIDX] = static_cast<GXAttrType>(bp_get(value, 1, 2));
-@@ -1329,6 +1474,7 @@ static void handle_cp(u8 addr, u32 value, bool bigEndian) {
+@@ -1329,6 +1485,7 @@ static void handle_cp(u8 addr, u32 value, bool bigEndian) {
      vd[GX_VA_NRM] = static_cast<GXAttrType>(bp_get(value, 2, 11));
      vd[GX_VA_CLR0] = static_cast<GXAttrType>(bp_get(value, 2, 13));
      vd[GX_VA_CLR1] = static_cast<GXAttrType>(bp_get(value, 2, 15));
@@ -2378,7 +2422,7 @@ index 5b176e702c..d39960eff7 100644
      g_gxState.stateDirty = true;
      g_gxState.clearVtxSizeCache();
      break;
-@@ -1336,7 +1482,7 @@ static void handle_cp(u8 addr, u32 value, bool bigEndian) {
+@@ -1336,7 +1493,7 @@ static void handle_cp(u8 addr, u32 value, bool bigEndian) {
  
    // VCD high (0x60)
    case 0x60: {
@@ -2387,7 +2431,7 @@ index 5b176e702c..d39960eff7 100644
      vd[GX_VA_TEX0] = static_cast<GXAttrType>(bp_get(value, 2, 0));
      vd[GX_VA_TEX1] = static_cast<GXAttrType>(bp_get(value, 2, 2));
      vd[GX_VA_TEX2] = static_cast<GXAttrType>(bp_get(value, 2, 4));
-@@ -1345,6 +1491,7 @@ static void handle_cp(u8 addr, u32 value, bool bigEndian) {
+@@ -1345,6 +1502,7 @@ static void handle_cp(u8 addr, u32 value, bool bigEndian) {
      vd[GX_VA_TEX5] = static_cast<GXAttrType>(bp_get(value, 2, 10));
      vd[GX_VA_TEX6] = static_cast<GXAttrType>(bp_get(value, 2, 12));
      vd[GX_VA_TEX7] = static_cast<GXAttrType>(bp_get(value, 2, 14));
@@ -2395,7 +2439,7 @@ index 5b176e702c..d39960eff7 100644
      g_gxState.stateDirty = true;
      g_gxState.clearVtxSizeCache();
      break;
-@@ -1443,7 +1590,9 @@ static void handle_cp(u8 addr, u32 value, bool bigEndian) {
+@@ -1443,7 +1601,9 @@ static void handle_cp(u8 addr, u32 value, bool bigEndian) {
              array.size = available;
              array.le = false;
              array.cachedRange = {};
@@ -2406,7 +2450,7 @@ index 5b176e702c..d39960eff7 100644
            }
          } else {
            Log.error("Unable to resolve CP_REG_ARRAYBASE_ID attr={} physical=0x{:08X}", attrIdx, value);
-@@ -1458,7 +1607,9 @@ static void handle_cp(u8 addr, u32 value, bool bigEndian) {
+@@ -1458,7 +1618,9 @@ static void handle_cp(u8 addr, u32 value, bool bigEndian) {
          const auto newStride = static_cast<u8>(value);
          if (array.stride != newStride) {
            array.stride = newStride;
@@ -2417,7 +2461,7 @@ index 5b176e702c..d39960eff7 100644
          }
        }
      }
-@@ -1586,25 +1737,18 @@ static void handle_xf(const u8* data, u32& pos, u32 size, bool bigEndian) {
+@@ -1586,25 +1748,18 @@ static void handle_xf(const u8* data, u32& pos, u32 size, bool bigEndian) {
        case 0x1D:
        case 0x1E:
        case 0x1F: {
@@ -2455,7 +2499,7 @@ index 5b176e702c..d39960eff7 100644
          }
          break;
        }
-@@ -1615,16 +1759,18 @@ static void handle_xf(const u8* data, u32& pos, u32 size, bool bigEndian) {
+@@ -1615,16 +1770,18 @@ static void handle_xf(const u8* data, u32& pos, u32 size, bool bigEndian) {
        case 0x24:
        case 0x25:
        case 0x26: {
@@ -2484,7 +2528,7 @@ index 5b176e702c..d39960eff7 100644
            g_gxState.projType = static_cast<GXProjectionType>(projType);
            // Reconstruct 4x4 projection matrix from 6 params
            auto& proj = g_gxState.proj;
-@@ -1719,6 +1865,90 @@ static void handle_draw_overrun [[noreturn]] (u32 totalVtxBytes, const u8* data,
+@@ -1719,6 +1876,90 @@ static void handle_draw_overrun [[noreturn]] (u32 totalVtxBytes, const u8* data,
  }
  
  // Draw command handler - parses vertices inline and caches results
@@ -2575,7 +2619,7 @@ index 5b176e702c..d39960eff7 100644
  static u32 calculate_last_vtx_size(GXVtxFmt fmt) {
    u32 vtxSize = 0;
    const auto& vtxFmt = g_gxState.vtxFmts[fmt];
-@@ -1743,6 +1973,7 @@ static u32 calculate_last_vtx_size(GXVtxFmt fmt) {
+@@ -1743,6 +1984,7 @@ static u32 calculate_last_vtx_size(GXVtxFmt fmt) {
  
    g_gxState.lastVtxFmt = fmt;
    g_gxState.lastVtxSize = vtxSize;
@@ -2583,7 +2627,7 @@ index 5b176e702c..d39960eff7 100644
  
    return vtxSize;
  }
-@@ -1805,10 +2036,11 @@ static void calculate_indexed_array_sizes(GXVtxFmt fmt, u16 vtxCount, const u8*
+@@ -1805,10 +2047,11 @@ static void calculate_indexed_array_sizes(GXVtxFmt fmt, u16 vtxCount, const u8*
    }
  }
  
@@ -2597,19 +2641,19 @@ index 5b176e702c..d39960eff7 100644
  
  // Draw command handler - parses vertices inline and caches results
  static ByteBuffer handle_draw_idx_buf;
-@@ -1820,21 +2052,72 @@ static void draw_prim(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, const u8* da
+@@ -1820,21 +2063,72 @@ static void draw_prim(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, const u8* da
      LIKELY { vtxSize = g_gxState.lastVtxSize; }
    else
      UNLIKELY { vtxSize = calculate_last_vtx_size(fmt); }
 +  const u32 streamVtxSize = g_gxState.lastVtxStreamSize;
-+
-+  const u32 totalStreamBytes = vtxCount * streamVtxSize;
-+  if (pos + totalStreamBytes > size)
-+    UNLIKELY { handle_draw_overrun(totalStreamBytes, data, pos, size); }
  
 -  u32 totalVtxBytes = vtxCount * vtxSize;
 -  if (pos + totalVtxBytes > size)
 -    UNLIKELY { handle_draw_overrun(totalVtxBytes, data, pos, size); }
++  const u32 totalStreamBytes = vtxCount * streamVtxSize;
++  if (pos + totalStreamBytes > size)
++    UNLIKELY { handle_draw_overrun(totalStreamBytes, data, pos, size); }
++
 +  // Dereference indexed attributes on the CPU: the draw continues as a direct one
 +  const bool deref = aurora_deref_indexed && streamVtxSize != vtxSize;
 +  const u8* vertexSource = data + pos;
@@ -2679,16 +2723,214 @@ index 5b176e702c..d39960eff7 100644
  
    // Try to merge with previous draw call
    if (canMerge) {
-@@ -1871,7 +2154,7 @@ static void draw_prim(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, const u8* da
+@@ -1871,7 +2165,205 @@ static void draw_prim(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, const u8* da
      return;
    }
  
 -  handle_draw_unmerged(prim, fmt, vtxCount, vertRange, arraySizes);
 +  handle_draw_unmerged(prim, fmt, vtxCount, vertRange, ranges);
++}
++
++// Local (fork): the TEV's output when it is the same on every pixel and exactly 0 or 1 in every channel: every
++// input it reads is a register constant (konst, TEV register, material colour with lighting off) of exactly 0 or 1.
++// Mirrors the shader's arithmetic (shader.cpp: tev_op, tev_overflow, the final overflow); no textures, vertex
++// colours, lighting, compare ops or fog.
++static std::optional<std::array<float, 4>> constant_tev_output(const ShaderConfig& config) {
++  if (config.fogType != GX_FOG_NONE || config.tevStageCount == 0 || config.tevStageCount > MaxTevStages) {
++    return std::nullopt;
++  }
++  bool ok = true;
++  const auto input = [&ok](float v) {
++    if (v != 0.f && v != 1.f) {
++      ok = false;
++    }
++    return v;
++  };
++  const auto overflow = [](float v) {
++    const float b = v * 255.f;
++    return (b - std::floor(b / 256.f) * 256.f) / 255.f;
++  };
++  // A register component an earlier stage wrote, or else its uniform value (an input)
++  std::array<std::array<float, 4>, MaxTevRegs> regs{};
++  std::array<std::array<bool, 4>, MaxTevRegs> known{};
++  const auto reg = [&](u32 i, int c) {
++    if (!known[i][c]) {
++      regs[i][c] = input(g_gxState.colorRegs[i][c]);
++      known[i][c] = true;
++    }
++    return regs[i][c];
++  };
++  const auto ras = [&](const TevStage& stage) -> std::array<float, 4> {
++    if (stage.channelId == GX_COLOR_ZERO || stage.channelId == GX_COLOR_NULL) {
++      return {0.f, 0.f, 0.f, 0.f};
++    }
++    if (stage.channelId == GX_ALPHA_BUMP || stage.channelId == GX_ALPHA_BUMPN) {
++      ok = false;
++      return {};
++    }
++    const u8 idx = color_channel(stage.channelId);
++    const auto& cc = config.colorChannels[idx];
++    const auto& cca = config.colorChannels[idx + GX_ALPHA0];
++    if (cc.lightingEnabled || cca.lightingEnabled || cc.matSrc != GX_SRC_REG || cca.matSrc != GX_SRC_REG) {
++      ok = false;
++      return {};
++    }
++    const auto& m = g_gxState.colorChannelState[idx].matColor;
++    const auto& ma = g_gxState.colorChannelState[idx + GX_ALPHA0].matColor;
++    const std::array raw{input(m[0]), input(m[1]), input(m[2]), input(ma[3])};
++    const auto& swap = config.tevSwapTable[stage.tevSwapRas];
++    return {raw[swap.red], raw[swap.green], raw[swap.blue], raw[swap.alpha]};
++  };
++  const auto konst = [&](u32 sel, bool alpha) -> std::array<float, 4> {
++    if (sel == GX_TEV_KCSEL_8_8) {
++      return {1.f, 1.f, 1.f, 1.f};
++    }
++    if (!alpha && sel >= GX_TEV_KCSEL_K0 && sel <= GX_TEV_KCSEL_K3) {
++      const auto& k = g_gxState.kcolors[sel - GX_TEV_KCSEL_K0];
++      return {input(k[0]), input(k[1]), input(k[2]), input(k[3])};
++    }
++    if (sel >= GX_TEV_KCSEL_K0_R && sel <= GX_TEV_KCSEL_K3_A) {
++      const float v = input(g_gxState.kcolors[sel & 3][(sel - GX_TEV_KCSEL_K0_R) >> 2]);
++      return {v, v, v, v};
++    }
++    ok = false; // the fractions, and invalid selections
++    return {};
++  };
++  const auto op = [&](const TevOp& o, float a, float b, float c, float d) {
++    const float oc = overflow(c);
++    float r = overflow(a) * (1.f - oc) + overflow(b) * oc;
++    r = (o.op == GX_TEV_SUB ? -r : r) + d;
++    r += o.bias == GX_TB_ADDHALF ? 0.5f : o.bias == GX_TB_SUBHALF ? -0.5f : 0.f;
++    r *= o.scale == GX_CS_SCALE_2 ? 2.f : o.scale == GX_CS_SCALE_4 ? 4.f : o.scale == GX_CS_DIVIDE_2 ? 0.5f : 1.f;
++    return o.clamp ? std::clamp(r, 0.f, 1.f) : std::clamp(r, -4.f, 4.f);
++  };
++  for (u32 idx = 0; idx < config.tevStageCount && ok; ++idx) {
++    const auto& stage = config.tevStages[idx];
++    if ((stage.colorOp.op != GX_TEV_ADD && stage.colorOp.op != GX_TEV_SUB) ||
++        (stage.alphaOp.op != GX_TEV_ADD && stage.alphaOp.op != GX_TEV_SUB)) {
++      return std::nullopt;
++    }
++    const auto colorArg = [&](GXTevColorArg arg, int c) -> float {
++      switch (arg) {
++      case GX_CC_CPREV: return reg(0, c);
++      case GX_CC_APREV: return reg(0, 3);
++      case GX_CC_C0: return reg(1, c);
++      case GX_CC_A0: return reg(1, 3);
++      case GX_CC_C1: return reg(2, c);
++      case GX_CC_A1: return reg(2, 3);
++      case GX_CC_C2: return reg(3, c);
++      case GX_CC_A2: return reg(3, 3);
++      case GX_CC_RASC: return ras(stage)[c];
++      case GX_CC_RASA: return ras(stage)[3];
++      case GX_CC_ONE: return 1.f;
++      case GX_CC_KONST: return konst(stage.kcSel, false)[c];
++      case GX_CC_ZERO: return 0.f;
++      default: ok = false; return 0.f; // textures, HALF
++      }
++    };
++    const auto alphaArg = [&](GXTevAlphaArg arg) -> float {
++      switch (arg) {
++      case GX_CA_APREV: return reg(0, 3);
++      case GX_CA_A0: return reg(1, 3);
++      case GX_CA_A1: return reg(2, 3);
++      case GX_CA_A2: return reg(3, 3);
++      case GX_CA_RASA: return ras(stage)[3];
++      case GX_CA_KONST: return konst(stage.kaSel, true)[3];
++      case GX_CA_ZERO: return 0.f;
++      default: ok = false; return 0.f; // textures
++      }
++    };
++    std::array<float, 3> color{};
++    for (int c = 0; c < 3; ++c) {
++      const auto& p = stage.colorPass;
++      color[c] = op(stage.colorOp, colorArg(p.a, c), colorArg(p.b, c), colorArg(p.c, c), colorArg(p.d, c));
++    }
++    const auto& pa = stage.alphaPass;
++    const float alpha = op(stage.alphaOp, alphaArg(pa.a), alphaArg(pa.b), alphaArg(pa.c), alphaArg(pa.d));
++    for (int c = 0; c < 3; ++c) {
++      regs[stage.colorOp.outReg][c] = color[c];
++      known[stage.colorOp.outReg][c] = true;
++    }
++    regs[stage.alphaOp.outReg][3] = alpha;
++    known[stage.alphaOp.outReg][3] = true;
++  }
++  if (!ok) {
++    return std::nullopt;
++  }
++  const auto& last = config.tevStages[config.tevStageCount - 1];
++  std::array<float, 4> out{reg(last.colorOp.outReg, 0), reg(last.colorOp.outReg, 1), reg(last.colorOp.outReg, 2),
++                           reg(last.alphaOp.outReg, 3)};
++  for (auto& v : out) {
++    v = overflow(v);
++    if (v != 0.f && v != 1.f) {
++      return std::nullopt;
++    }
++  }
++  if (!ok) {
++    return std::nullopt;
++  }
++  return out;
++}
++
++static bool logic_op_bit(u32 op, bool s, bool d) {
++  switch (op & 15) {
++  case GX_LO_CLEAR: return false;
++  case GX_LO_AND: return s && d;
++  case GX_LO_REVAND: return s && !d;
++  case GX_LO_COPY: return s;
++  case GX_LO_INVAND: return !s && d;
++  case GX_LO_NOOP: return d;
++  case GX_LO_XOR: return s != d;
++  case GX_LO_OR: return s || d;
++  case GX_LO_NOR: return !(s || d);
++  case GX_LO_EQUIV: return s == d;
++  case GX_LO_INV: return !d;
++  case GX_LO_REVOR: return s || !d;
++  case GX_LO_INVCOPY: return !s;
++  case GX_LO_INVOR: return !s || d;
++  case GX_LO_NAND: return !(s && d);
++  default: return true; // SET
++  }
++}
++
++// Local (fork): a logic op whose source is 0x00 or 0xFF in every channel (constant_tev_output) leaves each
++// destination channel unchanged, sets it to the source, or does something else to it (sets it to the inverted
++// source, inverts it). With only the first two it is a plain draw of the source with a write mask, which needs no
++// destination snapshot; the result is bit-identical to the snapshot's shader op. Returns 0x10 | the mask.
++static std::optional<u8> constant_logic_op_mask(const PipelineConfig& config) {
++  static const bool enabled = [] {
++    const char* env = std::getenv("AURORA_LOGIC_OP_CONST");
++    return env == nullptr || env[0] != '0';
++  }();
++  if (!enabled || (config.alphaUpdate && config.dstAlpha != UINT32_MAX)) {
++    return std::nullopt;
++  }
++  const auto src = constant_tev_output(config.shaderConfig);
++  if (!src) {
++    return std::nullopt;
++  }
++  u8 mask = 0x10;
++  for (int c = 0; c < 4; ++c) {
++    if (!(c < 3 ? config.colorUpdate : config.alphaUpdate)) {
++      continue;
++    }
++    const bool s = (*src)[c] == 1.f;
++    const bool r0 = logic_op_bit(config.blendOp, s, false);
++    const bool r1 = logic_op_bit(config.blendOp, s, true);
++    if (r0 == r1) {
++      if (r0 != s) {
++        return std::nullopt;
++      }
++      mask |= static_cast<u8>(1u << c);
++    } else if (r0 || !r1) {
++      return std::nullopt;
++    }
++  }
++  return mask;
  }
  
  static void handle_draw(u8 cmd, const u8* data, u32& pos, u32 size, bool bigEndian) {
-@@ -1887,8 +2170,31 @@ static void handle_draw(u8 cmd, const u8* data, u32& pos, u32 size, bool bigEndi
+@@ -1887,8 +2379,31 @@ static void handle_draw(u8 cmd, const u8* data, u32& pos, u32 size, bool bigEndi
  
  static ByteBuffer handle_draw_unmerged_idxBuf;
  
@@ -2721,7 +2963,7 @@ index 5b176e702c..d39960eff7 100644
    ZoneScoped;
    u32 numIndices = 0;
    gfx::Range idxRange;
-@@ -1901,32 +2207,139 @@ static void handle_draw_unmerged(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, g
+@@ -1901,32 +2416,149 @@ static void handle_draw_unmerged(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, g
      realBuf.clear();
    }
  
@@ -2842,6 +3084,16 @@ index 5b176e702c..d39960eff7 100644
 +  }
 +  if (!logicOpBlend && config.blendMode == GX_BM_LOGIC && config.blendOp != GX_LO_COPY &&
 +      config.blendOp != GX_LO_NOOP && !gfx::is_offscreen()) {
++    if (const auto mask = constant_logic_op_mask(config)) {
++      config.blendMode = GX_BM_NONE;
++      config.writeMask = *mask;
++      if (::aurora_debug_draw_log) {
++        std::fprintf(stderr, "  logic op %u as write mask %x\n", static_cast<unsigned>(config.blendOp), *mask & 0xF);
++      }
++    }
++  }
++  if (!logicOpBlend && config.blendMode == GX_BM_LOGIC && config.blendOp != GX_LO_COPY &&
++      config.blendOp != GX_LO_NOOP && !gfx::is_offscreen()) {
 +    const auto size = webgpu::g_frameBuffer.size;
 +    // One snapshot texture per context: the frame interpolator's replay (the other GX state on the
 +    // spare EFB) runs between the live frame's commands, and a shared snapshot gave the live
@@ -2878,7 +3130,7 @@ index 5b176e702c..d39960eff7 100644
    const auto bindGroups = build_bind_groups(info);
    const auto pipeline = gfx::pipeline_ref(config);
  
-@@ -1949,6 +2362,8 @@ static void push_gx_draw(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, gfx::Rang
+@@ -1949,6 +2581,8 @@ static void push_gx_draw(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, gfx::Rang
        .bindGroups = bindGroups,
        .dstAlpha = g_gxState.dstAlpha,
        .cullMode = g_gxState.cullMode,
@@ -2887,7 +3139,7 @@ index 5b176e702c..d39960eff7 100644
    });
  }
  
-@@ -2022,7 +2437,9 @@ void handle_aurora(const u8* data, u32& pos, u32 size, bool bigEndian) {
+@@ -2022,7 +2656,9 @@ void handle_aurora(const u8* data, u32& pos, u32 size, bool bigEndian) {
        array.le = le;
        // Only drop the cached upload when the backing array actually changes.
        array.cachedRange = {};
@@ -2898,7 +3150,7 @@ index 5b176e702c..d39960eff7 100644
      }
    } else if (subCmd == GX_AURORA_LOAD_TEXOBJ) {
      CHECK(pos + 34 <= size, "GX_AURORA_LOAD_TEXOBJ read overrun");
-@@ -2178,14 +2595,26 @@ void handle_aurora(const u8* data, u32& pos, u32 size, bool bigEndian) {
+@@ -2178,14 +2814,26 @@ void handle_aurora(const u8* data, u32& pos, u32 size, bool bigEndian) {
      } else {
        vtxSize = calculate_last_vtx_size(fmt);
      }
@@ -2932,7 +3184,7 @@ index 5b176e702c..d39960eff7 100644
    } else if (subCmd == GX_AURORA_DEBUG_GROUP_PUSH) {
      auto label = read_string(data, pos, size, bigEndian);
 diff --git a/GXRuntime/graphics/aurora/lib/gx/gx.cpp b/GXRuntime/graphics/aurora/lib/gx/gx.cpp
-index 5915c5b5f7..628a939e0c 100644
+index 5915c5b5f7..5d8f9790f5 100644
 --- a/GXRuntime/graphics/aurora/lib/gx/gx.cpp
 +++ b/GXRuntime/graphics/aurora/lib/gx/gx.cpp
 @@ -1,3 +1,7 @@
@@ -3362,6 +3614,16 @@ index 5915c5b5f7..628a939e0c 100644
      case GX_LO_CLEAR:
        colorBlendComponent = {
            .operation = wgpu::BlendOperation::Add,
+@@ -671,7 +984,8 @@ wgpu::RenderPipeline build_pipeline(const PipelineConfig& config, ArrayRef<wgpu:
+   const std::array colorTargets{wgpu::ColorTargetState{
+       .format = g_graphicsConfig.surfaceConfiguration.format,
+       .blend = &blendState,
+-      .writeMask = to_write_mask(config.colorUpdate, config.alphaUpdate),
++      .writeMask = config.writeMask != 0 ? static_cast<wgpu::ColorWriteMask>(config.writeMask & 0xF)
++                                          : to_write_mask(config.colorUpdate, config.alphaUpdate),
+   }};
+   const wgpu::FragmentState fragmentState{
+       .module = shader,
 diff --git a/GXRuntime/graphics/aurora/lib/gx/gx.hpp b/GXRuntime/graphics/aurora/lib/gx/gx.hpp
 index 5e5d45868b..9a6467559c 100644
 --- a/GXRuntime/graphics/aurora/lib/gx/gx.hpp
@@ -3425,7 +3687,7 @@ index 5e5d45868b..9a6467559c 100644
    u8 fogType = GX_FOG_NONE;
    u8 vtxStride = 0;
 diff --git a/GXRuntime/graphics/aurora/lib/gx/pipeline.hpp b/GXRuntime/graphics/aurora/lib/gx/pipeline.hpp
-index 9f5a8064da..629cc28051 100644
+index 9f5a8064da..fda328c039 100644
 --- a/GXRuntime/graphics/aurora/lib/gx/pipeline.hpp
 +++ b/GXRuntime/graphics/aurora/lib/gx/pipeline.hpp
 @@ -1,5 +1,7 @@
@@ -3436,7 +3698,7 @@ index 9f5a8064da..629cc28051 100644
  #include "../gfx/common.hpp"
  #include "gx.hpp"
  
-@@ -15,6 +17,10 @@ struct DrawData {
+@@ -15,9 +17,13 @@ struct DrawData {
    GXBindGroups bindGroups;
    uint32_t dstAlpha;
    GXCullMode cullMode;
@@ -3446,7 +3708,24 @@ index 9f5a8064da..629cc28051 100644
 +  std::array<gfx::Range, 12> vaRanges;
  };
  
- constexpr uint32_t GXPipelineConfigVersion = 13;
+-constexpr uint32_t GXPipelineConfigVersion = 13;
++constexpr uint32_t GXPipelineConfigVersion = 14;
+ struct PipelineConfig {
+   uint32_t version = GXPipelineConfigVersion;
+   uint32_t msaaSamples = 1;
+@@ -32,6 +38,12 @@ struct PipelineConfig {
+   uint32_t polygonOffsetScaleBits;
+   uint32_t polygonOffsetClampBits;
+   bool depthCompare, depthUpdate, alphaUpdate, colorUpdate;
++  // Local (fork): 0x10 | wgpu::ColorWriteMask bits replaces the colour/alpha update mask (logic ops done as a
++  // masked plain draw, see constant_logic_op_mask); 0 = from colorUpdate/alphaUpdate.
++  u8 writeMask = 0;
++  u8 _p1 = 0;
++  u8 _p2 = 0;
++  u8 _p3 = 0;
+ };
+ static_assert(std::has_unique_object_representations_v<PipelineConfig>);
+ 
 diff --git a/GXRuntime/graphics/aurora/lib/gx/shader.cpp b/GXRuntime/graphics/aurora/lib/gx/shader.cpp
 index 3e34858496..42c0471a1b 100644
 --- a/GXRuntime/graphics/aurora/lib/gx/shader.cpp
@@ -3521,7 +3800,7 @@ index 0000000000..d3c1b6870a
 +void render(const wgpu::RenderPassEncoder&, const DrawData&) noexcept {}
 +} // namespace aurora::imgui
 diff --git a/GXRuntime/graphics/aurora/lib/webgpu/gpu.cpp b/GXRuntime/graphics/aurora/lib/webgpu/gpu.cpp
-index 37fb564725..7c6b2b527a 100644
+index 37fb564725..50fa20d5d8 100644
 --- a/GXRuntime/graphics/aurora/lib/webgpu/gpu.cpp
 +++ b/GXRuntime/graphics/aurora/lib/webgpu/gpu.cpp
 @@ -636,7 +636,33 @@ wgpu::BindGroup create_copy_bind_group(const TextureWithSampler& source) {
@@ -3574,7 +3853,18 @@ index 37fb564725..7c6b2b527a 100644
          .backendType = backend,
          .compatibleSurface = g_surface,
      };
-@@ -1061,6 +1091,9 @@ void shutdown() {
+@@ -915,6 +945,10 @@ bool initialize(AuroraBackend auroraBackend, bool allowCpu) {
+       if (feature == wgpu::FeatureName::TimestampQuery) {
+         requiredFeatures.push_back(feature);
+       }
++#else
++      if (feature == wgpu::FeatureName::TimestampQuery && gpu_prof::summary_every() != 0) {
++        requiredFeatures.push_back(feature);
++      }
+ #endif
+     }
+     std::string featureList;
+@@ -1061,6 +1095,9 @@ void shutdown() {
    g_frameBuffer = {};
    g_frameBufferResolved = {};
    g_depthBuffer = {};
@@ -3584,7 +3874,7 @@ index 37fb564725..7c6b2b527a 100644
    g_queue = {};
    g_surface = {};
    g_device = {};
-@@ -1103,6 +1136,9 @@ static void resize_swapchain_internal(uint32_t width, uint32_t height, uint32_t
+@@ -1103,6 +1140,9 @@ static void resize_swapchain_internal(uint32_t width, uint32_t height, uint32_t
    g_frameBuffer = create_render_texture(width, height, true);
    g_frameBufferResolved = create_render_texture(width, height, false);
    g_depthBuffer = create_depth_texture(width, height);
@@ -3610,6 +3900,234 @@ index 3943da0943..0236ba6be2 100644
 +bool swap_spare_framebuffer();
  void draw_clear(const wgpu::RenderPassEncoder& pass, bool clearColor, bool clearAlpha, bool clearDepth,
                  const Vec4<float>& clearColorValue, float clearDepthValue);
+ 
+diff --git a/GXRuntime/graphics/aurora/lib/webgpu/gpu_prof.cpp b/GXRuntime/graphics/aurora/lib/webgpu/gpu_prof.cpp
+index c8c9549c71..2edeb8eba2 100644
+--- a/GXRuntime/graphics/aurora/lib/webgpu/gpu_prof.cpp
++++ b/GXRuntime/graphics/aurora/lib/webgpu/gpu_prof.cpp
+@@ -6,15 +6,17 @@
+ #include <tracy/Tracy.hpp>
+ 
+ #ifdef TRACY_ENABLE
+-
+ #include <tracy/TracyC.h>
++#endif
+ 
+ #include <algorithm>
+ #include <array>
+ #include <atomic>
+ #include <bitset>
+ #include <chrono>
++#include <cstdlib>
+ #include <cstring>
++#include <map>
+ #include <string>
+ #include <utility>
+ #include <vector>
+@@ -28,7 +30,7 @@ Module Log("aurora::webgpu::gpu_prof");
+ 
+ // Each zone consumes a begin/end timestamp pair.
+ // The last pair is reserved for the frame zone.
+-constexpr uint32_t MaxZones = 127;
++constexpr uint32_t MaxZones = 511;
+ constexpr uint32_t QueryCount = MaxZones * 2 + 2;
+ constexpr uint32_t FrameBeginQuery = MaxZones * 2;
+ constexpr uint32_t FrameEndQuery = MaxZones * 2 + 1;
+@@ -88,6 +90,86 @@ uint16_t g_queryId = 0;
+ uint64_t g_lastEmittedTs = 0;
+ uint64_t g_lastFrameEnd = 0;
+ 
++// Local (fork): AURORA_GPU_PROF=N prints, every N frames, the GPU time per frame by zone name (pass
++// labels without their index), the frame's span and how much of it no zone covered. Works without Tracy.
++uint32_t g_summaryEvery = 0;
++struct SummaryEntry {
++  uint64_t ns = 0;
++  uint64_t count = 0;
++};
++std::map<std::string, SummaryEntry, std::less<>> g_summary;
++uint64_t g_summaryFrames = 0;
++uint64_t g_summarySpanNs = 0;
++uint64_t g_summaryIdleNs = 0;
++uint64_t g_summaryPasses = 0;
++
++std::string_view summary_name(std::string_view name) {
++  size_t end = name.size();
++  while (end > 0 && name[end - 1] >= '0' && name[end - 1] <= '9') {
++    --end;
++  }
++  if (end < name.size() && end > 0 && name[end - 1] == ' ') {
++    return name.substr(0, end - 1);
++  }
++  return name;
++}
++
++void summary_frame(const Slot& slot, const uint64_t* ts, uint64_t frameBegin, uint64_t frameEnd) {
++  // Top-level zones only (encoder zones can't nest inside passes); the gaps between them are GPU time no zone
++  // covers: unlabelled passes, barriers, idle.
++  struct Open {
++    const char* name;
++    uint64_t begin;
++  };
++  std::vector<Open> stack;
++  uint64_t covered = 0;
++  for (const auto& event : slot.events) {
++    if (event.kind == EventKind::End) {
++      if (stack.empty()) {
++        continue;
++      }
++      const Open open = stack.back();
++      stack.pop_back();
++      const uint64_t end = ts[event.query];
++      if (open.begin == 0 || end <= open.begin || end - open.begin > SaneFrameGapNs) {
++        continue;
++      }
++      auto& entry = g_summary[std::string{summary_name(open.name)}];
++      entry.ns += end - open.begin;
++      ++entry.count;
++      if (stack.empty()) {
++        covered += end - open.begin;
++      }
++    } else {
++      stack.push_back({event.name, ts[event.query]});
++    }
++  }
++  const uint64_t span = frameEnd - frameBegin;
++  ++g_summaryFrames;
++  g_summarySpanNs += span;
++  g_summaryIdleNs += span > covered ? span - covered : 0;
++  g_summaryPasses += slot.passCount;
++  if (g_summaryFrames < g_summaryEvery) {
++    return;
++  }
++  const double frames = static_cast<double>(g_summaryFrames);
++  std::vector<std::pair<std::string, SummaryEntry>> sorted(g_summary.begin(), g_summary.end());
++  std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) { return a.second.ns > b.second.ns; });
++  std::string lines;
++  for (const auto& [name, entry] : sorted) {
++    lines += fmt::format("\n  {:7.3f} ms  {:6.1f}/frame  {}", static_cast<double>(entry.ns) * 1e-6 / frames,
++                         static_cast<double>(entry.count) / frames, name);
++  }
++  Log.info("GPU per frame over {} frames: span {:.3f} ms, not in a zone {:.3f} ms, {:.1f} passes{}",
++           g_summaryFrames, static_cast<double>(g_summarySpanNs) * 1e-6 / frames,
++           static_cast<double>(g_summaryIdleNs) * 1e-6 / frames, static_cast<double>(g_summaryPasses) / frames, lines);
++  g_summary.clear();
++  g_summaryFrames = 0;
++  g_summarySpanNs = 0;
++  g_summaryIdleNs = 0;
++  g_summaryPasses = 0;
++}
++
+ int64_t now_ns() {
+   return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch())
+       .count();
+@@ -107,6 +189,7 @@ const char* intern_name(std::string_view name) {
+   return stable;
+ }
+ 
++#ifdef TRACY_ENABLE
+ // tracy::GpuContextType not exposed through TracyC.h
+ uint8_t tracy_context_type(wgpu::BackendType backend) {
+   switch (backend) {
+@@ -162,6 +245,8 @@ void emit_zone_end(uint64_t gpuNs) {
+   ___tracy_emit_gpu_time_serial({.gpuTime = int64_t(gpuNs), .queryId = queryId, .context = ContextId});
+ }
+ 
++#endif
++
+ TimestampBounds event_bounds(const Slot& slot, const uint64_t* ts) {
+   TimestampBounds bounds;
+   for (const auto& event : slot.events) {
+@@ -214,6 +299,11 @@ void emit_frame(Slot& slot) {
+     }
+   }
+ 
++  if (g_summaryEvery != 0) {
++    summary_frame(slot, ts, frameBegin, frameEnd);
++  }
++
++#ifdef TRACY_ENABLE
+   if (!TracyIsConnected) {
+     return;
+   }
+@@ -277,6 +367,7 @@ void emit_frame(Slot& slot) {
+   TracyPlot("aurora: gpuFrameMs", double(frameEnd - frameBegin) * 1e-6);
+   TracyPlot("aurora: gpuIdleMs", double(idleNs) * 1e-6);
+   TracyPlot("aurora: gpuPasses", int64_t(slot.passCount));
++#endif
+ }
+ 
+ Slot& record_slot() { return g_slots[g_recordSlot]; }
+@@ -289,7 +380,21 @@ uint32_t alloc_zone() {
+ }
+ } // namespace
+ 
++uint32_t summary_every() {
++  static const uint32_t every = [] {
++    const char* env = std::getenv("AURORA_GPU_PROF");
++    return env != nullptr ? static_cast<uint32_t>(std::max(0, std::atoi(env))) : 0u;
++  }();
++  return every;
++}
++
+ void initialize() {
++  g_summaryEvery = summary_every();
++#ifndef TRACY_ENABLE
++  if (g_summaryEvery == 0) {
++    return;
++  }
++#endif
+   g_enabled = g_device.HasFeature(wgpu::FeatureName::TimestampQuery);
+   if (!g_enabled) {
+     Log.info("Timestamp queries unsupported; GPU profiling disabled");
+@@ -321,9 +426,11 @@ void initialize() {
+   g_recordSlot = 0;
+   g_emitSlot = 0;
+   g_framePending = false;
++#ifdef TRACY_ENABLE
+   TracyPlotConfig("aurora: gpuFrameMs", tracy::PlotFormatType::Number, false, true, 0);
+   TracyPlotConfig("aurora: gpuIdleMs", tracy::PlotFormatType::Number, false, true, 0);
+   TracyPlotConfig("aurora: gpuPasses", tracy::PlotFormatType::Number, true, true, 0);
++#endif
+   Log.info("GPU profiling enabled ({} zones max)", MaxZones);
+ }
+ 
+@@ -457,18 +564,3 @@ Zone::~Zone() {
+ }
+ 
+ } // namespace aurora::webgpu::gpu_prof
+-
+-#else
+-
+-namespace aurora::webgpu::gpu_prof {
+-void initialize() {}
+-void shutdown() {}
+-void frame_begin(const wgpu::CommandEncoder&) {}
+-void frame_end(const wgpu::CommandEncoder&) {}
+-void after_submit() {}
+-const wgpu::PassTimestampWrites* pass_writes(std::string_view) { return nullptr; }
+-Zone::Zone(const wgpu::CommandEncoder&, std::string_view) {}
+-Zone::~Zone() = default;
+-} // namespace aurora::webgpu::gpu_prof
+-
+-#endif
+diff --git a/GXRuntime/graphics/aurora/lib/webgpu/gpu_prof.hpp b/GXRuntime/graphics/aurora/lib/webgpu/gpu_prof.hpp
+index 7861201f8b..b2e0cd5cdd 100644
+--- a/GXRuntime/graphics/aurora/lib/webgpu/gpu_prof.hpp
++++ b/GXRuntime/graphics/aurora/lib/webgpu/gpu_prof.hpp
+@@ -1,11 +1,14 @@
+ #pragma once
+ 
++#include <cstdint>
+ #include <string_view>
+ 
+ #include <webgpu/webgpu_cpp.h>
+ 
+ namespace aurora::webgpu::gpu_prof {
+ 
++// Local (fork): AURORA_GPU_PROF=N (frames per printed summary); 0 when unset.
++uint32_t summary_every();
+ void initialize();
+ void shutdown();
  
 diff --git a/GXRuntime/graphics/aurora/lib/window.cpp b/GXRuntime/graphics/aurora/lib/window.cpp
 index 38412052c3..f93b851c64 100644

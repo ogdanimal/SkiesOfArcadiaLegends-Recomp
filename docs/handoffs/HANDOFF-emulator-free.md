@@ -8,8 +8,9 @@ until the standalone build reaches parity; nothing here changes the default buil
 
 **Performance goal (the user's, 2026-10-25):** the standalone must run *better* than the Dolphin build, and
 weaker hardware must run it better too. The baseline is the last section (*Speed against the Dolphin
-build*): ahead on CPU (25% on a desktop CPU, 45-65% on E-cores, 0.45 vs 0.60 cores at full speed), behind
-on GPU time per frame (about 30% more than Dolphin's Vulkan renderer on an iGPU).
+build* and *GPU time per frame*): ahead on CPU (25% on a desktop CPU, 45-65% on E-cores, 0.45 vs 0.60 cores
+at full speed) and on GPU (about 30% less GPU time per frame than Dolphin's Vulkan renderer on an iGPU
+when both are GPU-bound; the first baseline said the opposite, from a Dolphin run at the wrong resolution).
 
 **Status (2026-10-25):** phases 1-3 done (title screen, audio bit-exact with Dolphin's AX HLE, first
 battle at full speed, card saves); phase 4 under way (in-game menu, save states and auto-save done; 60 fps,
@@ -69,7 +70,7 @@ see *Save states*). Memory card saves are plain GCI files and carry over.
 
 ## What carries over
 
-- The Aurora fork (`~/projects/skies-aurora/GXRuntime`, 30 commits, `patches/` there): Skies renders exactly
+- The Aurora fork (`~/projects/skies-aurora/GXRuntime`, 33 commits, `patches/` there): Skies renders exactly
   like Dolphin on the Retroid Pocket 5, the Nova, Windows and WSL; 60 fps through a second GX context;
   the present rectangle (Picture option); the Dear ImGui overlay (the in-game menu). All of it is in the
   vendored GXRuntime on the local `aurora-backend` branch.
@@ -406,7 +407,8 @@ resolution 1, 30 fps mode), muted, standing at the opening dungeon's save point 
 |---|---|---|---|---|---|
 | RTX 5080, uncapped | **2.91x** | 2.33x | 2.30x | 2.18x | 2.27x |
 | UHD 770 (iGPU), uncapped | **2.82x** | 2.16x | 1.87x | | |
-| UHD 770, internal resolution 3 | **2.62x** | 2.16x | 1.90x | | |
+| UHD 770, internal resolution 3 | **2.62x** | 2.05x (first measured at 1x by mistake: 2.16x) | | | |
+| UHD 770, internal resolution 6 (GPU-bound) | **1.09x** (after 0032/0033; 1.05x before 0033) | 0.77x | | | |
 | 4 E-cores, uncapped | **1.55x** | 1.06x | | | |
 | 2 E-cores | **1.50x** | 1.03x | | | |
 | 1 E-core | **1.46x** | 0.88x (below full speed) | | | |
@@ -414,9 +416,10 @@ resolution 1, 30 fps mode), muted, standing at the opening dungeon's save point 
 
 - Dolphin is CPU-bound in this scene on every renderer (Null, no drawing at all, is 2.27x); the standalone
   is about 25% faster on the full CPU, 45-65% faster on E-cores, and still above full speed on one E-core.
-- **Where Aurora loses: GPU time per frame.** On the iGPU at internal resolution 3, Aurora kept the GPU 86%
-  busy at 2.62x; Dolphin's Vulkan renderer 54% at 2.14x: per unit of game speed Aurora spends about 30%
-  more GPU time. On a weak GPU (the Retroids, an iGPU at higher resolutions) that is the limit to work on.
+- ~~Where Aurora loses: GPU time per frame~~ **Wrong, corrected later the same day** (next section): the
+  Dolphin runs "at internal resolution 3" were at 1x. ModernGekko's runner sets Dolphin's internal
+  resolution from the user folder's `config.ini` (`resolution=640x528`), not from `GFX.ini`. At a real 3x
+  Dolphin does 2.05x, and GPU-bound at 6x the standalone is ~35-40% faster.
 - Not measured yet: a battle scene (the ws26 DOL drifts off the scripted route's encounter; the ship
   route (`boxfight.txt`) didn't reach one either), frame-time percentiles, the Retroids (needs the
   standalone's Android shell).
@@ -429,3 +432,57 @@ running process: `start /affinity` hangs through WSL interop), `cpu-sample.sh EX
 (fork 0030) makes Aurora take the iGPU; Dolphin's is `[Hardware] Adapter = 1` (`user-bench-igpu`,
 `user-bench-igpu3` at resolution 3; `user-bench-rt` = dual core at full speed). An unmuted standalone run
 is held to 1x by the audio queue even with `--unthrottled`: benchmark with `SKIES_MUTE=1`.
+
+## GPU time per frame (2026-10-25, later): ahead of Dolphin, and two cuts
+
+**The baseline's GPU conclusion was a measuring mistake.** `user-bench-igpu3` had `GFX.ini`'s
+`InternalResolution = 1` and `config.ini`'s `resolution=640x528`; the runner (`tools/moderngekko_run.cpp`,
+`frontend_config.cpp`) takes the latter. Now `user-bench-igpu3` is `resolution=1920x1584` (real 3x), and
+`user-bench-igpu6` (3840x3168), `user-bench-igpu3-rt` / `user-bench-igpu1-rt` (full speed) are new, all in
+`C:\dev\SkiesAuroraRun`. Same scene and DOL as the baseline, UHD 770:
+
+| | Standalone | Dolphin Vulkan |
+|---|---|---|
+| 3x, uncapped | 2.61x (CPU-limited: the GPU span is 8.7 ms of a 12.8 ms frame) | 2.05x (77% GPU busy) |
+| 6x, uncapped (both GPU-bound, 98% busy) | **1.09x** (29.3 ms GPU per game frame) | 0.77x (~43.5 ms) |
+| 3x, full speed: GPU busy | 58% | 78% |
+
+GPU busy % at partial load follows the iGPU's clock governor (Dolphin shows 78% at 1x *and* at 2.05x), so
+the GPU-bound uncapped speed is the comparison to use; at 3x neither side is GPU-bound.
+
+**`AURORA_GPU_PROF=N` (fork 0031)** prints the GPU time per frame by pass every N frames (needs
+`SKIES_AURORA_LOG=1` in the standalone to reach the log). At the save point, iGPU 3x, before the cuts:
+span 9.86 ms, 11 passes: EFB passes 6.73 ms (4.7), plain EFB copies 1.20 ms (3), EFB copy conversions
+0.73 ms (2, the shadow composite's R8 copies), staging 0.28, present resample + blit 0.48.
+
+**The three plain copies were logic-op snapshots.** The shadow composite draws, per frame: a full-screen
+quad ORing (1,0,0,1), one ANDing (0,1,1,1), and a textured OR of an R8 EFB copy. The logic-op emulation
+(fork 370720f) copies the whole EFB before each and splits the pass there. **Fork 0032:** when the TEV
+output is a constant 0x00/0xFF per channel (evaluated on the CPU with the shader's arithmetic; any texture,
+vertex colour, lighting, compare op or fog bails), each op reduces per channel to keep / write the source /
+other; with only the first two it's a plain draw with a write mask (`PipelineConfig::writeMask`, cache
+version 14). The two quads take it (masks R+A and R); the textured OR keeps the snapshot. 3x: 9.86 ->
+8.68 ms, 11 -> 9 passes. `AURORA_LOGIC_OP_CONST=0` turns it off. (The old blend approximation,
+`AURORA_LOGIC_OP_BLEND=1`, gives 8.50 ms but isn't exact for the textured OR.)
+
+**Fork 0033:** the frame's first EFB pass already load-op clears colour and depth, and the display copy's
+clear (a42fe56) then drew a full-screen quad on top every frame. When it comes before any draw of that pass
+(colour and alpha together, scissor = whole target, not in the replay context) its values become the load
+op's. 6x: EFB passes 22.64 -> 21.46 ms, uncapped 1.05x -> 1.09x. `AURORA_CLEAR_AT_FRAME_START=0` turns it off.
+
+**Checked:** the fight route on Windows D3D12 (`SKIES_RTC=847000789`, `fight-full.txt`, a copy of
+`user-qa-plain`, plain DOL + `modules-sa-plain-pgo`, `AURORA_SYNC_PIPELINES=1`, a dump every 60 frames to
+185 s: title, intro, field, battle, results, field), both changes off twice and on once: all 91 frames
+byte-identical. The save point at 1x (5 frames, three runs) too.
+
+**WSL window dumps are not frame-exact.** The same route on WSL gave different pictures between two runs
+of the same build (same dispatches and cycles to the end, so the game is identical): one run's frame 2280
+shows the ship's door closed, the other's open. `DumpFrame` requests a readback before present and then
+takes whatever readback completes, so a late one can land on the wrong frame number. Compare pictures on
+Windows (deterministic there) until that's fixed; likely part of open item 5.
+
+At 6x after both cuts (29.3 ms): EFB passes 21.5, R8 copy conversions 3.6 (2), the textured OR's snapshot
+2.0, present resample 0.75 + blit 0.25. Next GPU candidates, in size order: the textured OR's snapshot
+(only R and A change; G/B are a constant 0, i.e. keep), the R8 conversions writing RGBA8 at full scale,
+present resample + blit as one pass. On the Retroid (a tiler), pass splits cost more than on the iGPU, so
+0032 should matter more there; that needs the Android shell (open item 3).
