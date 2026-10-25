@@ -19,6 +19,10 @@
 #include <string>
 #include <thread>
 
+#if defined(__linux__)
+#include <sched.h>
+#endif
+
 namespace host
 {
 bool PacingOn()
@@ -122,9 +126,77 @@ void ThrottleRestart()
   s_last_wake = now;
 }
 
+// Field pacing on phones: schedutil clocks a thread that sleeps a fifth of every field down until
+// it is busy again, so the field that draws runs late on a slow clock (Pocket 5: p99 44 ms between
+// presents at full speed, where the same thread uncapped makes 1.8x). Android therefore keeps the
+// emulation thread on the fastest cores and busy-waits the last 6 ms before each field's target
+// (battle p99 37.5 ms, save point 35.8; the Dolphin build 37.7 / 36.2 at about the same power;
+// docs/handoffs/HANDOFF-emulator-free.md, *Pacing on the Pocket 5*).
+// SKIES_PIN_CPU=fast|none|N picks the cores, SKIES_THROTTLE_SPIN_MS=N the busy wait (-1: all of it).
+#if defined(__ANDROID__)
+constexpr const char* DEFAULT_PIN = "fast";
+constexpr double DEFAULT_SPIN_MS = 6;
+#else
+constexpr const char* DEFAULT_PIN = "none";
+constexpr double DEFAULT_SPIN_MS = 0;
+#endif
+
+void PinEmulationThread()
+{
+#if defined(__linux__)
+  const char* pin = std::getenv("SKIES_PIN_CPU");
+  const std::string want = pin ? pin : DEFAULT_PIN;
+  if (want == "none")
+    return;
+  cpu_set_t set;
+  CPU_ZERO(&set);
+  if (want == "fast")
+  {
+    // The cores with the highest top clock (the Pocket 5's prime core 7)
+    long best = 0;
+    for (int cpu = 0; cpu < CPU_SETSIZE; ++cpu)
+    {
+      char path[96];
+      std::snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_max_freq", cpu);
+      FILE* f = std::fopen(path, "r");
+      if (!f)
+      {
+        if (cpu >= 64)
+          break;
+        continue;
+      }
+      long khz = 0;
+      if (std::fscanf(f, "%ld", &khz) == 1 && khz >= best)
+      {
+        if (khz > best)
+          CPU_ZERO(&set);
+        best = khz;
+        CPU_SET(cpu, &set);
+      }
+      std::fclose(f);
+    }
+    if (best == 0)
+      return;
+  }
+  else
+    CPU_SET(std::atoi(want.c_str()), &set);
+  std::string cpus;
+  for (int cpu = 0; cpu < CPU_SETSIZE; ++cpu)
+    if (CPU_ISSET(cpu, &set))
+      cpus += (cpus.empty() ? "" : ",") + std::to_string(cpu);
+  const int rc = sched_setaffinity(0, sizeof(set), &set);
+  Log("[host] emulation thread on cpu %s: %s\n", cpus.c_str(), rc == 0 ? "ok" : "failed");
+#endif
+}
+
 // Called by the VI at every field: pace guest time to the wall clock, stop at --seconds.
 void Throttle()
 {
+  static const double spin_ms = [] {
+    PinEmulationThread();
+    const char* v = std::getenv("SKIES_THROTTLE_SPIN_MS");
+    return v ? std::atof(v) : DEFAULT_SPIN_MS;
+  }();
   const auto now = std::chrono::steady_clock::now();
   SampleSpeed(now);
   if (PacingOn() && s_last_wake.time_since_epoch().count() != 0)
@@ -150,7 +222,18 @@ void Throttle()
                                          static_cast<double>(g_cycles) * 1e9 / CPU_HZ));
   if (target > now + std::chrono::milliseconds(1))
   {
-    std::this_thread::sleep_until(target);
+    if (spin_ms != 0)
+    {
+      const auto spin_from =
+          spin_ms < 0 ? now : target - std::chrono::microseconds(static_cast<s64>(spin_ms * 1000));
+      if (spin_from > now)
+        std::this_thread::sleep_until(spin_from);
+      while (std::chrono::steady_clock::now() < target)
+      {
+      }
+    }
+    else
+      std::this_thread::sleep_until(target);
     s_last_wake = std::chrono::steady_clock::now();
   }
   else if (now - target > std::chrono::milliseconds(200))

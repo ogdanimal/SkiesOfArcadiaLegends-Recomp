@@ -193,8 +193,10 @@ standalone holds 33 ms frames, Dolphin is late on every one; the first GPU numbe
 from a Dolphin run at the wrong resolution). Goal set by the user: better than the Dolphin build, weaker
 hardware included. Android: a test app (`tools/android-standalone-build.sh`,
 com.skiesofarcadia.standalone) plays on the Retroid Pocket 5: 22-25% faster uncapped than the Dolphin build
-on the same DOL and module (1.68x vs 1.38x, battle 2.04x vs 1.63x), but less smooth at full speed (p99 42 vs
-37 ms; the emulation thread waits in present). Open: that pacing, 60 fps, Continue, the remaining features,
+on the same DOL and module (1.68x vs 1.38x, battle 2.04x vs 1.63x), and since the pacing fix (the emulation
+thread pinned to the prime core, the throttle busy-waits the last 6 ms: schedutil had clocked the sleeping
+thread down) as smooth or a little smoother at full speed (p99 37.2-37.8 vs 37.7 ms in battle, 35.7 vs 36.2
+at the save point) at the same power or less. Open: the GPU side at higher resolutions, 60 fps, Continue, the remaining features,
 the Android shell's launcher, input and lifecycle.
 
 The Aurora renderer inside Dolphin (`--graphics Aurora`, `AURORA=1`), the groundwork for it: the picture

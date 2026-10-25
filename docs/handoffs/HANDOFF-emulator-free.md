@@ -634,11 +634,58 @@ games, then `PKG=org.dolphinemu.dolphinemu.bench SERIAL=<serial> tools/android-b
 | Save point, full speed: interval ms p50 / p90 / p99 / max | 33.6 / 39.1 / 42.4 / 45; 6-7% over 40 ms | **33.3 / 35.0 / 36.7 / 38.6; none over 40** |
 | Battle, full speed | 33.5 / 36.9 / 41.5 / 45; ~2% over 40 ms | **33.3 / 36.2 / 37.7 / 38.9; none** |
 
-Faster by 22-25%, but **less smooth at full speed**, the opposite of the desktop. The standalone's
-`[host-busy]` there: p50 20 ms per field and exactly 300 of 600 fields over 16.7 ms although the scene runs
-at 2x uncapped: every rendering field's wall time is mostly waiting, most likely the emulation thread blocking
-in present (surface acquire / FIFO vsync / frame slots) and then catching up, where Dolphin's dual core leaves
-that wait to its GPU thread. **Next:** find where the emulation thread blocks (Aurora's end_frame callback,
-`GetCurrentTexture`, frame-slot waits), take the wait off it (present on the render worker, or Mailbox), and
-remeasure; the goal is the desktop's result on the device too (smoother, not only faster). Then the GPU side
-at higher internal resolutions, which these IR-1 runs don't load.
+Faster by 22-25%, but **less smooth at full speed**, the opposite of the desktop (fixed below: *Pacing on
+the Pocket 5*).
+
+## Pacing on the Pocket 5 (2026-10-25, evening): clocks, not a wait
+
+**The guess was wrong.** The emulation thread doesn't wait in present: `SKIES_PRESENT_PACING=1` now also logs
+`[present-drain]` (time per frame in `aurora_backend_drain_if_over`, Aurora's command parsing on the emulation
+thread) and `[present-call]` (time in `aurora_backend_present`): 2.4 ms and 0.4 ms (p99 0.8). The presenting
+field's 21 ms is the game's own work on a slow clock. Per-thread CPU and cluster clocks from `/proc/PID/task/*/stat`
+and `cpufreq/policy*/scaling_cur_freq` (a small on-device script) during the battle at full speed: the
+emulation thread is ~78% busy on a gold core (cpu4-6, top 2.42 GHz, clocked 1.6-2.4 GHz), the prime core
+(cpu7, 2.84 GHz) idles at 1.5 GHz. schedutil picks the clock that keeps a thread ~80% busy, so a thread that
+sleeps a fifth of every field gets clocked down until the drawing field barely fits, and any spike runs over.
+Uncapped, the same thread goes to cpu7 at 2.84 GHz (that's where the 1.8-2.0x comes from). The Dolphin build
+doesn't hit this because its CPU thread never sleeps (100% busy on a gold core, clocks pinned high; its Video
+thread is another ~60%). The device has no ADPF (`dumpsys performance_hint`: HAL Support false).
+
+**The fix** (standalone/src/main.cpp, `Throttle`): on Android the emulation thread is pinned to the cores with
+the highest `cpuinfo_max_freq` (the Pocket 5's cpu7; log `[host] emulation thread on cpu 7: ok`) and the
+throttle busy-waits the last 6 ms before each field's target instead of sleeping them. Knobs:
+`SKIES_PIN_CPU=fast|none|N`, `SKIES_THROTTLE_SPIN_MS=N` (-1: the whole wait; 0: sleep, the old behaviour).
+Desktop defaults are unchanged (none, 0).
+
+**Pocket 5, IR 1, ws26, 30 fps, muted, full speed: interval between presents, ms (600-frame windows).** Power is
+rough: the USB input (`power_supply/usb/input_current_now` x `voltage_now`, capped ~2.4 W by the PC port) plus the
+battery's draw (`bms/current_now` x 4.36 V), averaged over 30 s; launcher idle is ~1.7 W.
+
+| Battle | p90 | p99 | max | >40 ms | power |
+|---|---|---|---|---|---|
+| Old (sleep, unpinned) | 39.3-40.3 | 43.7-45.2 | 46 | 46-64 | ~2.2 W |
+| Pinned only | 37.1 | 40.1-40.4 | 42 | 6-9 | |
+| Spin 4 ms, unpinned | 36.1-36.8 | 37.3-37.8 | 38 | 0 | ~2.4 W |
+| Spin 4 ms, pinned | 35.0-35.1 | 36.2-37.9 | 37-41 | 0-1 | ~2.3 W |
+| **Spin 6 ms, pinned (default)** | 35.3-35.4 | 37.2-37.8 | 38.4 | 0 | ~2.4 W |
+| Spin all, pinned or not | 34.0-34.4 | 35.2-35.5 | 36 | 0 | ~2.9 W |
+| Dolphin bench app | 35.7-35.8 | 37.7-38.3 | 39.5 | 0 | ~2.5 W |
+
+| Save point | p90 | p99 | max | >40 ms | power |
+|---|---|---|---|---|---|
+| Old (sleep, unpinned) | 39.2 | 43.2 | 45.6 | 46 | ~2.6 W |
+| Spin 4 ms, pinned | 37.4 | 38.7 | 39.6 | 0 | ~2.8 W |
+| **Spin 6 ms, pinned (default)** | 34.9-35.2 | 35.7-35.8 | 36.4 | 0 | ~2.9 W |
+| Spin 8 ms, pinned | 33.8 | 34.1 | 34.6 | 0 | ~3.0 W |
+| Spin all, pinned | 33.9 | 34.7 | 35.0 | 0 | ~3.1 W |
+| Dolphin bench app | 34.8-34.9 | 36.2-36.3 | 37.4 | 0 | ~2.9 W |
+
+So the default is now as smooth as the Dolphin build or a little smoother (p99 and max), at the same power
+or less, and still 22-25% faster uncapped. Spinning the whole wait is clearly smoother (p99 ~35 in both
+scenes) for ~0.4-0.5 W more: the user's call whether that should be the default or a setting. Device runs
+are noisy; these are two windows per row where a range is given, one otherwise.
+
+**Next:** the GPU side at higher internal resolutions (these IR-1 runs don't load the Adreno), then the
+shell's gaps (immersive mode, the built-in pad, audio on device, lifecycle, a launcher). A real cut to the
+drawing field's CPU work would let the spin shrink. Presenting at the next retrace instead of at the XFB copy
+(as the hardware shows it) needs Aurora to split sealing a frame from presenting it; not tried.

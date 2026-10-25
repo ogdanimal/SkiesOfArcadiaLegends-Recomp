@@ -48,6 +48,7 @@ u64 s_dump_every = 0;
 u64 s_dump_from = 0;  // SKIES_DUMP_FROM: first frame dumped
 std::vector<u64> s_dump_frames;  // SKIES_DUMP_FRAMES=N,N,...: just these
 std::vector<s16> s_audio;
+double s_drain_ms = 0;  // SKIES_PRESENT_PACING: time this frame in aurora_backend_drain_if_over
 
 #ifdef SKIES_STANDALONE_AURORA
 // The picture's aspect: the widescreen game patch keeps its target in ws_config at the start of its
@@ -229,7 +230,14 @@ void VideoCommands(const u8* data, u32 size)
     return v ? static_cast<u32>(std::strtoul(v, nullptr, 0)) : 64u * 1024;
   }();
   aurora_backend_write_raw(data, size);
-  aurora_backend_drain_if_over(drain);
+  if (PacingOn())
+  {
+    const auto t0 = std::chrono::steady_clock::now();
+    aurora_backend_drain_if_over(drain);
+    s_drain_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+  }
+  else
+    aurora_backend_drain_if_over(drain);
 #else
   (void)data;
   (void)size;
@@ -304,8 +312,16 @@ void VideoFrameEnd()
       PacingAdd(window, std::chrono::duration<double, std::milli>(now - last).count(), "present-pacing", "interval",
                 40.0, 50.0);
     last = now;
+    static PacingWindow drains;
+    PacingAdd(drains, s_drain_ms, "present-drain", "in drains per frame", 2.0, 8.0);
+    s_drain_ms = 0;
+    static PacingWindow call;
+    aurora_backend_present();
+    PacingAdd(call, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - now).count(),
+              "present-call", "in aurora_backend_present", 2.0, 8.0);
   }
-  aurora_backend_present();
+  else
+    aurora_backend_present();
   if (dump)
     DumpFrame();
   if (aurora_backend_should_quit())
