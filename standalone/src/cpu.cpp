@@ -403,6 +403,34 @@ u8* LockedCache()
   return s_locked_cache;
 }
 
+// The module's chunk hashes against the DOL in RAM (FNV-1a 64 of each chunk's original text, as
+// RecompCore's SMC check): a module built for another DOL (a different game patch) would run the
+// wrong code, so most chunks must match.
+bool VerifyModule()
+{
+  u32 matched = 0, checked = 0;
+  for (u32 i = 0; i < s_module->num_chunk_ranges; ++i)
+  {
+    const StaticRecompRange& chunk = s_module->chunk_ranges[i];
+    const u64 expected = s_module->chunk_hashes ? s_module->chunk_hashes[i] : 0;
+    const u8* bytes = RamPtr(chunk.start, chunk.end - chunk.start);
+    if (expected == 0 || !bytes)
+      continue;
+    u64 hash = 0xCBF29CE484222325ull;
+    for (u32 k = 0; k < chunk.end - chunk.start; ++k)
+      hash = (hash ^ bytes[k]) * 0x100000001B3ull;
+    ++checked;
+    matched += hash == expected;
+  }
+  Log("[cpu] module chunks matching the DOL: %u of %u\n", matched, checked);
+  if (checked != 0 && matched < checked - checked / 50)
+  {
+    Log("[cpu] the module was built for another DOL (another game patch?)\n");
+    return false;
+  }
+  return true;
+}
+
 const char* ModuleGameId()
 {
   return s_module ? s_module->game_id : "";

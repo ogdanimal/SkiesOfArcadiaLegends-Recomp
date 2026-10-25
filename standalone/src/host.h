@@ -82,6 +82,7 @@ void RunDue();
 // ---- CPU (cpu.cpp) -----------------------------------------------------------------------------
 bool LoadModule(const char* path);
 const char* ModuleGameId();
+bool VerifyModule();  // after Boot: the module's chunk hashes against the DOL in RAM
 void CpuInit();
 void RunCpu();          // until quit
 void RequestQuit();

@@ -130,7 +130,7 @@ int main(int argc, char** argv)
   const std::string disc_id(reinterpret_cast<const char*>(DiscHeader()), 6);
   if (disc_id != ModuleGameId())
     Log("[host] warning: disc %s, module built for %s\n", disc_id.c_str(), ModuleGameId());
-  if (!Boot(game))
+  if (!Boot(game) || !VerifyModule())
     return 1;
   // The SDK scheduler's idle spin (release/GEAE8P.ini StaticRecompIdlePC)
   if (idle_pc == ~0u)

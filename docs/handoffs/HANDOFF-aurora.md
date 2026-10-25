@@ -429,7 +429,7 @@ matched its own shell): its partial output is not a result; rerun it with the st
   (`branch.aurora-backend.pushRemote = no-push`), never rebased onto newer dev, never merged. dev and its
   releases carry none of this work. The main checkout's stale session-5 copies of these docs were removed
   from its working copy on 2026-10-22 (backup: `~/projects/skies-aurora/main-checkout-stale-2026-10-22/`).
-- Fork: `~/projects/skies-aurora/GXRuntime` (git, 26 commits over the vendored copy, last `f5eb436`; `patches/` = format-patch of its commits), copied
+- Fork: `~/projects/skies-aurora/GXRuntime` (git, 27 commits over the vendored copy, last `9bc9294` (0027: stale and padded EFB copies, 2026-10-25); `patches/` = format-patch of its commits), copied
   verbatim into `lib/ModernGekko/vendor/dolphin/GXRuntime` (and `C:\dev\SkiesAuroraRun`'s copy).
 - On that branch: `patches/moderngekko-aurora.patch`, `patches/recompcore-aurora.patch` (regenerate with
   `tools/regen-recompcore-patch.sh aurora` after editing the working copy), `tools/android-ws-build.sh`
