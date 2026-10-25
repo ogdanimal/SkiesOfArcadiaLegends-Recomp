@@ -624,7 +624,12 @@ immersive flags below API 30; a swipe shows them for a while), so the surface is
 its swap chain. Not through SDL's fullscreen after start: that resizes the surface mid-game, and Aurora's
 resize (window.cpp `resize_swapchain`) recreates the EFB and clears the copy caches, so the copies that live
 only on the GPU would be lost (a real problem for rotation or split screen too: lifecycle, open). Pacing
-unchanged (p99 34.6 ms in both scenes).
+unchanged (p99 34.6 ms in both scenes). **Background and foreground** (`am start` of the home screen, then of
+the app again; no input injected): the surface is destroyed and the app paused (the emulation mostly stops,
+the present is skipped, "Surface texture is Error, dropping surface"), and on return the surface comes back at
+the same size, so Aurora only reconfigures it (the EFB is kept) and the game goes on; one 5.8 s interval in
+`[present-pacing]`, then normal. A size change on return (rotation, split screen) would go through the
+recreate and is untested.
 
 **The Dolphin build on the same DOL and module** (the user chose a separate app, 2026-10-25):
 `org.dolphinemu.dolphinemu.bench`, the plain app under another id (`APP_ID_SUFFIX=.bench`, new in
