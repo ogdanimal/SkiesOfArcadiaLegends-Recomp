@@ -1,6 +1,6 @@
 // Expansion interface: the three EXI channels (EXI_Channel.cpp) with the IPL device on channel 0
 // chip select 1 (EXI_DeviceIPL.cpp: the real-time clock and SRAM the OS reads at boot, the UART
-// OSReport writes to). No memory cards are attached yet.
+// OSReport writes to), and the memory card in slot A (channel 0 chip select 0, hw_memcard.cpp).
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "host.h"
 
@@ -10,8 +10,19 @@
 
 namespace host
 {
+bool CardInsert(const std::string& user_dir, const std::string& game_id, u8* sram);  // hw_memcard
+void CardShutdown();
+bool CardPresent();
+bool CardInterruptSet();
+void CardSetCs(bool selected);
+void CardTransferByte(u8& byte);
+void CardDmaRead(u8* ram, u32 length);
+void CardDmaWrite(const u8* ram, u32 length);
+
 namespace
 {
+std::string s_user_dir;
+
 enum : u32
 {
   ST_EXIINTMASK = 1u << 0,
@@ -131,7 +142,7 @@ void IplTransferByte(u8& data)
 
 bool DevicePresent(u32 channel, u32 device)
 {
-  return channel == 0 && device == 1;  // only the IPL
+  return channel == 0 && (device == 1 || (device == 0 && CardPresent()));
 }
 
 int CsToDevice(u32 status)
@@ -150,6 +161,8 @@ u8 TransferByte(u32 channel, int device, u8 data)
 {
   if (channel == 0 && device == 1)
     IplTransferByte(data);
+  else if (channel == 0 && device == 0 && CardPresent())
+    CardTransferByte(data);
   else
     data = 0;
   return data;
@@ -157,6 +170,9 @@ u8 TransferByte(u32 channel, int device, u8 data)
 
 void UpdateInterrupts()
 {
+  // EXI_Channel.cpp IsCausingInterrupt: the slot A card's interrupt latches channel 0's EXIINT
+  if (CardInterruptSet())
+    s_ch[0].status |= ST_EXIINT;
   bool set = false;
   for (const Channel& c : s_ch)
   {
@@ -174,6 +190,19 @@ void Transfer(u32 channel)
   if (device < 0)
     return;
   const u32 rw = (c.control >> 2) & 3;
+  // The card completes its DMAs later and raises no transfer-complete for immediate transfers
+  // (UseDelayedTransferCompletion).
+  const bool card = channel == 0 && device == 0 && CardPresent();
+  if (card && (c.control & 2))
+  {
+    c.control &= ~1u;
+    u8* ram = RamPtr(c.dma_address, c.dma_length);
+    if (ram && rw == 0)
+      CardDmaRead(ram, c.dma_length);
+    else if (ram && rw == 1)
+      CardDmaWrite(ram, c.dma_length);
+    return;
+  }
   if (!(c.control & 2))
   {
     // immediate: up to 4 bytes from the top of the data register
@@ -202,10 +231,28 @@ void Transfer(u32 channel)
     }
   }
   c.control &= ~1u;
+  if (card)
+    return;
   c.status |= ST_TCINT;
   UpdateInterrupts();
 }
 }  // namespace
+
+void ExiTransferComplete(u32 channel)
+{
+  s_ch[channel].status |= ST_TCINT;
+  UpdateInterrupts();
+}
+
+void ExiUpdateInterrupts()
+{
+  UpdateInterrupts();
+}
+
+void ExiSetUserDir(const std::string& user_dir)
+{
+  s_user_dir = user_dir;
+}
 
 void ExiInit()
 {
@@ -213,6 +260,12 @@ void ExiInit()
     c = {};
   InitSram();
   s_ipl_command = s_ipl_command_bytes = s_ipl_cursor = 0;
+  CardInsert(s_user_dir, std::string(reinterpret_cast<const char*>(DiscHeader()), 6), s_sram);
+}
+
+void ExiShutdown()
+{
+  CardShutdown();
 }
 
 u32 ExiRead32(u32 offset)
@@ -276,6 +329,9 @@ void ExiWrite32(u32 offset, u32 value)
       s_ipl_cursor = 0;
     }
     c.status = next;
+    // EXI_Channel.cpp: the device whose chip select changed sees the new select lines
+    if (channel == 0 && ((old_cs ^ new_cs) & 1))
+      CardSetCs(new_cs & 1);
     UpdateInterrupts();
     return;
   }

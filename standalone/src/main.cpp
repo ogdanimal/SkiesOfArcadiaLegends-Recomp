@@ -1,7 +1,9 @@
 // skies-standalone: the recompiled game on this host, no emulator core.
 //   skies-standalone --game DIR --module FILE [--headless] [--unthrottled] [--seconds N]
-//                    [--mmio-log] [--idle-pc ADDR] [--dsp-coef FILE]
+//                    [--mmio-log] [--idle-pc ADDR] [--dsp-coef FILE] [--user USERDIR]
 // DIR is an extracted disc (sys/ + files/); FILE the g<GAMEID>_recomp module built for its DOL.
+// USERDIR holds the memory card saves as the Dolphin build keeps them (GC/<region>/Card A/*.gci);
+// without it no card is inserted.
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "host.h"
 
@@ -105,10 +107,12 @@ int main(int argc, char** argv)
       idle_pc = static_cast<u32>(std::strtoul(next(), nullptr, 0));
     else if (a == "--dsp-coef")
       dsp_coef = next();
+    else if (a == "--user")
+      ExiSetUserDir(next());
     else
     {
       Log("usage: %s --game DIR --module FILE [--headless] [--unthrottled] [--seconds N] "
-          "[--mmio-log] [--idle-pc ADDR] [--dsp-coef FILE]\n",
+          "[--mmio-log] [--idle-pc ADDR] [--dsp-coef FILE] [--user USERDIR]\n",
           argv[0]);
       return 2;
     }
@@ -150,6 +154,7 @@ int main(int argc, char** argv)
   s_wall_start = s_last_report_wall = std::chrono::steady_clock::now();
   RunCpu();
   Report();
+  ExiShutdown();
   VideoShutdown();
   return 0;
 }

@@ -49,6 +49,7 @@ add_executable(skies-standalone
   src/hw_di.cpp
   src/hw_si.cpp
   src/hw_exi.cpp
+  src/hw_memcard.cpp
   src/hw_ai.cpp
   src/video.cpp
   src/dsphle/dsp_hle.cpp

@@ -61,6 +61,9 @@ enum EventId
   EV_AI,          // AI sample counter interrupt
   EV_SI,          // SI transfer completion
   EV_EXI,         // EXI transfer completion
+  EV_CARD_CMD,    // memory card: erase / program done
+  EV_CARD_XFER,   // memory card: DMA transfer complete
+  EV_CARD_FLUSH,  // memory card: write changed saves back to the GCI folder
   EV_THROTTLE,    // wall-clock pacing
   EV_COUNT,
 };
@@ -161,7 +164,11 @@ u32 SiRead32(u32 offset);
 void SiWrite32(u32 offset, u32 value);
 void SiPollDevices();
 
+// EXI with the IPL (SRAM, RTC, UART) and a memory card in slot A over USER/GC/<region>/Card A
+// (no card when no user folder is set).
+void ExiSetUserDir(const std::string& user_dir);
 void ExiInit();
+void ExiShutdown();  // flushes the memory card
 u32 ExiRead32(u32 offset);
 void ExiWrite32(u32 offset, u32 value);
 

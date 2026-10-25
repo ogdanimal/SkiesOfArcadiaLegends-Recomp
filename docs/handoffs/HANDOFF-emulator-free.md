@@ -124,6 +124,27 @@ comparisons, all 236 opcodes, 0 mismatches). About 45k fallback instructions per
 **Gotchas found:** DI completion must do DIMAR += DILENGTH, DILENGTH = 0 for every command (the SDK
 retries Inquiry otherwise); WPAR's BNE bit must read 0 (Dolphin's choice; GXFlush spins otherwise).
 
-**Next (phase 2/3):** listen to the AX output (unmuted run on Windows or with WSLg audio), memory cards
-(EXI card device over GCI saves), EFB peeks (read 0 now), the ws game patch DOL + its module, real-time
-speed on a real GPU (Windows build), then gameplay to the first battle.
+**Next (phase 2/3):** listen to the AX output (unmuted run on Windows or with WSLg audio), EFB peeks
+(read 0 now), the ws game patch DOL + its module, real-time speed on a real GPU (Windows build), then
+gameplay to the first battle.
+
+## Memory card (2026-10-24) — working
+
+`--user USERDIR` inserts a card in slot A over `USERDIR/GC/<USA|EUR|JAP>/Card A/*.gci`, the folder and
+file names the Dolphin build uses (no `--user`: no card, as before). `hw_memcard.cpp` is Dolphin's
+`EXI_DeviceMemoryCard` (command bytes, status, erase/program timing, delayed DMA completion, no
+transfer-complete for immediate transfers) over a whole-card image instead of `GCMemcardDirectory`'s
+per-save buffers: a 2043-block card (16 MB), header formatted from the SRAM flash ID at the current time
+and the SRAM flash ID set back from it (`SetCardFlashID`), this game's GCI files laid out contiguously
+(current game only; other games' files are left alone). A flush, one guest second after a write that
+ends a block and at exit, walks the directory and block map with the higher update counters and writes
+each save whose bytes changed (atomically, via `.tmp`); a save gone from the directory is renamed
+`.deleted`, as Dolphin does. Chip erase is a no-op, as `GCMemcardDirectory::ClearAll`.
+
+Checked on WSL (Aurora build, copies of real saves in `build/sa-runs/user-card*`): Continue lists the
+saves and loads one into gameplay (the Pirate Isle underground dock); saving over #01 at the dock's save point
+writes only that GCI, and a fresh run lists and loads it; saving into an empty slot creates
+`8P-GEAE-SA_LEGENDS.001.gci`. An unchanged card writes nothing. Not yet checked: the Dolphin build
+loading a GCI the standalone wrote (same format, written by the game's own CARD library).
+Scripted route to the save point (USA, unpatched DOL, the "P. Isle Underground" save as the newest file): `SKIES_PRESS="38:START,
+53:START,56:A,60:A,63:A,66:A,73:RIGHT,73.2:RIGHT,75:A,77:A"` reaches the Save file list.
