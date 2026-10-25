@@ -288,7 +288,7 @@ index 47c60b1038..82efa7082b 100644
  
  bool aurora_backend_pad_init(void);
 diff --git a/GXRuntime/backends/aurora/aurora_graphics.cpp b/GXRuntime/backends/aurora/aurora_graphics.cpp
-index 24367bf568..e25ab0b8e2 100644
+index 24367bf568..d4218b2008 100644
 --- a/GXRuntime/backends/aurora/aurora_graphics.cpp
 +++ b/GXRuntime/backends/aurora/aurora_graphics.cpp
 @@ -8,11 +8,22 @@
@@ -331,7 +331,7 @@ index 24367bf568..e25ab0b8e2 100644
  #if GXRUNTIME_HAS_AURORA_RECOMP
          gx_aurora::g_shadow_transform_next_draw_index = 0;
  #endif
-@@ -852,6 +866,359 @@ void aurora_backend_call_display_list(const void* data, u32 size) {
+@@ -852,6 +866,375 @@ void aurora_backend_call_display_list(const void* data, u32 size) {
      gx_aurora::g_fifo_bytes += size;
  }
  
@@ -637,6 +637,22 @@ index 24367bf568..e25ab0b8e2 100644
 +                for (size_t k = 0; k + 3 < swapped.size(); k += 4)
 +                    std::swap(swapped[k], swapped[k + 2]);
 +                texels = swapped.data();
++            } else if (h.bytes_per_texel == 4 && IsRgba(saved) && handle->format == wgpu::TextureFormat::R8Unorm) {
++                // A one-value copy saved as RGBA8, now made in R8 (tex_copy_conv::output_format): its red channel
++                swapped.resize(h.data_size / 4);
++                for (size_t k = 0; k < swapped.size(); ++k)
++                    swapped[k] = texels[k * 4];
++                texels = swapped.data();
++                h.data_size /= 4;
++                h.bytes_per_texel = 1;
++            } else if (h.bytes_per_texel == 1 && saved == wgpu::TextureFormat::R8Unorm && IsRgba(handle->format)) {
++                // The other way (a device without texture component swizzle): the value in all four channels
++                swapped.resize(static_cast<size_t>(h.data_size) * 4);
++                for (size_t k = 0; k < h.data_size; ++k)
++                    std::memset(&swapped[k * 4], texels[k], 4);
++                texels = swapped.data();
++                h.data_size *= 4;
++                h.bytes_per_texel = 4;
 +            } else {
 +                continue;
 +            }
@@ -1228,7 +1244,7 @@ index ad36cc446a..46df2d9293 100644
  }
  } // namespace aurora::gx
 diff --git a/GXRuntime/graphics/aurora/lib/gfx/common.cpp b/GXRuntime/graphics/aurora/lib/gfx/common.cpp
-index 4c672587f0..044057c697 100644
+index 4c672587f0..ee63c76f5c 100644
 --- a/GXRuntime/graphics/aurora/lib/gfx/common.cpp
 +++ b/GXRuntime/graphics/aurora/lib/gfx/common.cpp
 @@ -22,8 +22,11 @@
@@ -1450,7 +1466,7 @@ index 4c672587f0..044057c697 100644
  
    current_render_passes().emplace_back();
    auto& pass = current_render_passes()[0];
-@@ -1420,6 +1539,84 @@ static void encode_op(wgpu::CommandEncoder& cmd, FramePacket& frame, const Frame
+@@ -1420,6 +1539,86 @@ static void encode_op(wgpu::CommandEncoder& cmd, FramePacket& frame, const Frame
    }
  }
  
@@ -1460,7 +1476,7 @@ index 4c672587f0..044057c697 100644
 +namespace copy_dump {
 +struct Pending {
 +  wgpu::Buffer buffer;
-+  uint32_t width = 0, height = 0, bytesPerRow = 0;
++  uint32_t width = 0, height = 0, bytesPerRow = 0, texel = 4;
 +  std::string path;
 +};
 +static std::vector<std::shared_ptr<Pending>> g_pending;
@@ -1482,7 +1498,8 @@ index 4c672587f0..044057c697 100644
 +                     unsigned fmt) {
 +  const uint32_t width = tex.size.width;
 +  const uint32_t height = tex.size.height;
-+  const uint32_t bytesPerRow = (width * 4u + 255u) & ~255u;
++  const uint32_t texel = format_info(tex.format).blockSize;
++  const uint32_t bytesPerRow = (width * texel + 255u) & ~255u;
 +  const bool bgra = tex.format == wgpu::TextureFormat::BGRA8Unorm || tex.format == wgpu::TextureFormat::BGRA8UnormSrgb;
 +  const wgpu::BufferDescriptor desc{
 +      .label = "Copy dump buffer",
@@ -1494,8 +1511,9 @@ index 4c672587f0..044057c697 100644
 +  p->width = width;
 +  p->height = height;
 +  p->bytesPerRow = bytesPerRow;
++  p->texel = texel;
 +  p->path = fmt::format("{}/copy_{:06}_{}_fmt{}_{}x{}_{}.rgba", dir(), frameIndex, n, fmt, width, height,
-+                        bgra ? "bgra" : "rgba");
++                        texel == 1 ? "r8" : bgra ? "bgra" : "rgba");
 +  const wgpu::TexelCopyTextureInfo src{.texture = tex.texture};
 +  const wgpu::TexelCopyBufferInfo dst{
 +      .layout = {.offset = 0, .bytesPerRow = bytesPerRow, .rowsPerImage = height},
@@ -1519,7 +1537,7 @@ index 4c672587f0..044057c697 100644
 +                             keep->buffer.GetConstMappedRange(0, static_cast<size_t>(keep->bytesPerRow) * keep->height));
 +                         if (FILE* f = std::fopen(keep->path.c_str(), "wb"); f != nullptr && mapped != nullptr) {
 +                           for (uint32_t y = 0; y < keep->height; ++y) {
-+                             std::fwrite(mapped + static_cast<size_t>(y) * keep->bytesPerRow, 1, keep->width * 4u, f);
++                             std::fwrite(mapped + static_cast<size_t>(y) * keep->bytesPerRow, 1, keep->width * keep->texel, f);
 +                           }
 +                           std::fclose(f);
 +                         } else {
@@ -1535,7 +1553,7 @@ index 4c672587f0..044057c697 100644
  static void render(wgpu::CommandEncoder& cmd, FramePacket& frame, RenderPass& passInfo, uint32_t passIndex) {
    ZoneScoped;
    if (!passInfo.sealed) {
-@@ -1526,12 +1723,23 @@ static void render(wgpu::CommandEncoder& cmd, FramePacket& frame, RenderPass& pa
+@@ -1526,12 +1725,23 @@ static void render(wgpu::CommandEncoder& cmd, FramePacket& frame, RenderPass& pa
        };
        cmd.CopyTextureToTexture(&src, &dst, &size);
      }
@@ -2156,7 +2174,7 @@ index 822a5601a4..d1d01d5752 100644
    return SQLITE_OK;
  }
 diff --git a/GXRuntime/graphics/aurora/lib/gfx/tex_copy_conv.cpp b/GXRuntime/graphics/aurora/lib/gfx/tex_copy_conv.cpp
-index d333571ad7..8a5d304b62 100644
+index d333571ad7..f224391631 100644
 --- a/GXRuntime/graphics/aurora/lib/gfx/tex_copy_conv.cpp
 +++ b/GXRuntime/graphics/aurora/lib/gfx/tex_copy_conv.cpp
 @@ -9,6 +9,8 @@
@@ -2190,11 +2208,80 @@ index d333571ad7..8a5d304b62 100644
  
    const wgpu::ShaderSourceWGSL wgslSource{wgpu::ShaderSourceWGSL::Init{
        .code = shaderSource.c_str(),
+@@ -359,7 +374,7 @@ static wgpu::RenderPipeline create_pipeline(const ConvPipeline& conv, const std:
+   const auto module = g_device.CreateShaderModule(&moduleDescriptor);
+ 
+   const std::array colorTargets{wgpu::ColorTargetState{
+-      .format = conv.outputFormat,
++      .format = conv.fmt == GX_TF_RGBA8 ? conv.outputFormat : output_format(conv.fmt),
+   }};
+   const wgpu::FragmentState fragmentState{
+       .module = module,
+@@ -393,6 +408,37 @@ static wgpu::RenderPipeline create_pipeline(const ConvPipeline& conv, const std:
+ 
+ bool needs_conversion(const GXTexFmt fmt) { return g_pipelines.contains(fmt); }
+ 
++// Local (fork): the formats whose conversion writes one value into all four channels render into R8Unorm, a quarter
++// of the bytes to write and to sample at the EFB's scale, and are sampled through an R,R,R,R view
++// (new_conv_texture), which gives the same texels as RGBA8. Needs the device's texture component swizzle; without
++// it, or with AURORA_COPY_R8=0, they stay RGBA8.
++wgpu::TextureFormat output_format(const GXTexFmt fmt) {
++  static const bool enabled = [] {
++    const char* env = std::getenv("AURORA_COPY_R8");
++    return env == nullptr || env[0] != '0';
++  }();
++  switch (fmt) {
++  case GX_TF_I4:
++  case GX_TF_I8:
++  case GX_CTF_R4:
++  case GX_CTF_A8:
++  case GX_CTF_R8:
++  case GX_CTF_G8:
++  case GX_CTF_B8:
++  case GX_CTF_Z4:
++  case GX_TF_Z8:
++  case GX_CTF_Z8M:
++  case GX_CTF_Z8L:
++    if (enabled && webgpu::g_textureComponentSwizzleSupported) {
++      return wgpu::TextureFormat::R8Unorm;
++    }
++    break;
++  default:
++    break;
++  }
++  return to_wgpu(fmt);
++}
++
+ void initialize() {
+   static constexpr std::array bindGroupLayoutEntries{
+       wgpu::BindGroupLayoutEntry{
+diff --git a/GXRuntime/graphics/aurora/lib/gfx/tex_copy_conv.hpp b/GXRuntime/graphics/aurora/lib/gfx/tex_copy_conv.hpp
+index 31aa804af2..8e28ab55b0 100644
+--- a/GXRuntime/graphics/aurora/lib/gfx/tex_copy_conv.hpp
++++ b/GXRuntime/graphics/aurora/lib/gfx/tex_copy_conv.hpp
+@@ -20,6 +20,9 @@ struct ConvRequest {
+ };
+ 
+ bool needs_conversion(GXTexFmt fmt);
++// Local (fork): the texture format a conversion renders into (R8Unorm for one value in all four channels when the
++// device can swizzle a view, else RGBA8Unorm); new_conv_texture makes its textures in it.
++wgpu::TextureFormat output_format(GXTexFmt fmt);
+ 
+ void initialize();
+ void shutdown();
 diff --git a/GXRuntime/graphics/aurora/lib/gfx/texture.cpp b/GXRuntime/graphics/aurora/lib/gfx/texture.cpp
-index d6d9b2fbb0..50de0de161 100644
+index d6d9b2fbb0..77b1821e51 100644
 --- a/GXRuntime/graphics/aurora/lib/gfx/texture.cpp
 +++ b/GXRuntime/graphics/aurora/lib/gfx/texture.cpp
-@@ -157,7 +157,9 @@ TextureHandle new_render_texture(uint32_t width, uint32_t height, u32 gxFormat,
+@@ -5,6 +5,7 @@
+ #include "aurora/aurora.h"
+ #include "texture.hpp"
+ #include "texture_convert.hpp"
++#include "tex_copy_conv.hpp"
+ #include "../gx/gx_fmt.hpp"
+ 
+ #include <algorithm>
+@@ -157,7 +158,9 @@ TextureHandle new_render_texture(uint32_t width, uint32_t height, u32 gxFormat,
    };
    const wgpu::TextureDescriptor textureDescriptor{
        .label = label,
@@ -2205,7 +2292,18 @@ index d6d9b2fbb0..50de0de161 100644
        .dimension = wgpu::TextureDimension::e2D,
        .size = size,
        .format = wgpuFormat,
-@@ -190,7 +192,8 @@ TextureHandle new_conv_texture(uint32_t width, uint32_t height, u32 gxFormat, co
+@@ -182,7 +185,9 @@ TextureHandle new_render_texture(uint32_t width, uint32_t height, u32 gxFormat,
+ TextureHandle new_conv_texture(uint32_t width, uint32_t height, u32 gxFormat, const char* label) noexcept {
+   ZoneScoped;
+ 
+-  const auto wgpuFormat = to_wgpu(gxFormat);
++  const auto gxTexFmt = static_cast<GXTexFmt>(gxFormat);
++  const auto wgpuFormat =
++      tex_copy_conv::needs_conversion(gxTexFmt) ? tex_copy_conv::output_format(gxTexFmt) : to_wgpu(gxFormat);
+   const wgpu::Extent3D size{
+       .width = width,
+       .height = height,
+@@ -190,7 +195,8 @@ TextureHandle new_conv_texture(uint32_t width, uint32_t height, u32 gxFormat, co
    };
    const wgpu::TextureDescriptor textureDescriptor{
        .label = label,
@@ -2215,6 +2313,23 @@ index d6d9b2fbb0..50de0de161 100644
        .dimension = wgpu::TextureDimension::e2D,
        .size = size,
        .format = wgpuFormat,
+@@ -208,6 +214,16 @@ TextureHandle new_conv_texture(uint32_t width, uint32_t height, u32 gxFormat, co
+   };
+   auto attachmentTextureView = texture.CreateView(&textureViewDescriptor);
+   wgpu::TextureView sampleTextureView = attachmentTextureView;
++  if (wgpuFormat == wgpu::TextureFormat::R8Unorm) {
++    // One value for all four channels (tex_copy_conv::output_format)
++    wgpu::TextureComponentSwizzleDescriptor swizzle;
++    swizzle.swizzle = {.r = wgpu::ComponentSwizzle::R,
++                       .g = wgpu::ComponentSwizzle::R,
++                       .b = wgpu::ComponentSwizzle::R,
++                       .a = wgpu::ComponentSwizzle::R};
++    textureViewDescriptor.nextInChain = &swizzle;
++    sampleTextureView = texture.CreateView(&textureViewDescriptor);
++  }
+   return std::make_shared<TextureRef>(std::move(texture), std::move(sampleTextureView),
+                                       std::move(attachmentTextureView), size, wgpuFormat, 1, gxFormat);
+ }
 diff --git a/GXRuntime/graphics/aurora/lib/gfx/texture.hpp b/GXRuntime/graphics/aurora/lib/gfx/texture.hpp
 index 45a8ba80e8..e6bfee0b81 100644
 --- a/GXRuntime/graphics/aurora/lib/gfx/texture.hpp

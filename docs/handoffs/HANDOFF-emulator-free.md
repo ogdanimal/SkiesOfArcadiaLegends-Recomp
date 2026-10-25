@@ -517,6 +517,19 @@ off1, off2, on1, on2 against the earlier `dumps-route-c`: on1, on2 and off2 matc
 the frame-1680 dump outlier above.
 
 Now at 6x (24.4 ms): EFB passes 18.6 (3), R8 copy conversions 3.5 (2), present resample 0.75 + blit 0.25,
-staging 0.26. Next GPU candidates: the R8 conversions writing RGBA8 at full scale, present resample + blit
-as one pass. On the Retroid (a tiler), pass splits cost more than on the iGPU, so 0032-0034 should matter
+staging 0.26.
+
+**Fork 0035: one-value copies in R8.** The composite's two copies are I8 (intensity); every conversion whose
+output is one value in all four channels (I4, I8, R4, A8, R8, G8, B8, Z4, Z8, Z8M, Z8L) wrote RGBA8 at full
+scale. With the device's texture component swizzle (D3D12 and Vulkan have it) they now render into R8Unorm
+and are sampled through an R,R,R,R view (`tex_copy_conv::output_format`, `new_conv_texture`);
+`AURORA_COPY_R8=0` keeps RGBA8. Save states convert a copy saved in the other format (the old
+`bench-savepoint.sst` still restores its 4 copies). 6x: conversions 3.56 -> 3.27 ms, the frame's GPU time
+within noise (24.43 -> 24.38 ms; uncapped 1.295x -> 1.32x): the conversions are bound by reading the EFB,
+not by writing. Kept for the bandwidth and memory (a quarter of the bytes written and sampled), which counts
+more on a tiler. Checked: the fight route's 91 frames byte-identical; a state saved at 104 s with R8 copies
+reloads to the straight run's frames (6 of 6).
+
+Next GPU candidates: present resample + blit as one pass (1.0 ms); the conversions' EFB read (an R8 copy
+of a 640x480 rectangle reads the whole 6x EFB once per copy; the two read it twice). On the Retroid (a tiler), pass splits cost more than on the iGPU, so 0032-0034 should matter
 more there; that needs the Android shell (open item 3).
