@@ -192,9 +192,10 @@ iGPU at 6x: 24.4 against ~43.5 ms, 1.30x against 0.77x, after forks 0032-0035; a
 standalone holds 33 ms frames, Dolphin is late on every one; the first GPU number, "more GPU time", came
 from a Dolphin run at the wrong resolution). Goal set by the user: better than the Dolphin build, weaker
 hardware included. Android: a test app (`tools/android-standalone-build.sh`,
-com.skiesofarcadia.standalone) boots on the Retroid Pocket 5 up to the module check (a ws26 arm64 module
-was being built); no device numbers yet. Open: the device head-to-head, 60 fps, Continue, the remaining
-features, the Android shell's launcher, input and lifecycle.
+com.skiesofarcadia.standalone) plays on the Retroid Pocket 5: 22-25% faster uncapped than the Dolphin build
+on the same DOL and module (1.68x vs 1.38x, battle 2.04x vs 1.63x), but less smooth at full speed (p99 42 vs
+37 ms; the emulation thread waits in present). Open: that pacing, 60 fps, Continue, the remaining features,
+the Android shell's launcher, input and lifecycle.
 
 The Aurora renderer inside Dolphin (`--graphics Aurora`, `AURORA=1`), the groundwork for it: the picture
 matches Dolphin on both Retroids, Windows and WSL (fork fixes: the XF viewport decoded per register;

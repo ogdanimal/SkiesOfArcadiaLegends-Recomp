@@ -35,9 +35,30 @@ fi
 cmake --build $B -j8 --target skies-standalone > $B-build.log 2>&1 || { grep -E "error|FAILED" $B-build.log | head -20; exit 1; }
 
 rm -rf "${O:?}"
-mkdir -p $O/classes $O/dex
+mkdir -p $O/classes $O/dex $O/sdl-java
+cp $D/sdl-src/android-project/app/src/main/java/org/libsdl/app/*.java $O/sdl-java/
+# Aurora draws only while its surface is marked ready (window.cpp, Java_org_libsdl_app_SDLSurface_
+# auroraNativeSetSurfaceReady), which stock SDL never calls: patch the copy of SDLSurface.java
+python3 -I - "$O/sdl-java/SDLSurface.java" <<'EOF'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+edits = [
+    ("        mIsSurfaceReady = false;\n        SDLActivity.onNativeSurfaceDestroyed();",
+     "        auroraNativeSetSurfaceReady(false);\n        mIsSurfaceReady = false;\n"
+     "        SDLActivity.onNativeSurfaceDestroyed();", 1),
+    ("        /* Surface is ready */\n        mIsSurfaceReady = true;",
+     "        /* Surface is ready */\n        mIsSurfaceReady = true;\n        auroraNativeSetSurfaceReady(true);", 1),
+]
+for old, new, count in edits:
+    assert s.count(old) == count, old
+    s = s.replace(old, new)
+brace = s.index("{", s.index("public class SDLSurface"))
+s = s[:brace + 1] + "\n    public static native void auroraNativeSetSurfaceReady(boolean ready);\n" + s[brace + 1:]
+open(p, "w").write(s)
+EOF
 javac --release 11 -classpath $JAR -d $O/classes \
-  $D/sdl-src/android-project/app/src/main/java/org/libsdl/app/*.java \
+  $O/sdl-java/*.java \
   standalone/android/java/com/skiesofarcadia/standalone/*.java
 $BT/d8 --release --min-api 28 --lib $JAR --output $O/dex $(find $O/classes -name '*.class')
 $BT/aapt2 link -o $O/base.apk --manifest standalone/android/AndroidManifest.xml -I $JAR \

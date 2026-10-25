@@ -14,6 +14,8 @@
 # release/skies-widescreen-eu.dolpatch and release/GEAP8P.ini. The Japanese game (GEAJ8P) likewise: DOL_JP
 # (default build/game/GEAJ8P-NAME/sys/main.dol) or PREGEN_JP=DIR, profile skies-android-jp.profdata,
 # release/skies-widescreen-jp.dolpatch and release/GEAJ8P.ini.
+# APP_ID_SUFFIX=.bench (without BRAND) builds the plain app as org.dolphinemu.dolphinemu.bench beside the .debug one
+# (build/android/apk/skies-NAME-<date>-bench.apk): a benchmark install that touches no other app.
 # MODULE_ONLY=1 stops after the native module(s) (build/android/jniLibs-NAME); JNILIBS=DIR builds only the
 # APK, around a module built that way (CI: the job that decrypts the generated code builds the module,
 # and Gradle with its downloaded dependencies runs in a job of its own that never sees that code or the
@@ -97,10 +99,17 @@ if [ "${BRAND:-0}" = 1 ]; then
     BRAND_ARGS+=(-PskiesAppIdSuffix=.test)
     APK=${APK%.apk}-test.apk
   fi
+elif [ -n "${APP_ID_SUFFIX:-}" ]; then
+  # The plain app under another id (APP_ID_SUFFIX=.bench: org.dolphinemu.dolphinemu.bench), beside .debug
+  BRAND_ARGS=(-PdolphinAppIdSuffix=$APP_ID_SUFFIX)
+  APK=${APK%.apk}${APP_ID_SUFFIX/./-}.apk
 fi
 if [ -n "${JNILIBS:-}" ]; then
   [ -f "$JNILIBS/arm64-v8a/libgGEAE8P_recomp.so" ] || { echo "no $JNILIBS/arm64-v8a/libgGEAE8P_recomp.so"; exit 1; }
-  mkdir -p $A && rm -rf $A/jniLibs-$NAME && cp -r "$JNILIBS" $A/jniLibs-$NAME
+  # JNILIBS may be this NAME's own folder (a MODULE_ONLY=1 build): then it is used where it is
+  if [ "$(realpath "$JNILIBS")" != "$(realpath -m $A/jniLibs-$NAME)" ]; then
+    mkdir -p $A && rm -rf $A/jniLibs-$NAME && cp -r "$JNILIBS" $A/jniLibs-$NAME
+  fi
 else
 # module ID DOL PREGEN PROFILE: the module for disc ID into jniLibs-NAME (from DOL, or PREGEN's
 # DolRecomp output; PROFILE "" or missing: no PGO)

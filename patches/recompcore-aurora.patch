@@ -5408,10 +5408,23 @@ index a81707358e..626f4f51b6 100644
  #define DISC_MAGIC_OFFSET 0x1Cu
  #define DISC_MAGIC        0xC2339F3Du
 diff --git a/Source/Android/app/build.gradle.kts b/Source/Android/app/build.gradle.kts
-index e537c41ab7..8a922ce869 100644
+index e537c41ab7..d3539f1c7b 100644
 --- a/Source/Android/app/build.gradle.kts
 +++ b/Source/Android/app/build.gradle.kts
-@@ -107,7 +107,9 @@ android {
+@@ -91,8 +91,10 @@ android {
+         // Signed by debug key disallowing distribution on Play Store.
+         // Attaches "debug" suffix to version and package name, allowing installation alongside the release build.
+         debug {
+-            resValue("string", "app_name_suffixed", "Dolphin Debug")
+-            applicationIdSuffix = ".debug"
++            // -PdolphinAppIdSuffix=.bench (tools/android-ws-build.sh APP_ID_SUFFIX): another debug app beside this one
++            val suffix = providers.gradleProperty("dolphinAppIdSuffix").orNull ?: ".debug"
++            resValue("string", "app_name_suffixed", if (suffix == ".debug") "Dolphin Debug" else "Dolphin ($suffix)")
++            applicationIdSuffix = suffix
+             versionNameSuffix = "-debug"
+             isJniDebuggable = true
+             // Static recomp: tools/drive.py's automation directory, never in a release APK
+@@ -107,7 +109,9 @@ android {
      externalNativeBuild {
          cmake {
              path = file("../../../CMakeLists.txt")
@@ -5422,7 +5435,7 @@ index e537c41ab7..8a922ce869 100644
          }
      }
      namespace = "org.dolphinemu.dolphinemu"
-@@ -126,6 +128,15 @@ android {
+@@ -126,6 +130,15 @@ android {
                  providers.gradleProperty("recompNativeFlags").orNull?.let {
                      arguments("-DCMAKE_C_FLAGS=$it", "-DCMAKE_CXX_FLAGS=$it")
                  }

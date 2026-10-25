@@ -12,14 +12,14 @@ build*, *GPU time per frame*, *A battle scene and frame pacing*): ahead on CPU (
 30-65% on E-cores, 0.45 vs 0.60 cores at full speed at the save point, 0.35 vs 0.49 in battle) and on GPU
 (about 44% less GPU time per frame than Dolphin's Vulkan renderer on an iGPU at 6x after forks 0032-0035:
 1.30x vs 0.77x, and at full speed there the standalone holds 33 ms frames while Dolphin is late on every one;
-the first baseline said the opposite, from a Dolphin run at the wrong resolution). Not measured yet: the
-Retroid Pocket 5 (the Android shell boots there; see *The Android shell* at the end).
+the first baseline said the opposite, from a Dolphin run at the wrong resolution). On the Retroid Pocket 5
+(*The Android shell*, at the end): 22-25% faster uncapped than the Dolphin build on the same DOL and module,
+but less smooth at full speed (p99 42 vs 37 ms): the open problem.
 
 **Status (2026-10-25):** phases 1-3 done (title screen, audio bit-exact with Dolphin's AX HLE, first
 battle at full speed, card saves); phase 4 under way (in-game menu, save states and auto-save done; 60 fps,
 Continue, Language, Dreamcast, HD textures, mapping, rumble open); phase 5 (Android) started: a test app
-that boots on the Retroid Pocket 5 up to the module check (an arm64 module for the ws26 DOL was being built
-when this was written). The latest sections at the end of this file come first when picking up.
+that plays on the Retroid Pocket 5 (from a state; launcher, input and lifecycle not done). The latest sections at the end of this file come first when picking up.
 
 Why this and not the Aurora-inside-Dolphin backend alone: inside Dolphin, Aurora only reaches parity with
 Dolphin's Vulkan renderer (sessions 5-6, `HANDOFF-aurora.md`); it pays off once the port leaves Dolphin
@@ -576,7 +576,7 @@ it isn't headroom; cores in use (`cpu-sample.sh`) is.
 
 (`C:\dev\SkiesAuroraRun\user-bench-igpu6-rt` is new: `user-bench-igpu6` with `EmulationSpeed = 1.0`.)
 
-## The Android shell (2026-10-25, later): a test app, boots on the Retroid Pocket 5
+## The Android shell (2026-10-25, later): a test app, plays on the Retroid Pocket 5
 
 **What it is.** `com.skiesofarcadia.standalone` ("Skies standalone (test)"), beside the user's apps and
 touching none of them. On Android `standalone/CMakeLists.txt` builds the standalone as `libmain.so` with SDL3
@@ -603,18 +603,42 @@ files folder (no game files in the APK): `game/sys` from `C:\dev\SkiesRomhack\bu
 `SKIES_PRESENT_PACING=1`, `SKIES_AURORA_LOG=1`). Started with
 `adb.exe -s <serial> shell am start -n com.skiesofarcadia.standalone/.SkiesActivity`.
 
-**First run:** the module loads, the disc and boot are read, then "module chunks matching the DOL: 5147 of
-5461 ... built for another DOL": `build/android/jniLibs-aurora` was generated from another DOL than the
-ws26 `main.dol` now in `GEAE8P-aurora` (same SHA-256 as ws26; the desktop ws26 module matches 5461 of
-5461). Being built: `NAME=sa26 MODULE_ONLY=1 DOL=/mnt/c/dev/SkiesRomhack/build/game/GEAE8P-ws26/sys/main.dol
-tools/android-ws-build.sh` (profile `skies-android-gp.profdata`) -> `build/android/jniLibs-sa26`; then
-`MODULE=build/android/jniLibs-sa26/arm64-v8a/libgGEAE8P_recomp.so tools/android-standalone-build.sh`, install
-(`adb.exe install -r`), launch, read `log.txt`.
+**Bring-up:** the old `build/android/jniLibs-aurora` module was generated from another DOL than ws26 (5147
+of 5461 chunks matched); `NAME=sa26 MODULE_ONLY=1 DOL=/mnt/c/dev/SkiesRomhack/build/game/GEAE8P-ws26/sys/main.dol
+tools/android-ws-build.sh` made `build/android/jniLibs-sa26` (5461 of 5461; `MODULE=` it for the APK). Then
+Aurora never drew: it draws only while its surface is marked ready through
+`Java_org_libsdl_app_SDLSurface_auroraNativeSetSurfaceReady`, which stock SDL never calls; the APK script
+patches a copy of `SDLSurface.java` (ready after `surfaceChanged`, not ready before `surfaceDestroyed`). The
+device must be unlocked (a locked screen pauses the activity before it has a surface). Status and navigation
+bars still show (window 1920x972).
 
-**Next:** the first picture and speed on the Pocket 5 (save point, battle; throttled and uncapped; Vulkan
-backend through Dawn); then the Dolphin build on the same DOL and module for the head-to-head. The installed
-Dolphin-build apps are on other patches (the branded test app is ws34), so that needs one of them rebuilt
-for ws26 or a new package: **ask the user before replacing an installed app.** Open for the shell itself:
-input on the Retroid's built-in pad (SDL gamepad), audio (SDL on AAudio), background/foreground and surface
-loss, the in-game menu by touch or pad, a launcher (disc import) instead of adb pushes.
+**The Dolphin build on the same DOL and module** (the user chose a separate app, 2026-10-25):
+`org.dolphinemu.dolphinemu.bench`, the plain app under another id (`APP_ID_SUFFIX=.bench`, new in
+`tools/android-ws-build.sh`; `-PdolphinAppIdSuffix` in Source/Android/app/build.gradle.kts, in
+`recompcore-aurora.patch`): `NAME=sa26 JNILIBS=$PWD/build/android/jniLibs-sa26 APP_ID_SUFFIX=.bench
+tools/android-ws-build.sh` -> `build/android/apk/skies-sa26-2026-10-25-bench.apk` (the script no longer
+deletes `JNILIBS` when it is its own `jniLibs-NAME`). Its files folder has `Games/SkiesOfArcadiaLegends/{sys,files}`
+(ISOPath0 = that sys), `Config/Dolphin.ini` (Vulkan, `EmulationSpeed = 0.0` or 1.0, FrameMode 0, widescreen),
+`Config/GFX.ini` (InternalResolution 1), `GameSettings/GEAE8P.ini` = `release/GEAE8P.ini` (**needed**: the idle
+PC and dual core the shipping apps have; without it the plain app sat at 1.00x), `Automation/`, and
+`PresentPacing.on` for the pacing log (logcat tag `present-pacing`). Boot: open the app once so it scans its
+games, then `PKG=org.dolphinemu.dolphinemu.bench SERIAL=<serial> tools/android-boot.sh`; states through
+`ADB_AUTO=$B/Automation tools/drive.py load:.../savestates/05-save-point.sav` (and `20-corridor-battle.sav`).
 
+**Pocket 5 (Snapdragon 865 / Adreno 650), internal resolution 1, ws26, 30 fps mode, muted:**
+
+| | Standalone | Dolphin Vulkan (bench app) |
+|---|---|---|
+| Save point, uncapped (two rounds) | **1.68 / 1.68x** | 1.38 / 1.38x |
+| Battle, uncapped | **2.05 / 2.03x** | 1.63 / 1.63x |
+| Save point, full speed: interval ms p50 / p90 / p99 / max | 33.6 / 39.1 / 42.4 / 45; 6-7% over 40 ms | **33.3 / 35.0 / 36.7 / 38.6; none over 40** |
+| Battle, full speed | 33.5 / 36.9 / 41.5 / 45; ~2% over 40 ms | **33.3 / 36.2 / 37.7 / 38.9; none** |
+
+Faster by 22-25%, but **less smooth at full speed**, the opposite of the desktop. The standalone's
+`[host-busy]` there: p50 20 ms per field and exactly 300 of 600 fields over 16.7 ms although the scene runs
+at 2x uncapped: every rendering field's wall time is mostly waiting, most likely the emulation thread blocking
+in present (surface acquire / FIFO vsync / frame slots) and then catching up, where Dolphin's dual core leaves
+that wait to its GPU thread. **Next:** find where the emulation thread blocks (Aurora's end_frame callback,
+`GetCurrentTexture`, frame-slot waits), take the wait off it (present on the render worker, or Mailbox), and
+remeasure; the goal is the desktop's result on the device too (smoother, not only faster). Then the GPU side
+at higher internal resolutions, which these IR-1 runs don't load.
