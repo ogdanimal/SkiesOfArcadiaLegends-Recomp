@@ -5,6 +5,7 @@
 #include "host.h"
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
@@ -330,7 +331,26 @@ u16 ScriptedButtons()
   if (!s_parsed)
   {
     s_parsed = true;
+    // SKIES_PRESS_FILE=FILE: the same script read from a file (long scripts; Windows' cmd cuts
+    // environment values read with set /p at 1023 characters)
+    static std::string s_file_script;
     const char* script = std::getenv("SKIES_PRESS");
+    if (const char* path = std::getenv("SKIES_PRESS_FILE"))
+    {
+      if (std::FILE* f = std::fopen(path, "rb"))
+      {
+        char buf[4096];
+        size_t n;
+        while ((n = std::fread(buf, 1, sizeof(buf), f)) > 0)
+          s_file_script.append(buf, n);
+        std::fclose(f);
+        while (!s_file_script.empty() && std::isspace(static_cast<unsigned char>(s_file_script.back())))
+          s_file_script.pop_back();
+        script = s_file_script.c_str();
+      }
+      else
+        Log("[video] cannot read SKIES_PRESS_FILE %s\n", path);
+    }
     static const struct
     {
       const char* name;
