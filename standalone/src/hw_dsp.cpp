@@ -90,9 +90,13 @@ void AudioDmaTick(u64 late)
     const u8* src = RamPtr(s_audio_current, 32);
     if (src)
     {
+      // Big-endian, right channel first (Dolphin's Mixer::PushSamples): out as left, right
       s16 frames[16];
-      for (int i = 0; i < 16; ++i)
-        frames[i] = static_cast<s16>(BE16(src + i * 2));
+      for (int i = 0; i < 16; i += 2)
+      {
+        frames[i] = static_cast<s16>(BE16(src + (i + 1) * 2));
+        frames[i + 1] = static_cast<s16>(BE16(src + i * 2));
+      }
       AudioPushSamples(frames, 8);
     }
     if (s_audio_remaining != 0)

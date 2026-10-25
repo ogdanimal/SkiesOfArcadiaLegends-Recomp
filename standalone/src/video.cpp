@@ -204,8 +204,11 @@ bool VideoInit(bool headless)
 #endif
 }
 
+void WavClose();
+
 void VideoShutdown()
 {
+  WavClose();
 #ifdef SKIES_STANDALONE_AURORA
   if (s_active)
     dol_aurora_shutdown();
@@ -390,8 +393,54 @@ void VideoPadRead(u16 buttons[4], s8 sticks[4][4], u8 triggers[4][2], bool conne
 #endif
 }
 
+// SKIES_WAV=FILE: the audio DMA's output (32 kHz stereo, left first) as a WAV file, muted or not.
+std::FILE* s_wav = nullptr;
+u32 s_wav_bytes = 0;
+
+void WavHeader(std::FILE* f, u32 data_bytes)
+{
+  auto u32le = [&](u32 v) { std::fwrite(&v, 4, 1, f); };
+  auto u16le = [&](u16 v) { std::fwrite(&v, 2, 1, f); };
+  std::fwrite("RIFF", 1, 4, f);
+  u32le(36 + data_bytes);
+  std::fwrite("WAVEfmt ", 1, 8, f);
+  u32le(16);
+  u16le(1);  // PCM
+  u16le(2);
+  u32le(32000);
+  u32le(32000 * 4);
+  u16le(4);
+  u16le(16);
+  std::fwrite("data", 1, 4, f);
+  u32le(data_bytes);
+}
+
+void WavClose()
+{
+  if (!s_wav)
+    return;
+  std::fseek(s_wav, 0, SEEK_SET);
+  WavHeader(s_wav, s_wav_bytes);
+  std::fclose(s_wav);
+  s_wav = nullptr;
+}
+
 void AudioPushSamples(const s16* samples, u32 frames)
 {
+  static const char* s_wav_path = std::getenv("SKIES_WAV");
+  if (s_wav_path && !s_wav && s_wav_bytes == 0)
+  {
+    s_wav = std::fopen(s_wav_path, "wb");
+    if (s_wav)
+      WavHeader(s_wav, 0);
+    else
+      s_wav_path = nullptr;
+  }
+  if (s_wav)
+  {
+    std::fwrite(samples, sizeof(s16), frames * 2, s_wav);  // the host is little-endian
+    s_wav_bytes += frames * 4;
+  }
 #ifdef SKIES_STANDALONE_AURORA
   static const bool s_mute = std::getenv("SKIES_MUTE") != nullptr;
   if (!s_active || s_mute)
