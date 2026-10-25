@@ -98,6 +98,9 @@ u8* LockedCache();  // 16 KB at 0xE0000000
 
 // ---- boot (boot.cpp) ---------------------------------------------------------------------------
 bool Boot(const std::string& game_dir);
+// The real-time clock in seconds since 2000-01-01: the wall clock at boot (or SKIES_RTC, for
+// repeatable runs) plus the guest time since, as Dolphin's emulated RTC.
+u32 RtcSeconds();
 
 // ---- disc (disc.cpp) ---------------------------------------------------------------------------
 bool DiscOpen(const std::string& game_dir);
@@ -143,6 +146,11 @@ bool ViIsPal();
 
 // GPU: command processor, pixel engine, the gather pipe and the GX command stream into Aurora.
 void GpuInit();
+u64 GpuFrameCount();  // XFB copies so far
+// dff.cpp (debug): SKIES_DFF frame capture as a Dolphin FIFO log
+void DffInit();
+void DffCommand(const u8* p, u32 len, bool top_level);
+void DffFrameEnd(u64 frame);
 u16 CpRead16(u32 offset);
 void CpWrite16(u32 offset, u16 value);
 u16 PeRead16(u32 offset);

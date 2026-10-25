@@ -45,6 +45,7 @@ add_executable(skies-standalone
   src/hw_pi.cpp
   src/hw_vi.cpp
   src/hw_gpu.cpp
+  src/dff.cpp
   src/hw_dsp.cpp
   src/hw_di.cpp
   src/hw_si.cpp

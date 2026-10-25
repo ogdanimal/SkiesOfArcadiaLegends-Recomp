@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "host.h"
 
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <vector>
@@ -41,7 +42,22 @@ bool LoadDol()
   g_cpu.pc = BE32(header + 0xE0);
   return true;
 }
+
+u64 RtcBase()
+{
+  static const u64 base = []() -> u64 {
+    if (const char* fixed = std::getenv("SKIES_RTC"))
+      return static_cast<u64>(std::strtoull(fixed, nullptr, 0));
+    return static_cast<u64>(std::time(nullptr)) - 946684800ull;
+  }();
+  return base;
+}
 }  // namespace
+
+u32 RtcSeconds()
+{
+  return static_cast<u32>(RtcBase() + g_cycles / CPU_HZ);
+}
 
 bool Boot(const std::string& game_dir)
 {
@@ -64,7 +80,7 @@ bool Boot(const std::string& game_dir)
   Write32(0x80000C00, 0x4C000064);
 
   // Time base from the real-time clock (seconds since 2000-01-01), as Dolphin presets it.
-  const u64 seconds = static_cast<u64>(std::time(nullptr)) - 946684800ull;
+  const u64 seconds = RtcBase();
   const u64 ticks = seconds * (CPU_HZ / TIMER_RATIO);
   g_cpu.timebase = ticks;
   Write32(0x800030D8, static_cast<u32>(ticks >> 32));

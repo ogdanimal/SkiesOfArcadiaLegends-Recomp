@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "host.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
@@ -19,6 +20,8 @@
 #include <aurora/gfx.h>
 #include <dolphin/gx.h>
 #include <dolphin/vi.h>
+
+extern bool aurora_debug_draw_log;  // GXRuntime: Aurora's per-draw log (AURORA_DRAW_LOG)
 
 extern "C" {
 void aurora_backend_present(void);
@@ -40,6 +43,8 @@ bool s_active = false;
 u64 s_frames = 0;
 std::string s_dump_dir;
 u64 s_dump_every = 0;
+u64 s_dump_from = 0;  // SKIES_DUMP_FROM: first frame dumped
+std::vector<u64> s_dump_frames;  // SKIES_DUMP_FRAMES=N,N,...: just these
 std::vector<s16> s_audio;
 
 #ifdef SKIES_STANDALONE_AURORA
@@ -136,6 +141,18 @@ bool VideoInit(bool headless)
   s_dump_every = s_dump_dir.empty() ? 0 : 60;
   if (const char* every = std::getenv("SKIES_DUMP_EVERY"))
     s_dump_every = std::strtoull(every, nullptr, 0);
+  if (const char* from = std::getenv("SKIES_DUMP_FROM"))
+    s_dump_from = std::strtoull(from, nullptr, 0);
+  if (const char* list = std::getenv("SKIES_DUMP_FRAMES"))
+  {
+    for (const char* p = list; *p;)
+    {
+      char* end = nullptr;
+      s_dump_frames.push_back(std::strtoull(p, &end, 0));
+      p = *end ? end + 1 : end;
+    }
+    s_dump_every = 1;
+  }
 #ifdef SKIES_STANDALONE_AURORA
   if (headless)
     return true;
@@ -201,8 +218,13 @@ void VideoCommands(const u8* data, u32 size)
 #ifdef SKIES_STANDALONE_AURORA
   if (!s_active)
     return;
+  // SKIES_DRAIN=N: let Aurora's worker fall at most N bytes behind (default 64 KB; debug)
+  static const u32 drain = [] {
+    const char* v = std::getenv("SKIES_DRAIN");
+    return v ? static_cast<u32>(std::strtoul(v, nullptr, 0)) : 64u * 1024;
+  }();
   aurora_backend_write_raw(data, size);
-  aurora_backend_drain_if_over(64 * 1024);
+  aurora_backend_drain_if_over(drain);
 #else
   (void)data;
   (void)size;
@@ -219,7 +241,20 @@ void VideoFrameEnd()
   if (!s_active)
     return;
   ApplyPresentRect();
-  const bool dump = s_dump_every != 0 && (s_frames % s_dump_every) == 0;
+  // SKIES_DRAW_LOG_FRAME=N: Aurora's draw log for frame N only (run with SKIES_DRAIN=0 so the
+  // frame's commands are parsed before the switch).
+  static const u64 log_frame = [] {
+    const char* v = std::getenv("SKIES_DRAW_LOG_FRAME");
+    return v ? std::strtoull(v, nullptr, 0) : 0ull;
+  }();
+  if (log_frame != 0)
+  {
+    aurora_backend_drain_if_over(0);
+    aurora_debug_draw_log = s_frames + 1 == log_frame;
+  }
+  bool dump = s_dump_every != 0 && s_frames >= s_dump_from && (s_frames % s_dump_every) == 0;
+  if (!s_dump_frames.empty())
+    dump = std::find(s_dump_frames.begin(), s_dump_frames.end(), s_frames) != s_dump_frames.end();
   if (dump)
     aurora_request_framebuffer_readback();
   aurora_backend_present();

@@ -217,11 +217,75 @@ enum class Effect
   XfbCopy,
 };
 
+// The EFB copy registers (source 0x49, size 0x4A, destination 0x4B, stride 0x4D).
+u32 s_copy_size = 0, s_copy_dest = 0, s_copy_stride = 0;
+
+// An EFB copy to a texture writes its pixels to RAM on the hardware. Aurora keeps the copy on the GPU
+// and recognises it by the guest address, dropping it once the memory there changes; so the copy
+// must leave a mark in RAM, or a buffer the game later reloads with the very bytes it held before
+// the copy (the field's UI atlas at 0x80667540 after a battle, which the battle transition copies
+// the screen into) still shows the old copy. The mark is Dolphin's for copies kept in VRAM
+// (TextureCacheBase::UninitializeEFBMemory): the copied tiles zeroed, at the time the game sees
+// the copy done.
+void MarkEfbCopy(u32 control)
+{
+  // Dolphin's UPE_Copy::tp_realFormat and TexDecoder_GetEFBCopyBlock*: block size per format
+  const u32 tp = (control >> 3) & 0xF;
+  const u32 format = tp / 2 + (tp & 1) * 8;
+  u32 bw = 4, bh = 4, block_bytes = 32;
+  switch (format)
+  {
+  case 0x0:  // R4 / Z4
+    bw = 8;
+    bh = 8;
+    break;
+  case 0x1:  // R8 (0x1), RA4, A8, R8, G8, B8 (and their depth forms)
+  case 0x2:
+  case 0x7:
+  case 0x8:
+  case 0x9:
+  case 0xA:
+    bw = 8;
+    break;
+  case 0x6:  // RGBA8 / Z24X8
+    block_bytes = 64;
+    break;
+  default:  // 16-bit formats
+    break;
+  }
+  u32 width = (s_copy_size & 0x3FF) + 1, height = ((s_copy_size >> 10) & 0x3FF) + 1;
+  if (control & (1u << 9))  // half scale
+  {
+    width = (width + 1) / 2;
+    height = (height + 1) / 2;
+  }
+  const u32 pitch = (s_copy_stride & 0x3FF) * 32;
+  const u32 row_bytes = (width + bw - 1) / bw * block_bytes;
+  const u32 rows = (height + bh - 1) / bh;
+  const u32 dest = (s_copy_dest & 0xFFFFFF) << 5;
+  for (u32 r = 0; r < rows; ++r)
+  {
+    u8* p = RamPtr(dest + r * pitch, row_bytes);
+    if (!p)
+      break;
+    std::memset(p, 0, row_bytes);
+  }
+}
+
 // BP writes the CPU can observe.
 Effect BpWrite(u8 reg, u32 value)
 {
   switch (reg)
   {
+  case 0x4A:
+    s_copy_size = value;
+    break;
+  case 0x4B:
+    s_copy_dest = value;
+    break;
+  case 0x4D:
+    s_copy_stride = value;
+    break;
   case 0x45:  // draw done
     if ((value & 0xFF) == 0x02)
     {
@@ -243,6 +307,7 @@ Effect BpWrite(u8 reg, u32 value)
   case 0x52:  // EFB copy; bit 14: to the XFB (the frame's display copy)
     if (value & 0x4000)
       return Effect::XfbCopy;
+    MarkEfbCopy(value);
     break;
   default:
     break;
@@ -294,6 +359,7 @@ void Trace(const u8* p, u32 len, int depth)
 Effect Apply(const u8* p, u32 len, int depth)
 {
   Trace(p, len, depth);
+  DffCommand(p, len, depth == 0);
   switch (p[0])
   {
   case 0x08:
@@ -351,6 +417,7 @@ void ProcessCommands()
         VideoCommands(data + sent, pos - sent);
       sent = pos;
       ++s_frames;
+      DffFrameEnd(s_frames);
       VideoFrameEnd();
     }
     pos += len;
@@ -616,6 +683,11 @@ u32 EfbRead(u32)
   // Skies never peeks or pokes the EFB: GXPeek*/GXPoke{ARGB,Z} aren't linked into the DOL and no
   // run has touched 0xC8000000. 0 is what the Dolphin build's Aurora backend (Null EFB) returns.
   return 0;
+}
+
+u64 GpuFrameCount()
+{
+  return s_frames;
 }
 
 void GpuStats(u64* frames, u64* draw_dones, u64* tokens)

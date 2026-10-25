@@ -80,7 +80,7 @@ void InitSram()
 
 void UpdateRtc()
 {
-  const u32 seconds = static_cast<u32>(static_cast<u64>(std::time(nullptr)) - 946684800ull);
+  const u32 seconds = RtcSeconds();
   s_sram[0] = static_cast<u8>(seconds >> 24);
   s_sram[1] = static_cast<u8>(seconds >> 16);
   s_sram[2] = static_cast<u8>(seconds >> 8);

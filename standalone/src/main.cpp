@@ -141,6 +141,7 @@ int main(int argc, char** argv)
   PiInit();
   ViInit();
   GpuInit();
+  DffInit();
   DspInit();
   DiInit();
   SiInit();

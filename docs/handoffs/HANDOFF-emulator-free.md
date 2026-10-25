@@ -178,3 +178,37 @@ saves as with the plain DOL. About 10% slower than the plain DOL's PGO module on
   16:9 to view). The window itself hasn't been looked at, only the dumps.
 - Debug switches added while finding it: `SKIES_GX_TRACE=N` logs frame N's BP/CP/XF loads, draws and
   display-list calls; `SKIES_WATCH=ADDR` logs the block after which a RAM word changed.
+
+## First battle and the graphics check (2026-10-25)
+
+**First battle reached and won** on WSL with the plain USA DOL: the "Valuan Battle Ship" save (copy of
+`build/user-ms`'s #01 in `build/sa-runs/user-card3`), a scripted walk until the encounter, A through the
+fight, the results screen, back in the field. Repeatable: `SKIES_RTC=847000789` (fixed RTC start, guest
+time after; runs with the same seed and input are identical) plus `build/sa-runs/fight.txt` gives the
+encounter at 124.5 s and the field again at 173.8 s (`SKIES_WATCH=803475cc` shows the game mode: 6 field,
+7 battle).
+
+**Bug found and fixed: stale EFB copies (Aurora).** The results screen drew the battle's ship walls
+instead of its parchment panel. The field keeps its UI atlas (1024x512 RGB5A3) at heap address
+0x80667540; the battle transition copies the screen into that buffer; after the battle the field reloads
+the atlas to the same address, byte for byte. Aurora keeps EFB copies on the GPU, keyed by guest address,
+and never let go of that one: nothing ever told it the memory had been reloaded. Fixed in two parts, as
+Dolphin's texture cache does it (`TextureCacheBase::UninitializeEFBMemory`):
+- the host zeroes the copied tiles in RAM when it processes a copy (`MarkEfbCopy`, `hw_gpu.cpp`), so a
+  reload always changes the memory (the Dolphin build's VideoCommon already does this);
+- Aurora (`gx.cpp`, `gx.hpp`, `GXFrameBuffer.cpp`): each copy records a fingerprint of its destination
+  memory (128 evenly spread words + first + last, XXH3), and `resolve_sampled_textures` drops the copy
+  and uses the memory once the fingerprint changes.
+
+**Tools for checking the picture against Dolphin** (debug, all env):
+- `SKIES_DFF=FIRST:COUNT:PATH[;...]` writes the frames ending with XFB copies FIRST.. as a Dolphin FIFO
+  log (`dff.cpp`: registers shadowed from boot, RAM at each frame's end as memory updates). Stock Dolphin
+  renders it (`build/sa-runs/tools/dolphin-dff.sh IN.dff OUTDIR N`, the Windows LaunchBox Dolphin), so any
+  difference to the standalone's own frame is Aurora's. Caveat: an EFB copy made before the recorded
+  frames is not in the log (Dolphin reads zeros there), so record enough frames to include it.
+- `SKIES_DUMP_FRAMES=N,N,...` dumps just those frames; `SKIES_DUMP_FROM`; `SKIES_COPY_LOG=1` logs every
+  EFB-to-texture copy (frame, destination, rectangle, format, stride); `SKIES_DRAW_LOG_FRAME=N` Aurora's
+  draw log for one frame (with `SKIES_DRAIN=0`); `SKIES_DRAIN=N` Aurora's FIFO drain threshold.
+- `build/sa-runs/tools/compare-sweep.sh` puts a sweep's standalone frames beside Dolphin's and scores
+  them; `tools/dolphin_battle.py` drives the Dolphin port (`moderngekko-run --automation-dir`) through a
+  battle with screenshots.
