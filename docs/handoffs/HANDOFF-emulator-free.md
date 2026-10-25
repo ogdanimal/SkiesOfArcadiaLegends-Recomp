@@ -618,8 +618,13 @@ tools/android-ws-build.sh` made `build/android/jniLibs-sa26` (5461 of 5461; `MOD
 Aurora never drew: it draws only while its surface is marked ready through
 `Java_org_libsdl_app_SDLSurface_auroraNativeSetSurfaceReady`, which stock SDL never calls; the APK script
 patches a copy of `SDLSurface.java` (ready after `surfaceChanged`, not ready before `surfaceDestroyed`). The
-device must be unlocked (a locked screen pauses the activity before it has a surface). Status and navigation
-bars still show (window 1920x972).
+device must be unlocked (a locked screen pauses the activity before it has a surface). Since 2026-10-25
+(night) `SkiesActivity` hides the status and navigation bars in `onCreate` (WindowInsetsController, the legacy
+immersive flags below API 30; a swipe shows them for a while), so the surface is 1920x1080 before Aurora sizes
+its swap chain. Not through SDL's fullscreen after start: that resizes the surface mid-game, and Aurora's
+resize (window.cpp `resize_swapchain`) recreates the EFB and clears the copy caches, so the copies that live
+only on the GPU would be lost (a real problem for rotation or split screen too: lifecycle, open). Pacing
+unchanged (p99 34.6 ms in both scenes).
 
 **The Dolphin build on the same DOL and module** (the user chose a separate app, 2026-10-25):
 `org.dolphinemu.dolphinemu.bench`, the plain app under another id (`APP_ID_SUFFIX=.bench`, new in
@@ -769,5 +774,5 @@ looked right (placement, letterbox, sharpness), Windows presents normally.
 
 **Next GPU candidates on the tiler:** the EFB passes themselves (22.4 of 26.8 ms at the save point; per-draw
 cost needs a vendor profiler); the two copy conversions (4.2 ms; each reads the whole 6x EFB, with passes
-between them, so they can't share a read). Then the shell's gaps (immersive mode, the built-in pad, audio on
+between them, so they can't share a read). Then the shell's gaps (immersive mode done; the built-in pad, audio on
 device, lifecycle, a launcher).
