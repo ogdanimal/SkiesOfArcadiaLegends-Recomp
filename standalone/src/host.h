@@ -70,6 +70,8 @@ enum EventId
 };
 using EventFn = void (*)(u64 late);
 void SchedInit();
+// Each slot has one handler; registering it at init lets a loaded state's pending events fire.
+void SchedRegister(EventId id, EventFn fn);
 void Schedule(EventId id, u64 cycles_from_now, EventFn fn);
 void Deschedule(EventId id);
 bool IsScheduled(EventId id);
@@ -237,4 +239,40 @@ int MenuVolume();  // percent
 extern float g_overclock;
 // Guest time over wall time for the last half second (1 = full speed; main.cpp)
 double EmulationSpeed();
+// After a state load moved the guest clock: wall-clock pacing restarts from now (main.cpp)
+void ThrottleRestart();
+
+// ---- save states (state.cpp) -------------------------------------------------------------------
+// The whole machine in one file, taken and put back between two dispatches of the run loop, after
+// a frame's display copy (the picture is complete and the next frame not started).
+class StateIO;
+void StateSetUserDir(const std::string& user_dir);
+// USER/StateSaves/Standalone (empty without --user)
+std::string StateDirectory();
+// Done at the next frame end; the message is shown once it worked.
+void StateRequestSave(const std::string& path, const std::string& message);
+void StateRequestLoad(const std::string& path, const std::string& message);
+// The command line's --load-state: at the game's first frame end, as the menu's loads are; a state
+// that can't be loaded ends the run
+void StateLoadAtStart(const std::string& path);
+extern bool g_state_request;  // the run loop calls StateRun while set
+void StateRun();
+void StateFrameEnd();  // hw_gpu.cpp, after each display copy
+// The parts' state (each file's own), in the order state.cpp runs them
+void SchedDoState(StateIO& p);
+void CpuDoState(StateIO& p);
+void PiDoState(StateIO& p);
+void ViDoState(StateIO& p);
+void GpuDoState(StateIO& p);
+void DffDoState(StateIO& p);  // the GP registers Aurora has (BP, CP, XF, TLUT loads)
+void DffReloadAurora();       // after a load: those registers to Aurora again
+void DspDoState(StateIO& p);  // and ARAM, the DSP HLE
+void DiDoState(StateIO& p);
+void SiDoState(StateIO& p);
+void ExiDoState(StateIO& p);  // and the memory card
+void AiDoState(StateIO& p);
+void VideoDoState(StateIO& p);  // and Aurora's EFB copies
+void VideoStateLoaded();        // after a load: the state's EFB copies to Aurora
+u64 ModuleFingerprint();  // the recompiled module's chunk hashes (a state needs the same module)
+double CardSecondsSinceLastAccess();  // guest seconds; auto-saves wait for a quiet card
 }  // namespace host

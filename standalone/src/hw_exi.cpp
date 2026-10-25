@@ -3,6 +3,7 @@
 // OSReport writes to), and the memory card in slot A (channel 0 chip select 0, hw_memcard.cpp).
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "host.h"
+#include "state.h"
 
 #include <cstring>
 #include <ctime>
@@ -18,6 +19,7 @@ void CardSetCs(bool selected);
 void CardTransferByte(u8& byte);
 void CardDmaRead(u8* ram, u32 length);
 void CardDmaWrite(const u8* ram, u32 length);
+void CardDoState(StateIO& p);
 
 namespace
 {
@@ -261,6 +263,17 @@ void ExiInit()
   InitSram();
   s_ipl_command = s_ipl_command_bytes = s_ipl_cursor = 0;
   CardInsert(s_user_dir, std::string(reinterpret_cast<const char*>(DiscHeader()), 6), s_sram);
+}
+
+void ExiDoState(StateIO& p)
+{
+  p.DoArray(s_ch, 3);
+  p.DoArray(s_sram, sizeof(s_sram));
+  p.Do(s_ipl_command);
+  p.Do(s_ipl_command_bytes);
+  p.Do(s_ipl_cursor);
+  p.Do(s_uart);
+  CardDoState(p);
 }
 
 void ExiShutdown()

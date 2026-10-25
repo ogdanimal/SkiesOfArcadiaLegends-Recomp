@@ -2,6 +2,7 @@
 // line, and the CPU-side FIFO pointers the gather pipe writes through (ProcessorInterface.cpp).
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "host.h"
+#include "state.h"
 
 namespace host
 {
@@ -27,6 +28,18 @@ void PiInit()
   s_reset_code = 0;
   g_pi_fifo_base = g_pi_fifo_end = g_pi_fifo_wptr = 0;
   Update();
+}
+
+void PiDoState(StateIO& p)
+{
+  p.Do(s_cause);
+  p.Do(s_mask);
+  p.Do(s_reset_code);
+  p.Do(g_pi_fifo_base);
+  p.Do(g_pi_fifo_end);
+  p.Do(g_pi_fifo_wptr);
+  if (p.Reading())
+    Update();
 }
 
 void PiSetInterrupt(u32 cause, bool set)

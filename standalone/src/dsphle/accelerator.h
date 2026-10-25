@@ -7,6 +7,11 @@
 
 #include "core/types.h"
 
+namespace host
+{
+class StateIO;
+}
+
 namespace host::dsphle
 {
 class Accelerator
@@ -37,6 +42,7 @@ public:
   void SetYn2(s16 yn2);
   void SetPredScale(u16 pred_scale);
   void SetInput(u16 input);
+  void DoState(StateIO& p);
 
 protected:
   virtual void OnRawReadEndException() = 0;

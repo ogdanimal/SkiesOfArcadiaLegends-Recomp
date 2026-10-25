@@ -10,6 +10,7 @@
 
 #include "dsphle/dsphle.h"
 #include "dsphle/ucodes.h"
+#include "state.h"
 
 namespace host::dsphle
 {
@@ -88,6 +89,36 @@ void DSPHLE::SwapUCode(u32 crc)
     m_ucode = UCodeFactory(crc, this);
     m_ucode->Initialize();
   }
+}
+
+// Dolphin's DSPHLE::DoState: a ucode the state had and this run hasn't is made anew (by its CRC),
+// then each restores its own state.
+void DSPHLE::DoState(StateIO& p)
+{
+  p.Do(m_dsp_control.Hex);
+  p.Do(m_init_code_reads_left);
+  p.Do(m_dsp_state.cpu_mailbox);
+  p.Do(m_dsp_state.dsp_mailbox);
+  const u32 ucode_crc = UCodeInterface::GetCRC(m_ucode.get());
+  const u32 last_crc = UCodeInterface::GetCRC(m_last_ucode.get());
+  u32 saved_ucode_crc = ucode_crc, saved_last_crc = last_crc;
+  p.Do(saved_ucode_crc);
+  p.Do(saved_last_crc);
+  if (p.Reading())
+  {
+    const auto make = [this](u32 crc) {
+      return crc == UCODE_NULL ? std::unique_ptr<UCodeInterface>() : UCodeFactory(crc, this);
+    };
+    if (saved_ucode_crc != ucode_crc)
+      m_ucode = make(saved_ucode_crc);
+    if (saved_last_crc != last_crc)
+      m_last_ucode = make(saved_last_crc);
+  }
+  if (m_ucode)
+    m_ucode->DoState(p);
+  if (m_last_ucode)
+    m_last_ucode->DoState(p);
+  m_mail_handler.DoState(p);
 }
 
 u32 DSPHLE::CurrentUcodeCrc() const
@@ -254,5 +285,10 @@ u16 ReadControlRegister()
 u32 CurrentUcodeCrc()
 {
   return Instance().CurrentUcodeCrc();
+}
+
+void DoState(StateIO& p)
+{
+  Instance().DoState(p);
 }
 }  // namespace host::dsphle

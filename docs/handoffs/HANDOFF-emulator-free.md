@@ -59,7 +59,7 @@ GCI files and carry over.
 
 ## What carries over
 
-- The Aurora fork (`~/projects/skies-aurora/GXRuntime`, 28 commits, `patches/` there): Skies renders exactly
+- The Aurora fork (`~/projects/skies-aurora/GXRuntime`, 29 commits, `patches/` there): Skies renders exactly
   like Dolphin on the Retroid Pocket 5, the Nova, Windows and WSL; 60 fps through a second GX context;
   the present rectangle (Picture option); the Dear ImGui overlay (the in-game menu). All of it is in the
   vendored GXRuntime on the local `aurora-backend` branch.
@@ -290,8 +290,8 @@ Settings are the Dolphin build's keys in the same files (`settings.cpp`: `USER/C
 changed lines are rewritten (atomically). Without `--user` they last for the run. Messages (speed
 changes, Invincible, the speed step-down) are drawn top left for their time.
 
-Not offered yet, as the standalone can't do them: save states (the Saves tab; needs a state format
-for the host's devices, RAM, ARAM and the GPU's registers), 60 fps, Language, the Dreamcast tab,
+Not offered yet, as the standalone can't do them (save states came after, see the next section):
+60 fps, Language, the Dreamcast tab,
 HD textures, Button mapping, Rumble, auto-load of a card save (Continue). Aurora's keyboard layout is
 its own default (arrows = D-pad, WASD = stick, J / K = A / B, U / I = X / Y, Q = Z, E / R = L / R,
 Enter = Start), not the release's.
@@ -311,6 +311,73 @@ the game patch ignores it), so the scripted route then misses the encounter zone
 Press scripts also take CUP / CDOWN / CLEFT / CRIGHT (C-stick) and LT / RT (analog triggers);
 `SKIES_WATCH_MAX` raises the watch log's 40-change limit.
 
-**Next:** someone listens to the audio (unmuted Windows run) and tries the menu by hand; save states
-(the Saves tab, auto-save, Continue); 60 fps (the replay context); Android shell; the remaining
+**Next:** someone listens to the audio (unmuted Windows run) and tries the menu by hand; Continue
+(a card save loaded at boot, `autoload.c`); 60 fps (the replay context); Android shell; the remaining
 Dolphin-hosted features (HD textures, Dreamcast music, romhacks, ...).
+
+## Save states (2026-10-25) — working on WSL and Windows
+
+`standalone/src/state.cpp` + `state.h`: the whole machine in one file. Each part has a `DoState`
+(`StateIO`, Dolphin's PointerWrap pattern; a named marker before each section): the scheduler (the
+clock and each slot's due time; handlers by slot, `SchedRegister`), the CPU (`CPUState` up to its host
+hooks, the SPRs, the locked cache, the decrementer / time base leftovers; the module's
+`on_state_loaded` after), RAM, PI, VI, the GPU side (gather pipe bytes, CP FIFO, PE, the parser's
+vertex formats and pending bytes), the GP registers Aurora has (`dff.cpp`'s shadow: BP, CP, XF, TMEM,
+plus the last TLUT load per TMEM offset), DSP (registers, pending interrupts, ARAM, the DSP HLE:
+Dolphin's `DSPHLE` / `UCodeInterface` / `AXUCode` / `ROMUCode` / `Accelerator` / `CMailHandler`
+DoState ported back), DI, SI (the pads as last polled), EXI + the memory card (the image and the saves
+known on disk, by file name; as Dolphin's `GCMemcardDirectory::DoState`, nothing is written back until
+the game writes), AI, and video (frame number, Aurora's EFB copies). zstd level 1 (Aurora's copy, or
+Dolphin's `Externals/zstd` in the headless build) behind a 56-byte header with the disc ID, a hash of
+the DOL booted and `ModuleFingerprint()`; a state of another game, patch or build is refused. 76 MB
+raw, 12-15 MB packed, 110-180 ms to save or load.
+
+- **When:** a request waits for the next display copy (`StateFrameEnd`), then runs between two
+  dispatches of the run loop (`g_state_request`). After a load: Aurora gets the state's EFB copies back
+  (`VideoStateLoaded`), then the GP registers as commands (`DffReloadAurora`, as the Dolphin build's
+  `ReloadRegisterState`) ending with the display copy again (its clear: the next frame's EFB),
+  and wall-clock pacing restarts (`ThrottleRestart`). A load that fails partway puts back the state from
+  just before it (kept in memory without the GPU's copies).
+- **EFB copies (fork 0029):** Aurora keeps a copy on the GPU only (the host zeroes the memory under
+  it), so a state without them lost the save point's light and the minimap until the game copied again.
+  `aurora_backend_copies_snapshot` reads every live copy back after the render worker's frames,
+  `aurora_backend_copies_restore` rebuilds them as `copy_tex` does and resets the texture binds.
+- **Menu:** a Saves tab first, as the Dolphin build: Save state (slots 1-5), Load state (the newest
+  auto-save or a slot, A twice), Auto-save (Off / 5 / 10 / 15 / 30 min, `[Skies] AutoSave`, the same key;
+  only on the field or world map outside ship battles with the card left alone 10 s; the newest 3
+  kept). Files: `USER/StateSaves/Standalone/<disc ID>-slot<N>.sst`, `<disc ID>-auto-<date>-<time>.sst`
+  (not the Dolphin build's: the two builds' states don't load in each other). Without `--user` the rows
+  say a user folder is needed.
+- **Command line and tests:** `--load-state FILE` (at the first display copy, as a menu load; a state
+  that can't be loaded ends the run), `SKIES_SAVE_AT=SECONDS:PATH`, `SKIES_LOAD_AT=SECONDS:PATH` (an
+  in-session load), `SKIES_AUTO_SAVE_SECONDS=N`. `--seconds` counts the state's guest clock.
+- The memory card is now formatted at the emulated clock's time (`RtcSeconds`, so `SKIES_RTC` runs
+  repeat byte for byte, the card included).
+
+Checked (2026-10-25):
+- **Headless, plain DOL fight route** (`SKIES_RTC=847000789`, `fight-full.txt`, `user-qa-plain`): a
+  state at 100 s, loaded: the battle at 124.487 s and the field at 173.812 s as the straight run, and a
+  second state at 185 s byte-identical to the straight run's (CPU, RAM, ARAM, DSP, GPU, card,
+  scheduler). Same on the ws32 DOL (`user-card3`, `boxfight.txt`, 110 s -> 159 s). Taking the state
+  doesn't change the run.
+- **A broken state loaded at 106 s** (a section marker changed): "Couldn't load the state: section exi
+  not found", and the run carries on to the battle at 124.487 s as if nothing happened. A truncated file,
+  another game patch's module and a card state in a run without `--user` are refused with those reasons.
+- **Window (WSL):** frames after a load match the straight run's, the first one included, once
+  `AURORA_SYNC_PIPELINES=1` takes out Aurora's skipped draws while pipelines compile (without it a
+  freshly started run skips the save point's and minimap's draws for a few frames, as any cold start
+  does; frame dumps of two straight runs differ by that too). The Saves tab driven by XTEST keys: save
+  to slot 1, "Saved to slot 1", Load state (Right to slot 1, "Press A again to load" in gold, A),
+  "Loaded slot 1" with the picture right. Auto-save every 6 s (test override): the newest 3 kept.
+- **Windows (MSVC, D3D12):** builds; a state at 100 s with 4 EFB copies read back (112 ms), loaded:
+  the battle at 124.487 s. Not tried by hand there.
+
+Found on the way, not chased:
+- **Window runs can leave the scripted timeline under heavy load**: two of the WSL window runs with
+  blocking pipeline compiles, and one Windows run while another ran beside it, reached frame 3001 later
+  than the rest (101.60 s for 101.42 s) and then played differently; headless runs never did, and a
+  repeat alone matched. Something wall-clock-dependent reaches the game in the window build (open item 5,
+  the ws32 battle-speed divergence, may be the same).
+- **Small picture differences between runs** on draws whose vertex data the CPU rewrites every frame (the
+  character, the save point's particles): Aurora reads guest memory when it parses, so where its parsing
+  falls behind the CPU decides which data a draw sees. Straight runs differ from each other the same way.

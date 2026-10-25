@@ -2,6 +2,7 @@
 // clock against one cached deadline per dispatch and scans the slots only when something is due.
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "host.h"
+#include "state.h"
 
 #include <limits>
 
@@ -18,6 +19,8 @@ struct Slot
   EventFn fn = nullptr;
 };
 Slot s_slots[EV_COUNT];
+// Each slot's handler (one per slot), for slots a loaded state has pending
+EventFn s_known[EV_COUNT];
 
 void Recompute()
 {
@@ -41,8 +44,14 @@ u64 Now()
   return g_cycles;
 }
 
+void SchedRegister(EventId id, EventFn fn)
+{
+  s_known[id] = fn;
+}
+
 void Schedule(EventId id, u64 cycles_from_now, EventFn fn)
 {
+  s_known[id] = fn;
   s_slots[id].when = g_cycles + cycles_from_now;
   s_slots[id].fn = fn;
   if (s_slots[id].when < g_next_event)
@@ -60,6 +69,25 @@ void Deschedule(EventId id)
 bool IsScheduled(EventId id)
 {
   return s_slots[id].when != std::numeric_limits<u64>::max();
+}
+
+// The clock and when each slot is due; handlers are this run's (SchedRegister).
+void SchedDoState(StateIO& p)
+{
+  p.Do(g_cycles);
+  for (int i = 0; i < EV_COUNT; ++i)
+  {
+    u64 when = s_slots[i].when;
+    p.Do(when);
+    if (!p.Reading())
+      continue;
+    s_slots[i].when = when;
+    s_slots[i].fn = s_known[i];
+    if (when != std::numeric_limits<u64>::max() && !s_known[i])
+      p.Fail("event " + std::to_string(i) + " is pending but has no handler");
+  }
+  if (p.Reading())
+    Recompute();
 }
 
 void RunDue()

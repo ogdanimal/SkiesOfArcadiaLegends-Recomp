@@ -7,6 +7,7 @@
 
 #include "dsphle/dsp_hle.h"
 #include "dsphle/hle_common.h"
+#include "state.h"
 
 namespace host::dsphle
 {
@@ -76,5 +77,22 @@ bool CMailHandler::HasPending() const
 void CMailHandler::SetHalted(bool halt)
 {
   m_halted = halt;
+}
+void CMailHandler::DoState(StateIO& p)
+{
+  u64 count = m_pending_mails.size();
+  p.Do(count);
+  if (p.Reading())
+    m_pending_mails.clear();
+  for (u64 i = 0; i < count && p.Ok(); ++i)
+  {
+    std::pair<u32, bool> mail = p.Reading() ? std::pair<u32, bool>{} : m_pending_mails[i];
+    p.Do(mail.first);
+    p.Do(mail.second);
+    if (p.Reading())
+      m_pending_mails.push_back(mail);
+  }
+  p.Do(m_last_mail);
+  p.Do(m_halted);
 }
 }  // namespace host::dsphle

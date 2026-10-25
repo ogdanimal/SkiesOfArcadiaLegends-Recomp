@@ -9,6 +9,7 @@
 // and textures from guest RAM itself.
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "host.h"
+#include "state.h"
 
 #include <cstdlib>
 #include <cstring>
@@ -419,6 +420,7 @@ void ProcessCommands()
       ++s_frames;
       DffFrameEnd(s_frames);
       VideoFrameEnd();
+      StateFrameEnd();
     }
     pos += len;
   }
@@ -535,6 +537,39 @@ void GpuInit()
   s_vtx = {};
   s_pending.clear();
   s_gp_ptr = s_gp;
+}
+
+// The gather pipe's queued bytes, the CP FIFO, the PE and the parser's own registers; what Aurora
+// keeps of the GP is dff.cpp's.
+void GpuDoState(StateIO& p)
+{
+  u32 queued = static_cast<u32>(s_gp_ptr - s_gp);
+  p.Do(queued);
+  if (p.Reading() && queued > sizeof(s_gp))
+  {
+    p.Fail("the gather pipe holds too much");
+    queued = 0;
+  }
+  p.DoArray(s_gp, sizeof(s_gp));
+  s_gp_ptr = s_gp + queued;
+  p.Do(s_fifo);
+  p.Do(s_cp_ctrl);
+  p.Do(s_cp_perf_select);
+  p.Do(s_cp_unk_0a);
+  p.Do(s_cp_int);
+  p.DoArray(s_pe_conf, 5);
+  p.Do(s_pe_ctrl);
+  p.Do(s_pe_token);
+  p.Do(s_pe_token_int);
+  p.Do(s_pe_finish_int);
+  p.Do(s_draw_dones);
+  p.Do(s_tokens);
+  p.Do(s_frames);
+  p.Do(s_vtx);
+  p.Do(s_copy_size);
+  p.Do(s_copy_dest);
+  p.Do(s_copy_stride);
+  p.Do(s_pending);
 }
 
 void GatherPipeInstall(CPUState* cpu)

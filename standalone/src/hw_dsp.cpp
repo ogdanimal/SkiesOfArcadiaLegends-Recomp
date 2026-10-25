@@ -3,6 +3,7 @@
 // (DSP.cpp: RegisterMMIO, UpdateInterrupts, Do_ARAM_DMA, UpdateAudioDMA).
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "host.h"
+#include "state.h"
 
 #include "dsphle/dsp_hle.h"
 
@@ -118,6 +119,12 @@ void AudioDmaTick(u64 late)
   Schedule(EV_AUDIO_DMA, kAudioDmaPeriod > late ? kAudioDmaPeriod - late : 1, AudioDmaTick);
 }
 
+void AramDmaDone(u64)
+{
+  s_control &= ~0x200;
+  GenerateInterrupt(INT_ARAM);
+}
+
 void AramDma()
 {
   s_control |= 0x200;  // DMAState
@@ -142,10 +149,7 @@ void AramDma()
   s_aram_mm = mm;
   s_aram_ar = ar;
   s_aram_cnt &= 0x80000000u;
-  Schedule(EV_ARAM, ticks ? ticks : 1, [](u64) {
-    s_control &= ~0x200;
-    GenerateInterrupt(INT_ARAM);
-  });
+  Schedule(EV_ARAM, ticks ? ticks : 1, AramDmaDone);
 }
 
 u16* Half(u32* value, bool high)
@@ -201,6 +205,26 @@ void DspInit()
   s_control = (s_control & ~DSP_CONTROL_MASK) | (dsphle::ReadControlRegister() & DSP_CONTROL_MASK);
   Schedule(EV_DSP, kUpdatePeriod, UpdateTick);
   Schedule(EV_AUDIO_DMA, kAudioDmaPeriod, AudioDmaTick);
+  SchedRegister(EV_DSP_INT, PendingDue);
+  SchedRegister(EV_ARAM, AramDmaDone);
+}
+
+void DspDoState(StateIO& p)
+{
+  p.Do(s_control);
+  p.Do(s_aram_info);
+  p.Do(s_aram_mode);
+  p.Do(s_aram_refresh);
+  p.Do(s_aram_mm);
+  p.Do(s_aram_ar);
+  p.Do(s_aram_cnt);
+  p.Do(s_audio_source);
+  p.Do(s_audio_control);
+  p.Do(s_audio_current);
+  p.Do(s_audio_remaining);
+  p.Do(s_pending);
+  p.DoArray(s_aram, ARAM_SIZE);
+  dsphle::DoState(p);
 }
 
 u16 DspRead16(u32 offset)

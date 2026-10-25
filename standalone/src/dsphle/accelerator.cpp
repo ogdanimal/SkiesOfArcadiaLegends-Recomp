@@ -8,6 +8,7 @@
 #include <algorithm>
 
 #include "dsphle/hle_common.h"
+#include "state.h"
 
 namespace host::dsphle
 {
@@ -35,6 +36,20 @@ u16 Accelerator::GetCurrentSample()
     break;
   }
   return val;
+}
+
+void Accelerator::DoState(StateIO& p)
+{
+  p.Do(m_start_address);
+  p.Do(m_end_address);
+  p.Do(m_current_address);
+  p.Do(m_sample_format);
+  p.Do(m_gain);
+  p.Do(m_yn1);
+  p.Do(m_yn2);
+  p.Do(m_pred_scale);
+  p.Do(m_input);
+  p.Do(m_reads_stopped);
 }
 
 u16 Accelerator::ReadRaw()

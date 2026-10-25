@@ -34,6 +34,15 @@ else()
   set(GXRUNTIME_ENABLE_AURORA_RECOMP OFF CACHE BOOL "" FORCE)
 endif()
 add_subdirectory("${GXRUNTIME_DIR}" GXRuntime EXCLUDE_FROM_ALL)
+# zstd for save states: Aurora's copy when it is built, else Dolphin's (Externals/zstd)
+if(NOT TARGET zstd::libzstd)
+  set(ZSTD_BUILD_PROGRAMS OFF CACHE BOOL "" FORCE)
+  set(ZSTD_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+  set(ZSTD_BUILD_STATIC ON CACHE BOOL "" FORCE)
+  set(ZSTD_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+  add_subdirectory("${DOLPHIN_DIR}/Externals/zstd/zstd/build/cmake" zstd EXCLUDE_FROM_ALL)
+  add_library(zstd::libzstd ALIAS libzstd_static)
+endif()
 
 add_executable(skies-standalone
   src/main.cpp
@@ -55,6 +64,7 @@ add_executable(skies-standalone
   src/video.cpp
   src/settings.cpp
   src/menu.cpp
+  src/state.cpp
   src/dsphle/dsp_hle.cpp
   src/dsphle/mail_handler.cpp
   src/dsphle/ucodes.cpp
@@ -71,7 +81,7 @@ target_include_directories(skies-standalone PRIVATE
   "${MODULE_ABI_DIR}"
   "${DOLPHIN_DIR}/DolRecomp/src/frontend")
 # GXRuntime's CPU core: the bit-exact FP / paired-single helpers the fallback interpreter calls
-target_link_libraries(skies-standalone PRIVATE GXRuntime::runtime ${CMAKE_DL_LIBS})
+target_link_libraries(skies-standalone PRIVATE GXRuntime::runtime zstd::libzstd ${CMAKE_DL_LIBS})
 # The AX resampler's DSP ROM coefficients (Dolphin ships them; not game data)
 target_compile_definitions(skies-standalone PRIVATE
   SKIES_DSP_COEF_DEFAULT="${DOLPHIN_DIR}/Data/Sys/GC/dsp_coef.bin")

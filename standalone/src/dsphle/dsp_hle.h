@@ -6,6 +6,11 @@
 
 #include "core/types.h"
 
+namespace host
+{
+class StateIO;
+}
+
 namespace host::dsphle
 {
 // ---- what the HLE calls on the host (hw_dsp.cpp implements these) ----------------------------
@@ -28,4 +33,5 @@ void WriteMailboxLow(bool cpu_mailbox, u16 value);
 u16 WriteControlRegister(u16 value);  // returns the value as DSPHLE::DSP_WriteControlRegister
 u16 ReadControlRegister();
 u32 CurrentUcodeCrc();                // for logs
+void DoState(StateIO& p);             // save states (DSPHLE::DoState)
 }  // namespace host::dsphle

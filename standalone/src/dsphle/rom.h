@@ -19,6 +19,7 @@ public:
   void Initialize() override;
   void HandleMail(u32 mail) override;
   void Update() override;
+  void DoState(StateIO& p) override;
 
 private:
   struct UCodeBootInfo

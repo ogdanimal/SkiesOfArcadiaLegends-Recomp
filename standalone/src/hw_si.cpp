@@ -3,6 +3,7 @@
 // (status, origin, recalibrate). Controller state comes from video.cpp (Aurora's SDL pads).
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "host.h"
+#include "state.h"
 
 #include <cstring>
 
@@ -181,6 +182,21 @@ void SiInit()
   s_poll = s_comcsr = s_status = s_exilk = 0;
   s_polled = false;
   std::memset(s_buffer, 0, sizeof(s_buffer));
+  SchedRegister(EV_SI, TransferDone);
+}
+
+// The controllers as the guest last saw them too, so a loaded state plays on exactly as the run
+// it was taken from until the next field's poll.
+void SiDoState(StateIO& p)
+{
+  p.DoArray(s_ch, 4);
+  p.Do(s_poll);
+  p.Do(s_comcsr);
+  p.Do(s_status);
+  p.Do(s_exilk);
+  p.DoArray(s_buffer, sizeof(s_buffer));
+  p.DoArray(s_pads, 4);
+  p.Do(s_polled);
 }
 
 void SiPollDevices()

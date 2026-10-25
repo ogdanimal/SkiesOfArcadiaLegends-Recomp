@@ -10,6 +10,7 @@
 // at exit.
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "host.h"
+#include "state.h"
 
 #include <algorithm>
 #include <cstring>
@@ -75,6 +76,7 @@ u32 s_address = 0;
 u8 s_interrupt_switch = 0;
 bool s_interrupt_set = false;
 u8 s_program[128];
+u64 s_last_access = 0;  // guest cycles at the last chip select
 
 // Saves known to be on disk: identity (game code, maker, file name) -> file and its contents.
 struct SaveFile
@@ -439,8 +441,9 @@ bool CardInsert(const std::string& user_dir, const std::string& game_id, u8* sra
     return false;
   }
   s_card.assign(CARD_BYTES, 0xFF);
-  // EXI.cpp: the header formatted from the SRAM's slot A flash ID at the current time
-  const u64 format_time = static_cast<u64>(std::time(nullptr)) - 946684800ull;
+  // EXI.cpp: the header formatted from the SRAM's slot A flash ID at the emulated clock's time
+  // (the wall clock, or SKIES_RTC for repeatable runs)
+  const u64 format_time = RtcSeconds();
   FormatHeader(sram + 0x18, region == 'J', format_time);
   LoadFolder(game_id.substr(0, 4));
   SetSramFlashId(sram, Block(0));
@@ -451,9 +454,72 @@ bool CardInsert(const std::string& user_dir, const std::string& game_id, u8* sra
   s_interrupt_switch = 0;
   s_interrupt_set = false;
   std::memset(s_program, 0, sizeof(s_program));
+  SchedRegister(EV_CARD_CMD, CmdDone);
+  SchedRegister(EV_CARD_XFER, TransferDone);
+  SchedRegister(EV_CARD_FLUSH, FlushEvent);
   s_present = true;
   Log("[card] slot A: %s, %zu save(s)\n", s_folder.string().c_str(), s_files.size());
   return true;
+}
+
+// The card as a save state holds it (as Dolphin's GCMemcardDirectory::DoState): its image and the
+// saves known on disk, so a loaded state's card is the one its game saw. Nothing is written back
+// until the game writes again; files are named relative to this run's card folder.
+void CardDoState(StateIO& p)
+{
+  bool present = s_present;
+  p.Do(present);
+  if (p.Reading() && present != s_present)
+  {
+    p.Fail(present ? "the state has a memory card and this run has none (start with --user)" :
+                     "the state has no memory card and this run has one");
+    return;
+  }
+  if (!present)
+    return;
+  p.Do(s_card);
+  if (p.Reading() && s_card.size() != CARD_BYTES)
+  {
+    p.Fail("the state's memory card has another size");
+    s_card.assign(CARD_BYTES, 0xFF);
+  }
+  p.Do(s_command);
+  p.Do(s_status);
+  p.Do(s_position);
+  p.Do(s_address);
+  p.Do(s_interrupt_switch);
+  p.Do(s_interrupt_set);
+  p.DoArray(s_program, sizeof(s_program));
+  p.Do(s_last_access);
+  u64 count = s_files.size();
+  p.Do(count);
+  if (!p.Reading())
+  {
+    for (auto& [id, file] : s_files)
+    {
+      std::string key = id, name = file.path.filename().string();
+      p.Do(key);
+      p.Do(name);
+      p.Do(file.bytes);
+    }
+    return;
+  }
+  s_files.clear();
+  for (u64 i = 0; i < count && p.Ok(); ++i)
+  {
+    std::string key, name;
+    SaveFile file;
+    p.Do(key);
+    p.Do(name);
+    p.Do(file.bytes);
+    file.path = s_folder / name;
+    s_files[key] = std::move(file);
+  }
+}
+
+double CardSecondsSinceLastAccess()
+{
+  return static_cast<double>(Now() - s_last_access) / CPU_HZ;
 }
 
 void CardShutdown()
@@ -477,6 +543,7 @@ void CardSetCs(bool selected)
 {
   if (!s_present)
     return;
+  s_last_access = Now();
   if (selected)
   {
     s_position = 0;

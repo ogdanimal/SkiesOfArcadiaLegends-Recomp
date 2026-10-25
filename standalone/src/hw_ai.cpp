@@ -3,6 +3,7 @@
 // counts time while PSTAT is set.
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "host.h"
+#include "state.h"
 
 namespace host
 {
@@ -63,6 +64,16 @@ void AiInit()
   s_volume = 0;
   s_sample_counter = s_interrupt_timing = 0;
   s_last_cycles = 0;
+  SchedRegister(EV_AI, Tick);
+}
+
+void AiDoState(StateIO& p)
+{
+  p.Do(s_control);
+  p.Do(s_volume);
+  p.Do(s_sample_counter);
+  p.Do(s_interrupt_timing);
+  p.Do(s_last_cycles);
 }
 
 u32 AiDspSampleRate()

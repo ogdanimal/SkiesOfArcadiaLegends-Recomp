@@ -7,6 +7,8 @@
 
 #include "dsphle/ucodes.h"
 
+#include "state.h"
+
 #include <vector>
 
 #include "dsphle/ax.h"
@@ -23,6 +25,14 @@ UCodeInterface::UCodeInterface(DSPHLE* dsphle, u32 crc)
 }
 
 UCodeInterface::~UCodeInterface() = default;
+
+void UCodeInterface::DoStateShared(StateIO& p)
+{
+  p.Do(m_upload_setup_in_progress);
+  p.Do(m_next_ucode);
+  p.Do(m_next_ucode_steps);
+  p.Do(m_needs_resume_mail);
+}
 
 bool UCodeInterface::NeedsResumeMail()
 {

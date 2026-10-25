@@ -84,6 +84,7 @@ public:
   void Initialize() override;
   void HandleMail(u32 mail) override;
   void Update() override;
+  void DoState(StateIO& p) override;
 
 protected:
   // CPU sends 0xBABE0000 | cmdlist_size to the DSP

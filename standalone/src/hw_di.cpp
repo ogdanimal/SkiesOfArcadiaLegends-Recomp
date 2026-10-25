@@ -3,6 +3,7 @@
 // latency close to a fast drive; audio streaming (DTK) is off, as the disc header asks.
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "host.h"
+#include "state.h"
 
 namespace host
 {
@@ -133,6 +134,22 @@ void DiInit()
   s_dicfg = 1;
   s_error = ERR_NONE;
   s_drive_ready = false;
+  SchedRegister(EV_DI, Complete);
+}
+
+void DiDoState(StateIO& p)
+{
+  p.Do(s_disr);
+  p.Do(s_dicvr);
+  p.DoArray(s_cmd, 3);
+  p.Do(s_dimar);
+  p.Do(s_dilength);
+  p.Do(s_dicr);
+  p.Do(s_diimmbuf);
+  p.Do(s_dicfg);
+  p.Do(s_error);
+  p.Do(s_drive_ready);
+  p.Do(s_pending_deint);
 }
 
 u32 DiRead32(u32 offset)

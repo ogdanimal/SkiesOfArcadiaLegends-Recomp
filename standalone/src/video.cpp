@@ -3,6 +3,7 @@
 // points with no window.
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "host.h"
+#include "state.h"
 
 #include <algorithm>
 #include <cctype>
@@ -269,6 +270,10 @@ void ApplyPokes()
       Write32(p.address + static_cast<u32>(4 * i), p.words[i]);
 }
 
+#ifdef SKIES_STANDALONE_AURORA
+static void ArmDrawLog();
+#endif
+
 void VideoFrameEnd()
 {
   ++s_frames;
@@ -282,17 +287,7 @@ void VideoFrameEnd()
   MenuApplyGame();
   ApplyPresentRect();
   MenuFrame();
-  // SKIES_DRAW_LOG_FRAME=N: Aurora's draw log for frame N only (run with SKIES_DRAIN=0 so the
-  // frame's commands are parsed before the switch).
-  static const u64 log_frame = [] {
-    const char* v = std::getenv("SKIES_DRAW_LOG_FRAME");
-    return v ? std::strtoull(v, nullptr, 0) : 0ull;
-  }();
-  if (log_frame != 0)
-  {
-    aurora_backend_drain_if_over(0);
-    aurora_debug_draw_log = s_frames + 1 == log_frame;
-  }
+  ArmDrawLog();
   bool dump = s_dump_every != 0 && s_frames >= s_dump_from && (s_frames % s_dump_every) == 0;
   if (!s_dump_frames.empty())
     dump = std::find(s_dump_frames.begin(), s_dump_frames.end(), s_frames) != s_dump_frames.end();
@@ -304,6 +299,65 @@ void VideoFrameEnd()
   if (aurora_backend_should_quit())
     RequestQuit();
 #endif
+}
+
+// The EFB copies Aurora holds (the picture the game copied to a texture lives on the GPU only,
+// the memory under it is zeroed: hw_gpu.cpp MarkEfbCopy), read back into the state; a load hands
+// them back once the rest is in place (VideoRestoreCopies).
+static std::vector<u8> s_loaded_copies;
+
+#ifdef SKIES_STANDALONE_AURORA
+// SKIES_DRAW_LOG_FRAME=N: Aurora's draw log for frame N only (run with SKIES_DRAIN=0 so the
+// frame's commands are parsed before the switch). Set at each frame end, and after a state load.
+static void ArmDrawLog()
+{
+  static const u64 log_frame = [] {
+    const char* v = std::getenv("SKIES_DRAW_LOG_FRAME");
+    return v ? std::strtoull(v, nullptr, 0) : 0ull;
+  }();
+  if (log_frame != 0)
+  {
+    aurora_backend_drain_if_over(0);
+    aurora_debug_draw_log = s_frames + 1 == log_frame;
+  }
+}
+#endif
+
+void VideoDoState(StateIO& p)
+{
+  p.Do(s_frames);  // the frame dumps' numbers
+  std::vector<u8> copies;
+#ifdef SKIES_STANDALONE_AURORA
+  if (!p.Reading() && p.with_gpu && s_active)
+  {
+    const u32 count = aurora_backend_copies_snapshot(
+        g_ram, RAM_SIZE,
+        [](const void* data, u32 size, void* user) {
+          const u8* bytes = static_cast<const u8*>(data);
+          static_cast<std::vector<u8>*>(user)->assign(bytes, bytes + size);
+        },
+        &copies);
+    Log("[video] state: %u EFB copies (%.1f MB)\n", count, copies.size() / 1048576.0);
+  }
+#endif
+  p.Do(copies);
+  if (p.Reading())
+    s_loaded_copies = std::move(copies);
+}
+
+void VideoStateLoaded()
+{
+#ifdef SKIES_STANDALONE_AURORA
+  if (s_active && !s_loaded_copies.empty())
+  {
+    const int count = aurora_backend_copies_restore(g_ram, RAM_SIZE, s_loaded_copies.data(),
+                                                    static_cast<u32>(s_loaded_copies.size()));
+    Log("[video] state: %d EFB copies restored\n", count);
+  }
+  if (s_active)
+    ArmDrawLog();
+#endif
+  s_loaded_copies = {};
 }
 
 void VideoRetrace()

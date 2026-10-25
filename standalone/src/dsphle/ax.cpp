@@ -19,6 +19,7 @@
 
 #define AX_GC
 #include "dsphle/ax_voice.h"
+#include "state.h"
 
 namespace host::dsphle
 {
@@ -34,6 +35,32 @@ AXUCode::AXUCode(DSPHLE* dsphle, u32 crc) : AXUCode(dsphle, crc, false)
 }
 
 AXUCode::~AXUCode() = default;
+
+// Dolphin's AXUCode::DoState / DoAXState
+void AXUCode::DoState(StateIO& p)
+{
+  DoStateShared(p);
+  p.DoArray(m_cmdlist, 512);
+  p.Do(m_cmdlist_size);
+  p.DoArray(m_samples_main_left, 32 * 5);
+  p.DoArray(m_samples_main_right, 32 * 5);
+  p.DoArray(m_samples_main_surround, 32 * 5);
+  p.DoArray(m_samples_auxA_left, 32 * 5);
+  p.DoArray(m_samples_auxA_right, 32 * 5);
+  p.DoArray(m_samples_auxA_surround, 32 * 5);
+  p.DoArray(m_samples_auxB_left, 32 * 5);
+  p.DoArray(m_samples_auxB_right, 32 * 5);
+  p.DoArray(m_samples_auxB_surround, 32 * 5);
+  p.Do(m_compressor_pos);
+  p.Do(m_mail_state);
+  // The coefficients come from the DSP ROM file, as at Initialize (which a ucode made for a
+  // loaded state doesn't run)
+  bool coeffs = m_coeffs_valid;
+  p.Do(coeffs);
+  if (p.Reading() && coeffs && !m_coeffs_valid)
+    LoadResamplingCoefficients();
+  m_accelerator->DoState(p);
+}
 
 void AXUCode::Initialize()
 {

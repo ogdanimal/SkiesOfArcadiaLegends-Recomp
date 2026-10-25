@@ -9,6 +9,11 @@
 
 #include "core/types.h"
 
+namespace host
+{
+class StateIO;
+}
+
 namespace host::dsphle
 {
 class CMailHandler;
@@ -41,11 +46,14 @@ public:
   virtual void Initialize() = 0;
   virtual void HandleMail(u32 mail) = 0;
   virtual void Update() = 0;
+  // Save states: the task-switching state every ucode has (DoStateShared), and its own
+  virtual void DoState(StateIO& p) { DoStateShared(p); }
 
   static u32 GetCRC(UCodeInterface* ucode) { return ucode ? ucode->m_crc : UCODE_NULL; }
 
 protected:
   void PrepareBootUCode(u32 mail);
+  void DoStateShared(StateIO& p);
 
   // Some ucodes (notably zelda) require a resume mail to be
   // sent if they are be started via PrepareBootUCode.

@@ -10,6 +10,11 @@
 #include "dsphle/hle_common.h"
 #include "dsphle/mail_handler.h"
 
+namespace host
+{
+class StateIO;
+}
+
 namespace host::dsphle
 {
 class UCodeInterface;
@@ -70,6 +75,7 @@ public:
 
   MemoryManager GetMemory() const { return MemoryManager(); }
   u32 CurrentUcodeCrc() const;
+  void DoState(StateIO& p);
 
 private:
   void SendMailToDSP(u32 mail);

@@ -2,6 +2,7 @@
 // (VideoInterface.cpp: Preset, UpdateParameters, Update, UpdateInterrupts).
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "host.h"
+#include "state.h"
 
 #include <cstring>
 
@@ -102,6 +103,15 @@ void HalfLine(u64 late)
   Schedule(EV_VI, period > late ? period - late : 1, HalfLine);
 }
 }  // namespace
+
+void ViDoState(StateIO& p)
+{
+  p.DoArray(s_regs, 0x40);
+  p.Do(s_half_line);
+  p.Do(s_line_start);
+  if (p.Reading())
+    UpdateParameters();
+}
 
 bool ViIsPal()
 {

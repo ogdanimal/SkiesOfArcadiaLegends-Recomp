@@ -9,6 +9,11 @@
 
 #include "core/types.h"
 
+namespace host
+{
+class StateIO;
+}
+
 namespace host::dsphle
 {
 class CMailHandler
@@ -35,6 +40,7 @@ public:
 
   u16 ReadDSPMailboxHigh();
   u16 ReadDSPMailboxLow();
+  void DoState(StateIO& p);
 
 private:
   // The actual DSP only has a single pair of mail registers, and doesn't keep track of pending

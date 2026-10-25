@@ -1,4 +1,5 @@
-// Debug: records frames as a Dolphin FIFO log (.dff, Core/FifoPlayer/FifoDataFile.cpp format 6)
+// The GP's registers as the command stream left them, for save states (DffDoState, DffReloadAurora)
+// and, as a debug tool, frames recorded as a Dolphin FIFO log (.dff, Core/FifoPlayer/FifoDataFile.cpp format 6)
 // so stock Dolphin can render exactly the command stream this host sends Aurora; any difference to
 // the standalone's own picture is then Aurora's (or this host's command handling).
 //
@@ -11,6 +12,7 @@
 // (the first frame: all 24 MB; then the 4 KB pages that changed) as memory updates at its start.
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "host.h"
+#include "state.h"
 
 #include <cstdlib>
 #include <cstring>
@@ -29,6 +31,15 @@ u32 s_xf_mem[4096];
 u32 s_xf_regs[88];
 std::vector<u8> s_tmem(1024 * 1024);
 u32 s_preloads = 0;
+// The last TLUT load to each TMEM offset (BP 0x65's low 10 bits): its source (BP 0x64) and the load.
+// Aurora keeps a palette as a pointer into guest RAM, so a load replayed after a save state points
+// it at the same palette.
+struct TlutLoad
+{
+  u32 src = 0, load = 0;
+  bool loaded = false;
+};
+std::vector<TlutLoad> s_tlut_loads(1024);
 
 struct Update
 {
@@ -87,6 +98,7 @@ void BpWrite(u8 reg, u32 value)
   s_bp_mask = 0xFFFFFF;
   if (reg == 0x65)
   {
+    s_tlut_loads[s_bp[0x65] & 0x3FF] = {s_bp[0x64], s_bp[0x65], true};
     // BPMEM_LOADTLUT1: tlut_src (0x64) << 5 to TMEM tmem_addr << 9, line_count x 32 bytes
     const u32 tmem_addr = (s_bp[0x65] & 0x3FF) << 9;
     const u32 count = ((s_bp[0x65] >> 10) & 0x7FF) * 32;
@@ -240,6 +252,108 @@ void Write()
       out.size() / 1048576.0, file ? "" : " (write failed)");
 }
 }  // namespace
+
+void DffDoState(StateIO& p)
+{
+  p.DoArray(s_bp, 256);
+  p.Do(s_bp_mask);
+  p.DoArray(s_cp, 256);
+  p.DoArray(s_xf_mem, 4096);
+  p.DoArray(s_xf_regs, 88);
+  p.Do(s_tmem);
+  p.Do(s_tlut_loads);
+  if (p.Reading() && (s_tmem.size() != 1024 * 1024 || s_tlut_loads.size() != 1024))
+  {
+    p.Fail("the state's GP registers have another layout");
+    s_tmem.assign(1024 * 1024, 0);
+    s_tlut_loads.assign(1024, {});
+  }
+}
+
+// Aurora only ever sees the command stream, so after a load the registers go to it as commands, as
+// the Dolphin build's Aurora backend does after a savestate (VideoBackends/Aurora ReloadRegisterState,
+// FifoPlayer::LoadRegisters): the TLUT loads, every BP register but those with side effects (draw
+// done, tokens, the EFB copy, TLUT and TMEM loads, perf counters, the mask), the CP's vertex
+// descriptors, formats and arrays, then XF memory and registers, then the display copy's clear.
+void DffReloadAurora()
+{
+  std::vector<u8> fifo;
+  fifo.reserve(32 * 1024);
+  const auto put32 = [&](u32 value) {
+    for (int shift = 24; shift >= 0; shift -= 8)
+      fifo.push_back(static_cast<u8>(value >> shift));
+  };
+  const auto bp = [&](u32 reg, u32 value) {
+    fifo.push_back(0x61);
+    put32((reg << 24) | (value & 0xFFFFFF));
+  };
+  for (const TlutLoad& t : s_tlut_loads)
+  {
+    if (!t.loaded)
+      continue;
+    bp(0x64, t.src);
+    bp(0x65, t.load);
+  }
+  for (u32 reg = 0; reg < 0xFE; ++reg)
+  {
+    switch (reg)
+    {
+    case 0x45:
+    case 0x47:
+    case 0x48:
+    case 0x52:
+    case 0x63:
+    case 0x65:
+    case 0x67:
+      continue;
+    default:
+      bp(reg, s_bp[reg]);
+    }
+  }
+  const auto cp = [&](u8 reg) {
+    fifo.push_back(0x08);
+    fifo.push_back(reg);
+    put32(s_cp[reg]);
+  };
+  cp(0x30);
+  cp(0x40);
+  cp(0x50);
+  cp(0x60);
+  for (u8 i = 0; i < 8; ++i)
+  {
+    cp(0x70 + i);
+    cp(0x80 + i);
+    cp(0x90 + i);
+  }
+  for (u8 i = 0; i < 16; ++i)
+  {
+    cp(0xA0 + i);
+    cp(0xB0 + i);
+  }
+  for (u32 address = 0; address < 4096; address += 16)
+  {
+    fifo.push_back(0x10);
+    put32(0x000F0000u | address);
+    for (u32 i = 0; i < 16; ++i)
+      put32(s_xf_mem[address + i]);
+  }
+  for (u32 reg = 0; reg < 88; ++reg)
+  {
+    // FifoPlayer::ShouldLoadXF: not the unknown and perf ranges
+    if (reg == 0x07 || (reg >= 0x13 && reg <= 0x17) || (reg >= 0x27 && reg <= 0x3E) ||
+        (reg >= 0x48 && reg <= 0x4F))
+      continue;
+    fifo.push_back(0x10);
+    put32(0x1000u | reg);
+    put32(s_xf_regs[reg]);
+  }
+  // A state is taken just after a display copy, which cleared the EFB (Aurora applies only that
+  // clear): the same copy again leaves the EFB as the next frame expects it (the clear colour and
+  // depth: Skies' save point and minimap copy the EFB's depth).
+  if (s_bp[0x52] & 0x4000)
+    bp(0x52, s_bp[0x52]);
+  VideoCommands(fifo.data(), static_cast<u32>(fifo.size()));
+}
 
 void DffInit()
 {

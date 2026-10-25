@@ -1,9 +1,11 @@
 // skies-standalone: the recompiled game on this host, no emulator core.
 //   skies-standalone --game DIR --module FILE [--headless] [--unthrottled] [--seconds N]
 //                    [--mmio-log] [--idle-pc ADDR] [--dsp-coef FILE] [--user USERDIR] [--dol FILE]
+//                    [--load-state FILE]
 // DIR is an extracted disc (sys/ + files/); FILE the g<GAMEID>_recomp module built for its DOL.
 // USERDIR holds the memory card saves as the Dolphin build keeps them (GC/<region>/Card A/*.gci);
 // without it no card is inserted. --dol boots that DOL (a game-patched main.dol) instead of sys/main.dol.
+// --load-state starts from a save state (state.cpp); --seconds then counts the state's guest clock.
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "host.h"
 
@@ -75,6 +77,16 @@ double EmulationSpeed()
   return s_speed;
 }
 
+void ThrottleRestart()
+{
+  const auto now = std::chrono::steady_clock::now();
+  s_wall_start = now - std::chrono::nanoseconds(static_cast<u64>(static_cast<double>(g_cycles) * 1e9 / CPU_HZ));
+  s_last_report_cycles = g_cycles;
+  s_last_report_wall = now;
+  s_speed_next = 0;
+  s_speed = 1.0;
+}
+
 // Called by the VI at every field: pace guest time to the wall clock, stop at --seconds.
 void Throttle()
 {
@@ -108,7 +120,7 @@ int main(int argc, char** argv)
 {
   using namespace host;
   setvbuf(stderr, nullptr, _IONBF, 0);
-  std::string game, module, dol, user;
+  std::string game, module, dol, user, load_state;
   std::string dsp_coef = SKIES_DSP_COEF_DEFAULT;
   bool headless = false;
   u32 idle_pc = ~0u;
@@ -144,10 +156,13 @@ int main(int argc, char** argv)
       dol = next();
     else if (a == "--user")
       user = next();
+    else if (a == "--load-state")
+      load_state = next();
     else
     {
       Log("usage: %s --game DIR --module FILE [--headless] [--unthrottled] [--seconds N] "
-          "[--mmio-log] [--idle-pc ADDR] [--dsp-coef FILE] [--user USERDIR] [--dol FILE]\n",
+          "[--mmio-log] [--idle-pc ADDR] [--dsp-coef FILE] [--user USERDIR] [--dol FILE] "
+          "[--load-state FILE]\n",
           argv[0]);
       return 2;
     }
@@ -160,6 +175,7 @@ int main(int argc, char** argv)
 
   ExiSetUserDir(user);
   SettingsInit(user);
+  StateSetUserDir(user);
   SchedInit();
   CpuInit();
   if (!LoadModule(module.c_str()) || !DiscOpen(game, dol))
@@ -191,6 +207,8 @@ int main(int argc, char** argv)
     s_stop_cycles = static_cast<u64>(seconds * CPU_HZ);
 
   s_wall_start = s_last_report_wall = std::chrono::steady_clock::now();
+  if (!load_state.empty())
+    StateLoadAtStart(load_state);
   RunCpu();
   Report();
   ExiShutdown();

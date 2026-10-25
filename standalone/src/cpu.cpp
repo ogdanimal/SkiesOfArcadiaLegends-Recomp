@@ -2,10 +2,12 @@
 // special-purpose registers the module leaves to its host.
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "host.h"
+#include "state.h"
 
 #include "StaticRecompABI.h"
 #include "interp/interp.h"
 
+#include <cstddef>
 #include <cstdlib>
 #include <cstring>
 #ifdef _WIN32
@@ -454,6 +456,8 @@ const char* ModuleGameId()
   return s_module ? s_module->game_id : "";
 }
 
+static void DecrementerDue(u64);
+
 // Guest MEM1, page-aligned (a static array: MSVC has no std::aligned_alloc)
 alignas(4096) static u8 s_ram_storage[RAM_SIZE];
 
@@ -483,6 +487,49 @@ void CpuInit()
   s_spr[SPR_HID1] = 0x80000000u;
   c.hid2 = 0xE0000000u;  // LSQE | WPE | PSE
   s_spr[SPR_WPAR] = 0x0C008000u;
+  SchedRegister(EV_DEC, DecrementerDue);
+}
+
+// The registers up to the host's hooks (CPUState's pointers stay this run's), the SPRs, the
+// locked cache and the decrementer / time base bookkeeping.
+void CpuDoState(StateIO& p)
+{
+  p.DoBytes(&g_cpu, offsetof(CPUState, external_read));
+  p.DoArray(s_spr, 1024);
+  p.DoArray(s_locked_cache, sizeof(s_locked_cache));
+  p.Do(s_external_asserted);
+  p.Do(s_decrementer_pending);
+  p.Do(s_dec_start_cycles);
+  p.Do(s_dec_start_value);
+  p.Do(s_tb_remainder);
+  p.Do(s_overclock_cycles);
+  if (p.Reading())
+  {
+    g_cpu.downcount = 0;
+    g_cpu.exception = 0;
+    g_cpu.program_exception = 0;
+    if (s_module && s_module->on_state_loaded)
+      s_module->on_state_loaded(&g_cpu);
+  }
+}
+
+u64 ModuleFingerprint()
+{
+  u64 hash = 0xCBF29CE484222325ull;
+  const auto mix = [&](u64 value) {
+    for (int i = 0; i < 8; ++i)
+      hash = (hash ^ ((value >> (8 * i)) & 0xFF)) * 0x100000001B3ull;
+  };
+  if (!s_module)
+    return 0;
+  mix(s_module->entry_point);
+  mix(s_module->num_chunk_ranges);
+  for (u32 i = 0; i < s_module->num_chunk_ranges; ++i)
+  {
+    mix(s_module->chunk_ranges[i].start);
+    mix(s_module->chunk_hashes ? s_module->chunk_hashes[i] : 0);
+  }
+  return hash;
 }
 
 u32 GetSpr(u16 spr)
@@ -523,6 +570,11 @@ u32 DecrementerValue()
   return s_dec_start_value - static_cast<u32>((g_cycles - s_dec_start_cycles) / TIMER_RATIO);
 }
 
+static void DecrementerDue(u64)
+{
+  s_decrementer_pending = true;
+}
+
 void DecrementerWritten()
 {
   // As Dolphin's SystemTimers::DecrementerSet: count down from the written value; the
@@ -532,7 +584,7 @@ void DecrementerWritten()
   s_dec_start_value = value;
   Deschedule(EV_DEC);
   if ((value & 0x80000000u) == 0)
-    Schedule(EV_DEC, static_cast<u64>(value) * TIMER_RATIO, [](u64) { s_decrementer_pending = true; });
+    Schedule(EV_DEC, static_cast<u64>(value) * TIMER_RATIO, DecrementerDue);
 }
 
 // Debug: SKIES_WATCH=ADDR (hex) logs the block (and lr) after which the word at ADDR changed (the
@@ -574,6 +626,9 @@ void RunCpu()
   u64 dispatches = 0;
   while (!s_quit)
   {
+    // A save state taken or put back here, between dispatches
+    if (g_state_request)
+      StateRun();
     if (g_next_event <= g_cycles)
       RunDue();
 

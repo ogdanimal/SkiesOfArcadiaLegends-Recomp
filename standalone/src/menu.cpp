@@ -2,9 +2,9 @@
 // (VideoCommon/SkiesMenu.cpp, Core/SkiesSettings.cpp, which this follows): Z+Start (or Esc, or a
 // controller's Back / Select) opens the menu over the game, drawn with Dear ImGui through Aurora's
 // overlay; the settings go to the same [Skies] keys and reach the game through the game patch's
-// config words (ws_config, ws_hud_aspect, qol_input, cam_input). What the standalone host can't do
-// yet isn't offered: save states, 60 fps, the Dreamcast music and models, the European languages,
-// HD textures, button mapping.
+// config words (ws_config, ws_hud_aspect, qol_input, cam_input); save states go through state.cpp.
+// What the standalone host can't do yet isn't offered: 60 fps, the Dreamcast music and models, the
+// European languages, HD textures, button mapping.
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "host.h"
 
@@ -16,6 +16,8 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
+#include <filesystem>
 #include <initializer_list>
 #include <span>
 #include <string>
@@ -68,6 +70,9 @@ constexpr int STICK_THRESHOLD = 0x40;
 
 enum class Option
 {
+  SaveState,
+  LoadState,
+  AutoSave,
   Picture,
   Hud,
   Resolution,
@@ -86,6 +91,7 @@ enum class Option
   DeadZone,
 };
 
+constexpr std::array SAVES_ROWS{Option::SaveState, Option::LoadState, Option::AutoSave};
 constexpr std::array GRAPHICS_ROWS{Option::Picture, Option::Hud, Option::Resolution, Option::VSync,
                                    Option::ShowFps};
 constexpr std::array GAMEPLAY_ROWS{Option::Camera,     Option::BattleSpeed, Option::FieldSpeed,
@@ -98,8 +104,18 @@ struct Tab
   const char* name;
   std::span<const Option> rows;
 };
-constexpr std::array TABS{Tab{"Graphics", GRAPHICS_ROWS}, Tab{"Gameplay", GAMEPLAY_ROWS},
-                          Tab{"Sound", SOUND_ROWS}, Tab{"Controls", CONTROLS_ROWS}};
+// Saves first, as in the Dolphin build: in game that's the one used most
+constexpr std::array TABS{Tab{"Saves", SAVES_ROWS}, Tab{"Graphics", GRAPHICS_ROWS},
+                          Tab{"Gameplay", GAMEPLAY_ROWS}, Tab{"Sound", SOUND_ROWS},
+                          Tab{"Controls", CONTROLS_ROWS}};
+
+// Save states (state.cpp) in USER/StateSaves/Standalone: the player's five slots are
+// <game>-slot1..5.sst, auto-saves <game>-auto-<date>-<time>.sst, the newest three kept. Not the
+// Dolphin build's files (state-skies-slotN.sav): the two builds' states don't load in each other.
+constexpr int SAVE_SLOTS = 5;
+constexpr int AUTO_KEEP = 3;
+// Minutes between auto-saves (0 = off).
+constexpr std::array AUTO_SAVE_MINUTES{0, 5, 10, 15, 30};
 
 // Quality-of-life choices, in percent of the game's (patches/game/qol.c).
 constexpr std::array ENCOUNTER_RATES{0, 25, 50, 100, 200, 400};
@@ -135,6 +151,7 @@ constexpr Key FIELD_SPEED{SettingFile::Main, "Skies", "FieldSpeed", 100};
 constexpr Key INVINCIBLE{SettingFile::Main, "Skies", "Invincible", 0};
 constexpr Key HOLD_B{SettingFile::Main, "Skies", "HoldB", 0};
 constexpr Key LAUNCHER_TEXT_SIZE{SettingFile::Main, "Skies", "LauncherTextSize", 100};
+constexpr Key AUTO_SAVE{SettingFile::Main, "Skies", "AutoSave", 10};
 // The standalone's own: controller 1's stick dead zone (the Dolphin build keeps it in its
 // controller profile, GCPadNew.ini, which this host doesn't read)
 constexpr Key DEAD_ZONE{SettingFile::Main, "Skies", "StandaloneDeadZone", 0};
@@ -171,6 +188,7 @@ struct Values
   int invincible = 0;
   int volume = 100;
   int dead_zone = 0;
+  int auto_save = 10;
 };
 
 enum class Mode
@@ -195,6 +213,14 @@ bool s_speed_chord = false;  // Z+X switched the field speed; both held back unt
 bool s_z_passed = false;
 Clock::time_point s_z_down;
 int s_z_replay_polls = 0;
+
+// Save states: the slot each row points at, the load row's "press A again", when each slot was
+// saved (0 = empty; [0] is the newest auto-save; read when the menu opens).
+int s_save_slot = 1;
+int s_load_slot = 0;  // 0 = the newest auto-save
+bool s_load_confirm = false;
+std::array<std::time_t, SAVE_SLOTS + 1> s_slot_time{};
+std::string s_newest_auto;
 
 // Menu navigation edges and repeat.
 u16 s_previous = 0;
@@ -292,6 +318,7 @@ Values ReadValues()
   values.invincible = Get(INVINCIBLE) != 0 ? 1 : 0;
   values.volume = std::clamp(Get(VOLUME), 0, 100);
   values.dead_zone = std::clamp(Get(DEAD_ZONE), 0, DEAD_ZONES.back());
+  values.auto_save = std::max(0, Get(AUTO_SAVE));
   return values;
 }
 
@@ -323,6 +350,7 @@ void Apply(const Values& values, const Values& before)
   set(INVINCIBLE, values.invincible, before.invincible);
   set(VOLUME, values.volume, before.volume);
   set(DEAD_ZONE, values.dead_zone, before.dead_zone);
+  set(AUTO_SAVE, values.auto_save, before.auto_save);
   s_volume = values.volume;
   s_dead_zone = values.dead_zone;
   if (changed)
@@ -411,11 +439,93 @@ std::string FieldSpeedText(int speed)
   return speed <= 100 ? "Normal (Z+X)" : Decimal(speed / 100.0) + "x (Z+X)";
 }
 
+// ---- save state files --------------------------------------------------------------------------
+std::string GameCode()
+{
+  return std::string(reinterpret_cast<const char*>(DiscHeader()), 6);
+}
+
+std::string SlotPath(int slot)
+{
+  return (std::filesystem::path(StateDirectory()) / (GameCode() + "-slot" + std::to_string(slot) + ".sst"))
+      .string();
+}
+
+std::string AutoPrefix()
+{
+  return GameCode() + "-auto-";
+}
+
+// The auto-saves, oldest first (their names sort by time)
+std::vector<std::filesystem::path> AutoSaves()
+{
+  std::vector<std::filesystem::path> found;
+  std::error_code ec;
+  const std::string prefix = AutoPrefix();
+  for (const auto& entry : std::filesystem::directory_iterator(StateDirectory(), ec))
+  {
+    const std::string name = entry.path().filename().string();
+    if (name.rfind(prefix, 0) == 0 && entry.path().extension() == ".sst")
+      found.push_back(entry.path());
+  }
+  std::sort(found.begin(), found.end());
+  return found;
+}
+
+// When a file was last written, 0 if it isn't there.
+std::time_t WriteTime(const std::filesystem::path& path)
+{
+  std::error_code ec;
+  const auto written = std::filesystem::last_write_time(path, ec);
+  if (ec)
+    return 0;
+  const auto system = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+      written - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
+  return std::chrono::system_clock::to_time_t(system);
+}
+
+void ReadSlotTimes()
+{
+  s_slot_time = {};
+  s_newest_auto.clear();
+  if (StateDirectory().empty())
+    return;
+  for (int slot = 1; slot <= SAVE_SLOTS; ++slot)
+    s_slot_time[slot] = WriteTime(SlotPath(slot));
+  const auto autos = AutoSaves();
+  if (!autos.empty())
+  {
+    s_newest_auto = autos.back().string();
+    s_slot_time[0] = WriteTime(autos.back());
+  }
+}
+
+std::string SlotTime(int slot)
+{
+  if (s_slot_time[slot] == 0)
+    return "empty";
+  char text[32];
+  const std::tm* local = std::localtime(&s_slot_time[slot]);
+  if (!local || !std::strftime(text, sizeof(text), "%b %d %H:%M", local))
+    return "saved";
+  return text;
+}
+
 void Change(Option option, int direction, bool wrap)
 {
   Values& v = s_staged;
   switch (option)
   {
+  case Option::SaveState:
+    s_save_slot = (s_save_slot - 1 + direction + SAVE_SLOTS) % SAVE_SLOTS + 1;
+    break;
+  case Option::LoadState:
+    s_load_slot = (s_load_slot + direction + SAVE_SLOTS + 1) % (SAVE_SLOTS + 1);
+    s_load_confirm = false;
+    break;
+  case Option::AutoSave:
+    v.auto_save = Step(AUTO_SAVE_MINUTES, v.auto_save, direction, wrap);
+    break;
   case Option::Picture:
     v.widescreen = Step(PICTURES, v.widescreen, direction, wrap);
     break;
@@ -527,6 +637,8 @@ void Open()
   s_staged = s_current;
   s_previous = 0xFFFF;  // nothing counts as pressed until it's released once
   s_repeat_button = 0;
+  s_load_confirm = false;
+  ReadSlotTimes();
   Log("[menu] open\n");
 }
 
@@ -998,7 +1110,10 @@ PadStatus FilterOpen(const PadStatus& raw)
   const bool on_tabs = s_selected == TAB_BAR;
   const u16 pressed = Pressed(MenuButtons(raw), !on_tabs && rows[s_selected] == Option::Volume);
   const int tab_count = static_cast<int>(TABS.size());
-  const auto switch_tab = [&](int direction) { s_tab = (s_tab + direction + tab_count) % tab_count; };
+  const auto switch_tab = [&](int direction) {
+    s_tab = (s_tab + direction + tab_count) % tab_count;
+    s_load_confirm = false;
+  };
   if (pressed & (PAD_TRIGGER_L | PAD_TRIGGER_R))
   {
     switch_tab((pressed & PAD_TRIGGER_R) ? 1 : -1);
@@ -1022,6 +1137,8 @@ PadStatus FilterOpen(const PadStatus& raw)
       Close();
     return Released(raw);
   }
+  if (pressed & (PAD_BUTTON_UP | PAD_BUTTON_DOWN))
+    s_load_confirm = false;
   // Up from the first setting and Down from the last reach the tab bar
   if (pressed & PAD_BUTTON_UP)
     s_selected = s_selected == 0 ? TAB_BAR : s_selected - 1;
@@ -1034,12 +1151,98 @@ PadStatus FilterOpen(const PadStatus& raw)
     Change(option, -1, false);
   if (pressed & PAD_BUTTON_RIGHT)
     Change(option, 1, false);
-  if (pressed & PAD_BUTTON_A)
+  const bool saves = !StateDirectory().empty();
+  if ((pressed & PAD_BUTTON_A) && option == Option::SaveState)
+  {
+    if (saves)
+    {
+      StateRequestSave(SlotPath(s_save_slot), "Saved to slot " + std::to_string(s_save_slot));
+      Close();
+    }
+  }
+  else if ((pressed & PAD_BUTTON_A) && option == Option::LoadState)
+  {
+    // Loading throws away the play since that state, so it takes a second A.
+    if (saves && s_slot_time[s_load_slot] != 0)
+    {
+      if (s_load_confirm)
+      {
+        StateRequestLoad(s_load_slot == 0 ? s_newest_auto : SlotPath(s_load_slot),
+                         s_load_slot == 0 ? std::string("Loaded the auto-save") :
+                                            "Loaded slot " + std::to_string(s_load_slot));
+        Close();
+      }
+      s_load_confirm = !s_load_confirm;
+    }
+  }
+  else if (pressed & PAD_BUTTON_A)
     Change(option, 1, true);
   else if (pressed & (PAD_BUTTON_B | PAD_BUTTON_START))
     Close();
   return Released(raw);
 }
+
+// Auto-save: every [Skies] AutoSave minutes a save state goes to a new auto-save file (the oldest
+// go, so that AUTO_KEEP remain), but only at a quiet moment: on the field or world map (game mode
+// 6, outside a ship battle, which runs in mode 6 too) and with the memory card left alone for a
+// while (a state holds no card transfer half done). Waits for such a moment once it's due.
+namespace autosave
+{
+const RegionAddress GAME_MODE{0x803475CC, 0x8034ACEC, 0x80347048};  // 6 = field / world map
+constexpr double CARD_QUIET_SECONDS = 10.0;
+
+Clock::time_point s_due{};
+int s_minutes = 0;
+
+// SKIES_AUTO_SAVE_SECONDS=N: every N seconds instead (tests)
+const int s_test_seconds = [] {
+  const char* v = std::getenv("SKIES_AUTO_SAVE_SECONDS");
+  return v ? std::atoi(v) : 0;
+}();
+
+std::chrono::seconds Interval(int minutes)
+{
+  return std::chrono::seconds(s_test_seconds > 0 ? s_test_seconds : minutes * 60);
+}
+
+void Poll()
+{
+  const int minutes = StateDirectory().empty() ? 0 : Get(AUTO_SAVE);
+  const Clock::time_point now = Clock::now();
+  if (minutes <= 0)
+  {
+    s_due = {};
+    s_minutes = 0;
+    return;
+  }
+  if (s_due == Clock::time_point{} || minutes != s_minutes)
+  {
+    s_minutes = minutes;
+    s_due = now + Interval(minutes);
+    return;
+  }
+  if (now < s_due || s_mode != Mode::Closed || g_state_request || Read32(GAME_MODE) != 6 ||
+      InShipBattle() || CardSecondsSinceLastAccess() < CARD_QUIET_SECONDS)
+    return;
+  s_due = now + Interval(minutes);
+  auto autos = AutoSaves();
+  std::error_code ec;
+  while (autos.size() > AUTO_KEEP - 1)
+  {
+    std::filesystem::remove(autos.front(), ec);
+    autos.erase(autos.begin());
+  }
+  char stamp[32];
+  const std::time_t t = std::time(nullptr);
+  const std::tm* local = std::localtime(&t);
+  if (!local || !std::strftime(stamp, sizeof(stamp), "%Y%m%d-%H%M%S", local))
+    std::snprintf(stamp, sizeof(stamp), "%lld", static_cast<long long>(t));
+  const std::string path =
+      (std::filesystem::path(StateDirectory()) / (AutoPrefix() + stamp + ".sst")).string();
+  Log("[menu] auto-save to %s\n", path.c_str());
+  StateRequestSave(path, "");
+}
+}  // namespace autosave
 
 // Controller 1's sticks with the dead zone: inside it centred, outside it scaled to the full range.
 void ApplyDeadZone(u8& x, u8& y, int percent)
@@ -1131,6 +1334,7 @@ void MenuApplyGame()
     s_volume = std::clamp(Get(VOLUME), 0, 100);
     s_dead_zone = std::clamp(Get(DEAD_ZONE), 0, DEAD_ZONES.back());
   }
+  autosave::Poll();
   if (Read32(WS_CONFIG_ADDRESS) == WS_CONFIG_MAGIC)
   {
     int widescreen = Get(WIDESCREEN);
@@ -1376,9 +1580,24 @@ void Draw(float scale)
     const char* description;
   };
   const bool patched = Read32(WS_CONFIG_ADDRESS) == WS_CONFIG_MAGIC;
+  const bool saves = !StateDirectory().empty();
+  const char* const no_saves = "Save states need a user folder (start with --user).";
   const auto row_of = [&](Option option) -> Row {
     switch (option)
     {
+    case Option::SaveState:
+      return {"Save state", "Slot " + std::to_string(s_save_slot) + "   " + SlotTime(s_save_slot),
+              saves ? "Left / Right picks a slot, A saves to it." : no_saves};
+    case Option::LoadState:
+      return {"Load state",
+              s_load_confirm   ? std::string("Press A again to load") :
+              s_load_slot == 0 ? "Auto-save   " + SlotTime(0) :
+                                 "Slot " + std::to_string(s_load_slot) + "   " + SlotTime(s_load_slot),
+              saves ? "Left / Right picks a slot or the newest auto-save, A twice loads it." : no_saves};
+    case Option::AutoSave:
+      return {"Auto-save",
+              v.auto_save <= 0 ? std::string("Off") : "Every " + std::to_string(v.auto_save) + " min",
+              saves ? "Saves your place at quiet moments." : no_saves};
     case Option::Picture:
       return {"Picture",
               v.widescreen == 2 ? "Match screen" :
@@ -1440,9 +1659,12 @@ void Draw(float scale)
   const std::span<const Option> options = TABS[tab].rows;
   const bool on_tabs = selected == TAB_BAR;
   const std::string close = "    B or Esc: close";
+  const Option current = on_tabs ? Option::Picture : options[selected];
   const std::string hint =
-      on_tabs ? "Left / Right or L / R: tab    Down or A: settings" + close :
-                "L / R: tab    Up / Down: choose    Left / Right or A: change" + close;
+      on_tabs                          ? "Left / Right or L / R: tab    Down or A: settings" + close :
+      current == Option::SaveState     ? "L / R: tab    Up / Down: choose    Left / Right: slot    A: save" + close :
+      current == Option::LoadState     ? "L / R: tab    Up / Down: choose    Left / Right: slot    A: load" + close :
+                                         "L / R: tab    Up / Down: choose    Left / Right or A: change" + close;
 
   // The layout is in units of the picture (a 480-line picture = 1 unit per pixel), times the
   // launchers' text size, shrunk to fit the screen. Every length comes from these constants, not
@@ -1551,7 +1773,9 @@ void Draw(float scale)
       draw->AddTriangleFilled(at(lx, mid), at(lx + s, mid - s), at(lx + s, mid + s), gold);
       draw->AddTriangleFilled(at(rx, mid), at(rx - s, mid - s), at(rx - s, mid + s), gold);
     }
-    draw->AddText(ui, px(TEXT), at(PAD + LABEL_W + 22.0f, text_y), white, row.value.c_str());
+    const bool confirm = options[i] == Option::LoadState && s_load_confirm;
+    draw->AddText(ui, px(TEXT), at(PAD + LABEL_W + 22.0f, text_y), confirm ? gold : white,
+                  row.value.c_str());
     draw->AddText(ui, px(SMALL), at(PAD + LABEL_W, y + BOX_H + 3.0f), dim, row.description, nullptr,
                   desc_w * u);
     y += row_height(row, u);

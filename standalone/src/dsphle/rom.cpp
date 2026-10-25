@@ -8,6 +8,7 @@
 #include "dsphle/dsphle.h"
 #include "dsphle/hle_common.h"
 #include "dsphle/mail_handler.h"
+#include "state.h"
 
 namespace host::dsphle
 {
@@ -15,6 +16,14 @@ ROMUCode::ROMUCode(DSPHLE* dsphle, u32 crc)
     : UCodeInterface(dsphle, crc), m_current_ucode(), m_boot_task_num_steps(0), m_next_parameter(0)
 {
   DSPHLE_DEBUG("UCode_Rom - initialized");
+}
+
+void ROMUCode::DoState(StateIO& p)
+{
+  p.Do(m_current_ucode);
+  p.Do(m_boot_task_num_steps);
+  p.Do(m_next_parameter);
+  DoStateShared(p);
 }
 
 void ROMUCode::Initialize()

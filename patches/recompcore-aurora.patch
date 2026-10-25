@@ -288,23 +288,33 @@ index 47c60b1038..82efa7082b 100644
  
  bool aurora_backend_pad_init(void);
 diff --git a/GXRuntime/backends/aurora/aurora_graphics.cpp b/GXRuntime/backends/aurora/aurora_graphics.cpp
-index 24367bf568..d81925a929 100644
+index 24367bf568..e25ab0b8e2 100644
 --- a/GXRuntime/backends/aurora/aurora_graphics.cpp
 +++ b/GXRuntime/backends/aurora/aurora_graphics.cpp
-@@ -8,7 +8,12 @@
+@@ -8,11 +8,22 @@
  #include <dolphin/vi.h>
  #include <gx/fifo.hpp>
  #include <gx/gx.hpp>
 +#include <gfx/common.hpp>
 +#include <gfx/overlay.hpp>
++#include <gfx/render_worker.hpp>
++#include <gfx/tex_copy_conv.hpp>
++#include <gfx/texture.hpp>
 +#include <webgpu/gpu.hpp>
 +#include <window.hpp>
  #include <gx/recomp.hpp>
 +#include <array>
++#include <chrono>
  #include <cstdio>
  #include <cstdlib>
  #include <cstring>
-@@ -586,6 +591,8 @@ void shadow_transform_observer(
+ #include <span>
++#include <thread>
++#include <vector>
+ 
+ #if GXRUNTIME_HAS_AURORA_RECOMP
+ // gxcore substrate submission lives in the Aurora fork (lib/gfx/gxcore_draw.cpp),
+@@ -586,6 +597,8 @@ void shadow_transform_observer(
  
  extern "C" {
  
@@ -313,7 +323,7 @@ index 24367bf568..d81925a929 100644
  void aurora_backend_present(void) {
      if (!gx_aurora::g_initialized)
          return;
-@@ -816,6 +823,7 @@ void aurora_backend_present(void) {
+@@ -816,6 +829,7 @@ void aurora_backend_present(void) {
      gx_aurora::poll_events();
      if (!gx_aurora::g_should_quit) {
          gx_aurora::g_frame_open = aurora_begin_frame();
@@ -321,7 +331,7 @@ index 24367bf568..d81925a929 100644
  #if GXRUNTIME_HAS_AURORA_RECOMP
          gx_aurora::g_shadow_transform_next_draw_index = 0;
  #endif
-@@ -852,6 +860,147 @@ void aurora_backend_call_display_list(const void* data, u32 size) {
+@@ -852,6 +866,359 @@ void aurora_backend_call_display_list(const void* data, u32 size) {
      gx_aurora::g_fifo_bytes += size;
  }
  
@@ -444,6 +454,218 @@ index 24367bf568..d81925a929 100644
 +    data.displayWidth = display_width;
 +    data.displayHeight = display_height;
 +    aurora::gfx::overlay::set(std::move(data));
++}
++
++// ---- save states: the EFB copies ----------------------------------------------------------------
++namespace {
++// One copy in a snapshot, followed by its texels (width x height x bytes_per_texel, rows packed)
++struct SavedCopy {
++    uint32_t offset;  // from ram_base
++    uint32_t revision;
++    uint64_t ram_fingerprint;
++    uint32_t ram_bytes;
++    uint32_t logical_width;
++    uint32_t logical_height;
++    uint32_t copy_format;
++    uint32_t width;
++    uint32_t height;
++    uint32_t gx_format;  // the texture's (GX_TF_RGBA8 / GX_TF_RGB565 for a resolved copy)
++    uint32_t wgpu_format;
++    uint32_t bytes_per_texel;
++    uint32_t data_size;
++};
++constexpr uint32_t COPIES_MAGIC = 0x53504F43;  // "COPS"
++
++bool IsBgra(wgpu::TextureFormat f) {
++    return f == wgpu::TextureFormat::BGRA8Unorm || f == wgpu::TextureFormat::BGRA8UnormSrgb;
++}
++bool IsRgba(wgpu::TextureFormat f) {
++    return f == wgpu::TextureFormat::RGBA8Unorm || f == wgpu::TextureFormat::RGBA8UnormSrgb;
++}
++} // namespace
++
++uint32_t aurora_backend_copies_snapshot(const void* ram_base, uint32_t ram_size,
++                                        void (*write)(const void* data, uint32_t size, void* user),
++                                        void* user) {
++    using namespace aurora;
++    std::vector<uint8_t> blob(8, 0);
++    std::memcpy(blob.data(), &COPIES_MAGIC, 4);
++    uint32_t count = 0;
++    if (gx_aurora::g_initialized) {
++        // Everything handed to the worker is encoded and submitted; the reads below queue after it
++        gfx::render_worker::synchronize();
++        struct Pending {
++            SavedCopy header;
++            wgpu::Buffer buffer;
++            uint32_t bytes_per_row;
++            bool mapped = false;
++            bool failed = false;
++        };
++        std::vector<std::unique_ptr<Pending>> pending;
++        const auto* base = static_cast<const uint8_t*>(ram_base);
++        wgpu::CommandEncoder encoder = webgpu::g_device.CreateCommandEncoder();
++        for (const auto& [dest, ref] : gx::g_gxState.copyTextures) {
++            const auto* at = static_cast<const uint8_t*>(dest);
++            if (!ref.handle || at < base || at >= base + ram_size)
++                continue;
++            const gfx::TextureRef& tex = *ref.handle;
++            const auto info = gfx::format_info(tex.format);
++            if (info.compressed || info.blockWidth != 1 || info.blockHeight != 1 || tex.mipCount != 1)
++                continue;
++            auto p = std::make_unique<Pending>();
++            p->header = SavedCopy{
++                .offset = static_cast<uint32_t>(at - base),
++                .revision = ref.revision,
++                .ram_fingerprint = ref.ramFingerprint,
++                .ram_bytes = ref.ramBytes,
++                .logical_width = ref.logicalWidth,
++                .logical_height = ref.logicalHeight,
++                .copy_format = ref.copyFormat,
++                .width = tex.size.width,
++                .height = tex.size.height,
++                .gx_format = tex.gxFormat,
++                .wgpu_format = static_cast<uint32_t>(tex.format),
++                .bytes_per_texel = info.blockSize,
++                .data_size = tex.size.width * tex.size.height * info.blockSize,
++            };
++            p->bytes_per_row = (tex.size.width * info.blockSize + 255u) & ~255u;
++            const wgpu::BufferDescriptor desc{
++                .label = "EFB copy snapshot",
++                .usage = wgpu::BufferUsage::MapRead | wgpu::BufferUsage::CopyDst,
++                .size = static_cast<uint64_t>(p->bytes_per_row) * tex.size.height,
++            };
++            p->buffer = webgpu::g_device.CreateBuffer(&desc);
++            const wgpu::TexelCopyTextureInfo src{.texture = tex.texture};
++            const wgpu::TexelCopyBufferInfo dst{
++                .layout = {.offset = 0, .bytesPerRow = p->bytes_per_row, .rowsPerImage = tex.size.height},
++                .buffer = p->buffer,
++            };
++            const wgpu::Extent3D extent{.width = tex.size.width, .height = tex.size.height, .depthOrArrayLayers = 1};
++            encoder.CopyTextureToBuffer(&src, &dst, &extent);
++            pending.push_back(std::move(p));
++        }
++        if (!pending.empty()) {
++            const wgpu::CommandBuffer commands = encoder.Finish();
++            webgpu::g_queue.Submit(1, &commands);
++            for (auto& p : pending) {
++                Pending* raw = p.get();
++                raw->buffer.MapAsync(wgpu::MapMode::Read, 0, raw->buffer.GetSize(), wgpu::CallbackMode::AllowProcessEvents,
++                                     [raw](wgpu::MapAsyncStatus status, wgpu::StringView) {
++                                         raw->mapped = status == wgpu::MapAsyncStatus::Success;
++                                         raw->failed = !raw->mapped;
++                                     });
++            }
++            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
++            for (;;) {
++                webgpu::g_instance.ProcessEvents();
++                bool done = true;
++                for (const auto& p : pending)
++                    done = done && (p->mapped || p->failed);
++                if (done || std::chrono::steady_clock::now() > deadline)
++                    break;
++                std::this_thread::sleep_for(std::chrono::microseconds(200));
++            }
++            for (auto& p : pending) {
++                if (!p->mapped)
++                    continue;
++                const auto* mapped = static_cast<const uint8_t*>(p->buffer.GetConstMappedRange(0, p->buffer.GetSize()));
++                if (mapped != nullptr) {
++                    const size_t at = blob.size();
++                    blob.resize(at + sizeof(SavedCopy) + p->header.data_size);
++                    std::memcpy(blob.data() + at, &p->header, sizeof(SavedCopy));
++                    const uint32_t row = p->header.width * p->header.bytes_per_texel;
++                    for (uint32_t y = 0; y < p->header.height; ++y)
++                        std::memcpy(blob.data() + at + sizeof(SavedCopy) + static_cast<size_t>(y) * row,
++                                    mapped + static_cast<size_t>(y) * p->bytes_per_row, row);
++                    ++count;
++                }
++                p->buffer.Unmap();
++            }
++        }
++    }
++    std::memcpy(blob.data() + 4, &count, 4);
++    write(blob.data(), static_cast<uint32_t>(blob.size()), user);
++    return count;
++}
++
++int aurora_backend_copies_restore(const void* ram_base, uint32_t ram_size, const void* data, uint32_t size) {
++    using namespace aurora;
++    const auto* bytes = static_cast<const uint8_t*>(data);
++    uint32_t magic = 0, count = 0;
++    if (size < 8)
++        return -1;
++    std::memcpy(&magic, bytes, 4);
++    std::memcpy(&count, bytes + 4, 4);
++    if (magic != COPIES_MAGIC)
++        return -1;
++    if (!gx_aurora::g_initialized)
++        return 0;
++    if (gx_aurora::g_frame_open)
++        gx::fifo::drain();
++    gfx::render_worker::synchronize();
++    gx::clear_copy_texture_cache();
++    // A slot's bind is kept while its texture object is unchanged: one from before the restore
++    // could still hold a copy that is gone
++    for (auto& bind : gx::g_gxState.textures)
++        bind = gfx::TextureBind{};
++    const auto* base = static_cast<const uint8_t*>(ram_base);
++    const wgpu::TextureFormat surface = webgpu::g_graphicsConfig.surfaceConfiguration.format;
++    size_t at = 8;
++    int restored = 0;
++    for (uint32_t i = 0; i < count; ++i) {
++        SavedCopy h;
++        if (at + sizeof(SavedCopy) > size)
++            return -1;
++        std::memcpy(&h, bytes + at, sizeof(SavedCopy));
++        at += sizeof(SavedCopy);
++        if (h.data_size > size - at || h.data_size != h.width * h.height * h.bytes_per_texel)
++            return -1;
++        const uint8_t* texels = bytes + at;
++        at += h.data_size;
++        if (h.offset >= ram_size || h.width == 0 || h.height == 0)
++            continue;
++        // As copy_tex makes them: a converted copy in its format's own texture, a resolved one in
++        // the surface's format (BGRA or RGBA, which may differ from where the state was saved)
++        const bool conv = gfx::tex_copy_conv::needs_conversion(static_cast<GXTexFmt>(h.copy_format));
++        gfx::TextureHandle handle = conv ? gfx::new_conv_texture(h.width, h.height, h.gx_format, "Copy Conv Texture")
++                                         : gfx::new_render_texture(h.width, h.height, h.gx_format, "Resolved Texture");
++        const auto saved = static_cast<wgpu::TextureFormat>(h.wgpu_format);
++        std::vector<uint8_t> swapped;
++        if (handle->format != saved) {
++            if (h.bytes_per_texel == 4 && ((IsBgra(saved) && IsRgba(handle->format)) || (IsRgba(saved) && IsBgra(handle->format)))) {
++                swapped.assign(texels, texels + h.data_size);
++                for (size_t k = 0; k + 3 < swapped.size(); k += 4)
++                    std::swap(swapped[k], swapped[k + 2]);
++                texels = swapped.data();
++            } else {
++                continue;
++            }
++        }
++        const wgpu::TexelCopyTextureInfo dst{.texture = handle->texture};
++        const wgpu::TexelCopyBufferLayout layout{.bytesPerRow = h.width * h.bytes_per_texel, .rowsPerImage = h.height};
++        const wgpu::Extent3D extent{.width = h.width, .height = h.height, .depthOrArrayLayers = 1};
++        webgpu::g_queue.WriteTexture(&dst, texels, h.data_size, &layout, &extent);
++        const void* dest = base + h.offset;
++        const gx::GXState::CopyTextureRef ref{
++            .handle = handle,
++            .revision = h.revision,
++            .ramFingerprint = h.ram_fingerprint,
++            .ramBytes = h.ram_bytes,
++            .logicalWidth = h.logical_width,
++            .logicalHeight = h.logical_height,
++            .copyFormat = h.copy_format,
++        };
++        const gx::GXState::CopyTextureKey key{
++            .dest = dest,
++            .width = h.width,
++            .height = h.height,
++            .format = static_cast<GXTexFmt>(h.copy_format),
++        };
++        gx::g_gxState.copyTextureCache[key] = ref;
++        gx::g_gxState.copyTextures[dest] = ref;
++        ++restored;
++    }
++    return restored;
 +}
 +
 +// An overlay texture (RGBA8, the font atlas), replaced whole when it changes.
@@ -3993,7 +4215,7 @@ index ca511a7ab6..e5b40abc03 100644
  
  int dolgx_replay_pixels_main(const char* trace_path,
 diff --git a/GXRuntime/include/gxruntime/aurora_backend.h b/GXRuntime/include/gxruntime/aurora_backend.h
-index c9ec4b9a42..db6c2b22c2 100644
+index c9ec4b9a42..473ebd0bf1 100644
 --- a/GXRuntime/include/gxruntime/aurora_backend.h
 +++ b/GXRuntime/include/gxruntime/aurora_backend.h
 @@ -3,6 +3,7 @@
@@ -4004,7 +4226,7 @@ index c9ec4b9a42..db6c2b22c2 100644
  
  #include <stdbool.h>
  
-@@ -19,14 +20,42 @@ typedef struct AuroraBackendConfig {
+@@ -19,14 +20,54 @@ typedef struct AuroraBackendConfig {
      bool info_logging;
      bool graphics_logging;
      bool force_untextured;
@@ -4043,6 +4265,18 @@ index c9ec4b9a42..db6c2b22c2 100644
 +    uint32_t index_count;
 +    uint32_t vertex_offset;
 +} AuroraOverlayCmd;
++
++/* Save states: the EFB copies Aurora keeps on the GPU only (a game reads them back as textures,
++ * the guest memory under them holds no picture). The snapshot waits for the frames handed to the
++ * render worker, reads every live copy back and passes one blob to write(); copies are keyed by
++ * their offset from ram_base. The restore replaces the live copies with a snapshot's (call it
++ * after the guest memory is restored: each copy's memory fingerprint is checked against it).
++ * Both return the number of copies, the restore -1 for a blob it can't read. */
++uint32_t aurora_backend_copies_snapshot(const void* ram_base, uint32_t ram_size,
++                                        void (*write)(const void* data, uint32_t size, void* user),
++                                        void* user);
++int aurora_backend_copies_restore(const void* ram_base, uint32_t ram_size, const void* data,
++                                  uint32_t size);
 +#ifdef __cplusplus
 +}
 +#endif
