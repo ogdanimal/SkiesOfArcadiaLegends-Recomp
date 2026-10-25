@@ -430,7 +430,10 @@ Tools (copies in `~/projects/skies-aurora/capture/`, used from `C:\dev\SkiesStan
 running process: `start /affinity` hangs through WSL interop), `cpu-sample.sh EXE WAIT SECS` (cores in use),
 `gpu-luid.sh EXE WAIT` (which GPU adapter a process keeps busy, and how busy). `AURORA_LOW_POWER_GPU=1`
 (fork 0030) makes Aurora take the iGPU; Dolphin's is `[Hardware] Adapter = 1` (`user-bench-igpu`,
-`user-bench-igpu3` at resolution 3; `user-bench-rt` = dual core at full speed). An unmuted standalone run
+`user-bench-igpu3`; `user-bench-rt` = dual core at full speed). **The Dolphin side's internal resolution
+is the user folder's `config.ini` `resolution=` (640x528 per 1x), not `GFX.ini`:** `user-bench-igpu3` was
+at 1x for this baseline (fixed since, next section). `AURORA_GPU_PROF=N` (fork 0031, with
+`SKIES_AURORA_LOG=1`) gives the standalone's GPU time per frame by pass. An unmuted standalone run
 is held to 1x by the audio queue even with `--unthrottled`: benchmark with `SKIES_MUTE=1`.
 
 ## GPU time per frame (2026-10-25, later): ahead of Dolphin, and two cuts

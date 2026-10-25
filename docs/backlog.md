@@ -186,7 +186,9 @@ a native MusyX engine such as AxioDL's amuse), the 60 fps interpolator (built in
 a new Android shell, and about 25,000 lines of port features written against Dolphin's APIs. Status
 (2026-10-25): the standalone host plays on desktop (WSL, Windows D3D12) with no Dolphin core: audio
 bit-exact (Skies' MusyX ucode is Dolphin's AX, ported as HLE), card saves, the in-game menu, save states;
-same-machine baseline: faster than the Dolphin build on CPU, more GPU time per frame. Goal set by the user:
+same-machine baseline: faster than the Dolphin build on CPU, and on GPU about 30% less GPU time per frame
+(GPU-bound on an iGPU; the first GPU number, "more GPU time", came from a Dolphin run at the wrong
+resolution). Goal set by the user:
 better than the Dolphin build, weaker hardware included. Open: 60 fps, Continue, the remaining features,
 Android.
 

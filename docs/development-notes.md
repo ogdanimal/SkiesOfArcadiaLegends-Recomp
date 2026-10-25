@@ -2453,7 +2453,11 @@ tools/android-ws-build.sh` on Android. Runtime knobs (environment, or `aurora.en
 user folder on Android): `MODERNGEKKO_AURORA_INTERP=0` (replays skipped, the old 30 fps),
 `MODERNGEKKO_AURORA_VSYNC=1` (Fifo presents), `MODERNGEKKO_AURORA_EFB_SCALE=N`,
 `MODERNGEKKO_AURORA_LOG=1` (per-600-frame timing, kept/shown pictures, present-interval percentiles),
-`RECOMP_PRESENT_PACING=1` or a `PresentPacing.on` file (present intervals for any backend). Why
+`RECOMP_PRESENT_PACING=1` or a `PresentPacing.on` file (present intervals for any backend),
+`AURORA_GPU_PROF=N` (GPU ms per frame by pass every N frames, fork 0031), `AURORA_LOGIC_OP_CONST=0` /
+`AURORA_CLEAR_AT_FRAME_START=0` (turn off forks 0032 / 0033: logic ops with a constant source drawn with a
+write mask instead of an EFB snapshot, the display copy's clear as the first pass's load-op clear; both
+exact, measured in the standalone build, `HANDOFF-emulator-free.md`). Why
 bother: owning the renderer, so widescreen, HD textures and lighting are done in one place.
 Everything, with numbers, in [handoffs/HANDOFF-aurora.md](handoffs/HANDOFF-aurora.md) (Android, the
 60 fps design, the fringe, the measurements) and the research tree's `~/projects/skies-aurora/HANDOFF.md`
