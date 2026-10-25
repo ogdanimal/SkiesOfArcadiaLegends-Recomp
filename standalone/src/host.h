@@ -104,7 +104,8 @@ bool Boot(const std::string& game_dir);
 u32 RtcSeconds();
 
 // ---- disc (disc.cpp) ---------------------------------------------------------------------------
-bool DiscOpen(const std::string& game_dir);
+// dol_path: a DOL to boot instead of sys/main.dol (a game-patched one), or empty
+bool DiscOpen(const std::string& game_dir, const std::string& dol_path);
 bool DiscRead(u64 offset, void* out, u32 length);
 const u8* DiscHeader();  // boot.bin (0x440 bytes)
 const std::vector<u8>& DiscDol();  // sys/main.dol

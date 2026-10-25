@@ -1890,7 +1890,7 @@ index 45a8ba80e8..e6bfee0b81 100644
    u32 format() const noexcept { return mFormat != aurora::gfx::InvalidTextureFormat ? mFormat : raw_format(); }
    GXTexWrapMode wrap_s() const noexcept { return static_cast<GXTexWrapMode>(get_bits(mode0, 2, 0)); }
 diff --git a/GXRuntime/graphics/aurora/lib/gx/command_processor.cpp b/GXRuntime/graphics/aurora/lib/gx/command_processor.cpp
-index 5b176e702c..77c2bfe855 100644
+index 5b176e702c..d39960eff7 100644
 --- a/GXRuntime/graphics/aurora/lib/gx/command_processor.cpp
 +++ b/GXRuntime/graphics/aurora/lib/gx/command_processor.cpp
 @@ -1,9 +1,15 @@
@@ -2065,14 +2065,17 @@ index 5b176e702c..77c2bfe855 100644
  
    // Line/point size (0x22)
    case 0x22: {
-@@ -958,9 +1045,55 @@ static void handle_bp(u32 value, bool bigEndian) {
+@@ -958,9 +1045,58 @@ static void handle_bp(u32 value, bool bigEndian) {
    case 0x52: {
      const bool clear = bp_get(value, 1, 11) != 0;
      if (bp_get(value, 1, 14) != 0) {
 -      Log.warn("STUB: display copy is not implemented");
 +      if (::aurora_debug_draw_log) {
-+        std::fprintf(stderr, "xfb copy before draw %llu ctx=%c clear=%d\n", ::aurora_debug_draw_index,
-+                     in_replay_context() ? 'R' : 'L', clear ? 1 : 0);
++        std::fprintf(stderr, "xfb copy before draw %llu ctx=%c clear=%d color=%.3f,%.3f,%.3f,%.3f update=%d%d%d\n",
++                     ::aurora_debug_draw_index, in_replay_context() ? 'R' : 'L', clear ? 1 : 0,
++                     g_gxState.clearColor.x(), g_gxState.clearColor.y(), g_gxState.clearColor.z(),
++                     g_gxState.clearColor.w(), g_gxState.colorUpdate ? 1 : 0, g_gxState.alphaUpdate ? 1 : 0,
++                     g_gxState.depthUpdate ? 1 : 0);
 +      }
 +      if (!in_replay_context()) {
 +        texture_frame_tick();
@@ -2122,7 +2125,7 @@ index 5b176e702c..77c2bfe855 100644
        if (g_gxState.texCopyDest != nullptr) {
          copy_tex(g_gxState.texCopyDest, clear);
        } else {
-@@ -1310,12 +1443,21 @@ static void handle_bp(u32 value, bool bigEndian) {
+@@ -1310,12 +1446,21 @@ static void handle_bp(u32 value, bool bigEndian) {
    }
  }
  
@@ -2145,7 +2148,7 @@ index 5b176e702c..77c2bfe855 100644
      vd[GX_VA_PNMTXIDX] = static_cast<GXAttrType>(bp_get(value, 1, 0));
      vd[GX_VA_TEX0MTXIDX] = static_cast<GXAttrType>(bp_get(value, 1, 1));
      vd[GX_VA_TEX1MTXIDX] = static_cast<GXAttrType>(bp_get(value, 1, 2));
-@@ -1329,6 +1471,7 @@ static void handle_cp(u8 addr, u32 value, bool bigEndian) {
+@@ -1329,6 +1474,7 @@ static void handle_cp(u8 addr, u32 value, bool bigEndian) {
      vd[GX_VA_NRM] = static_cast<GXAttrType>(bp_get(value, 2, 11));
      vd[GX_VA_CLR0] = static_cast<GXAttrType>(bp_get(value, 2, 13));
      vd[GX_VA_CLR1] = static_cast<GXAttrType>(bp_get(value, 2, 15));
@@ -2153,7 +2156,7 @@ index 5b176e702c..77c2bfe855 100644
      g_gxState.stateDirty = true;
      g_gxState.clearVtxSizeCache();
      break;
-@@ -1336,7 +1479,7 @@ static void handle_cp(u8 addr, u32 value, bool bigEndian) {
+@@ -1336,7 +1482,7 @@ static void handle_cp(u8 addr, u32 value, bool bigEndian) {
  
    // VCD high (0x60)
    case 0x60: {
@@ -2162,7 +2165,7 @@ index 5b176e702c..77c2bfe855 100644
      vd[GX_VA_TEX0] = static_cast<GXAttrType>(bp_get(value, 2, 0));
      vd[GX_VA_TEX1] = static_cast<GXAttrType>(bp_get(value, 2, 2));
      vd[GX_VA_TEX2] = static_cast<GXAttrType>(bp_get(value, 2, 4));
-@@ -1345,6 +1488,7 @@ static void handle_cp(u8 addr, u32 value, bool bigEndian) {
+@@ -1345,6 +1491,7 @@ static void handle_cp(u8 addr, u32 value, bool bigEndian) {
      vd[GX_VA_TEX5] = static_cast<GXAttrType>(bp_get(value, 2, 10));
      vd[GX_VA_TEX6] = static_cast<GXAttrType>(bp_get(value, 2, 12));
      vd[GX_VA_TEX7] = static_cast<GXAttrType>(bp_get(value, 2, 14));
@@ -2170,7 +2173,7 @@ index 5b176e702c..77c2bfe855 100644
      g_gxState.stateDirty = true;
      g_gxState.clearVtxSizeCache();
      break;
-@@ -1443,7 +1587,9 @@ static void handle_cp(u8 addr, u32 value, bool bigEndian) {
+@@ -1443,7 +1590,9 @@ static void handle_cp(u8 addr, u32 value, bool bigEndian) {
              array.size = available;
              array.le = false;
              array.cachedRange = {};
@@ -2181,7 +2184,7 @@ index 5b176e702c..77c2bfe855 100644
            }
          } else {
            Log.error("Unable to resolve CP_REG_ARRAYBASE_ID attr={} physical=0x{:08X}", attrIdx, value);
-@@ -1458,7 +1604,9 @@ static void handle_cp(u8 addr, u32 value, bool bigEndian) {
+@@ -1458,7 +1607,9 @@ static void handle_cp(u8 addr, u32 value, bool bigEndian) {
          const auto newStride = static_cast<u8>(value);
          if (array.stride != newStride) {
            array.stride = newStride;
@@ -2192,7 +2195,7 @@ index 5b176e702c..77c2bfe855 100644
          }
        }
      }
-@@ -1586,25 +1734,18 @@ static void handle_xf(const u8* data, u32& pos, u32 size, bool bigEndian) {
+@@ -1586,25 +1737,18 @@ static void handle_xf(const u8* data, u32& pos, u32 size, bool bigEndian) {
        case 0x1D:
        case 0x1E:
        case 0x1F: {
@@ -2230,7 +2233,7 @@ index 5b176e702c..77c2bfe855 100644
          }
          break;
        }
-@@ -1615,16 +1756,18 @@ static void handle_xf(const u8* data, u32& pos, u32 size, bool bigEndian) {
+@@ -1615,16 +1759,18 @@ static void handle_xf(const u8* data, u32& pos, u32 size, bool bigEndian) {
        case 0x24:
        case 0x25:
        case 0x26: {
@@ -2259,7 +2262,7 @@ index 5b176e702c..77c2bfe855 100644
            g_gxState.projType = static_cast<GXProjectionType>(projType);
            // Reconstruct 4x4 projection matrix from 6 params
            auto& proj = g_gxState.proj;
-@@ -1719,6 +1862,90 @@ static void handle_draw_overrun [[noreturn]] (u32 totalVtxBytes, const u8* data,
+@@ -1719,6 +1865,90 @@ static void handle_draw_overrun [[noreturn]] (u32 totalVtxBytes, const u8* data,
  }
  
  // Draw command handler - parses vertices inline and caches results
@@ -2350,7 +2353,7 @@ index 5b176e702c..77c2bfe855 100644
  static u32 calculate_last_vtx_size(GXVtxFmt fmt) {
    u32 vtxSize = 0;
    const auto& vtxFmt = g_gxState.vtxFmts[fmt];
-@@ -1743,6 +1970,7 @@ static u32 calculate_last_vtx_size(GXVtxFmt fmt) {
+@@ -1743,6 +1973,7 @@ static u32 calculate_last_vtx_size(GXVtxFmt fmt) {
  
    g_gxState.lastVtxFmt = fmt;
    g_gxState.lastVtxSize = vtxSize;
@@ -2358,7 +2361,7 @@ index 5b176e702c..77c2bfe855 100644
  
    return vtxSize;
  }
-@@ -1805,10 +2033,11 @@ static void calculate_indexed_array_sizes(GXVtxFmt fmt, u16 vtxCount, const u8*
+@@ -1805,10 +2036,11 @@ static void calculate_indexed_array_sizes(GXVtxFmt fmt, u16 vtxCount, const u8*
    }
  }
  
@@ -2372,7 +2375,7 @@ index 5b176e702c..77c2bfe855 100644
  
  // Draw command handler - parses vertices inline and caches results
  static ByteBuffer handle_draw_idx_buf;
-@@ -1820,21 +2049,72 @@ static void draw_prim(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, const u8* da
+@@ -1820,21 +2052,72 @@ static void draw_prim(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, const u8* da
      LIKELY { vtxSize = g_gxState.lastVtxSize; }
    else
      UNLIKELY { vtxSize = calculate_last_vtx_size(fmt); }
@@ -2454,7 +2457,7 @@ index 5b176e702c..77c2bfe855 100644
  
    // Try to merge with previous draw call
    if (canMerge) {
-@@ -1871,7 +2151,7 @@ static void draw_prim(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, const u8* da
+@@ -1871,7 +2154,7 @@ static void draw_prim(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, const u8* da
      return;
    }
  
@@ -2463,7 +2466,7 @@ index 5b176e702c..77c2bfe855 100644
  }
  
  static void handle_draw(u8 cmd, const u8* data, u32& pos, u32 size, bool bigEndian) {
-@@ -1887,8 +2167,31 @@ static void handle_draw(u8 cmd, const u8* data, u32& pos, u32 size, bool bigEndi
+@@ -1887,8 +2170,31 @@ static void handle_draw(u8 cmd, const u8* data, u32& pos, u32 size, bool bigEndi
  
  static ByteBuffer handle_draw_unmerged_idxBuf;
  
@@ -2496,7 +2499,7 @@ index 5b176e702c..77c2bfe855 100644
    ZoneScoped;
    u32 numIndices = 0;
    gfx::Range idxRange;
-@@ -1901,32 +2204,139 @@ static void handle_draw_unmerged(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, g
+@@ -1901,32 +2207,139 @@ static void handle_draw_unmerged(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, g
      realBuf.clear();
    }
  
@@ -2653,7 +2656,7 @@ index 5b176e702c..77c2bfe855 100644
    const auto bindGroups = build_bind_groups(info);
    const auto pipeline = gfx::pipeline_ref(config);
  
-@@ -1949,6 +2359,8 @@ static void push_gx_draw(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, gfx::Rang
+@@ -1949,6 +2362,8 @@ static void push_gx_draw(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, gfx::Rang
        .bindGroups = bindGroups,
        .dstAlpha = g_gxState.dstAlpha,
        .cullMode = g_gxState.cullMode,
@@ -2662,7 +2665,7 @@ index 5b176e702c..77c2bfe855 100644
    });
  }
  
-@@ -2022,7 +2434,9 @@ void handle_aurora(const u8* data, u32& pos, u32 size, bool bigEndian) {
+@@ -2022,7 +2437,9 @@ void handle_aurora(const u8* data, u32& pos, u32 size, bool bigEndian) {
        array.le = le;
        // Only drop the cached upload when the backing array actually changes.
        array.cachedRange = {};
@@ -2673,7 +2676,7 @@ index 5b176e702c..77c2bfe855 100644
      }
    } else if (subCmd == GX_AURORA_LOAD_TEXOBJ) {
      CHECK(pos + 34 <= size, "GX_AURORA_LOAD_TEXOBJ read overrun");
-@@ -2178,14 +2592,26 @@ void handle_aurora(const u8* data, u32& pos, u32 size, bool bigEndian) {
+@@ -2178,14 +2595,26 @@ void handle_aurora(const u8* data, u32& pos, u32 size, bool bigEndian) {
      } else {
        vtxSize = calculate_last_vtx_size(fmt);
      }

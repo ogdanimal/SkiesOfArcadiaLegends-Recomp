@@ -231,9 +231,44 @@ void VideoCommands(const u8* data, u32 size)
 #endif
 }
 
+// SKIES_POKE=ADDR=WORDS[;ADDR=WORDS...] (hex; WORDS: 8 hex digits each, big-endian guest words)
+// written to RAM at every frame, as a frontend writes the game patch's input blocks every poll
+// (e.g. qol_input at 80002EA0: 'QOLC', encounter percent, ...).
+void ApplyPokes()
+{
+  struct Poke
+  {
+    u32 address;
+    std::vector<u32> words;
+  };
+  static const std::vector<Poke> pokes = [] {
+    std::vector<Poke> list;
+    const char* spec = std::getenv("SKIES_POKE");
+    for (std::string rest = spec ? spec : ""; !rest.empty();)
+    {
+      const size_t semi = rest.find(';');
+      const std::string one = rest.substr(0, semi);
+      rest = semi == std::string::npos ? "" : rest.substr(semi + 1);
+      const size_t eq = one.find('=');
+      if (eq == std::string::npos)
+        continue;
+      Poke p{static_cast<u32>(std::strtoul(one.substr(0, eq).c_str(), nullptr, 16)), {}};
+      const std::string hex = one.substr(eq + 1);
+      for (size_t i = 0; i + 8 <= hex.size(); i += 8)
+        p.words.push_back(static_cast<u32>(std::strtoul(hex.substr(i, 8).c_str(), nullptr, 16)));
+      list.push_back(std::move(p));
+    }
+    return list;
+  }();
+  for (const Poke& p : pokes)
+    for (size_t i = 0; i < p.words.size(); ++i)
+      Write32(p.address + static_cast<u32>(4 * i), p.words[i]);
+}
+
 void VideoFrameEnd()
 {
   ++s_frames;
+  ApplyPokes();
   if ((s_frames % 600) == 1)
     Log("[video] frame %llu at %.2f s guest\n", static_cast<unsigned long long>(s_frames),
         static_cast<double>(Now()) / CPU_HZ);

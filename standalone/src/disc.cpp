@@ -66,7 +66,7 @@ std::ifstream* Stream(const Extent& e)
 }
 }  // namespace
 
-bool DiscOpen(const std::string& game_dir)
+bool DiscOpen(const std::string& game_dir, const std::string& dol_path)
 {
   namespace fs = std::filesystem;
   const fs::path sys = fs::path(game_dir) / "sys";
@@ -74,7 +74,7 @@ bool DiscOpen(const std::string& game_dir)
   s_boot = ReadAll(sys / "boot.bin");
   std::vector<u8> bi2 = ReadAll(sys / "bi2.bin");
   std::vector<u8> apploader = ReadAll(sys / "apploader.img");
-  std::vector<u8> dol = ReadAll(sys / "main.dol");
+  std::vector<u8> dol = ReadAll(dol_path.empty() ? sys / "main.dol" : std::filesystem::path(dol_path));
   std::vector<u8> fst = ReadAll(sys / "fst.bin");
   if (s_boot.size() != 0x440 || bi2.size() != 0x2000 || apploader.empty() || dol.empty() || fst.empty())
   {

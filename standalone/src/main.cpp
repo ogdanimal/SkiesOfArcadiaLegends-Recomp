@@ -1,9 +1,9 @@
 // skies-standalone: the recompiled game on this host, no emulator core.
 //   skies-standalone --game DIR --module FILE [--headless] [--unthrottled] [--seconds N]
-//                    [--mmio-log] [--idle-pc ADDR] [--dsp-coef FILE] [--user USERDIR]
+//                    [--mmio-log] [--idle-pc ADDR] [--dsp-coef FILE] [--user USERDIR] [--dol FILE]
 // DIR is an extracted disc (sys/ + files/); FILE the g<GAMEID>_recomp module built for its DOL.
 // USERDIR holds the memory card saves as the Dolphin build keeps them (GC/<region>/Card A/*.gci);
-// without it no card is inserted.
+// without it no card is inserted. --dol boots that DOL (a game-patched main.dol) instead of sys/main.dol.
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "host.h"
 
@@ -75,7 +75,7 @@ int main(int argc, char** argv)
 {
   using namespace host;
   setvbuf(stderr, nullptr, _IONBF, 0);
-  std::string game, module;
+  std::string game, module, dol;
   std::string dsp_coef = SKIES_DSP_COEF_DEFAULT;
   bool headless = false;
   u32 idle_pc = ~0u;
@@ -107,12 +107,14 @@ int main(int argc, char** argv)
       idle_pc = static_cast<u32>(std::strtoul(next(), nullptr, 0));
     else if (a == "--dsp-coef")
       dsp_coef = next();
+    else if (a == "--dol")
+      dol = next();
     else if (a == "--user")
       ExiSetUserDir(next());
     else
     {
       Log("usage: %s --game DIR --module FILE [--headless] [--unthrottled] [--seconds N] "
-          "[--mmio-log] [--idle-pc ADDR] [--dsp-coef FILE] [--user USERDIR]\n",
+          "[--mmio-log] [--idle-pc ADDR] [--dsp-coef FILE] [--user USERDIR] [--dol FILE]\n",
           argv[0]);
       return 2;
     }
@@ -125,7 +127,7 @@ int main(int argc, char** argv)
 
   SchedInit();
   CpuInit();
-  if (!LoadModule(module.c_str()) || !DiscOpen(game))
+  if (!LoadModule(module.c_str()) || !DiscOpen(game, dol))
     return 1;
   const std::string disc_id(reinterpret_cast<const char*>(DiscHeader()), 6);
   if (disc_id != ModuleGameId())

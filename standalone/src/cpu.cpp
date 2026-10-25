@@ -8,7 +8,13 @@
 
 #include <cstdlib>
 #include <cstring>
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#else
 #include <dlfcn.h>
+#endif
 
 namespace host
 {
@@ -371,6 +377,16 @@ void RunVector(u32 vector)
 
 bool LoadModule(const char* path)
 {
+#ifdef _WIN32
+  HMODULE handle = LoadLibraryA(path);
+  if (!handle)
+  {
+    Log("[cpu] cannot load %s: error %lu\n", path, GetLastError());
+    return false;
+  }
+  auto get = reinterpret_cast<StaticRecompGetModuleFn>(
+      reinterpret_cast<void*>(GetProcAddress(handle, STATICRECOMP_GET_MODULE_SYMBOL)));
+#else
   void* handle = dlopen(path, RTLD_NOW | RTLD_LOCAL);
   if (!handle)
   {
@@ -378,6 +394,7 @@ bool LoadModule(const char* path)
     return false;
   }
   auto get = reinterpret_cast<StaticRecompGetModuleFn>(dlsym(handle, STATICRECOMP_GET_MODULE_SYMBOL));
+#endif
   if (!get)
   {
     Log("[cpu] %s has no %s\n", path, STATICRECOMP_GET_MODULE_SYMBOL);
@@ -436,11 +453,14 @@ const char* ModuleGameId()
   return s_module ? s_module->game_id : "";
 }
 
+// Guest MEM1, page-aligned (a static array: MSVC has no std::aligned_alloc)
+alignas(4096) static u8 s_ram_storage[RAM_SIZE];
+
 void CpuInit()
 {
   std::memset(&g_cpu, 0, sizeof(g_cpu));
   std::memset(s_spr, 0, sizeof(s_spr));
-  g_ram = static_cast<u8*>(std::aligned_alloc(4096, RAM_SIZE));
+  g_ram = s_ram_storage;
   std::memset(g_ram, 0, RAM_SIZE);
   CPUState& c = g_cpu;
   c.ram = g_ram;

@@ -33,17 +33,22 @@ inline bool g_debug_log = false;
 
 namespace swap
 {
+#ifdef _MSC_VER
+inline u16 swap16(u16 v) { return _byteswap_ushort(v); }
+inline u32 swap32(u32 v) { return _byteswap_ulong(v); }
+#else
 inline u16 swap16(u16 v) { return __builtin_bswap16(v); }
 inline u32 swap32(u32 v) { return __builtin_bswap32(v); }
+#endif
 // Guest data is big-endian, the host is little-endian.
 template <typename T>
 inline T FromBigEndian(T v)
 {
   static_assert(sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4);
   if constexpr (sizeof(T) == 2)
-    return static_cast<T>(__builtin_bswap16(static_cast<u16>(v)));
+    return static_cast<T>(swap16(static_cast<u16>(v)));
   else if constexpr (sizeof(T) == 4)
-    return static_cast<T>(__builtin_bswap32(static_cast<u32>(v)));
+    return static_cast<T>(swap32(static_cast<u32>(v)));
   else
     return v;
 }
