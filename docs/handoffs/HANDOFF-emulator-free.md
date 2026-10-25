@@ -212,3 +212,58 @@ Dolphin's texture cache does it (`TextureCacheBase::UninitializeEFBMemory`):
 - `build/sa-runs/tools/compare-sweep.sh` puts a sweep's standalone frames beside Dolphin's and scores
   them; `tools/dolphin_battle.py` drives the Dolphin port (`moderngekko-run --automation-dir`) through a
   battle with screenshots.
+
+**Bug found and fixed: copies drawn as bigger textures (Aurora).** The battle transition copies the
+640x480 screen into a 1024-wide RGB5A3 buffer and draws it as a 1024x512 texture; Aurora's copy was a
+640x480 texture, so the game's UVs stretched its left 62% over the quad (the snapshot zoomed in,
+minimap cut off). A copy bound bigger than it was copied now gets a texture of the bound size with the
+copy in its top-left corner (fork 0027, `padded_copy_texture`; copy textures gained CopySrc).
+
+**Picture checks against stock Dolphin (2026-10-25), all on the standalone's own command stream** (the
+`.dff` of each frame rendered by Dolphin on Windows, `tools/sweep.sh`; share of pixels more than 10%
+off, best of the seven aligned frames): the opening dungeon route (title, load screen, red-alarm field,
+battle transition, battle, results, field again) 0.0-0.8% where the frames line up, 2-4% in battle
+(sub-pixel filtering on the wood grain); the world map in the airship (cloud sea, a floating island)
+0.3-0.6%; Pirate Isle's caves 0.1-9% (the high ones mid camera pan); the ws32 DOL (anamorphic EFB)
+0.1-5%. Nothing left that differs. Caveats: an EFB copy made before a capture starts isn't in it
+(Dolphin then reads zeros), and Dolphin's FIFO player never dumps a capture's last frame (dump k is
+frame k-1). The live window was screenshotted too (X11 window via `SDL_VIDEO_DRIVER=x11`): 16:9
+window full for the ws DOL, 4:3 window letterboxed.
+
+The Dolphin build's Aurora backend gets the same fork fixes (`recompcore-aurora.patch` regenerated);
+`moderngekko-run --graphics Aurora` from a battle savestate shows the results screen right. Its PNG
+dumps carry the EFB's alpha: view them with `-alpha off` (alpha-0 areas otherwise look white; that cost
+an afternoon of a false "white sky" bug).
+
+**Audio checked: bit-exact.** `SKIES_WAV=FILE` dumps the audio DMA output; the first 45 s (logos,
+intro, title) equal the Dolphin build's `dspdump.wav` sample for sample on both channels (Dolphin's
+writer skips leading silence: 3.19 s offset). Found on the way: the DMA's samples are right channel
+first, and the host had passed them through, so left and right were swapped (fixed). Skies uses no disc
+audio streaming (DTK off in the disc header). Not yet heard by a person: run it unmuted on Windows.
+
+## Windows build (2026-10-25) — runs at full speed with headroom
+
+`C:\dev\SkiesStandalone`: `standalone\` and the parts of the vendored tree it uses (GXRuntime,
+DolRecomp's decoder + `common`, the StaticRecomp ABI header, `dsp_coef.bin`), dependency sources in
+`deps\` (copied from WSL's `build/standalone/_deps`; Dawn, libpng and zlib from
+`C:\dev\SkiesAurora\build\_deps`). `build.bat configure|build` (MSVC from VS Build Tools 18, Ninja);
+Dawn's DLLs and libpng/zlib beside the exe. `run.bat [args]` logs to `%RUNLOG%`. Sync sources from WSL
+with `rsync -a standalone/ /mnt/c/dev/SkiesStandalone/standalone/`. Code changes for Windows: `LoadLibrary`,
+MSVC byte swaps in the DSP HLE, a static page-aligned RAM. New options that came with it: `--dol FILE`
+(a patched DOL without copying the disc), `SKIES_PRESS_FILE` (cmd's `set /p` cuts at 1023 characters),
+`SKIES_POKE=ADDR=WORDS` (guest words written every frame, e.g. the QOL patch's `qol_input`).
+
+- Modules: `VerifyModule` hashes every chunk against the DOL in RAM at boot and refuses a module for
+  another DOL (it found that `C:\dev\SkiesGfx`'s DLL matches no ws DOL exactly). Matching pairs:
+  `C:\dev\SkiesRecomp\build\modules-sa-plain-pgo` (plain USA DOL, LLVM + the WSL PGO profile, built
+  with `tools/module-llvm-win.sh sa-plain-pgo --profile-use ...` in the main checkout), and
+  `C:\dev\SkiesPerf\build\modules-{perf,layout}` with their `generated\main.dol`.
+- Speed (NVIDIA, D3D12, unthrottled, 1280x960 window): 5.5-6x on logos/title, 2-3.5x in the field and
+  battle; headless 5.3-5.8x. The old Oct-6 plain module is 2.3x headless (old chunking, many fallbacks).
+- Same game as WSL: with the same DOL, seed and input the Windows run hits the encounter at 124.487 s
+  and the field again at 173.812 s, exactly as on WSL; still frames are pixel-identical to WSL's
+  (llvmpipe Vulkan), moving ones differ only in an effect's phase.
+
+**Next:** someone listens to the audio (unmuted Windows run); the in-game menu / settings on the ImGui
+overlay; 60 fps (the replay context); Android shell; the remaining Dolphin-hosted features
+(HD textures, Dreamcast music, romhacks, ...).
