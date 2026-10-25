@@ -2945,8 +2945,9 @@ run better than the Dolphin build, weak hardware included; the handoff has the n
 GPU at the save point and in battle; `SKIES_PRESENT_PACING=1` logs frame pacing in the Dolphin build's
 format). Android: `tools/android-standalone-build.sh` builds a test app (libmain.so on SDL's Java glue, no
 Gradle) that plays on the Retroid Pocket 5 (22-25% faster uncapped than the Dolphin build on the same DOL and
-module, and since the pacing fix as smooth or a little smoother at full speed: the emulation thread on the
-prime core, the throttle busy-waiting its last 6 ms; handoff, *Pacing on the Pocket 5*); its arguments, environment and log are files in the app's
+module, and since the pacing fix smoother at full speed at less power: presents scheduled on the throttle's
+clock with an adaptive delay (fork 0036), the emulation thread on the prime core; handoff, *Pacing on the
+Pocket 5*); its arguments, environment and log are files in the app's
 external files folder (handoff, *The Android shell*).
 
 ## Aurora renderer (desktop; 2026-10-21, committed as patches 2026-10-22: see *Aurora renderer* under Android for the status)

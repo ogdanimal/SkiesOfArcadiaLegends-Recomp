@@ -288,7 +288,7 @@ index 47c60b1038..82efa7082b 100644
  
  bool aurora_backend_pad_init(void);
 diff --git a/GXRuntime/backends/aurora/aurora_graphics.cpp b/GXRuntime/backends/aurora/aurora_graphics.cpp
-index 24367bf568..d4218b2008 100644
+index 24367bf568..7b7f0dc132 100644
 --- a/GXRuntime/backends/aurora/aurora_graphics.cpp
 +++ b/GXRuntime/backends/aurora/aurora_graphics.cpp
 @@ -8,11 +8,22 @@
@@ -331,7 +331,7 @@ index 24367bf568..d4218b2008 100644
  #if GXRUNTIME_HAS_AURORA_RECOMP
          gx_aurora::g_shadow_transform_next_draw_index = 0;
  #endif
-@@ -852,6 +866,375 @@ void aurora_backend_call_display_list(const void* data, u32 size) {
+@@ -852,6 +866,384 @@ void aurora_backend_call_display_list(const void* data, u32 size) {
      gx_aurora::g_fifo_bytes += size;
  }
  
@@ -406,6 +406,15 @@ index 24367bf568..d4218b2008 100644
 +
 +// Where the next presents put the picture, in surface pixels; width or height 0 goes back to
 +// fitting the picture's own aspect (the host's letterbox: Dolphin's aspect ratio settings).
++void aurora_backend_set_present_time(long long steady_ns) {
++    if (gx_aurora::g_initialized)
++        aurora::gfx::set_present_time(steady_ns);
++}
++
++void aurora_backend_set_present_callback(void (*callback)(void)) {
++    aurora::gfx::set_present_callback(callback);
++}
++
 +void aurora_backend_set_present_rect(int left, int top, int width, int height) {
 +    if (!gx_aurora::g_initialized || width <= 0 || height <= 0) {
 +        aurora::gfx::set_present_rect(nullptr);
@@ -950,13 +959,14 @@ index 46ebf40b49..93353b4852 100644
  };
  
 diff --git a/GXRuntime/graphics/aurora/lib/aurora.cpp b/GXRuntime/graphics/aurora/lib/aurora.cpp
-index 8843b7b0d8..ba97ce52cf 100644
+index 8843b7b0d8..c66fd8acc8 100644
 --- a/GXRuntime/graphics/aurora/lib/aurora.cpp
 +++ b/GXRuntime/graphics/aurora/lib/aurora.cpp
-@@ -1,7 +1,12 @@
+@@ -1,7 +1,13 @@
 +#include <cstdlib>
 +#include <cstdio>
 +#include <chrono>
++#include <thread>
  #include <aurora/aurora.h>
  
  #ifdef AURORA_ENABLE_GX
@@ -966,7 +976,7 @@ index 8843b7b0d8..ba97ce52cf 100644
  #include "gfx/render_worker.hpp"
  #include "gx/fifo.hpp"
  #include "imgui.hpp"
-@@ -14,11 +19,19 @@
+@@ -14,11 +20,19 @@
  #include "rmlui.hpp"
  #endif
  
@@ -986,7 +996,7 @@ index 8843b7b0d8..ba97ce52cf 100644
  #include <magic_enum.hpp>
  
  #include "system_info.hpp"
-@@ -98,18 +111,26 @@ AuroraInfo initialize(int argc, char* argv[], const AuroraConfig& config) noexce
+@@ -98,18 +112,26 @@ AuroraInfo initialize(int argc, char* argv[], const AuroraConfig& config) noexce
    } else {
      g_config.appName = strdup(g_config.appName);
    }
@@ -1016,7 +1026,7 @@ index 8843b7b0d8..ba97ce52cf 100644
    } else {
      g_config.resourcesPath = strdup(g_config.resourcesPath);
    }
-@@ -121,9 +142,11 @@ AuroraInfo initialize(int argc, char* argv[], const AuroraConfig& config) noexce
+@@ -121,9 +143,11 @@ AuroraInfo initialize(int argc, char* argv[], const AuroraConfig& config) noexce
    }
    ASSERT(window::initialize(), "Error initializing window");
  
@@ -1028,7 +1038,7 @@ index 8843b7b0d8..ba97ce52cf 100644
  
  #ifdef AURORA_ENABLE_GX
    /* Attempt to create a window using the calling application's desired backend */
-@@ -152,16 +175,18 @@ AuroraInfo initialize(int argc, char* argv[], const AuroraConfig& config) noexce
+@@ -152,16 +176,18 @@ AuroraInfo initialize(int argc, char* argv[], const AuroraConfig& config) noexce
      }
    }
  
@@ -1050,7 +1060,7 @@ index 8843b7b0d8..ba97ce52cf 100644
  #endif
  
    window::show_window();
-@@ -202,10 +227,13 @@ void shutdown() noexcept {
+@@ -202,10 +228,13 @@ void shutdown() noexcept {
    rmlui::shutdown();
  #endif
    imgui::shutdown();
@@ -1064,7 +1074,7 @@ index 8843b7b0d8..ba97ce52cf 100644
    window::shutdown();
  }
  
-@@ -213,7 +241,9 @@ const AuroraEvent* update() noexcept {
+@@ -213,7 +242,9 @@ const AuroraEvent* update() noexcept {
    ZoneScoped;
    if (g_initialFrame) {
      g_initialFrame = false;
@@ -1074,7 +1084,7 @@ index 8843b7b0d8..ba97ce52cf 100644
    }
    return window::poll_events();
  }
-@@ -245,17 +275,54 @@ bool begin_frame() noexcept {
+@@ -245,17 +276,54 @@ bool begin_frame() noexcept {
    return true;
  }
  
@@ -1134,17 +1144,30 @@ index 8843b7b0d8..ba97ce52cf 100644
  
    wgpu::BindGroup rmlBindGroup;
    bool rmlOverlay = false;
-@@ -267,7 +334,8 @@ void end_frame() noexcept {
+@@ -267,8 +335,21 @@ void end_frame() noexcept {
    }
  #endif
  
 -  gfx::end_frame([rmlBindGroup = std::move(rmlBindGroup), rmlOverlay, viewport,
-+  gfx::end_frame([rmlBindGroup = std::move(rmlBindGroup), rmlOverlay, viewport, presentSource,
++  const int64_t presentAt = gfx::take_present_time();
++  gfx::end_frame([rmlBindGroup = std::move(rmlBindGroup), rmlOverlay, viewport, presentSource, presentAt,
 +                  hostOverlay = std::move(hostOverlay),
                    imguiDrawData = std::move(imguiDrawData)](wgpu::CommandEncoder& encoder) {
++    // A scheduled present: the frame's passes go to the GPU now, the present blit and the present itself at
++    // the host's time
++    if (const auto at = std::chrono::steady_clock::time_point{std::chrono::nanoseconds{presentAt}};
++        presentAt > 0 && at > std::chrono::steady_clock::now()) {
++      const wgpu::CommandBufferDescriptor framePassesDescriptor{.label = "Frame passes command buffer"};
++      const auto framePasses = encoder.Finish(&framePassesDescriptor);
++      g_queue.Submit(1, &framePasses);
++      static constexpr wgpu::CommandEncoderDescriptor PresentEncoderDescriptor{.label = "Present encoder"};
++      encoder = webgpu::g_device.CreateCommandEncoder(&PresentEncoderDescriptor);
++      std::this_thread::sleep_until(at);
++    }
      wgpu::Texture currentTexture;
      wgpu::TextureView currentView;
-@@ -286,13 +354,14 @@ void end_frame() noexcept {
+     auto surfaceStatus = wgpu::SurfaceGetCurrentTextureStatus::Error;
+@@ -286,13 +367,14 @@ void end_frame() noexcept {
        }
      }
  
@@ -1160,7 +1183,7 @@ index 8843b7b0d8..ba97ce52cf 100644
          presentBindGroup = webgpu::create_copy_bind_group(resampledSource);
        }
        {
-@@ -322,6 +391,8 @@ void end_frame() noexcept {
+@@ -322,6 +404,8 @@ void end_frame() noexcept {
            pass.SetBindGroup(0, rmlBindGroup, 0, nullptr);
            pass.Draw(3);
          }
@@ -1169,7 +1192,17 @@ index 8843b7b0d8..ba97ce52cf 100644
          pass.End();
        }
        {
-@@ -430,6 +501,9 @@ const AuroraEvent* aurora_update() { return aurora::update(); }
+@@ -365,6 +449,9 @@ void end_frame() noexcept {
+         }
+       }
+       if (status) {
++        if (const auto callback = gfx::present_callback()) {
++          callback();
++        }
+         gfx::after_present();
+       } else {
+         Log.warn("Surface present failed");
+@@ -430,6 +517,9 @@ const AuroraEvent* aurora_update() { return aurora::update(); }
  bool aurora_begin_frame() { return aurora::begin_frame(); }
  void aurora_end_frame() { aurora::end_frame(); }
  AuroraBackend aurora_get_backend() { return aurora::g_config.desiredBackend; }
@@ -1244,10 +1277,10 @@ index ad36cc446a..46df2d9293 100644
  }
  } // namespace aurora::gx
 diff --git a/GXRuntime/graphics/aurora/lib/gfx/common.cpp b/GXRuntime/graphics/aurora/lib/gfx/common.cpp
-index 4c672587f0..ee63c76f5c 100644
+index 4c672587f0..9cb79fe633 100644
 --- a/GXRuntime/graphics/aurora/lib/gfx/common.cpp
 +++ b/GXRuntime/graphics/aurora/lib/gfx/common.cpp
-@@ -22,8 +22,11 @@
+@@ -22,13 +22,17 @@
  #include "../window.hpp"
  
  #include <atomic>
@@ -1259,7 +1292,13 @@ index 4c672587f0..ee63c76f5c 100644
  #include <mutex>
  #include <optional>
  #include <ranges>
-@@ -246,6 +249,7 @@ static render_worker::FrameSlotPool g_frameSlots{FrameSlotCount};
+ #include <string>
+ #include <thread>
++#include <utility>
+ 
+ #include <absl/container/flat_hash_map.h>
+ #include <magic_enum.hpp>
+@@ -246,6 +250,7 @@ static render_worker::FrameSlotPool g_frameSlots{FrameSlotCount};
  static render_worker::FrameSlotPool g_stagingSlots{StagingBufferCount};
  static u32 g_currentRenderPass = UINT32_MAX;
  static bool g_inOffscreen = false;
@@ -1267,7 +1306,7 @@ index 4c672587f0..ee63c76f5c 100644
  static std::optional<RenderPass> g_suspendedEfbPass;
  static Viewport g_suspendedEfbViewport;
  static ClipRect g_suspendedEfbScissor;
-@@ -539,8 +543,15 @@ void queue_texture_upload_data(const uint8_t* data, uint32_t bytesPerRow, uint32
+@@ -539,8 +544,15 @@ void queue_texture_upload_data(const uint8_t* data, uint32_t bytesPerRow, uint32
  
  void queue_texture_copy(wgpu::TexelCopyTextureInfo src, wgpu::TexelCopyTextureInfo dst, wgpu::Extent3D size) {
    ZoneScoped;
@@ -1283,7 +1322,7 @@ index 4c672587f0..ee63c76f5c 100644
      enqueue_pass(frame, g_recordingFrameSlot, g_currentRenderPass);
      g_currentRenderPass = UINT32_MAX;
    }
-@@ -556,6 +567,96 @@ void queue_texture_copy(wgpu::TexelCopyTextureInfo src, wgpu::TexelCopyTextureIn
+@@ -556,6 +568,102 @@ void queue_texture_copy(wgpu::TexelCopyTextureInfo src, wgpu::TexelCopyTextureIn
    enqueue_op(frame, g_recordingFrameSlot, opIndex);
  }
  
@@ -1298,6 +1337,12 @@ index 4c672587f0..ee63c76f5c 100644
 +    g_presentRect = *rect;
 +}
 +const webgpu::Viewport* present_rect() noexcept { return g_presentRectSet ? &g_presentRect : nullptr; }
++static int64_t g_presentTimeNs = 0;
++void set_present_time(int64_t steadyNs) noexcept { g_presentTimeNs = steadyNs; }
++int64_t take_present_time() noexcept { return std::exchange(g_presentTimeNs, 0); }
++static void (*g_presentCallback)() = nullptr;
++void set_present_callback(void (*callback)()) noexcept { g_presentCallback = callback; }
++void (*present_callback() noexcept)() { return g_presentCallback; }
 +
 +void restart_efb_pass() {
 +  ZoneScoped;
@@ -1380,7 +1425,7 @@ index 4c672587f0..ee63c76f5c 100644
  void begin_color_pass(const ColorPassDescriptor& desc) {
    ZoneScoped;
    auto& frame = current_frame_packet();
-@@ -671,6 +772,7 @@ void set_scissor(const ClipRect& cmd) noexcept {
+@@ -671,6 +779,7 @@ void set_scissor(const ClipRect& cmd) noexcept {
  
  template <>
  void push_draw_command(clear::DrawData data) {
@@ -1388,7 +1433,7 @@ index 4c672587f0..ee63c76f5c 100644
    push_draw_command(ShaderDrawCommand{.type = ShaderType::Clear, .clear = data});
  }
  
-@@ -681,6 +783,9 @@ PipelineRef pipeline_ref(const clear::PipelineConfig& config) {
+@@ -681,6 +790,9 @@ PipelineRef pipeline_ref(const clear::PipelineConfig& config) {
  
  void resolve_pass(TextureHandle texture, ClipRect rect, bool clearColor, bool clearAlpha, bool clearDepth,
                    Vec4<float> clearColorValue, float clearDepthValue, GXTexFmt resolveFormat) {
@@ -1398,7 +1443,7 @@ index 4c672587f0..ee63c76f5c 100644
    // Resolve current render pass
    auto& prevPass = current_render_passes()[g_currentRenderPass];
    prevPass.resolveTarget = std::move(texture);
-@@ -689,9 +794,17 @@ void resolve_pass(TextureHandle texture, ClipRect rect, bool clearColor, bool cl
+@@ -689,9 +801,17 @@ void resolve_pass(TextureHandle texture, ClipRect rect, bool clearColor, bool cl
    // Push UV transform uniform for tex_copy_conv (crop region in UV space)
    const auto srcW = static_cast<float>(prevPass.targetSize.width);
    const auto srcH = static_cast<float>(prevPass.targetSize.height);
@@ -1418,7 +1463,7 @@ index 4c672587f0..ee63c76f5c 100644
        static_cast<float>(rect.width) / srcW,
        static_cast<float>(rect.height) / srcH,
    };
-@@ -750,6 +863,7 @@ void queue_palette_conv(tex_palette_conv::ConvRequest req) {
+@@ -750,6 +870,7 @@ void queue_palette_conv(tex_palette_conv::ConvRequest req) {
  }
  
  bool is_offscreen() noexcept { return g_inOffscreen; }
@@ -1426,7 +1471,7 @@ index 4c672587f0..ee63c76f5c 100644
  
  uint32_t get_sample_count() noexcept {
    CHECK(g_currentRenderPass != UINT32_MAX, "get_sample_count called outside of a frame");
-@@ -859,6 +973,7 @@ void begin_offscreen(uint32_t width, uint32_t height) {
+@@ -859,6 +980,7 @@ void begin_offscreen(uint32_t width, uint32_t height) {
    ++g_currentRenderPass;
  
    g_inOffscreen = true;
@@ -1434,7 +1479,7 @@ index 4c672587f0..ee63c76f5c 100644
  
    g_cachedViewport = {0.f, 0.f, static_cast<float>(width), static_cast<float>(height), 0.f, 1.f};
    g_cachedScissor = {0, 0, static_cast<int32_t>(width), static_cast<int32_t>(height)};
-@@ -873,6 +988,7 @@ void end_offscreen() {
+@@ -873,6 +995,7 @@ void end_offscreen() {
    enqueue_pass(current_frame_packet(), g_recordingFrameSlot, g_currentRenderPass);
  
    g_inOffscreen = false;
@@ -1442,7 +1487,7 @@ index 4c672587f0..ee63c76f5c 100644
    g_offscreenColor = {};
    g_offscreenDepth = {};
  
-@@ -903,6 +1019,7 @@ void push_draw_command(gx::DrawData data) {
+@@ -903,6 +1026,7 @@ void push_draw_command(gx::DrawData data) {
  #ifdef AURORA_ENABLE_RMLUI
  template <>
  void push_draw_command(rmlui::DrawData data) {
@@ -1450,7 +1495,7 @@ index 4c672587f0..ee63c76f5c 100644
    push_draw_command(ShaderDrawCommand{.type = ShaderType::Rml, .rml = data});
  }
  #endif
-@@ -910,6 +1027,7 @@ void push_draw_command(rmlui::DrawData data) {
+@@ -910,6 +1034,7 @@ void push_draw_command(rmlui::DrawData data) {
  #ifdef AURORA_ENABLE_GXCORE
  template <>
  void push_draw_command(gxcore::DrawData data) {
@@ -1458,7 +1503,7 @@ index 4c672587f0..ee63c76f5c 100644
    push_draw_command(
        ShaderDrawCommand{.type = ShaderType::GXCore, .gxcore = data});
  }
-@@ -1215,6 +1333,7 @@ bool begin_frame() {
+@@ -1215,6 +1340,7 @@ bool begin_frame() {
    g_drawCallCount = 0;
    g_mergedDrawCallCount = 0;
    g_suspendedEfbPass.reset();
@@ -1466,7 +1511,7 @@ index 4c672587f0..ee63c76f5c 100644
  
    current_render_passes().emplace_back();
    auto& pass = current_render_passes()[0];
-@@ -1420,6 +1539,86 @@ static void encode_op(wgpu::CommandEncoder& cmd, FramePacket& frame, const Frame
+@@ -1420,6 +1546,86 @@ static void encode_op(wgpu::CommandEncoder& cmd, FramePacket& frame, const Frame
    }
  }
  
@@ -1553,7 +1598,7 @@ index 4c672587f0..ee63c76f5c 100644
  static void render(wgpu::CommandEncoder& cmd, FramePacket& frame, RenderPass& passInfo, uint32_t passIndex) {
    ZoneScoped;
    if (!passInfo.sealed) {
-@@ -1526,12 +1725,23 @@ static void render(wgpu::CommandEncoder& cmd, FramePacket& frame, RenderPass& pa
+@@ -1526,12 +1732,23 @@ static void render(wgpu::CommandEncoder& cmd, FramePacket& frame, RenderPass& pa
        };
        cmd.CopyTextureToTexture(&src, &dst, &size);
      }
@@ -1578,10 +1623,10 @@ index 4c672587f0..ee63c76f5c 100644
  
  void gpu_synchronize() { render_worker::synchronize(); }
 diff --git a/GXRuntime/graphics/aurora/lib/gfx/common.hpp b/GXRuntime/graphics/aurora/lib/gfx/common.hpp
-index e885be071a..4d68960306 100644
+index e885be071a..f9c5be5c4a 100644
 --- a/GXRuntime/graphics/aurora/lib/gfx/common.hpp
 +++ b/GXRuntime/graphics/aurora/lib/gfx/common.hpp
-@@ -267,10 +267,31 @@ struct ColorPassDescriptor {
+@@ -267,10 +267,38 @@ struct ColorPassDescriptor {
  void begin_color_pass(const ColorPassDescriptor& desc);
  void end_color_pass();
  void queue_texture_copy(wgpu::TexelCopyTextureInfo src, wgpu::TexelCopyTextureInfo dst, wgpu::Extent3D size);
@@ -1603,6 +1648,13 @@ index e885be071a..4d68960306 100644
 +// letterbox itself (Dolphin's presenter: aspect ratio settings); null = fit the picture's own aspect.
 +void set_present_rect(const webgpu::Viewport* rect) noexcept;
 +const webgpu::Viewport* present_rect() noexcept;
++// The next present's wall time (steady_clock nanoseconds; 0 = at once): the render worker waits for it
++// before presenting, so presents follow the host's clock instead of when the frame's commands ended.
++void set_present_time(int64_t steadyNs) noexcept;
++int64_t take_present_time() noexcept;
++// Called on the render worker right after each successful present (a host's frame-pacing log)
++void set_present_callback(void (*callback)()) noexcept;
++void (*present_callback() noexcept)();
  
  void begin_offscreen(uint32_t width, uint32_t height);
  void end_offscreen();

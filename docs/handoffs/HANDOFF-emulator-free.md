@@ -14,9 +14,9 @@ build*, *GPU time per frame*, *A battle scene and frame pacing*): ahead on CPU (
 1.30x vs 0.77x, and at full speed there the standalone holds 33 ms frames while Dolphin is late on every one;
 the first baseline said the opposite, from a Dolphin run at the wrong resolution). On the Retroid Pocket 5
 (*The Android shell*, *Pacing on the Pocket 5*, at the end): 22-25% faster uncapped than the Dolphin build on
-the same DOL and module, and since the pacing fix (43e5480: the emulation thread pinned to the prime core, the
-throttle busy-waits its last 6 ms) as smooth or a little smoother at full speed at about the same power
-(battle p99 37.2-37.8 vs 37.7 ms, save point 35.7-35.8 vs 36.2).
+the same DOL and module, and since the pacing fix (scheduled presents on the throttle's clock, fork 0036, and
+the emulation thread on the prime core) smoother at full speed at ~0.4-0.5 W less (battle p99 34.2-34.4 vs
+37.7-38.3 ms, save point 34.7-35.0 vs 36.2-36.3).
 
 **Status (2026-10-25):** phases 1-3 done (title screen, audio bit-exact with Dolphin's AX HLE, first
 battle at full speed, card saves); phase 4 under way (in-game menu, save states and auto-save done; 60 fps,
@@ -572,8 +572,10 @@ which every 30 fps present exceeds). It also logs `[host-busy]`: the emulation t
 outside the throttle's sleep. That includes waits in present and, on a shared core, other threads' time, so
 it isn't headroom; cores in use (`cpu-sample.sh`) is. On a phone it also grows when the governor lowers the
 clock (*Pacing on the Pocket 5*). `[present-drain]` and `[present-call]` (added 2026-10-25, evening) split out
-the emulation thread's time in Aurora's command parsing and in `aurora_backend_present` per frame; the busy
-wait (`SKIES_THROTTLE_SPIN_MS`) is not counted in `[host-busy]`.
+the emulation thread's time in Aurora's command parsing and in `aurora_backend_present` per frame, and
+`[present-late]` how far behind its guest time each copy came; the busy wait (`SKIES_THROTTLE_SPIN_MS`) is
+not counted in `[host-busy]`. Since fork 0036 `[present-pacing]` is taken on the render worker after
+`Present()`; the tables above it measured the emulation thread's present calls (*Pacing on the Pocket 5*).
 
 | At full speed | Standalone interval ms p50 / p90 / p99 / max | Dolphin Vulkan |
 |---|---|---|
@@ -658,45 +660,70 @@ Uncapped, the same thread goes to cpu7 at 2.84 GHz (that's where the 1.8-2.0x co
 doesn't hit this because its CPU thread never sleeps (100% busy on a gold core, clocks pinned high; its Video
 thread is another ~60%). The device has no ADPF (`dumpsys performance_hint`: HAL Support false).
 
-**The fix** (standalone/src/main.cpp, `Throttle`): on Android the emulation thread is pinned to the cores with
-the highest `cpuinfo_max_freq` (the Pocket 5's cpu7; log `[host] emulation thread on cpu 7: ok`) and the
-throttle busy-waits the last 6 ms before each field's target instead of sleeping them. Knobs:
-`SKIES_PIN_CPU=fast|none|N`, `SKIES_THROTTLE_SPIN_MS=N` (-1: the whole wait; 0: sleep, the old behaviour).
-Desktop defaults are unchanged (none, 0).
+**First fix, then replaced (43e5480):** the thread pinned to the fastest cores plus a busy wait of the last 6 ms
+of each field's throttle wait. Its numbers were taken with a measuring mistake: the first `[present-drain]`
+read the clock twice per command chunk, which cost the Pocket 5 15% of its speed whenever
+`SKIES_PRESENT_PACING=1` was on (uncapped save point 1.46x with it, 1.70x without; now it times only the
+calls that drain). Measured again without it, the 6 ms spin held the battle (p99 35.7 ms) but not the save
+point (p99 39.2-39.3): with less work per field the sleep grows, a fixed spin is a smaller share of it, and the
+clock drops again. The kernel (4.19 Qualcomm) has no utilization clamp (`cpu.uclamp`) either, so there is no
+supported clock floor.
 
-**Pocket 5, IR 1, ws26, 30 fps, muted, full speed: interval between presents, ms (600-frame windows).** Power is
-rough: the USB input (`power_supply/usb/input_current_now` x `voltage_now`, capped ~2.4 W by the PC port) plus the
-battery's draw (`bms/current_now` x 4.36 V), averaged over 30 s (`capture/android-power.sh`; the device
-shell's arithmetic is 32-bit, so it multiplies mA by mV); launcher idle is ~1.7 W. A/B runs: write env.txt,
-start the activity, wait ~30 s past the state load, sample, force-stop, read log.txt's last `[present-pacing]`
-lines; the Dolphin side as in *The Android shell* (load the matching savestate with drive.py, logcat
-`present-pacing`). The Pocket 5 was on the charger at 100% for all of them.
+**The fix (scheduled presents, fork 0036):** presents no longer happen when the emulation thread gets to the
+copy. `SchedulePresent` (standalone/src/video.cpp) gives the render worker a wall time for each present: the
+copy's guest time on the throttle's clock (`WallForGuest`) plus a delay; the worker submits the frame's
+passes at once, waits for that time, then records the present blit and presents (Aurora
+`aurora_backend_set_present_time`). The game's rhythm is fixed in guest time (the hardware too shows a copied
+picture at a retrace), so the intervals come out even however the drawing field's clock moves, as long as
+the copy is in before its present time. `[present-late]` logs how late the copy is: on the Pocket 5, unpinned
+and unspun, p50 10-11 ms, p99 16-18 (the drawing field runs slower than real time and the light field catches
+up); Windows p50 0.7-1.5, p99 6-8. `SKIES_PRESENT_DELAY_MS=auto` (the default, all platforms) keeps the delay at
+the last 300 copies' 99th percentile + 1.5 ms (at most 30, starting at 20: a delay that grows makes late
+presents, one that shrinks doesn't; log `[video] present delay N ms` when it moves by 1 ms or more with
+`SKIES_PRESENT_PACING=1`); `N` fixes it; `off` presents at once. Hitches over 50 ms (state loads) are left
+out; unthrottled runs (the routes, benches) present at once. It settles at 14-19 ms on the Pocket 5 and 6-9 ms
+on Windows. The cost is latency: the copy is already that late on average, so the added delay is the p99-p50
+gap, ~5-8 ms on the Pocket 5. `[present-pacing]` is now measured on the render worker right after
+`Present()` (`aurora_backend_set_present_callback`), where Dolphin measures it too; the old numbers were
+the emulation thread's calls.
 
-| Battle | p90 | p99 | max | >40 ms | power |
-|---|---|---|---|---|---|
-| Old (sleep, unpinned) | 39.3-40.3 | 43.7-45.2 | 46 | 46-64 | ~2.2 W |
-| Pinned only | 37.1 | 40.1-40.4 | 42 | 6-9 | |
-| Spin 4 ms, unpinned | 36.1-36.8 | 37.3-37.8 | 38 | 0 | ~2.4 W |
-| Spin 4 ms, pinned | 35.0-35.1 | 36.2-37.9 | 37-41 | 0-1 | ~2.3 W |
-| **Spin 6 ms, pinned (default)** | 35.3-35.4 | 37.2-37.8 | 38.4 | 0 | ~2.4 W |
-| Spin all, pinned or not | 34.0-34.4 | 35.2-35.5 | 36 | 0 | ~2.9 W |
-| Dolphin bench app | 35.7-35.8 | 37.7-38.3 | 39.5 | 0 | ~2.5 W |
+**Defaults now:** Android pins the emulation thread to the cores with the highest `cpuinfo_max_freq` (the
+Pocket 5's cpu7; log `[host] emulation thread on cpu 7: ok`), no spin, auto delay. Desktop: no pin, no spin,
+auto delay. Knobs: `SKIES_PIN_CPU=fast|none|N`, `SKIES_THROTTLE_SPIN_MS=N` (-1 the whole wait),
+`SKIES_PRESENT_DELAY_MS=auto|off|N`.
 
-| Save point | p90 | p99 | max | >40 ms | power |
-|---|---|---|---|---|---|
-| Old (sleep, unpinned) | 39.2 | 43.2 | 45.6 | 46 | ~2.6 W |
-| Spin 4 ms, pinned | 37.4 | 38.7 | 39.6 | 0 | ~2.8 W |
-| **Spin 6 ms, pinned (default)** | 34.9-35.2 | 35.7-35.8 | 36.4 | 0 | ~2.9 W |
-| Spin 8 ms, pinned | 33.8 | 34.1 | 34.6 | 0 | ~3.0 W |
-| Spin all, pinned | 33.9 | 34.7 | 35.0 | 0 | ~3.1 W |
-| Dolphin bench app | 34.8-34.9 | 36.2-36.3 | 37.4 | 0 | ~2.9 W |
+**Pocket 5, IR 1, ws26, 30 fps, muted, full speed: interval between presents, ms, the second 600-frame window
+(the first holds the state load).** Power is rough: the USB input (`power_supply/usb/input_current_now` x
+`voltage_now`, capped ~2.4 W by the PC port) plus the battery's draw (`bms/current_now` x 4.36 V), averaged
+over 10-30 s (`capture/android-power.sh`; the device shell's arithmetic is 32-bit, so it multiplies mA by
+mV); launcher idle ~1.7 W. Runs: `~/projects/skies-aurora/capture/android-ir-bench.sh sa|dol IR
+uncapped|full savepoint|battle [ENV;...]` (writes env.txt / args.txt or the bench app's ini files, starts the
+app, samples GPU (`android-gpu-sample.sh`: kgsl busy % and clock) and power, reads the pacing or speed
+lines). The Pocket 5 was on the charger at 100% for all of them.
 
-So the default is now as smooth as the Dolphin build or a little smoother (p99 and max), at the same power
-or less, and still 22-25% faster uncapped. Spinning the whole wait is clearly smoother (p99 ~35 in both
-scenes) for ~0.4-0.5 W more: the user's call whether that should be the default or a setting. Device runs
-are noisy; these are two windows per row where a range is given, one otherwise.
+| Battle | p90 | p99 | max | power |
+|---|---|---|---|---|
+| Before (no pin, no spin, present at once) | 37.1-37.6 | 41.1-42.5 | 43-45 | ~2.2 W |
+| Pin + 6 ms spin (43e5480) | 34.6-34.7 | 35.7-35.9 | 37.5 | ~2.3 W |
+| Pin + spin the whole wait | 34.1 | 35.3 | 35.5 | ~2.9 W |
+| No pin, no spin, 18 ms delay | 34.2 | 35.2 | 35.5 | |
+| **Default: pin, no spin, auto delay (14-15 ms)** | 33.6-33.7 | 34.2-34.4 | 34.5-35.1 | ~2.05-2.2 W |
+| Dolphin bench app | 35.7-35.8 | 37.7-38.3 | 39.5 | ~2.5 W |
 
-**Next:** the GPU side at higher internal resolutions (these IR-1 runs don't load the Adreno), then the
-shell's gaps (immersive mode, the built-in pad, audio on device, lifecycle, a launcher). A real cut to the
-drawing field's CPU work would let the spin shrink. Presenting at the next retrace instead of at the XFB copy
-(as the hardware shows it) needs Aurora to split sealing a frame from presenting it; not tried.
+| Save point | p90 | p99 | max | power |
+|---|---|---|---|---|
+| Before | 38.8-39.3 | 41.9-42.9 | 43-45 | ~2.6 W |
+| Pin + 6 ms spin (43e5480) | 37.3-37.6 | 39.0-39.3 | 40.0 | ~2.7 W |
+| Pin + spin the whole wait | 34.1 | 35.0 | 35.2 | ~3.1 W |
+| Pin + 6 ms spin + 12 ms delay | 34.2 | 34.6 | 35.5 | ~2.8 W |
+| **Default: pin, no spin, auto delay (16-19 ms)** | 34.3-34.4 | 34.7-35.0 | 35.5-36.6 | ~2.4 W |
+| Dolphin bench app | 34.8-34.9 | 36.2-36.3 | 37.4 | ~2.9 W |
+
+The standalone on the Pocket 5 is now smoother than the Dolphin build in both scenes (p99 ~34.5 against
+36-38, max ~35.5 against 37-39.5) at ~0.4-0.5 W less, and 22-25% faster uncapped (save point 1.68-1.70x
+against 1.38x). Windows (RTX 5080 machine, the user-bench-sa settings, throttled): present at once p99 39.7-39.9,
+max 42.5 (4-5 over 40); auto delay p99 34.9-35.1, max 35.5 in both scenes.
+
+**Next:** the GPU side at higher internal resolutions on the Pocket 5 (`android-ir-bench.sh` does both apps;
+IR 1 loads the Adreno 17-25% at 305 MHz), then the shell's gaps (immersive mode, the built-in pad, audio on
+device, lifecycle, a launcher).

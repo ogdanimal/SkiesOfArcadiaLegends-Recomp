@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
@@ -30,9 +31,12 @@ void aurora_backend_present(void);
 bool aurora_backend_should_quit(void);
 void aurora_backend_write_raw(const void* data, u32 size);
 bool aurora_backend_drain_if_over(u32 bytes);
+int aurora_backend_fifo_over(u32 bytes);
 void aurora_backend_set_guest_address_resolver(DolPlatformGuestAddressResolverFn resolve, void* user);
 int aurora_backend_surface_size(unsigned* width, unsigned* height);
 void aurora_backend_set_present_rect(int left, int top, int width, int height);
+void aurora_backend_set_present_time(long long steady_ns);
+void aurora_backend_set_present_callback(void (*callback)(void));
 void aurora_backend_set_frame_buffer_aspect_fit(int fit);
 }
 #endif
@@ -82,6 +86,72 @@ bool ResolveGuestAddress(void*, u32 address, u32, DolGuestAddressSpace, DolGuest
   *data = g_ram + physical;
   *available = RAM_SIZE - physical;
   return true;
+}
+
+// On the render worker after each present: the interval between presents, as the Dolphin build's
+// [present-pacing] (its >20 / >25 ms counts suit 60 fps; Skies presents 30 frames a second in both builds,
+// so these count >40 / >50 ms)
+void PresentDone()
+{
+  static std::chrono::steady_clock::time_point last{};
+  static PacingWindow window;
+  const auto now = std::chrono::steady_clock::now();
+  if (last.time_since_epoch().count() != 0)
+    PacingAdd(window, std::chrono::duration<double, std::milli>(now - last).count(), "present-pacing", "interval",
+              40.0, 50.0);
+  last = now;
+}
+
+// Presents on the throttle's clock: the render worker presents each frame at its copy's guest time plus a
+// delay instead of when the emulation thread got there, so the intervals keep the game's rhythm while the
+// thread's own timing wobbles (on the Pocket 5 the copy comes 6-11 ms after its guest time, p99 up to 18:
+// the drawing field runs slower than real time and the next one catches up; Windows 0.7-1.5 ms, p99 6-8).
+// SKIES_PRESENT_DELAY_MS=auto (the default) keeps the delay at the last 300 copies' 99th percentile lateness
+// + 1.5 ms (at most 30), N fixes it, off presents at once. Hitches over 50 ms (state loads) are left out;
+// unthrottled runs present at once.
+void SchedulePresent()
+{
+  static const double s_mode = [] {  // -2 auto, -1 off, else fixed ms
+    const char* v = std::getenv("SKIES_PRESENT_DELAY_MS");
+    const std::string mode = v ? v : "auto";
+    return mode == "auto" ? -2.0 : mode == "off" ? -1.0 : std::atof(mode.c_str());
+  }();
+  const auto wall = WallForGuest(Now());
+  if (wall.time_since_epoch().count() == 0)
+    return;
+  const double late = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - wall).count();
+  if (PacingOn())
+  {
+    static PacingWindow window;
+    PacingAdd(window, late, "present-late", "copy after its guest time", 5.0, 10.0);
+  }
+  if (s_mode == -1.0 || late > 50.0)
+    return;
+  double delay = s_mode;
+  if (s_mode == -2.0)
+  {
+    constexpr unsigned HISTORY = 300;
+    static double s_late[HISTORY];
+    static unsigned s_count = 0;
+    static double s_delay = 20.0;  // from above: a delay that grows makes late presents, one that shrinks doesn't
+    s_late[s_count++ % HISTORY] = late;
+    if (s_count >= 60 && s_count % 30 == 0)
+    {
+      const unsigned n = std::min(s_count, HISTORY);
+      std::vector<double> sorted(s_late, s_late + n);
+      const size_t at = static_cast<size_t>(n * 0.99);
+      std::nth_element(sorted.begin(), sorted.begin() + at, sorted.end());
+      const double next = std::clamp(sorted[at] + 1.5, 0.0, 30.0);
+      if (std::abs(next - s_delay) >= 1.0 && PacingOn())
+        Log("[video] present delay %.1f ms\n", next);
+      s_delay = next;
+    }
+    delay = s_delay;
+  }
+  aurora_backend_set_present_time(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(
+          (wall + std::chrono::microseconds(static_cast<s64>(delay * 1000))).time_since_epoch())
+          .count());
 }
 
 // The picture centred in the window at PictureAspect (Dolphin's aspect ratio letterbox).
@@ -188,6 +258,8 @@ bool VideoInit(bool headless)
     return false;
   }
   aurora_backend_set_guest_address_resolver(ResolveGuestAddress, nullptr);
+  if (PacingOn())
+    aurora_backend_set_present_callback(PresentDone);
   // As the Dolphin-side backend (ApplyEfbScale): the EFB keeps 640x480 times the scale whatever the
   // window's shape (the ws patch draws anamorphic) and the picture is stretched at the present.
   // The scale is the Resolution setting (menu.cpp; SKIES_EFB_SCALE=N overrides it), 0 = the window's.
@@ -230,7 +302,8 @@ void VideoCommands(const u8* data, u32 size)
     return v ? static_cast<u32>(std::strtoul(v, nullptr, 0)) : 64u * 1024;
   }();
   aurora_backend_write_raw(data, size);
-  if (PacingOn())
+  // Timed only when it drains: a clock read per command chunk cost the Pocket 5 15% of its speed
+  if (PacingOn() && aurora_backend_fifo_over(drain))
   {
     const auto t0 = std::chrono::steady_clock::now();
     aurora_backend_drain_if_over(drain);
@@ -301,17 +374,10 @@ void VideoFrameEnd()
     dump = std::find(s_dump_frames.begin(), s_dump_frames.end(), s_frames) != s_dump_frames.end();
   if (dump)
     aurora_request_framebuffer_readback();
+  SchedulePresent();
   if (PacingOn())
   {
-    // Between presents, as the Dolphin build's [present-pacing] (its >20 / >25 ms counts suit 60 fps; Skies
-    // presents 30 frames a second in both builds, so these count >40 / >50 ms)
-    static std::chrono::steady_clock::time_point last{};
-    static PacingWindow window;
     const auto now = std::chrono::steady_clock::now();
-    if (last.time_since_epoch().count() != 0)
-      PacingAdd(window, std::chrono::duration<double, std::milli>(now - last).count(), "present-pacing", "interval",
-                40.0, 50.0);
-    last = now;
     static PacingWindow drains;
     PacingAdd(drains, s_drain_ms, "present-drain", "in drains per frame", 2.0, 8.0);
     s_drain_ms = 0;

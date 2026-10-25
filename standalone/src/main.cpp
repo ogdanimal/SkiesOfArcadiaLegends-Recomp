@@ -110,6 +110,14 @@ void SampleSpeed(std::chrono::steady_clock::time_point now)
 }
 }  // namespace
 
+// The wall time the throttle gives guest time CYCLES (0 when unthrottled): presents are scheduled on it
+std::chrono::steady_clock::time_point WallForGuest(u64 cycles)
+{
+  if (!s_throttle)
+    return {};
+  return s_wall_start + std::chrono::nanoseconds(static_cast<u64>(static_cast<double>(cycles) * 1e9 / CPU_HZ));
+}
+
 double EmulationSpeed()
 {
   return s_speed;
@@ -126,16 +134,16 @@ void ThrottleRestart()
   s_last_wake = now;
 }
 
-// Field pacing on phones: schedutil clocks a thread that sleeps a fifth of every field down until
-// it is busy again, so the field that draws runs late on a slow clock (Pocket 5: p99 44 ms between
-// presents at full speed, where the same thread uncapped makes 1.8x). Android therefore keeps the
-// emulation thread on the fastest cores and busy-waits the last 6 ms before each field's target
-// (battle p99 37.5 ms, save point 35.8; the Dolphin build 37.7 / 36.2 at about the same power;
-// docs/handoffs/HANDOFF-emulator-free.md, *Pacing on the Pocket 5*).
-// SKIES_PIN_CPU=fast|none|N picks the cores, SKIES_THROTTLE_SPIN_MS=N the busy wait (-1: all of it).
+// Field pacing on phones: schedutil clocks a thread that sleeps part of every field down until it is busy
+// again, so the field that draws runs late on a slow clock (Pocket 5: the emulation thread ~80% busy on a
+// gold core at 1.6-2.4 GHz at full speed, where uncapped it runs on the prime core at 2.84). Android keeps
+// the emulation thread on the fastest cores; presents follow the throttle's clock (video.cpp
+// SchedulePresent), which takes up the rest. docs/handoffs/HANDOFF-emulator-free.md, *Pacing on the Pocket 5*.
+// SKIES_PIN_CPU=fast|none|N picks the cores; SKIES_THROTTLE_SPIN_MS=N busy-waits the last N ms before each
+// field's target instead of sleeping them (-1: all of it; it raises the clock, at a power cost).
 #if defined(__ANDROID__)
 constexpr const char* DEFAULT_PIN = "fast";
-constexpr double DEFAULT_SPIN_MS = 6;
+constexpr double DEFAULT_SPIN_MS = 0;
 #else
 constexpr const char* DEFAULT_PIN = "none";
 constexpr double DEFAULT_SPIN_MS = 0;

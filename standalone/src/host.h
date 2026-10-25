@@ -9,6 +9,7 @@
 
 #include <cstdarg>
 #include <cstdint>
+#include <chrono>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -87,6 +88,7 @@ void Schedule(EventId id, u64 cycles_from_now, EventFn fn);
 void Deschedule(EventId id);
 bool IsScheduled(EventId id);
 u64 Now();
+std::chrono::steady_clock::time_point WallForGuest(u64 cycles);  // {} unthrottled
 // The run loop's clock: Advance() moves time by dispatched cycles; RunDue() fires due events.
 extern u64 g_cycles;
 extern u64 g_next_event;
