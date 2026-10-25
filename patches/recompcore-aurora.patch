@@ -1228,7 +1228,7 @@ index ad36cc446a..46df2d9293 100644
  }
  } // namespace aurora::gx
 diff --git a/GXRuntime/graphics/aurora/lib/gfx/common.cpp b/GXRuntime/graphics/aurora/lib/gfx/common.cpp
-index 4c672587f0..466eaa6655 100644
+index 4c672587f0..044057c697 100644
 --- a/GXRuntime/graphics/aurora/lib/gfx/common.cpp
 +++ b/GXRuntime/graphics/aurora/lib/gfx/common.cpp
 @@ -22,8 +22,11 @@
@@ -1243,8 +1243,19 @@ index 4c672587f0..466eaa6655 100644
  #include <mutex>
  #include <optional>
  #include <ranges>
-@@ -541,6 +544,12 @@ void queue_texture_copy(wgpu::TexelCopyTextureInfo src, wgpu::TexelCopyTextureIn
+@@ -246,6 +249,7 @@ static render_worker::FrameSlotPool g_frameSlots{FrameSlotCount};
+ static render_worker::FrameSlotPool g_stagingSlots{StagingBufferCount};
+ static u32 g_currentRenderPass = UINT32_MAX;
+ static bool g_inOffscreen = false;
++static uint64_t g_efbEpoch = 0;
+ static std::optional<RenderPass> g_suspendedEfbPass;
+ static Viewport g_suspendedEfbViewport;
+ static ClipRect g_suspendedEfbScissor;
+@@ -539,8 +543,15 @@ void queue_texture_upload_data(const uint8_t* data, uint32_t bytesPerRow, uint32
+ 
+ void queue_texture_copy(wgpu::TexelCopyTextureInfo src, wgpu::TexelCopyTextureInfo dst, wgpu::Extent3D size) {
    ZoneScoped;
++  ++g_efbEpoch;
    auto& frame = current_frame_packet();
    if (g_currentRenderPass != UINT32_MAX) {
 +    // The copy reads what this pass drew (a kept picture for the frame interpolator): observable,
@@ -1256,7 +1267,7 @@ index 4c672587f0..466eaa6655 100644
      enqueue_pass(frame, g_recordingFrameSlot, g_currentRenderPass);
      g_currentRenderPass = UINT32_MAX;
    }
-@@ -556,6 +565,94 @@ void queue_texture_copy(wgpu::TexelCopyTextureInfo src, wgpu::TexelCopyTextureIn
+@@ -556,6 +567,96 @@ void queue_texture_copy(wgpu::TexelCopyTextureInfo src, wgpu::TexelCopyTextureIn
    enqueue_op(frame, g_recordingFrameSlot, opIndex);
  }
  
@@ -1275,6 +1286,7 @@ index 4c672587f0..466eaa6655 100644
 +void restart_efb_pass() {
 +  ZoneScoped;
 +  CHECK(!g_inOffscreen, "restart_efb_pass called while offscreen rendering is active");
++  ++g_efbEpoch;
 +  if (g_recordingFrame == nullptr) {
 +    return;
 +  }
@@ -1331,6 +1343,7 @@ index 4c672587f0..466eaa6655 100644
 +  }
 +  if (clearColor) {
 +    pass.clearColorValue = color;
++    ++g_efbEpoch;
 +  }
 +  if (clearDepth) {
 +    pass.clearDepthValue = depth;
@@ -1351,7 +1364,25 @@ index 4c672587f0..466eaa6655 100644
  void begin_color_pass(const ColorPassDescriptor& desc) {
    ZoneScoped;
    auto& frame = current_frame_packet();
-@@ -689,9 +786,17 @@ void resolve_pass(TextureHandle texture, ClipRect rect, bool clearColor, bool cl
+@@ -671,6 +772,7 @@ void set_scissor(const ClipRect& cmd) noexcept {
+ 
+ template <>
+ void push_draw_command(clear::DrawData data) {
++  ++g_efbEpoch;
+   push_draw_command(ShaderDrawCommand{.type = ShaderType::Clear, .clear = data});
+ }
+ 
+@@ -681,6 +783,9 @@ PipelineRef pipeline_ref(const clear::PipelineConfig& config) {
+ 
+ void resolve_pass(TextureHandle texture, ClipRect rect, bool clearColor, bool clearAlpha, bool clearDepth,
+                   Vec4<float> clearColorValue, float clearDepthValue, GXTexFmt resolveFormat) {
++  if (clearColor || clearAlpha) {
++    ++g_efbEpoch;
++  }
+   // Resolve current render pass
+   auto& prevPass = current_render_passes()[g_currentRenderPass];
+   prevPass.resolveTarget = std::move(texture);
+@@ -689,9 +794,17 @@ void resolve_pass(TextureHandle texture, ClipRect rect, bool clearColor, bool cl
    // Push UV transform uniform for tex_copy_conv (crop region in UV space)
    const auto srcW = static_cast<float>(prevPass.targetSize.width);
    const auto srcH = static_cast<float>(prevPass.targetSize.height);
@@ -1371,7 +1402,55 @@ index 4c672587f0..466eaa6655 100644
        static_cast<float>(rect.width) / srcW,
        static_cast<float>(rect.height) / srcH,
    };
-@@ -1420,6 +1525,84 @@ static void encode_op(wgpu::CommandEncoder& cmd, FramePacket& frame, const Frame
+@@ -750,6 +863,7 @@ void queue_palette_conv(tex_palette_conv::ConvRequest req) {
+ }
+ 
+ bool is_offscreen() noexcept { return g_inOffscreen; }
++uint64_t efb_epoch() noexcept { return g_efbEpoch; }
+ 
+ uint32_t get_sample_count() noexcept {
+   CHECK(g_currentRenderPass != UINT32_MAX, "get_sample_count called outside of a frame");
+@@ -859,6 +973,7 @@ void begin_offscreen(uint32_t width, uint32_t height) {
+   ++g_currentRenderPass;
+ 
+   g_inOffscreen = true;
++  ++g_efbEpoch;
+ 
+   g_cachedViewport = {0.f, 0.f, static_cast<float>(width), static_cast<float>(height), 0.f, 1.f};
+   g_cachedScissor = {0, 0, static_cast<int32_t>(width), static_cast<int32_t>(height)};
+@@ -873,6 +988,7 @@ void end_offscreen() {
+   enqueue_pass(current_frame_packet(), g_recordingFrameSlot, g_currentRenderPass);
+ 
+   g_inOffscreen = false;
++  ++g_efbEpoch;
+   g_offscreenColor = {};
+   g_offscreenDepth = {};
+ 
+@@ -903,6 +1019,7 @@ void push_draw_command(gx::DrawData data) {
+ #ifdef AURORA_ENABLE_RMLUI
+ template <>
+ void push_draw_command(rmlui::DrawData data) {
++  ++g_efbEpoch;
+   push_draw_command(ShaderDrawCommand{.type = ShaderType::Rml, .rml = data});
+ }
+ #endif
+@@ -910,6 +1027,7 @@ void push_draw_command(rmlui::DrawData data) {
+ #ifdef AURORA_ENABLE_GXCORE
+ template <>
+ void push_draw_command(gxcore::DrawData data) {
++  ++g_efbEpoch;
+   push_draw_command(
+       ShaderDrawCommand{.type = ShaderType::GXCore, .gxcore = data});
+ }
+@@ -1215,6 +1333,7 @@ bool begin_frame() {
+   g_drawCallCount = 0;
+   g_mergedDrawCallCount = 0;
+   g_suspendedEfbPass.reset();
++  ++g_efbEpoch;
+ 
+   current_render_passes().emplace_back();
+   auto& pass = current_render_passes()[0];
+@@ -1420,6 +1539,84 @@ static void encode_op(wgpu::CommandEncoder& cmd, FramePacket& frame, const Frame
    }
  }
  
@@ -1456,7 +1535,7 @@ index 4c672587f0..466eaa6655 100644
  static void render(wgpu::CommandEncoder& cmd, FramePacket& frame, RenderPass& passInfo, uint32_t passIndex) {
    ZoneScoped;
    if (!passInfo.sealed) {
-@@ -1526,12 +1709,23 @@ static void render(wgpu::CommandEncoder& cmd, FramePacket& frame, RenderPass& pa
+@@ -1526,12 +1723,23 @@ static void render(wgpu::CommandEncoder& cmd, FramePacket& frame, RenderPass& pa
        };
        cmd.CopyTextureToTexture(&src, &dst, &size);
      }
@@ -1481,10 +1560,10 @@ index 4c672587f0..466eaa6655 100644
  
  void gpu_synchronize() { render_worker::synchronize(); }
 diff --git a/GXRuntime/graphics/aurora/lib/gfx/common.hpp b/GXRuntime/graphics/aurora/lib/gfx/common.hpp
-index e885be071a..d1ad416e00 100644
+index e885be071a..4d68960306 100644
 --- a/GXRuntime/graphics/aurora/lib/gfx/common.hpp
 +++ b/GXRuntime/graphics/aurora/lib/gfx/common.hpp
-@@ -267,6 +267,24 @@ struct ColorPassDescriptor {
+@@ -267,10 +267,31 @@ struct ColorPassDescriptor {
  void begin_color_pass(const ColorPassDescriptor& desc);
  void end_color_pass();
  void queue_texture_copy(wgpu::TexelCopyTextureInfo src, wgpu::TexelCopyTextureInfo dst, wgpu::Extent3D size);
@@ -1509,6 +1588,13 @@ index e885be071a..d1ad416e00 100644
  
  void begin_offscreen(uint32_t width, uint32_t height);
  void end_offscreen();
+ bool is_offscreen() noexcept;
++// Local (fork): changes whenever the EFB's colour may change other than through a GX draw (a clear, a texture copy,
++// a new frame, an offscreen pass, a context swap): the GX side's knowledge of the EFB's contents holds within one value.
++uint64_t efb_epoch() noexcept;
+ uint32_t get_sample_count() noexcept;
+ void clear_caches() noexcept;
+ 
 diff --git a/GXRuntime/graphics/aurora/lib/gfx/efb_readback.cpp b/GXRuntime/graphics/aurora/lib/gfx/efb_readback.cpp
 index 5d13a0d6a7..4ec11b718b 100644
 --- a/GXRuntime/graphics/aurora/lib/gfx/efb_readback.cpp
@@ -2145,7 +2231,7 @@ index 45a8ba80e8..e6bfee0b81 100644
    u32 format() const noexcept { return mFormat != aurora::gfx::InvalidTextureFormat ? mFormat : raw_format(); }
    GXTexWrapMode wrap_s() const noexcept { return static_cast<GXTexWrapMode>(get_bits(mode0, 2, 0)); }
 diff --git a/GXRuntime/graphics/aurora/lib/gx/command_processor.cpp b/GXRuntime/graphics/aurora/lib/gx/command_processor.cpp
-index 5b176e702c..87e331c6ba 100644
+index 5b176e702c..50c6b1bc29 100644
 --- a/GXRuntime/graphics/aurora/lib/gx/command_processor.cpp
 +++ b/GXRuntime/graphics/aurora/lib/gx/command_processor.cpp
 @@ -1,9 +1,15 @@
@@ -2627,7 +2713,7 @@ index 5b176e702c..87e331c6ba 100644
  
    return vtxSize;
  }
-@@ -1805,10 +2047,11 @@ static void calculate_indexed_array_sizes(GXVtxFmt fmt, u16 vtxCount, const u8*
+@@ -1805,10 +2047,14 @@ static void calculate_indexed_array_sizes(GXVtxFmt fmt, u16 vtxCount, const u8*
    }
  }
  
@@ -2638,22 +2724,25 @@ index 5b176e702c..87e331c6ba 100644
  static void push_gx_draw(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, gfx::Range vertRange, gfx::Range idxRange,
 -                         u32 numIndices, const std::array<u32, GX_VA_MAX_ATTR>& arraySizes);
 +                         u32 numIndices, const BindGroupRanges& ranges);
++static bool draw_covers_efb(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, const u8* verts, u32 stride);
++static void efb_merged_draw();
++static bool s_drawCoversEfb = false; // draw_prim to push_gx_draw: see efb_binary_channels
  
  // Draw command handler - parses vertices inline and caches results
  static ByteBuffer handle_draw_idx_buf;
-@@ -1820,21 +2063,72 @@ static void draw_prim(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, const u8* da
+@@ -1820,21 +2066,72 @@ static void draw_prim(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, const u8* da
      LIKELY { vtxSize = g_gxState.lastVtxSize; }
    else
      UNLIKELY { vtxSize = calculate_last_vtx_size(fmt); }
 +  const u32 streamVtxSize = g_gxState.lastVtxStreamSize;
++
++  const u32 totalStreamBytes = vtxCount * streamVtxSize;
++  if (pos + totalStreamBytes > size)
++    UNLIKELY { handle_draw_overrun(totalStreamBytes, data, pos, size); }
  
 -  u32 totalVtxBytes = vtxCount * vtxSize;
 -  if (pos + totalVtxBytes > size)
 -    UNLIKELY { handle_draw_overrun(totalVtxBytes, data, pos, size); }
-+  const u32 totalStreamBytes = vtxCount * streamVtxSize;
-+  if (pos + totalStreamBytes > size)
-+    UNLIKELY { handle_draw_overrun(totalStreamBytes, data, pos, size); }
-+
 +  // Dereference indexed attributes on the CPU: the draw continues as a direct one
 +  const bool deref = aurora_deref_indexed && streamVtxSize != vtxSize;
 +  const u8* vertexSource = data + pos;
@@ -2723,56 +2812,59 @@ index 5b176e702c..87e331c6ba 100644
  
    // Try to merge with previous draw call
    if (canMerge) {
-@@ -1871,7 +2165,205 @@ static void draw_prim(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, const u8* da
-     return;
-   }
- 
--  handle_draw_unmerged(prim, fmt, vtxCount, vertRange, arraySizes);
+@@ -1868,10 +2165,536 @@ static void draw_prim(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, const u8* da
+     lastDraw->vtxCount += vtxCount;
+     lastDraw->indexCount += numIndices;
+     ++gfx::g_mergedDrawCallCount;
++    efb_merged_draw();
++    return;
++  }
++
++  s_drawCoversEfb = draw_covers_efb(prim, fmt, vtxCount, vertexSource, deref ? vtxSize : streamVtxSize);
 +  handle_draw_unmerged(prim, fmt, vtxCount, vertRange, ranges);
++  s_drawCoversEfb = false;
 +}
 +
-+// Local (fork): the TEV's output when it is the same on every pixel and exactly 0 or 1 in every channel: every
-+// input it reads is a register constant (konst, TEV register, material colour with lighting off) of exactly 0 or 1.
-+// Mirrors the shader's arithmetic (shader.cpp: tev_op, tev_overflow, the final overflow); no textures, vertex
-+// colours, lighting, compare ops or fog.
-+static std::optional<std::array<float, 4>> constant_tev_output(const ShaderConfig& config) {
-+  if (config.fogType != GX_FOG_NONE || config.tevStageCount == 0 || config.tevStageCount > MaxTevStages) {
-+    return std::nullopt;
++// Local (fork): the TEV's output per channel where it is the same on every pixel: its value when every input that
++// channel depends on is a register constant (konst, TEV register, material colour with lighting off) of exactly 0 or
++// 1, std::nullopt where it depends on anything else (textures, vertex colours, lighting, other constants, compare
++// ops, fog). Mirrors the shader's arithmetic (shader.cpp: tev_op, tev_overflow, the final overflow). An unknown term
++// only drops out where both ways a backend may evaluate mix(a, b, c) (a * (1 - c) + b * c, a + (b - a) * c) give
++// the same exact value.
++using TevValue = std::optional<float>;
++static std::array<TevValue, 4> tev_output_channels(const ShaderConfig& config) {
++  if (config.tevStageCount == 0 || config.tevStageCount > MaxTevStages) {
++    return {};
 +  }
-+  bool ok = true;
-+  const auto input = [&ok](float v) {
-+    if (v != 0.f && v != 1.f) {
-+      ok = false;
++  const auto input = [](float v) -> TevValue { return v == 0.f || v == 1.f ? TevValue{v} : std::nullopt; };
++  const auto overflow = [](TevValue v) -> TevValue {
++    if (!v) {
++      return v;
 +    }
-+    return v;
-+  };
-+  const auto overflow = [](float v) {
-+    const float b = v * 255.f;
++    const float b = *v * 255.f;
 +    return (b - std::floor(b / 256.f) * 256.f) / 255.f;
 +  };
 +  // A register component an earlier stage wrote, or else its uniform value (an input)
-+  std::array<std::array<float, 4>, MaxTevRegs> regs{};
-+  std::array<std::array<bool, 4>, MaxTevRegs> known{};
++  std::array<std::array<TevValue, 4>, MaxTevRegs> regs{};
++  std::array<std::array<bool, 4>, MaxTevRegs> set{};
 +  const auto reg = [&](u32 i, int c) {
-+    if (!known[i][c]) {
++    if (!set[i][c]) {
 +      regs[i][c] = input(g_gxState.colorRegs[i][c]);
-+      known[i][c] = true;
++      set[i][c] = true;
 +    }
 +    return regs[i][c];
 +  };
-+  const auto ras = [&](const TevStage& stage) -> std::array<float, 4> {
++  const auto ras = [&](const TevStage& stage) -> std::array<TevValue, 4> {
 +    if (stage.channelId == GX_COLOR_ZERO || stage.channelId == GX_COLOR_NULL) {
 +      return {0.f, 0.f, 0.f, 0.f};
 +    }
 +    if (stage.channelId == GX_ALPHA_BUMP || stage.channelId == GX_ALPHA_BUMPN) {
-+      ok = false;
 +      return {};
 +    }
 +    const u8 idx = color_channel(stage.channelId);
 +    const auto& cc = config.colorChannels[idx];
 +    const auto& cca = config.colorChannels[idx + GX_ALPHA0];
 +    if (cc.lightingEnabled || cca.lightingEnabled || cc.matSrc != GX_SRC_REG || cca.matSrc != GX_SRC_REG) {
-+      ok = false;
 +      return {};
 +    }
 +    const auto& m = g_gxState.colorChannelState[idx].matColor;
@@ -2781,7 +2873,7 @@ index 5b176e702c..87e331c6ba 100644
 +    const auto& swap = config.tevSwapTable[stage.tevSwapRas];
 +    return {raw[swap.red], raw[swap.green], raw[swap.blue], raw[swap.alpha]};
 +  };
-+  const auto konst = [&](u32 sel, bool alpha) -> std::array<float, 4> {
++  const auto konst = [&](u32 sel, bool alpha) -> std::array<TevValue, 4> {
 +    if (sel == GX_TEV_KCSEL_8_8) {
 +      return {1.f, 1.f, 1.f, 1.f};
 +    }
@@ -2790,27 +2882,40 @@ index 5b176e702c..87e331c6ba 100644
 +      return {input(k[0]), input(k[1]), input(k[2]), input(k[3])};
 +    }
 +    if (sel >= GX_TEV_KCSEL_K0_R && sel <= GX_TEV_KCSEL_K3_A) {
-+      const float v = input(g_gxState.kcolors[sel & 3][(sel - GX_TEV_KCSEL_K0_R) >> 2]);
++      const TevValue v = input(g_gxState.kcolors[sel & 3][(sel - GX_TEV_KCSEL_K0_R) >> 2]);
 +      return {v, v, v, v};
 +    }
-+    ok = false; // the fractions, and invalid selections
-+    return {};
++    return {}; // the fractions, and invalid selections
 +  };
-+  const auto op = [&](const TevOp& o, float a, float b, float c, float d) {
-+    const float oc = overflow(c);
-+    float r = overflow(a) * (1.f - oc) + overflow(b) * oc;
-+    r = (o.op == GX_TEV_SUB ? -r : r) + d;
++  const auto mix = [](TevValue a, TevValue b, TevValue c) -> TevValue {
++    if (c && *c == 0.f) {
++      return a;
++    }
++    if (c && *c == 1.f && a && *a == 0.f) {
++      return b;
++    }
++    const auto is01 = [](float v) { return v == 0.f || v == 1.f; };
++    if (a && b && c && ((*c == 1.f && is01(*a) && is01(*b)) || *a == 0.f)) {
++      return *a * (1.f - *c) + *b * *c;
++    }
++    if (a && b && *a == 0.f && *b == 0.f) {
++      return 0.f;
++    }
++    return std::nullopt;
++  };
++  const auto op = [&](const TevOp& o, TevValue a, TevValue b, TevValue c, TevValue d) -> TevValue {
++    const TevValue m = mix(overflow(a), overflow(b), overflow(c));
++    if (!m || !d) {
++      return std::nullopt;
++    }
++    float r = (o.op == GX_TEV_SUB ? -*m : *m) + *d;
 +    r += o.bias == GX_TB_ADDHALF ? 0.5f : o.bias == GX_TB_SUBHALF ? -0.5f : 0.f;
 +    r *= o.scale == GX_CS_SCALE_2 ? 2.f : o.scale == GX_CS_SCALE_4 ? 4.f : o.scale == GX_CS_DIVIDE_2 ? 0.5f : 1.f;
 +    return o.clamp ? std::clamp(r, 0.f, 1.f) : std::clamp(r, -4.f, 4.f);
 +  };
-+  for (u32 idx = 0; idx < config.tevStageCount && ok; ++idx) {
++  for (u32 idx = 0; idx < config.tevStageCount; ++idx) {
 +    const auto& stage = config.tevStages[idx];
-+    if ((stage.colorOp.op != GX_TEV_ADD && stage.colorOp.op != GX_TEV_SUB) ||
-+        (stage.alphaOp.op != GX_TEV_ADD && stage.alphaOp.op != GX_TEV_SUB)) {
-+      return std::nullopt;
-+    }
-+    const auto colorArg = [&](GXTevColorArg arg, int c) -> float {
++    const auto colorArg = [&](GXTevColorArg arg, int c) -> TevValue {
 +      switch (arg) {
 +      case GX_CC_CPREV: return reg(0, c);
 +      case GX_CC_APREV: return reg(0, 3);
@@ -2825,10 +2930,10 @@ index 5b176e702c..87e331c6ba 100644
 +      case GX_CC_ONE: return 1.f;
 +      case GX_CC_KONST: return konst(stage.kcSel, false)[c];
 +      case GX_CC_ZERO: return 0.f;
-+      default: ok = false; return 0.f; // textures, HALF
++      default: return std::nullopt; // textures, HALF
 +      }
 +    };
-+    const auto alphaArg = [&](GXTevAlphaArg arg) -> float {
++    const auto alphaArg = [&](GXTevAlphaArg arg) -> TevValue {
 +      switch (arg) {
 +      case GX_CA_APREV: return reg(0, 3);
 +      case GX_CA_A0: return reg(1, 3);
@@ -2837,39 +2942,51 @@ index 5b176e702c..87e331c6ba 100644
 +      case GX_CA_RASA: return ras(stage)[3];
 +      case GX_CA_KONST: return konst(stage.kaSel, true)[3];
 +      case GX_CA_ZERO: return 0.f;
-+      default: ok = false; return 0.f; // textures
++      default: return std::nullopt; // textures
 +      }
 +    };
-+    std::array<float, 3> color{};
-+    for (int c = 0; c < 3; ++c) {
++    const bool colorArith = stage.colorOp.op == GX_TEV_ADD || stage.colorOp.op == GX_TEV_SUB;
++    const bool alphaArith = stage.alphaOp.op == GX_TEV_ADD || stage.alphaOp.op == GX_TEV_SUB;
++    std::array<TevValue, 3> color{};
++    for (int c = 0; c < 3 && colorArith; ++c) {
 +      const auto& p = stage.colorPass;
 +      color[c] = op(stage.colorOp, colorArg(p.a, c), colorArg(p.b, c), colorArg(p.c, c), colorArg(p.d, c));
 +    }
 +    const auto& pa = stage.alphaPass;
-+    const float alpha = op(stage.alphaOp, alphaArg(pa.a), alphaArg(pa.b), alphaArg(pa.c), alphaArg(pa.d));
++    const TevValue alpha = alphaArith ? op(stage.alphaOp, alphaArg(pa.a), alphaArg(pa.b), alphaArg(pa.c), alphaArg(pa.d))
++                                      : std::nullopt; // compare ops
 +    for (int c = 0; c < 3; ++c) {
 +      regs[stage.colorOp.outReg][c] = color[c];
-+      known[stage.colorOp.outReg][c] = true;
++      set[stage.colorOp.outReg][c] = true;
 +    }
 +    regs[stage.alphaOp.outReg][3] = alpha;
-+    known[stage.alphaOp.outReg][3] = true;
-+  }
-+  if (!ok) {
-+    return std::nullopt;
++    set[stage.alphaOp.outReg][3] = true;
 +  }
 +  const auto& last = config.tevStages[config.tevStageCount - 1];
-+  std::array<float, 4> out{reg(last.colorOp.outReg, 0), reg(last.colorOp.outReg, 1), reg(last.colorOp.outReg, 2),
-+                           reg(last.alphaOp.outReg, 3)};
++  std::array<TevValue, 4> out{reg(last.colorOp.outReg, 0), reg(last.colorOp.outReg, 1), reg(last.colorOp.outReg, 2),
++                              reg(last.alphaOp.outReg, 3)};
 +  for (auto& v : out) {
 +    v = overflow(v);
-+    if (v != 0.f && v != 1.f) {
-+      return std::nullopt;
-+    }
 +  }
-+  if (!ok) {
-+    return std::nullopt;
++  if (config.fogType != GX_FOG_NONE) {
++    out[0] = out[1] = out[2] = std::nullopt;
 +  }
 +  return out;
++}
++
++static bool is_binary(const TevValue& v) { return v && (*v == 0.f || *v == 1.f); }
++
++// The TEV's output when it is exactly 0 or 1 in every channel on every pixel.
++static std::optional<std::array<float, 4>> constant_tev_output(const ShaderConfig& config) {
++  const auto out = tev_output_channels(config);
++  std::array<float, 4> result{};
++  for (int c = 0; c < 4; ++c) {
++    if (!is_binary(out[c])) {
++      return std::nullopt;
++    }
++    result[c] = *out[c];
++  }
++  return result;
 +}
 +
 +static bool logic_op_bit(u32 op, bool s, bool d) {
@@ -2927,10 +3044,313 @@ index 5b176e702c..87e331c6ba 100644
 +    }
 +  }
 +  return mask;
++}
++
++// Local (fork): which EFB channels hold only 0x00 or 0xFF on every pixel. A logic op OR (AND) on a channel that does
++// is max (min) of source and destination byte for byte, so it can be a blended plain draw instead of a destination
++// snapshot (binary_logic_op_blend). A channel becomes binary when a draw that provably covers the whole EFB
++// (draw_covers_efb) writes it with a 0x00/0xFF constant, stays binary through draws that write it only with such
++// constants (any blend, subtraction or logic op of 0x00/0xFF bytes gives 0x00/0xFF), and stops being binary at
++// anything else. It holds within one gfx::efb_epoch (clears, copies into textures, frames, contexts change it).
++enum class EfbChannelEffect : u8 {
++  Untouched,
++  Kept, // written with bytes that keep a binary channel binary
++  Set,  // written with a 0x00/0xFF constant: binary if the draw covers the EFB
++  Broken,
++};
++using EfbEffects = std::array<EfbChannelEffect, 4>;
++struct EfbBinaryChannels {
++  u64 epoch = UINT64_MAX;
++  wgpu::Extent3D size{};
++  std::array<bool, 4> binary{};
++};
++static EfbBinaryChannels s_efbBinary;
++static EfbEffects s_lastDrawEffects{}; // for the primitives merged into the last draw
++
++static std::array<bool, 4>& efb_binary_channels() {
++  auto& t = s_efbBinary;
++  const auto size = webgpu::g_frameBuffer.size;
++  if (t.epoch != gfx::efb_epoch() || t.size.width != size.width || t.size.height != size.height) {
++    t.epoch = gfx::efb_epoch();
++    t.size = size;
++    t.binary.fill(false);
++  }
++  return t.binary;
++}
++
++static void apply_efb_effects(const EfbEffects& effects, bool covers) {
++  if (gfx::is_offscreen()) {
+     return;
+   }
++  auto& binary = efb_binary_channels();
++  for (int c = 0; c < 4; ++c) {
++    if (effects[c] == EfbChannelEffect::Set && covers) {
++      binary[c] = true;
++    } else if (effects[c] == EfbChannelEffect::Broken) {
++      binary[c] = false;
++    }
++  }
++}
++
++static void efb_merged_draw() { apply_efb_effects(s_lastDrawEffects, false); }
++
++static u8 written_channels(const PipelineConfig& config) {
++  return config.writeMask != 0 ? config.writeMask & 0xF : (config.colorUpdate ? 7 : 0) | (config.alphaUpdate ? 8 : 0);
++}
++
++// GX_BM_BLEND of a 0x00/0xFF source: the result for a 0x00 and a 0xFF destination, where both are 0x00/0xFF
++// (factors of zero, one, the source alpha or its inverse; the alpha component blends with the colour's factors).
++static EfbChannelEffect blend_effect(const PipelineConfig& config, const std::array<TevValue, 4>& src, int c) {
++  if (!is_binary(src[c])) {
++    return EfbChannelEffect::Broken;
++  }
++  const auto factor = [&](GXBlendFactor f) -> TevValue {
++    switch (f) {
++    case GX_BL_ZERO: return 0.f;
++    case GX_BL_ONE: return 1.f;
++    case GX_BL_SRCALPHA: return is_binary(src[3]) ? src[3] : std::nullopt;
++    case GX_BL_INVSRCALPHA: return is_binary(src[3]) ? TevValue{1.f - *src[3]} : std::nullopt;
++    default: return std::nullopt; // the destination's colour or alpha, the source colour
++    }
++  };
++  const TevValue fs = factor(config.blendFacSrc);
++  const TevValue fd = factor(config.blendFacDst);
++  if (!fs || !fd) {
++    return EfbChannelEffect::Broken;
++  }
++  const auto result = [&](float d) { return std::clamp(*src[c] * *fs + d * *fd, 0.f, 1.f); };
++  return result(0.f) == result(1.f) ? EfbChannelEffect::Set : EfbChannelEffect::Kept;
++}
++
++// What a draw does to each EFB channel, from its final pipeline config (after the logic op choices).
++static EfbEffects draw_efb_effects(const PipelineConfig& config, const std::array<TevValue, 4>& src) {
++  EfbEffects effects{};
++  const u8 written = written_channels(config);
++  const u8 pad2 = config.shaderConfig.pad2;
++  for (int c = 0; c < 4; ++c) {
++    auto& e = effects[c];
++    if ((written & (1u << c)) == 0) {
++      continue;
++    }
++    if (c == 3 && config.dstAlpha != UINT32_MAX) {
++      e = config.dstAlpha == 0 || config.dstAlpha == 255 ? EfbChannelEffect::Set : EfbChannelEffect::Broken;
++      continue;
++    }
++    if (!is_binary(src[c])) {
++      e = config.blendMode == GX_BM_LOGIC && config.blendOp == GX_LO_NOOP ? EfbChannelEffect::Untouched
++                                                                          : EfbChannelEffect::Broken;
++      continue;
++    }
++    const bool s = *src[c] == 1.f;
++    switch (config.blendMode) {
++    case GX_BM_NONE:
++      if (pad2 != 0 && pad2 != LogicOpQuantizeOnly) { // the snapshot's bitwise op
++        e = logic_op_bit(pad2 - 1, s, false) == logic_op_bit(pad2 - 1, s, true) ? EfbChannelEffect::Set
++                                                                                  : EfbChannelEffect::Kept;
++      } else {
++        e = (config.minMax >> (c < 3 ? 0 : 2) & 3) != 0 ? EfbChannelEffect::Kept : EfbChannelEffect::Set;
++      }
++      break;
++    case GX_BM_SUBTRACT:
++      e = EfbChannelEffect::Kept;
++      break;
++    case GX_BM_BLEND:
++      e = blend_effect(config, src, c);
++      break;
++    case GX_BM_LOGIC: // drawn with blending (offscreen, AURORA_LOGIC_OP_BLEND, COPY, NOOP)
++      e = config.blendOp == GX_LO_COPY || config.blendOp == GX_LO_CLEAR ? EfbChannelEffect::Set
++          : config.blendOp == GX_LO_NOOP                                ? EfbChannelEffect::Untouched
++                                                                        : EfbChannelEffect::Broken;
++      break;
++    default:
++      e = EfbChannelEffect::Broken;
++      break;
++    }
++  }
++  return effects;
++}
++
++static void update_efb_binary(const PipelineConfig& config, bool covers) {
++  if (gfx::is_offscreen()) {
++    return;
++  }
++  const auto& binary = efb_binary_channels();
++  const u8 written = written_channels(config);
++  bool touchesBinary = false;
++  for (int c = 0; c < 4; ++c) {
++    touchesBinary = touchesBinary || (binary[c] && (written & (1u << c)) != 0);
++  }
++  if (!covers && !touchesBinary) {
++    // Nothing to learn (the TEV isn't evaluated for every draw): neither this draw nor primitives merged into it
++    // change a binary channel
++    s_lastDrawEffects = {};
++    return;
++  }
++  s_lastDrawEffects = draw_efb_effects(config, tev_output_channels(config.shaderConfig));
++  apply_efb_effects(s_lastDrawEffects, covers);
++  if (::aurora_debug_draw_log) {
++    std::fprintf(stderr, "  efb binary channels %d%d%d%d (covers=%d)\n", binary[0], binary[1], binary[2], binary[3],
++                 covers ? 1 : 0);
++  }
++}
++
++// Local (fork): a logic op whose destination channels hold only 0x00/0xFF (efb_binary_channels) where it needs them:
++// OR is then max(source, destination) and AND min(source, destination) byte for byte, a 0x00/0xFF source keeps the
++// destination or writes itself, and the draw is a plain one with max/min blending and a write mask, its source
++// rounded to bytes as the snapshot path's is (LogicOpQuantizeOnly): bit-identical to the snapshot path without the
++// snapshot. Colour and alpha take one blend operation each. Returns {0x10 | the mask, PipelineConfig::minMax}.
++static std::optional<std::pair<u8, u8>> binary_logic_op_blend(const PipelineConfig& config,
++                                                              const std::array<TevValue, 4>& src) {
++  static const bool enabled = [] {
++    const char* env = std::getenv("AURORA_LOGIC_OP_BINARY");
++    return env == nullptr || env[0] != '0';
++  }();
++  if (!enabled || (config.alphaUpdate && config.dstAlpha != UINT32_MAX)) {
++    return std::nullopt;
++  }
++  const auto& binary = efb_binary_channels();
++  enum : u8 { Replace = 1, Max = 2, Min = 4 };
++  std::array<u8, 2> allowed{Replace | Max | Min, Replace | Max | Min}; // colour, alpha
++  u8 mask = 0x10;
++  for (int c = 0; c < 4; ++c) {
++    if (!(c < 3 ? config.colorUpdate : config.alphaUpdate)) {
++      continue;
++    }
++    u8 ok = 0;
++    if (is_binary(src[c])) {
++      const bool s = *src[c] == 1.f;
++      const bool r0 = logic_op_bit(config.blendOp, s, false);
++      const bool r1 = logic_op_bit(config.blendOp, s, true);
++      if (!r0 && r1) {
++        continue; // keeps the destination
++      }
++      if (r0 != r1 || r0 != s) {
++        return std::nullopt; // inverts it, or a constant other than the source
++      }
++      ok = Replace | (s ? Max : Min);
++    } else if (binary[c] && config.blendOp == GX_LO_OR) {
++      ok = Max;
++    } else if (binary[c] && config.blendOp == GX_LO_AND) {
++      ok = Min;
++    }
++    auto& group = allowed[c < 3 ? 0 : 1];
++    group &= ok;
++    if (group == 0) {
++      return std::nullopt;
++    }
++    mask |= static_cast<u8>(1u << c);
++  }
++  const auto pick = [](u8 a) -> u8 { return (a & Replace) != 0 ? 0 : (a & Max) != 0 ? 1 : 2; };
++  return std::pair{mask, static_cast<u8>(pick(allowed[0]) | pick(allowed[1]) << 2)};
++}
+ 
+-  handle_draw_unmerged(prim, fmt, vtxCount, vertRange, arraySizes);
++// Local (fork): whether a draw's one primitive covers every pixel of the EFB (efb_binary_channels): a quad or a
++// 4-vertex fan with direct F32 positions, transformed on the CPU as the vertex shader does, convex, holding every
++// pixel centre of the target with a margin, inside a viewport and scissor that cover the target; nothing culled,
++// clipped in depth or discarded by the alpha or depth test; one sample per pixel. Positions are big-endian as the
++// shader reads direct attributes.
++static bool draw_covers_efb(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, const u8* verts, u32 stride) {
++  if ((prim != GX_QUADS && prim != GX_TRIANGLEFAN) || vtxCount != 4 || gfx::is_offscreen() ||
++      g_gxState.cullMode != GX_CULL_NONE || g_gxState.alphaCompare ||
++      (g_gxState.depthCompare && g_gxState.depthFunc != GX_ALWAYS) || gfx::get_sample_count() != 1 ||
++      g_gxState.vtxDesc[GX_VA_POS] != GX_DIRECT) {
++    return false;
++  }
++  const auto& vf = g_gxState.vtxFmts[fmt];
++  if (vf.attrs[GX_VA_POS].type != GX_F32) {
++    return false;
++  }
++  const u32 posCnt = comp_cnt_count(GX_VA_POS, vf.attrs[GX_VA_POS].cnt);
++  u32 posOffset = 0;
++  u32 mtxOffset = UINT32_MAX;
++  for (int i = GX_VA_PNMTXIDX; i < GX_VA_POS; ++i) {
++    if (g_gxState.vtxDesc[i] == GX_NONE) {
++      continue;
++    }
++    if (g_gxState.vtxDesc[i] != GX_DIRECT) {
++      return false;
++    }
++    if (i == GX_VA_PNMTXIDX) {
++      mtxOffset = posOffset;
++    }
++    const auto attr = static_cast<GXAttr>(i);
++    posOffset += comp_type_size(attr, vf.attrs[i].type) * comp_cnt_count(attr, vf.attrs[i].cnt);
++  }
++  const auto size = webgpu::g_frameBuffer.size;
++  const double width = size.width;
++  const double height = size.height;
++  const auto& sc = g_gxState.renderScissor;
++  const auto& vp = g_gxState.renderViewport;
++  if (sc.x > 0 || sc.y > 0 || sc.x + sc.width < width || sc.y + sc.height < height || vp.left > 0.f ||
++      vp.top > 0.f || vp.left + vp.width < width || vp.top + vp.height < height) {
++    return false;
++  }
++  std::array<std::array<double, 2>, 4> p{};
++  for (u32 v = 0; v < 4; ++v) {
++    const u8* vtx = verts + v * stride;
++    const u32 mtx = mtxOffset != UINT32_MAX ? vtx[mtxOffset] / 3u : g_gxState.currentPnMtx;
++    if (mtx >= MaxPnMtx) {
++      return false;
++    }
++    const double x = read_f32(vtx + posOffset, true);
++    const double y = read_f32(vtx + posOffset + 4, true);
++    const double z = posCnt == 3 ? read_f32(vtx + posOffset + 8, true) : 0.0;
++    const auto& m = g_gxState.pnMtx[mtx].pos;
++    const auto row = [&](const Vec4<float>& r) { return r[0] * x + r[1] * y + r[2] * z + r[3]; };
++    const std::array<double, 3> mv{row(m.m0), row(m.m1), row(m.m2)};
++    const auto& proj = g_gxState.proj;
++    const auto clip = [&](size_t j) { return proj[j][0] * mv[0] + proj[j][1] * mv[1] + proj[j][2] * mv[2] + proj[j][3]; };
++    const double cx = clip(0);
++    const double cy = clip(1);
++    const double cz = clip(2);
++    const double cw = clip(3);
++    // Inside the depth range (GX clip z in [-w, 0]) with a margin, or on one of its planes under an orthographic
++    // projection (Skies' composite quads have z = -2e-8 w): the clip test includes the planes, and without x or y in
++    // the depth row the four vertices' depths are the same, so the quad is drawn whole or not at all, and the
++    // picture (the snapshot path's too) relies on it being drawn.
++    const bool ortho = proj[3][0] == 0.f && proj[3][1] == 0.f && proj[3][2] == 0.f && proj[3][3] == 1.f &&
++                       proj[2][0] == 0.f && proj[2][1] == 0.f;
++    const bool inside = cz > -cw * (1.0 - 1e-5) && cz < -cw * 1e-5;
++    const bool onPlane = ortho && (std::abs(cz) <= cw * 1e-6 || std::abs(cz + cw) <= cw * 1e-6);
++    if (!std::isfinite(cx) || !std::isfinite(cy) || !(cw > 1e-6) || !(inside || onPlane)) {
++      return false;
++    }
++    p[v] = {vp.left + (cx / cw + 1.0) * 0.5 * vp.width, vp.top + (1.0 - cy / cw) * 0.5 * vp.height};
++  }
++  double area = 0.0;
++  for (int i = 0; i < 4; ++i) {
++    area += p[i][0] * p[(i + 1) & 3][1] - p[(i + 1) & 3][0] * p[i][1];
++  }
++  if (!(std::abs(area) >= 1.0)) {
++    return false;
++  }
++  const double sign = area > 0.0 ? 1.0 : -1.0;
++  constexpr double Margin = 1.0 / 16.0; // render pixels: subpixel snapping, float against double
++  const std::array<std::array<double, 2>, 4> corners{{
++      {0.5, 0.5}, {width - 0.5, 0.5}, {width - 0.5, height - 0.5}, {0.5, height - 0.5}}};
++  for (int i = 0; i < 4; ++i) {
++    const auto& a = p[i];
++    const auto& b = p[(i + 1) & 3];
++    const auto& n = p[(i + 2) & 3];
++    const double ex = b[0] - a[0];
++    const double ey = b[1] - a[1];
++    const double len = std::hypot(ex, ey);
++    // Convex: every corner turns the same way
++    if (!(len > 1e-9) || sign * (ex * (n[1] - b[1]) - ey * (n[0] - b[0])) <= 0.0) {
++      return false;
++    }
++    for (const auto& q : corners) {
++      if (sign * (ex * (q[1] - a[1]) - ey * (q[0] - a[0])) / len < Margin) {
++        return false;
++      }
++    }
++  }
++  return true;
  }
  
  static void handle_draw(u8 cmd, const u8* data, u32& pos, u32 size, bool bigEndian) {
-@@ -1887,8 +2379,31 @@ static void handle_draw(u8 cmd, const u8* data, u32& pos, u32 size, bool bigEndi
+@@ -1887,8 +2710,31 @@ static void handle_draw(u8 cmd, const u8* data, u32& pos, u32 size, bool bigEndi
  
  static ByteBuffer handle_draw_unmerged_idxBuf;
  
@@ -2963,7 +3383,7 @@ index 5b176e702c..87e331c6ba 100644
    ZoneScoped;
    u32 numIndices = 0;
    gfx::Range idxRange;
-@@ -1901,32 +2416,149 @@ static void handle_draw_unmerged(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, g
+@@ -1901,32 +2747,159 @@ static void handle_draw_unmerged(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, g
      realBuf.clear();
    }
  
@@ -3090,6 +3510,15 @@ index 5b176e702c..87e331c6ba 100644
 +      if (::aurora_debug_draw_log) {
 +        std::fprintf(stderr, "  logic op %u as write mask %x\n", static_cast<unsigned>(config.blendOp), *mask & 0xF);
 +      }
++    } else if (const auto blend = binary_logic_op_blend(config, tev_output_channels(config.shaderConfig))) {
++      if (::aurora_debug_draw_log) {
++        std::fprintf(stderr, "  logic op %u as min/max blend %x write mask %x\n", static_cast<unsigned>(config.blendOp),
++                     blend->second, blend->first & 0xF);
++      }
++      config.blendMode = GX_BM_NONE;
++      config.writeMask = blend->first;
++      config.minMax = blend->second;
++      config.shaderConfig.pad2 = LogicOpQuantizeOnly;
 +    }
 +  }
 +  if (!logicOpBlend && config.blendMode == GX_BM_LOGIC && config.blendOp != GX_LO_COPY &&
@@ -3118,6 +3547,7 @@ index 5b176e702c..87e331c6ba 100644
 +    }
 +    config.blendMode = GX_BM_NONE;
 +  }
++  update_efb_binary(config, s_drawCoversEfb);
 +  const ShaderInfo& info = cached_shader_info(config.shaderConfig);
    resolve_sampled_textures(info);
 +  if (logicOpDst) {
@@ -3130,16 +3560,21 @@ index 5b176e702c..87e331c6ba 100644
    const auto bindGroups = build_bind_groups(info);
    const auto pipeline = gfx::pipeline_ref(config);
  
-@@ -1949,6 +2581,8 @@ static void push_gx_draw(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, gfx::Rang
+@@ -1949,7 +2922,13 @@ static void push_gx_draw(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, gfx::Rang
        .bindGroups = bindGroups,
        .dstAlpha = g_gxState.dstAlpha,
        .cullMode = g_gxState.cullMode,
 +      .fmt = fmt,
 +      .vaRanges = ranges.vaRanges,
    });
++  if (config.minMax != 0) {
++    // Nothing merges into it: a merged primitive's destination may be this one's output, no longer 0x00/0xFF
++    g_gxState.stateDirty = true;
++  }
  }
  
-@@ -2022,7 +2656,9 @@ void handle_aurora(const u8* data, u32& pos, u32 size, bool bigEndian) {
+ std::string read_string(const u8* data, u32& pos, u32 size, bool bigEndian) {
+@@ -2022,7 +3001,9 @@ void handle_aurora(const u8* data, u32& pos, u32 size, bool bigEndian) {
        array.le = le;
        // Only drop the cached upload when the backing array actually changes.
        array.cachedRange = {};
@@ -3150,7 +3585,7 @@ index 5b176e702c..87e331c6ba 100644
      }
    } else if (subCmd == GX_AURORA_LOAD_TEXOBJ) {
      CHECK(pos + 34 <= size, "GX_AURORA_LOAD_TEXOBJ read overrun");
-@@ -2178,14 +2814,26 @@ void handle_aurora(const u8* data, u32& pos, u32 size, bool bigEndian) {
+@@ -2178,14 +3159,26 @@ void handle_aurora(const u8* data, u32& pos, u32 size, bool bigEndian) {
      } else {
        vtxSize = calculate_last_vtx_size(fmt);
      }
@@ -3184,7 +3619,7 @@ index 5b176e702c..87e331c6ba 100644
    } else if (subCmd == GX_AURORA_DEBUG_GROUP_PUSH) {
      auto label = read_string(data, pos, size, bigEndian);
 diff --git a/GXRuntime/graphics/aurora/lib/gx/gx.cpp b/GXRuntime/graphics/aurora/lib/gx/gx.cpp
-index 5915c5b5f7..5d8f9790f5 100644
+index 5915c5b5f7..2e2677e8d1 100644
 --- a/GXRuntime/graphics/aurora/lib/gx/gx.cpp
 +++ b/GXRuntime/graphics/aurora/lib/gx/gx.cpp
 @@ -1,3 +1,7 @@
@@ -3614,7 +4049,24 @@ index 5915c5b5f7..5d8f9790f5 100644
      case GX_LO_CLEAR:
        colorBlendComponent = {
            .operation = wgpu::BlendOperation::Add,
-@@ -671,7 +984,8 @@ wgpu::RenderPipeline build_pipeline(const PipelineConfig& config, ArrayRef<wgpu:
+@@ -666,12 +979,24 @@ wgpu::RenderPipeline build_pipeline(const PipelineConfig& config, ArrayRef<wgpu:
+       .depthBiasSlopeScale = depthBiasSlopeScale,
+       .depthBiasClamp = depthBiasClamp,
+   };
+-  const auto blendState =
++  auto blendState =
+       to_blend_state(config.blendMode, config.blendFacSrc, config.blendFacDst, config.blendOp, config.dstAlpha);
++  if (config.minMax != 0) {
++    const auto minMax = [](u8 op, wgpu::BlendComponent& c) {
++      if (op != 0) {
++        c = {.operation = op == 1 ? wgpu::BlendOperation::Max : wgpu::BlendOperation::Min,
++             .srcFactor = wgpu::BlendFactor::One,
++             .dstFactor = wgpu::BlendFactor::One};
++      }
++    };
++    minMax(config.minMax & 3, blendState.color);
++    minMax(config.minMax >> 2 & 3, blendState.alpha);
++  }
    const std::array colorTargets{wgpu::ColorTargetState{
        .format = g_graphicsConfig.surfaceConfiguration.format,
        .blend = &blendState,
@@ -3625,7 +4077,7 @@ index 5915c5b5f7..5d8f9790f5 100644
    const wgpu::FragmentState fragmentState{
        .module = shader,
 diff --git a/GXRuntime/graphics/aurora/lib/gx/gx.hpp b/GXRuntime/graphics/aurora/lib/gx/gx.hpp
-index 5e5d45868b..9a6467559c 100644
+index 5e5d45868b..3dd2d095e2 100644
 --- a/GXRuntime/graphics/aurora/lib/gx/gx.hpp
 +++ b/GXRuntime/graphics/aurora/lib/gx/gx.hpp
 @@ -287,6 +287,16 @@ struct GXState {
@@ -3676,18 +4128,21 @@ index 5e5d45868b..9a6467559c 100644
  void evict_texture_object(u32 texObjId) noexcept;
  void evict_tlut_object(u32 tlutObjId) noexcept;
  Vec2<uint32_t> logical_fb_size() noexcept;
-@@ -452,6 +478,9 @@ struct AttrConfig {
+@@ -452,6 +478,12 @@ struct AttrConfig {
    bool le = true;
    bool nbt3 = false;     // GX_NRM_NBT3
  };
 +// Texture slot that holds the EFB snapshot for emulated logic ops (ShaderConfig::pad2 = op + 1).
 +constexpr u32 LogicOpDstTexMap = 7;
++// Local (fork): ShaderConfig::pad2 value for a logic op done as a blended plain draw: the output is rounded to bytes
++// as the snapshot path's source is, and no snapshot is read.
++constexpr u8 LogicOpQuantizeOnly = 17;
 +
  struct ShaderConfig {
    u8 fogType = GX_FOG_NONE;
    u8 vtxStride = 0;
 diff --git a/GXRuntime/graphics/aurora/lib/gx/pipeline.hpp b/GXRuntime/graphics/aurora/lib/gx/pipeline.hpp
-index 9f5a8064da..fda328c039 100644
+index 9f5a8064da..e1943dbb83 100644
 --- a/GXRuntime/graphics/aurora/lib/gx/pipeline.hpp
 +++ b/GXRuntime/graphics/aurora/lib/gx/pipeline.hpp
 @@ -1,5 +1,7 @@
@@ -3709,32 +4164,37 @@ index 9f5a8064da..fda328c039 100644
  };
  
 -constexpr uint32_t GXPipelineConfigVersion = 13;
-+constexpr uint32_t GXPipelineConfigVersion = 14;
++constexpr uint32_t GXPipelineConfigVersion = 15;
  struct PipelineConfig {
    uint32_t version = GXPipelineConfigVersion;
    uint32_t msaaSamples = 1;
-@@ -32,6 +38,12 @@ struct PipelineConfig {
+@@ -32,6 +38,14 @@ struct PipelineConfig {
    uint32_t polygonOffsetScaleBits;
    uint32_t polygonOffsetClampBits;
    bool depthCompare, depthUpdate, alphaUpdate, colorUpdate;
 +  // Local (fork): 0x10 | wgpu::ColorWriteMask bits replaces the colour/alpha update mask (logic ops done as a
 +  // masked plain draw, see constant_logic_op_mask); 0 = from colorUpdate/alphaUpdate.
 +  u8 writeMask = 0;
-+  u8 _p1 = 0;
++  // Local (fork): blend operation per component for a logic op done as a blended plain draw (binary_logic_op_blend):
++  // bits 0-1 colour, 2-3 alpha; 0 = none (replace), 1 = max, 2 = min. Only with blendMode GX_BM_NONE.
++  u8 minMax = 0;
 +  u8 _p2 = 0;
 +  u8 _p3 = 0;
  };
  static_assert(std::has_unique_object_representations_v<PipelineConfig>);
  
 diff --git a/GXRuntime/graphics/aurora/lib/gx/shader.cpp b/GXRuntime/graphics/aurora/lib/gx/shader.cpp
-index 3e34858496..42c0471a1b 100644
+index 3e34858496..43d1ddf872 100644
 --- a/GXRuntime/graphics/aurora/lib/gx/shader.cpp
 +++ b/GXRuntime/graphics/aurora/lib/gx/shader.cpp
-@@ -1576,6 +1576,32 @@ std::string build_shader_source(const ShaderConfig& config) noexcept {
+@@ -1576,6 +1576,35 @@ std::string build_shader_source(const ShaderConfig& config) noexcept {
      fragmentFn += "\n    prev = vec4f(in.nrm, prev.a);";
    }
  
-+  if (config.pad2 != 0) {
++  if (config.pad2 == LogicOpQuantizeOnly) {
++    // A logic op done as a blended plain draw: the source in bytes, as the snapshot path below has it.
++    fragmentFn += "\n    prev = round(clamp(prev, vec4f(0.0), vec4f(1.0)) * 255.0) / 255.0;";
++  } else if (config.pad2 != 0) {
 +    // Emulated GX logic op (WebGPU has none): combine with the destination snapshot bitwise.
 +    static constexpr std::array<const char*, 16> kOps{
 +        "vec4u(0u)",                    // CLEAR
@@ -3764,14 +4224,14 @@ index 3e34858496..42c0471a1b 100644
  fn bswap32(v: u32, le: bool) -> u32 {{
    if (le) {{
 diff --git a/GXRuntime/graphics/aurora/lib/gx/shader_info.cpp b/GXRuntime/graphics/aurora/lib/gx/shader_info.cpp
-index bb9ddecb70..389d499cb0 100644
+index bb9ddecb70..8f005447a1 100644
 --- a/GXRuntime/graphics/aurora/lib/gx/shader_info.cpp
 +++ b/GXRuntime/graphics/aurora/lib/gx/shader_info.cpp
 @@ -327,6 +327,10 @@ ShaderInfo build_shader_info(const ShaderConfig& config) noexcept {
    if (info.uniformSize > MaxUniformSize) {
      Log.fatal("Uniform size exceeds maximum: {} > {}", info.uniformSize, MaxUniformSize);
    }
-+  if (config.pad2 != 0) {
++  if (config.pad2 != 0 && config.pad2 != LogicOpQuantizeOnly) {
 +    // Emulated logic op: slot 7 holds the destination snapshot (see push_gx_draw).
 +    info.sampledTextures.set(LogicOpDstTexMap);
 +  }

@@ -408,7 +408,7 @@ resolution 1, 30 fps mode), muted, standing at the opening dungeon's save point 
 | RTX 5080, uncapped | **2.91x** | 2.33x | 2.30x | 2.18x | 2.27x |
 | UHD 770 (iGPU), uncapped | **2.82x** | 2.16x | 1.87x | | |
 | UHD 770, internal resolution 3 | **2.62x** | 2.05x (first measured at 1x by mistake: 2.16x) | | | |
-| UHD 770, internal resolution 6 (GPU-bound) | **1.09x** (after 0032/0033; 1.05x before 0033) | 0.77x | | | |
+| UHD 770, internal resolution 6 (GPU-bound) | **1.30x** (after 0032-0034; 1.09x before 0034, 1.05x before 0033) | 0.77x | | | |
 | 4 E-cores, uncapped | **1.55x** | 1.06x | | | |
 | 2 E-cores | **1.50x** | 1.03x | | | |
 | 1 E-core | **1.46x** | 0.88x (below full speed) | | | |
@@ -482,10 +482,41 @@ byte-identical. The save point at 1x (5 frames, three runs) too.
 of the same build (same dispatches and cycles to the end, so the game is identical): one run's frame 2280
 shows the ship's door closed, the other's open. `DumpFrame` requests a readback before present and then
 takes whatever readback completes, so a late one can land on the wrong frame number. Compare pictures on
-Windows (deterministic there) until that's fixed; likely part of open item 5.
+Windows (deterministic there) until that's fixed; likely part of open item 5. Windows isn't immune either: in
+five later route runs, one (`bin-check/route-off1`) dumped a different picture for frame 1680 (every pixel,
+a fade at another moment) with the same dispatches and cycles, and a rerun of the same build matched again.
 
 At 6x after both cuts (29.3 ms): EFB passes 21.5, R8 copy conversions 3.6 (2), the textured OR's snapshot
-2.0, present resample 0.75 + blit 0.25. Next GPU candidates, in size order: the textured OR's snapshot
-(only R and A change; G/B are a constant 0, i.e. keep), the R8 conversions writing RGBA8 at full scale,
-present resample + blit as one pass. On the Retroid (a tiler), pass splits cost more than on the iGPU, so
-0032 should matter more there; that needs the Android shell (open item 3).
+2.0, present resample 0.75 + blit 0.25.
+
+**Fork 0034: the textured OR without a snapshot.** For bytes that are 0x00 or 0xFF, `s | d = max(s, d)`
+and `s & d = min(s, d)`. The command processor now tracks which EFB channels hold only such bytes: a
+channel becomes binary when a draw that provably covers the whole EFB writes a 0x00/0xFF constant into it,
+stays binary through draws that write it only with such constants, and stops at anything else. Coverage is
+checked on the CPU: one quad (or 4-vertex fan), direct F32 positions put through the position and
+projection matrices as the vertex shader does, convex, every pixel centre inside with a 1/16 px margin,
+viewport and scissor covering the target, no culling, depth or alpha test, one sample. Skies' composite
+quads lie on the far depth plane (clip z = -2e-8 w); that's accepted under an orthographic projection only
+(the four depths are equal, so the quad is drawn whole or not at all, and the picture relies on it).
+`gfx::efb_epoch()` changes at every non-GX change of the EFB (clears, texture copies, frames, offscreen
+passes, context swaps) and the knowledge holds within one. In the composite: the OR quad makes R and A
+binary, the shadow volumes add or subtract alpha 1.0 (A stays binary, R doesn't), the R8 copy changes
+nothing, the AND quad makes R 0 again, and the textured OR becomes a plain draw with max blending on R and
+A and G/B masked (`PipelineConfig::minMax`, cache version 15; the source rounded to bytes as in the
+snapshot path, `ShaderConfig::pad2 = LogicOpQuantizeOnly`; nothing merges into it). The constant-source
+evaluation of 0032 is now per channel (a texture-dependent channel is unknown; an unknown term drops out
+only where both forms of WGSL `mix()` give the same exact value). Draw log: `logic op 7 as min/max blend 5
+write mask 9` and `efb binary channels RGBA (covers=N)`. `AURORA_LOGIC_OP_BINARY=0` turns it off.
+
+UHD 770 at 6x, save point: **29.3 -> 24.4 ms** GPU per frame (the 2.0 ms snapshot copy gone, EFB passes
+21.5 -> 18.6 ms over 3 passes instead of 4, staging copies 4 -> 3), uncapped **1.09x -> 1.30x**; Dolphin
+Vulkan is 0.77x (~43.5 ms), so about 44% less GPU time per frame now. CPU-bound 1x (RTX 5080 machine): 2.92x
+on, 2.88-2.91x off (noise). Checked exact: the fight route on Windows D3D12, `capture/route-win.sh` (new:
+`NAME [SETS]`, a fresh `user-qa-plain` copy, everything under `C:\dev\SkiesStandalone\bin-check`), runs
+off1, off2, on1, on2 against the earlier `dumps-route-c`: on1, on2 and off2 match all 91 frames; off1 is
+the frame-1680 dump outlier above.
+
+Now at 6x (24.4 ms): EFB passes 18.6 (3), R8 copy conversions 3.5 (2), present resample 0.75 + blit 0.25,
+staging 0.26. Next GPU candidates: the R8 conversions writing RGBA8 at full scale, present resample + blit
+as one pass. On the Retroid (a tiler), pass splits cost more than on the iGPU, so 0032-0034 should matter
+more there; that needs the Android shell (open item 3).
