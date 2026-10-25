@@ -124,9 +124,8 @@ comparisons, all 236 opcodes, 0 mismatches). About 45k fallback instructions per
 **Gotchas found:** DI completion must do DIMAR += DILENGTH, DILENGTH = 0 for every command (the SDK
 retries Inquiry otherwise); WPAR's BNE bit must read 0 (Dolphin's choice; GXFlush spins otherwise).
 
-**Next (phase 2/3):** listen to the AX output (unmuted run on Windows or with WSLg audio), EFB peeks
-(read 0 now), the ws game patch DOL + its module, real-time speed on a real GPU (Windows build), then
-gameplay to the first battle.
+**Next (phase 2/3):** listen to the AX output (unmuted run on Windows or with WSLg audio), real-time
+speed on a real GPU (Windows build), then gameplay to the first battle.
 
 ## Memory card (2026-10-24) — working
 
@@ -146,5 +145,36 @@ saves and loads one into gameplay (the Pirate Isle underground dock); saving ove
 writes only that GCI, and a fresh run lists and loads it; saving into an empty slot creates
 `8P-GEAE-SA_LEGENDS.001.gci`. An unchanged card writes nothing. Not yet checked: the Dolphin build
 loading a GCI the standalone wrote (same format, written by the game's own CARD library).
+**EFB peeks: not needed.** Skies never reads or writes the EFB from the CPU: `GXPeekARGB`/`GXPeekZ`/
+`GXPokeARGB`/`GXPokeZ` aren't linked into the DOL (`config/GEAE8P/symbols.txt` in the decomp has only the
+`GXPoke*Mode` setters), and a run from boot through Continue to gameplay made no 0xC8000000 access
+(`--mmio-log`, `SKIES_MMIO_RANGE=c8000000-c9000000`). Reads return 0, as the Dolphin build's Aurora
+backend does (Null EFB interface).
+
 Scripted route to the save point (USA, unpatched DOL, the "P. Isle Underground" save as the newest file): `SKIES_PRESS="38:START,
 53:START,56:A,60:A,63:A,66:A,73:RIGHT,73.2:RIGHT,75:A,77:A"` reaches the Save file list.
+
+## The widescreen DOL (2026-10-24) — working
+
+The ws32 game patch DOL runs with its own x86 module (`~/projects/skies-pal60/build/ws32`: plain LLVM,
+no PGO, built from `skies-pal60/build/game/GEAE8P-ws32/sys/main.dol`; its `build.sh` shows how). Game
+folder: `build/sa-runs/game-ws32` (links to the extracted disc, `sys/main.dol` -> the ws32 DOL); the run
+scripts take `GAME=` and `MODULE=`. Checked on WSL: logos, intro, title, Continue, the load and save
+screens and the field, all at 16:9 (HUD minimap at the right edge, menus a centred 4:3 panel), the card
+saves as with the plain DOL. About 10% slower than the plain DOL's PGO module on llvmpipe.
+
+- **Fix: boot loads `sys/main.dol` itself.** It used to read the DOL through the disc offsets, but the
+  disc only maps the original DOL's slot (it ends where `fst.bin` begins), and a patched DOL is longer:
+  both patch sections (code at 0x80001900, data with `ws_config` at 0x80002A00) are appended at the
+  end, so they were read from the FST. The recompiled code was right but the patch's data and constants
+  were not, and every frame came out black (ortho x scale 1.7e-37, empty scissor). The disc's DOL
+  extent is now clipped so it can't overlap the FST.
+- **Picture shape:** `video.cpp` reads `ws_config.display_aspect` (magic `WSCF` at 0x80002A00) after
+  boot: a ws DOL presents at its aspect (16:9 by default; nothing writes it yet), the plain DOL at 4:3.
+  As the Dolphin-side backend: the EFB stays 640x480 times `SKIES_EFB_SCALE` (default 0 = follows the
+  window) with `aurora_backend_set_frame_buffer_aspect_fit(1)`, and `aurora_backend_set_present_rect`
+  letterboxes the picture in the window (default window 960 lines high at the picture's aspect,
+  `SKIES_WIDTH`/`SKIES_HEIGHT` override). Frame dumps are the EFB (anamorphic for ws; stretch them to
+  16:9 to view). The window itself hasn't been looked at, only the dumps.
+- Debug switches added while finding it: `SKIES_GX_TRACE=N` logs frame N's BP/CP/XF loads, draws and
+  display-list calls; `SKIES_WATCH=ADDR` logs the block after which a RAM word changed.

@@ -24,6 +24,7 @@ struct Extent
 };
 std::vector<Extent> s_extents;  // sorted by offset
 std::vector<u8> s_boot;
+std::vector<u8> s_dol;  // sys/main.dol, whole: a patched DOL can outgrow its slot on the disc
 
 struct OpenFile
 {
@@ -87,6 +88,11 @@ bool DiscOpen(const std::string& game_dir)
   AddSystemFile(0, s_boot, "boot.bin");
   AddSystemFile(0x440, std::move(bi2), "bi2.bin");
   AddSystemFile(0x2440, std::move(apploader), "apploader.img");
+  s_dol = dol;
+  // The disc's DOL slot ends where the FST begins; a game-patched DOL is longer (its patch
+  // sections come last), so the slot serves only what fits and boot loads s_dol itself.
+  if (fst_offset > dol_offset && dol.size() > fst_offset - dol_offset)
+    dol.resize(fst_offset - dol_offset);
   AddSystemFile(dol_offset, std::move(dol), "main.dol");
 
   // FST: 12-byte entries (flags/name offset, file offset or parent, size or next index), then the
@@ -135,6 +141,11 @@ bool DiscOpen(const std::string& game_dir)
 const u8* DiscHeader()
 {
   return s_boot.data();
+}
+
+const std::vector<u8>& DiscDol()
+{
+  return s_dol;
 }
 
 bool DiscRead(u64 offset, void* out, u32 length)

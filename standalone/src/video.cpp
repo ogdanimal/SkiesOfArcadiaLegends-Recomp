@@ -6,6 +6,7 @@
 
 #include <chrono>
 #include <cstdlib>
+#include <cstring>
 #include <string>
 #include <thread>
 #include <vector>
@@ -17,6 +18,7 @@
 #include <aurora/aurora.h>
 #include <aurora/gfx.h>
 #include <dolphin/gx.h>
+#include <dolphin/vi.h>
 
 extern "C" {
 void aurora_backend_present(void);
@@ -24,6 +26,9 @@ bool aurora_backend_should_quit(void);
 void aurora_backend_write_raw(const void* data, u32 size);
 bool aurora_backend_drain_if_over(u32 bytes);
 void aurora_backend_set_guest_address_resolver(DolPlatformGuestAddressResolverFn resolve, void* user);
+int aurora_backend_surface_size(unsigned* width, unsigned* height);
+void aurora_backend_set_present_rect(int left, int top, int width, int height);
+void aurora_backend_set_frame_buffer_aspect_fit(int fit);
 }
 #endif
 
@@ -38,6 +43,20 @@ u64 s_dump_every = 0;
 std::vector<s16> s_audio;
 
 #ifdef SKIES_STANDALONE_AURORA
+// The picture's aspect: the widescreen game patch keeps its target in ws_config at the start of its
+// data section (patches/game/cave.ld, widescreen.c: magic 'WSCF', then display_aspect; 0 = 4:3).
+// It defaults to 16:9 and nothing here writes it, so a ws DOL shows 16:9 and the plain DOL 4:3.
+constexpr u32 WS_CONFIG = 0x80002A00;
+double PictureAspect()
+{
+  if (Read32(WS_CONFIG) != 0x57534346)
+    return 4.0 / 3.0;
+  const u32 bits = Read32(WS_CONFIG + 8);
+  float aspect;
+  std::memcpy(&aspect, &bits, sizeof(aspect));
+  return aspect > 0.5f && aspect < 8.0f ? aspect : 4.0 / 3.0;
+}
+
 bool ResolveGuestAddress(void*, u32 address, u32, DolGuestAddressSpace, DolGuestResourceKind,
                          const void** data, u32* available)
 {
@@ -55,6 +74,22 @@ bool ResolveGuestAddress(void*, u32 address, u32, DolGuestAddressSpace, DolGuest
   *data = g_ram + physical;
   *available = RAM_SIZE - physical;
   return true;
+}
+
+// The picture centred in the window at PictureAspect (Dolphin's aspect ratio letterbox).
+void ApplyPresentRect()
+{
+  unsigned width = 0, height = 0;
+  if (!aurora_backend_surface_size(&width, &height))
+    return;
+  const double aspect = PictureAspect();
+  int w = static_cast<int>(width), h = static_cast<int>(height);
+  if (static_cast<double>(width) / height > aspect)
+    w = static_cast<int>(height * aspect + 0.5);
+  else
+    h = static_cast<int>(width / aspect + 0.5);
+  aurora_backend_set_present_rect((static_cast<int>(width) - w) / 2,
+                                  (static_cast<int>(height) - h) / 2, w, h);
 }
 
 void DumpFrame()
@@ -106,9 +141,11 @@ bool VideoInit(bool headless)
     return true;
   const char* w = std::getenv("SKIES_WIDTH");
   const char* h = std::getenv("SKIES_HEIGHT");
+  // The DOL is in memory by now, so the window can open at the picture's shape (960 lines high).
   const AuroraBackendConfig config = {
       .app_name = "Skies of Arcadia Legends (standalone)",
-      .window_width = w ? static_cast<unsigned>(std::atoi(w)) : 1280u,
+      .window_width = w ? static_cast<unsigned>(std::atoi(w))
+                        : static_cast<unsigned>(960.0 * PictureAspect() + 0.5),
       .window_height = h ? static_cast<unsigned>(std::atoi(h)) : 960u,
       .vsync = std::getenv("SKIES_VSYNC") != nullptr,
       .allow_texture_dumps = false,
@@ -130,6 +167,12 @@ bool VideoInit(bool headless)
     return false;
   }
   aurora_backend_set_guest_address_resolver(ResolveGuestAddress, nullptr);
+  // As the Dolphin-side backend (ApplyEfbScale): the EFB keeps 640x480 times the scale whatever the
+  // window's shape (the ws patch draws anamorphic) and the picture is stretched at the present.
+  // SKIES_EFB_SCALE=N: N x native; 0 (the default) follows the window.
+  const char* scale = std::getenv("SKIES_EFB_SCALE");
+  aurora_backend_set_frame_buffer_aspect_fit(1);
+  VISetFrameBufferScale(scale ? static_cast<float>(std::atof(scale)) : 0.f);
   // SDK baseline before the game's own GXInit, as the Dolphin-side backend does.
   static std::vector<u8> s_gx_fifo(64 * 1024);
   GXInit(s_gx_fifo.data(), static_cast<u32>(s_gx_fifo.size()));
@@ -175,6 +218,7 @@ void VideoFrameEnd()
 #ifdef SKIES_STANDALONE_AURORA
   if (!s_active)
     return;
+  ApplyPresentRect();
   const bool dump = s_dump_every != 0 && (s_frames % s_dump_every) == 0;
   if (dump)
     aurora_request_framebuffer_readback();

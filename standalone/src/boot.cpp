@@ -13,11 +13,13 @@ namespace host
 {
 namespace
 {
-bool LoadDol(u32 disc_offset)
+// From sys/main.dol, not the disc's DOL slot: a game-patched DOL is longer than the slot.
+bool LoadDol()
 {
-  u8 header[0x100];
-  if (!DiscRead(disc_offset, header, sizeof(header)))
+  const std::vector<u8>& dol = DiscDol();
+  if (dol.size() < 0x100)
     return false;
+  const u8* header = dol.data();
   // 7 text + 11 data sections: offsets, addresses, sizes; then bss address/size, entry point
   for (u32 i = 0; i < 18; ++i)
   {
@@ -27,11 +29,12 @@ bool LoadDol(u32 disc_offset)
     if (size == 0)
       continue;
     u8* dst = RamPtr(address, size);
-    if (!dst || !DiscRead(disc_offset + offset, dst, size))
+    if (!dst || u64(offset) + size > dol.size())
     {
       Log("[boot] DOL section %u (%08x, %u bytes) does not fit\n", i, address, size);
       return false;
     }
+    std::memcpy(dst, dol.data() + offset, size);
   }
   // No BSS clearing: the header's BSS range spans .sdata between the BSS sections, and the
   // apploader leaves it to __start (RAM starts zeroed anyway).
@@ -68,11 +71,10 @@ bool Boot(const std::string& game_dir)
   Write32(0x800030DC, static_cast<u32>(ticks));
 
   // The apploader's work: the DOL, then bi2 and the FST at the top of MEM1.
-  const u32 dol_offset = BE32(disc + 0x420);
   const u32 fst_offset = BE32(disc + 0x424);
   const u32 fst_size = BE32(disc + 0x428);
   const u32 fst_max = BE32(disc + 0x42C);
-  if (!LoadDol(dol_offset))
+  if (!LoadDol())
     return false;
   const u32 fst_address = (0x80000000u + RAM_SIZE - fst_max) & ~0x1Fu;
   const u32 bi2_address = (fst_address - 0x2000) & ~0x1Fu;

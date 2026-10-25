@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <string>
+#include <vector>
 
 namespace host
 {
@@ -102,6 +103,7 @@ bool Boot(const std::string& game_dir);
 bool DiscOpen(const std::string& game_dir);
 bool DiscRead(u64 offset, void* out, u32 length);
 const u8* DiscHeader();  // boot.bin (0x440 bytes)
+const std::vector<u8>& DiscDol();  // sys/main.dol
 
 // ---- MMIO (mmio.cpp) ---------------------------------------------------------------------------
 u64 MmioRead(u32 address, u8 size);

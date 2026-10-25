@@ -10,6 +10,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "host.h"
 
+#include <cstdlib>
 #include <cstring>
 #include <vector>
 
@@ -251,9 +252,48 @@ Effect BpWrite(u8 reg, u32 value)
 
 void ParseDisplayList(u32 address, u32 size, int depth);
 
+// Debug: SKIES_GX_TRACE=N logs frame N's register loads and draws (top level and display lists).
+u64 TraceFrame()
+{
+  static const u64 frame = [] {
+    const char* v = std::getenv("SKIES_GX_TRACE");
+    return v ? std::strtoull(v, nullptr, 0) : ~0ull;
+  }();
+  return frame;
+}
+
+void Trace(const u8* p, u32 len, int depth)
+{
+  if (s_frames != TraceFrame())
+    return;
+  if (p[0] == 0x61)
+    Log("[gx] %d BP %02x %06x\n", depth, p[1], (u32(p[2]) << 16) | (u32(p[3]) << 8) | p[4]);
+  else if (p[0] == 0x08)
+    Log("[gx] %d CP %02x %08x\n", depth, p[1], BE32(p + 2));
+  else if (p[0] == 0x10)
+  {
+    const u32 head = BE32(p + 1);
+    std::string values;
+    for (u32 i = 5; i + 4 <= len; i += 4)
+    {
+      char v[12];
+      std::snprintf(v, sizeof(v), " %08x", BE32(p + i));
+      values += v;
+    }
+    Log("[gx] %d XF %04x n%u%s\n", depth, head & 0xFFFF, ((head >> 16) & 0xF) + 1, values.c_str());
+  }
+  else if (p[0] & 0x80)
+    Log("[gx] %d DRAW %02x n%u\n", depth, p[0], BE16(p + 1));
+  else if (p[0] == 0x40)
+    Log("[gx] %d CALL %08x %u\n", depth, BE32(p + 1), BE32(p + 5));
+  else if (p[0] >= 0x20 && p[0] <= 0x38)
+    Log("[gx] %d IDX %02x %08x\n", depth, p[0], BE32(p + 1));
+}
+
 // The side effects of one command; display lists are walked for theirs.
 Effect Apply(const u8* p, u32 len, int depth)
 {
+  Trace(p, len, depth);
   switch (p[0])
   {
   case 0x08:
@@ -573,7 +613,9 @@ void PeWrite16(u32 offset, u16 value)
 
 u32 EfbRead(u32)
 {
-  return 0;  // EFB peeks are not modelled yet
+  // Skies never peeks or pokes the EFB: GXPeek*/GXPoke{ARGB,Z} aren't linked into the DOL and no
+  // run has touched 0xC8000000. 0 is what the Dolphin build's Aurora backend (Null EFB) returns.
+  return 0;
 }
 
 void GpuStats(u64* frames, u64* draw_dones, u64* tokens)

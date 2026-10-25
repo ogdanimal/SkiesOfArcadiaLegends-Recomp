@@ -486,6 +486,32 @@ void DecrementerWritten()
     Schedule(EV_DEC, static_cast<u64>(value) * TIMER_RATIO, [](u64) { s_decrementer_pending = true; });
 }
 
+// Debug: SKIES_WATCH=ADDR (hex) logs the block (and lr) after which the word at ADDR changed.
+const u32 s_watch_address = [] {
+  const char* v = std::getenv("SKIES_WATCH");
+  return v ? static_cast<u32>(std::strtoul(v, nullptr, 16)) : 0u;
+}();
+
+static void WatchChanged(u32 pc, u32 address)
+{
+  static u32 last = Read32(address);
+  static int logged = 0;
+  const u32 now = Read32(address);
+  if (now != last && logged < 40)
+  {
+    ++logged;
+    Log("[watch] %08x: %08x -> %08x after block %08x (now pc %08x, lr %08x, %.3f s)\n", address,
+        last, now, pc, g_cpu.pc, g_cpu.lr, static_cast<double>(g_cycles) / CPU_HZ);
+  }
+  last = now;
+}
+
+inline void Watch(u32 pc)
+{
+  if (s_watch_address)
+    WatchChanged(pc, s_watch_address);
+}
+
 void RunCpu()
 {
   CPUState& c = g_cpu;
@@ -513,12 +539,14 @@ void RunCpu()
     if (pc < 0x3000)
     {
       RunVector(pc);
+      Watch(pc);
       continue;
     }
 
     if (!s_module->dispatch(&c, pc))
       Fatal("no recompiled code at %08x\n", pc);
     ++dispatches;
+    Watch(pc);
 
     // The module's per-block cycle charges, at least one cycle per dispatch.
     const s64 charge = -c.downcount;
