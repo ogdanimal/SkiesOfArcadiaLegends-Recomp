@@ -3,7 +3,8 @@
 # standalone/ cross-built for arm64 as libmain.so (SDL3 and Aurora linked in, Dawn's Android prebuilt), SDL's Java
 # glue plus standalone/android, packed without Gradle (javac, d8, aapt2, zipalign, apksigner with the debug key).
 #   tools/android-standalone-build.sh           -> build/standalone-apk/skies-standalone.apk
-# MODULE= the arm64 recomp module to bundle (default: build/android/jniLibs-aurora's, the ws26 DOL's).
+# MODULE= the arm64 recomp module to bundle (default: build/android/jniLibs-sa26's, made from the ws26 DOL with
+# NAME=sa26 MODULE_ONLY=1 tools/android-ws-build.sh; it must match the DOL pushed to the device).
 # AURORA_DEPS= Dawn's Android prebuilt and the abseil / sqlite3 / tracy / png sources (as android-ws-build.sh);
 # SDL, fmt, xxhash and zstd come from the desktop build's FetchContent sources (build/standalone/_deps).
 # No game files go into the APK: the game folder is pushed to the app's external files folder (see the handoff).
@@ -17,7 +18,7 @@ B=build/standalone-android
 O=build/standalone-apk
 D=$PWD/build/standalone/_deps
 AD=${AURORA_DEPS:-$HOME/projects/skies-aurora/android-deps}
-MODULE=${MODULE:-build/android/jniLibs-aurora/arm64-v8a/libgGEAE8P_recomp.so}
+MODULE=${MODULE:-build/android/jniLibs-sa26/arm64-v8a/libgGEAE8P_recomp.so}
 export PATH=/usr/lib/llvm-20/bin:$PATH
 [ -f "$MODULE" ] || { echo "no module at $MODULE"; exit 1; }
 [ -d "$D/sdl-src" ] || { echo "build the desktop standalone first (its FetchContent sources)"; exit 1; }

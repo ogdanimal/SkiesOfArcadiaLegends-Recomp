@@ -587,7 +587,7 @@ export) and Dawn's Android prebuilt; SDL's Java glue (`build/standalone/_deps/sd
 the desktop build and `~/projects/skies-aurora/android-deps`), builds, and packs without Gradle (javac,
 d8, aapt2, Python's zipfile for the stored dex and libraries, zipalign -P 16, apksigner with the debug key)
 into `build/standalone-apk/skies-standalone.apk` (151 MB: libmain.so, libpng16.so, the module).
-`MODULE=` picks the arm64 module (default `build/android/jniLibs-aurora`'s, which is the wrong one, below).
+`MODULE=` picks the arm64 module (default `build/android/jniLibs-sa26`'s, the ws26 DOL's; see *Bring-up*).
 
 **Arguments, environment, log** (standalone/src/main.cpp `AndroidSetup`): SDLActivity calls main without
 arguments, so they come from `args.txt` in the app's external files folder
