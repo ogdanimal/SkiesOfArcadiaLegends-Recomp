@@ -36,30 +36,42 @@ u32 NorepBit(u32 ch)
   return 1u << (27 - 8 * ch);
 }
 
-struct Pad
-{
-  bool connected;
-  u16 buttons;
-  u8 stick_x, stick_y, sub_x, sub_y, trig_l, trig_r;
-};
+using Pad = PadStatus;
 
-Pad ReadPad(u32 ch)
+// The controllers as of the last poll (SiPollDevices, once per field): controller 1 through the
+// menu's filter (menu.cpp), which takes the input while the menu is open.
+Pad s_pads[4];
+bool s_polled = false;
+
+void Snapshot()
 {
   u16 buttons[4];
   s8 sticks[4][4];
   u8 triggers[4][2];
   bool connected[4];
   VideoPadRead(buttons, sticks, triggers, connected);
-  Pad p{};
-  p.connected = connected[ch];
-  p.buttons = buttons[ch];
-  p.stick_x = static_cast<u8>(0x80 + sticks[ch][0]);
-  p.stick_y = static_cast<u8>(0x80 + sticks[ch][1]);
-  p.sub_x = static_cast<u8>(0x80 + sticks[ch][2]);
-  p.sub_y = static_cast<u8>(0x80 + sticks[ch][3]);
-  p.trig_l = triggers[ch][0];
-  p.trig_r = triggers[ch][1];
-  return p;
+  for (u32 ch = 0; ch < 4; ++ch)
+  {
+    Pad& p = s_pads[ch];
+    p.connected = connected[ch];
+    p.buttons = buttons[ch];
+    p.stick_x = static_cast<u8>(0x80 + sticks[ch][0]);
+    p.stick_y = static_cast<u8>(0x80 + sticks[ch][1]);
+    p.sub_x = static_cast<u8>(0x80 + sticks[ch][2]);
+    p.sub_y = static_cast<u8>(0x80 + sticks[ch][3]);
+    p.trig_l = triggers[ch][0];
+    p.trig_r = triggers[ch][1];
+  }
+  if (s_pads[0].connected)
+    MenuFilterPad(s_pads[0]);
+  s_polled = true;
+}
+
+Pad ReadPad(u32 ch)
+{
+  if (!s_polled)
+    Snapshot();
+  return s_pads[ch];
 }
 
 void UpdateInterrupts()
@@ -167,11 +179,13 @@ void SiInit()
   for (Channel& c : s_ch)
     c = {};
   s_poll = s_comcsr = s_status = s_exilk = 0;
+  s_polled = false;
   std::memset(s_buffer, 0, sizeof(s_buffer));
 }
 
 void SiPollDevices()
 {
+  Snapshot();
   for (u32 i = 0; i < 4; ++i)
   {
     const u32 errlatch = s_ch[i].in_hi & 0x40000000u;

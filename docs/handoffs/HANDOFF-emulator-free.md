@@ -264,6 +264,53 @@ MSVC byte swaps in the DSP HLE, a static page-aligned RAM. New options that came
   and the field again at 173.812 s, exactly as on WSL; still frames are pixel-identical to WSL's
   (llvmpipe Vulkan), moving ones differ only in an effect's phase.
 
-**Next:** someone listens to the audio (unmuted Windows run); the in-game menu / settings on the ImGui
-overlay; 60 fps (the replay context); Android shell; the remaining Dolphin-hosted features
-(HD textures, Dreamcast music, romhacks, ...).
+## In-game menu and player options (2026-10-25) — working on WSL and Windows
+
+`standalone/src/menu.cpp` ports the Dolphin build's menu (`VideoCommon/SkiesMenu.cpp`) and settings
+(`Core/SkiesSettings.cpp`): Z+Start, Esc or a controller's Back / Select opens it over the game, laid
+out and worded as in the Dolphin build, drawn with Dear ImGui (Dolphin's copy in `Externals/imgui`,
+compiled into the exe) through Aurora's host overlay (fork 0026; the standalone runs ImGui 1.92's
+texture protocol itself and hands the font atlas to `aurora_backend_set_overlay_texture`). Tabs:
+
+- **Graphics**: Picture (16:9 / Match screen / 4:3, through `ws_config`; the window letterboxes to it),
+  HUD (`ws_hud_aspect`), Resolution (`VISetFrameBufferScale`, live; a new first value **Match window** =
+  Aurora sizes the EFB to the window, the standalone's old default), V-Sync (`aurora_enable_vsync`,
+  live), Show FPS (drawn top right).
+- **Gameplay**: Camera (hold Z: C-stick tilt, L / R zoom, `cam_input`), Battle speed (a Z tap in battle
+  cycles it), Field speed (Z+X), Encounters, Hold B, EXP, Gold, Magic EXP, Invincible (L3 / R3 from
+  SDL's gamepads), all through `qol_input` as the Dolphin build writes it every poll, including the
+  step-down when the host can't keep up (`EmulationSpeed()`, guest time over wall time for the last
+  half second) and the CPU overclock for 3x / 4x (`g_overclock` divides the cycles each block charges).
+- **Sound**: Volume (scales what goes to Aurora's audio; the `SKIES_WAV` dump stays the DSP's own).
+- **Controls**: Stick dead zone (the standalone's own key `[Skies] StandaloneDeadZone`, applied to
+  controller 1's sticks; the Dolphin build keeps its dead zone in its controller profile).
+
+Settings are the Dolphin build's keys in the same files (`settings.cpp`: `USER/Config/Dolphin.ini`
+`[Skies]` and `[DSP] Volume`, `USER/Config/GFX.ini`), so both builds share one set of choices; only
+changed lines are rewritten (atomically). Without `--user` they last for the run. Messages (speed
+changes, Invincible, the speed step-down) are drawn top left for their time.
+
+Not offered yet, as the standalone can't do them: save states (the Saves tab; needs a state format
+for the host's devices, RAM, ARAM and the GPU's registers), 60 fps, Language, the Dreamcast tab,
+HD textures, Button mapping, Rumble, auto-load of a card save (Continue). Aurora's keyboard layout is
+its own default (arrows = D-pad, WASD = stick, J / K = A / B, U / I = X / Y, Q = Z, E / R = L / R,
+Enter = Start), not the release's.
+
+Checked (2026-10-25): WSL window (X11 screenshots): the menu over the intro, Picture switched live
+to 4:3 and saved; Esc and the arrow keys through real XTEST key events; Resolution to Native live;
+Show FPS and a message drawn. Headless with the ws32 DOL (`SKIES_RTC=847000789`, the Valuan ship
+route plus a box walk in the corridor's encounter zone, `build/sa-runs/box.txt`): first battle at
+119.7 s with Encounters 400%, 137.7 s at 100%, none in 278 s at Off; battle speed by Z taps in that
+battle: the battle ends at 171.3 s (1x), 149.7 s (2x from 125 s), 137.9 s (4x, overclock 2); the
+camera's words reach `cam_input` (pitch, zoom 1.0 -> 0.5), and the view tilts; Z+X steps the field
+speed and saves it. The plain DOL's fight route is unchanged (encounter 124.487 s, field 173.812 s).
+Windows (MSVC, D3D12): builds, the menu draws (Segoe UI) and Right changes Picture.
+Noted, not chased: on the ws32 DOL, Battle speed 2 set before boot makes the run diverge from Battle
+speed 1 during the intro (both runs are repeatable; the speed word differs only on the title, where
+the game patch ignores it), so the scripted route then misses the encounter zone.
+Press scripts also take CUP / CDOWN / CLEFT / CRIGHT (C-stick) and LT / RT (analog triggers);
+`SKIES_WATCH_MAX` raises the watch log's 40-change limit.
+
+**Next:** someone listens to the audio (unmuted Windows run) and tries the menu by hand; save states
+(the Saves tab, auto-save, Continue); 60 fps (the replay context); Android shell; the remaining
+Dolphin-hosted features (HD textures, Dreamcast music, romhacks, ...).

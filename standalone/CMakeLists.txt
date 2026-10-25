@@ -53,6 +53,8 @@ add_executable(skies-standalone
   src/hw_memcard.cpp
   src/hw_ai.cpp
   src/video.cpp
+  src/settings.cpp
+  src/menu.cpp
   src/dsphle/dsp_hle.cpp
   src/dsphle/mail_handler.cpp
   src/dsphle/ucodes.cpp
@@ -74,6 +76,18 @@ target_link_libraries(skies-standalone PRIVATE GXRuntime::runtime ${CMAKE_DL_LIB
 target_compile_definitions(skies-standalone PRIVATE
   SKIES_DSP_COEF_DEFAULT="${DOLPHIN_DIR}/Data/Sys/GC/dsp_coef.bin")
 if(SKIES_STANDALONE_AURORA)
+  # Dear ImGui (Dolphin's copy) for the in-game menu, drawn through Aurora's overlay
+  set(IMGUI_DIR "${DOLPHIN_DIR}/Externals/imgui/imgui")
+  target_sources(skies-standalone PRIVATE
+    "${IMGUI_DIR}/imgui.cpp"
+    "${IMGUI_DIR}/imgui_draw.cpp"
+    "${IMGUI_DIR}/imgui_tables.cpp"
+    "${IMGUI_DIR}/imgui_widgets.cpp")
+  set_source_files_properties(
+    "${IMGUI_DIR}/imgui.cpp" "${IMGUI_DIR}/imgui_draw.cpp" "${IMGUI_DIR}/imgui_tables.cpp"
+    "${IMGUI_DIR}/imgui_widgets.cpp"
+    PROPERTIES COMPILE_DEFINITIONS IMGUI_DISABLE_DEMO_WINDOWS COMPILE_OPTIONS "-w")
+  target_include_directories(skies-standalone PRIVATE "${IMGUI_DIR}")
   target_link_libraries(skies-standalone PRIVATE GXRuntime::aurora)
   target_compile_definitions(skies-standalone PRIVATE SKIES_STANDALONE_AURORA=1)
 endif()

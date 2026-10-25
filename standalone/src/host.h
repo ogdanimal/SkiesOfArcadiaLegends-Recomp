@@ -198,4 +198,43 @@ void VideoFrameEnd();                         // the game's display copy (EFB to
 void VideoRetrace();                          // a VI field
 bool VideoQuitRequested();
 void VideoPadRead(u16 buttons[4], s8 sticks[4][4], u8 triggers[4][2], bool connected[4]);
+// The window's surface in pixels (false: no window; either pointer may be null)
+bool VideoSurfaceSize(unsigned* width, unsigned* height);
+
+// ---- settings (settings.cpp) -----------------------------------------------------------------------
+// The Dolphin build's Config/Dolphin.ini and Config/GFX.ini in the user folder (read at start,
+// changed lines written back by SettingsSave).
+enum class SettingFile
+{
+  Main,
+  Gfx,
+};
+void SettingsInit(const std::string& user_dir);
+int SettingGet(SettingFile file, const char* section, const char* key, int fallback);
+void SettingSet(SettingFile file, const char* section, const char* key, int value, bool boolean = false);
+void SettingsSave();
+
+// ---- the in-game menu and the player options (menu.cpp) --------------------------------------------
+// A GameCube controller's state as the SI sends it (sticks centred at 0x80).
+struct PadStatus
+{
+  bool connected = false;
+  u16 buttons = 0;
+  u8 stick_x = 0x80, stick_y = 0x80, sub_x = 0x80, sub_y = 0x80, trig_l = 0, trig_r = 0;
+};
+// Applies the picture settings to the game patch's config words (before the window opens, and at
+// every frame end).
+void MenuApplyGame();
+// Controller 1 at each SI poll: the menu (Z+Start, Esc, a controller's Back) takes the input while
+// it's open; the camera, speed and QOL options read it while it's closed.
+void MenuFilterPad(PadStatus& pad);
+// Before each present: the menu, messages and the FPS counter through Aurora's overlay.
+void MenuFrame();
+void MenuMessage(const std::string& text, int milliseconds);
+int MenuVolume();  // percent
+// The emulated CPU's clock factor for the speed options (1 = the Gekko's; cpu.cpp divides the
+// cycles it charges by it)
+extern float g_overclock;
+// Guest time over wall time for the last half second (1 = full speed; main.cpp)
+double EmulationSpeed();
 }  // namespace host

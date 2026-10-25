@@ -131,6 +131,7 @@ bool s_decrementer_pending = false;
 u64 s_dec_start_cycles = 0;
 u32 s_dec_start_value = 0;
 u64 s_tb_remainder = 0;
+double s_overclock_cycles = 0.0;  // the fraction of a cycle the overclock left over
 
 // The OS exception vectors (SDK __OSExceptionLocations order = exception number).
 constexpr u32 kVectors[] = {0x100, 0x200, 0x300, 0x400, 0x500, 0x600, 0x700, 0x800,
@@ -534,7 +535,8 @@ void DecrementerWritten()
     Schedule(EV_DEC, static_cast<u64>(value) * TIMER_RATIO, [](u64) { s_decrementer_pending = true; });
 }
 
-// Debug: SKIES_WATCH=ADDR (hex) logs the block (and lr) after which the word at ADDR changed.
+// Debug: SKIES_WATCH=ADDR (hex) logs the block (and lr) after which the word at ADDR changed (the
+// first 40 changes, or SKIES_WATCH_MAX).
 const u32 s_watch_address = [] {
   const char* v = std::getenv("SKIES_WATCH");
   return v ? static_cast<u32>(std::strtoul(v, nullptr, 16)) : 0u;
@@ -544,8 +546,12 @@ static void WatchChanged(u32 pc, u32 address)
 {
   static u32 last = Read32(address);
   static int logged = 0;
+  static const int most = [] {
+    const char* v = std::getenv("SKIES_WATCH_MAX");
+    return v ? std::atoi(v) : 40;
+  }();
   const u32 now = Read32(address);
-  if (now != last && logged < 40)
+  if (now != last && logged < most)
   {
     ++logged;
     Log("[watch] %08x: %08x -> %08x after block %08x (now pc %08x, lr %08x, %.3f s)\n", address,
@@ -599,7 +605,14 @@ void RunCpu()
     // The module's per-block cycle charges, at least one cycle per dispatch.
     const s64 charge = -c.downcount;
     c.downcount = 0;
-    const u64 cycles = charge > 0 ? static_cast<u64>(charge) : 1;
+    u64 cycles = charge > 0 ? static_cast<u64>(charge) : 1;
+    if (g_overclock != 1.0f)
+    {
+      // The speed options' overclock (menu.cpp): the same code in fewer guest cycles
+      s_overclock_cycles += static_cast<double>(cycles) / g_overclock;
+      cycles = static_cast<u64>(s_overclock_cycles);
+      s_overclock_cycles -= static_cast<double>(cycles);
+    }
     g_cycles += cycles;
     s_tb_remainder += cycles;
     c.timebase += s_tb_remainder / TIMER_RATIO;

@@ -165,7 +165,8 @@ bool VideoInit(bool headless)
       .window_width = w ? static_cast<unsigned>(std::atoi(w))
                         : static_cast<unsigned>(960.0 * PictureAspect() + 0.5),
       .window_height = h ? static_cast<unsigned>(std::atoi(h)) : 960u,
-      .vsync = std::getenv("SKIES_VSYNC") != nullptr,
+      .vsync = std::getenv("SKIES_VSYNC") != nullptr ||
+               SettingGet(SettingFile::Gfx, "Hardware", "VSync", 0) != 0,
       .allow_texture_dumps = false,
       .info_logging = std::getenv("SKIES_AURORA_LOG") != nullptr,
       .graphics_logging = std::getenv("SKIES_AURORA_LOG") != nullptr,
@@ -187,10 +188,8 @@ bool VideoInit(bool headless)
   aurora_backend_set_guest_address_resolver(ResolveGuestAddress, nullptr);
   // As the Dolphin-side backend (ApplyEfbScale): the EFB keeps 640x480 times the scale whatever the
   // window's shape (the ws patch draws anamorphic) and the picture is stretched at the present.
-  // SKIES_EFB_SCALE=N: N x native; 0 (the default) follows the window.
-  const char* scale = std::getenv("SKIES_EFB_SCALE");
+  // The scale is the Resolution setting (menu.cpp; SKIES_EFB_SCALE=N overrides it), 0 = the window's.
   aurora_backend_set_frame_buffer_aspect_fit(1);
-  VISetFrameBufferScale(scale ? static_cast<float>(std::atof(scale)) : 0.f);
   // SDK baseline before the game's own GXInit, as the Dolphin-side backend does.
   static std::vector<u8> s_gx_fifo(64 * 1024);
   GXInit(s_gx_fifo.data(), static_cast<u32>(s_gx_fifo.size()));
@@ -198,6 +197,7 @@ bool VideoInit(bool headless)
   dol_platform_pad_init();
   dol_platform_audio_set_sample_rate(32000);
   s_active = true;
+  MenuApplyGame();
   return true;
 #else
   (void)headless;
@@ -279,7 +279,9 @@ void VideoFrameEnd()
 #ifdef SKIES_STANDALONE_AURORA
   if (!s_active)
     return;
+  MenuApplyGame();
   ApplyPresentRect();
+  MenuFrame();
   // SKIES_DRAW_LOG_FRAME=N: Aurora's draw log for frame N only (run with SKIES_DRAIN=0 so the
   // frame's commands are parsed before the switch).
   static const u64 log_frame = [] {
@@ -308,6 +310,24 @@ void VideoRetrace()
 {
 }
 
+bool VideoSurfaceSize(unsigned* width, unsigned* height)
+{
+#ifdef SKIES_STANDALONE_AURORA
+  unsigned w = 0, h = 0;
+  if (!s_active || !aurora_backend_surface_size(&w, &h))
+    return false;
+  if (width)
+    *width = w;
+  if (height)
+    *height = h;
+  return true;
+#else
+  (void)width;
+  (void)height;
+  return false;
+#endif
+}
+
 bool VideoQuitRequested()
 {
 #ifdef SKIES_STANDALONE_AURORA
@@ -318,13 +338,16 @@ bool VideoQuitRequested()
 }
 
 // SKIES_PRESS="12.5:START,14:A,...": port 1 holds that button for 0.2 guest seconds from each time
-// (START A B X Y Z L R UP DOWN LEFT RIGHT), for unattended runs.
-u16 ScriptedButtons()
+// (START A B X Y Z L R UP DOWN LEFT RIGHT; CUP CDOWN CLEFT CRIGHT push the C-stick fully over, LT RT
+// the analog triggers fully in), for unattended runs. The low 16 bits are buttons.
+constexpr u32 SCRIPT_C_UP = 1u << 16, SCRIPT_C_DOWN = 1u << 17, SCRIPT_C_LEFT = 1u << 18,
+              SCRIPT_C_RIGHT = 1u << 19, SCRIPT_LT = 1u << 20, SCRIPT_RT = 1u << 21;
+u32 ScriptedButtons()
 {
   struct Press
   {
     double at;
-    u16 button;
+    u32 button;
   };
   static std::vector<Press> s_presses;
   static bool s_parsed = false;
@@ -354,10 +377,13 @@ u16 ScriptedButtons()
     static const struct
     {
       const char* name;
-      u16 bit;
-    } kNames[] = {{"LEFT", 0x1}, {"RIGHT", 0x2}, {"DOWN", 0x4}, {"UP", 0x8}, {"Z", 0x10},
-                  {"R", 0x20},   {"L", 0x40},    {"A", 0x100},  {"B", 0x200}, {"X", 0x400},
-                  {"Y", 0x800},  {"START", 0x1000}};
+      u32 bit;
+    } kNames[] = {{"LEFT", 0x1},           {"RIGHT", 0x2},      {"DOWN", 0x4},
+                  {"UP", 0x8},             {"Z", 0x10},         {"R", 0x20},
+                  {"L", 0x40},             {"A", 0x100},        {"B", 0x200},
+                  {"X", 0x400},            {"Y", 0x800},        {"START", 0x1000},
+                  {"CUP", SCRIPT_C_UP},    {"CDOWN", SCRIPT_C_DOWN}, {"CLEFT", SCRIPT_C_LEFT},
+                  {"CRIGHT", SCRIPT_C_RIGHT}, {"LT", SCRIPT_LT}, {"RT", SCRIPT_RT}};
     while (script && *script)
     {
       char* end = nullptr;
@@ -375,7 +401,7 @@ u16 ScriptedButtons()
     }
   }
   const double now = static_cast<double>(Now()) / CPU_HZ;
-  u16 held = 0;
+  u32 held = 0;
   for (const Press& p : s_presses)
     if (now >= p.at && now < p.at + 0.2)
       held |= p.button;
@@ -391,7 +417,12 @@ void VideoPadRead(u16 buttons[4], s8 sticks[4][4], u8 triggers[4][2], bool conne
     triggers[i][0] = triggers[i][1] = 0;
     connected[i] = i == 0;  // port 1 always holds a controller
   }
-  buttons[0] = ScriptedButtons();
+  const u32 scripted = ScriptedButtons();
+  buttons[0] = static_cast<u16>(scripted);
+  sticks[0][2] = scripted & SCRIPT_C_LEFT ? -127 : scripted & SCRIPT_C_RIGHT ? 127 : 0;
+  sticks[0][3] = scripted & SCRIPT_C_DOWN ? -127 : scripted & SCRIPT_C_UP ? 127 : 0;
+  triggers[0][0] = scripted & SCRIPT_LT ? 255 : 0;
+  triggers[0][1] = scripted & SCRIPT_RT ? 255 : 0;
 #ifdef SKIES_STANDALONE_AURORA
   if (!s_active)
     return;
@@ -405,10 +436,13 @@ void VideoPadRead(u16 buttons[4], s8 sticks[4][4], u8 triggers[4][2], bool conne
     buttons[i] = static_cast<u16>(state[i].button | (i == 0 ? buttons[0] : 0));
     sticks[i][0] = state[i].stick_x;
     sticks[i][1] = state[i].stick_y;
-    sticks[i][2] = state[i].substick_x;
-    sticks[i][3] = state[i].substick_y;
-    triggers[i][0] = state[i].trigger_left;
-    triggers[i][1] = state[i].trigger_right;
+    if (i != 0 || !(scripted & (SCRIPT_C_UP | SCRIPT_C_DOWN | SCRIPT_C_LEFT | SCRIPT_C_RIGHT)))
+    {
+      sticks[i][2] = state[i].substick_x;
+      sticks[i][3] = state[i].substick_y;
+    }
+    triggers[i][0] = std::max(triggers[i][0], state[i].trigger_left);
+    triggers[i][1] = std::max(triggers[i][1], state[i].trigger_right);
   }
 #endif
 }
@@ -465,7 +499,17 @@ void AudioPushSamples(const s16* samples, u32 frames)
   static const bool s_mute = std::getenv("SKIES_MUTE") != nullptr;
   if (!s_active || s_mute)
     return;
-  s_audio.insert(s_audio.end(), samples, samples + frames * 2);
+  const int volume = MenuVolume();
+  if (volume >= 100)
+  {
+    s_audio.insert(s_audio.end(), samples, samples + frames * 2);
+  }
+  else
+  {
+    // The Volume setting (the WAV dump above stays the DSP's own output)
+    for (u32 i = 0; i < frames * 2; ++i)
+      s_audio.push_back(static_cast<s16>(samples[i] * volume / 100));
+  }
   if (s_audio.size() >= 512 * 2)
   {
     dol_platform_audio_push(s_audio.data(), static_cast<u32>(s_audio.size() / 2));

@@ -43,10 +43,43 @@ void Report()
 }
 }  // namespace
 
+// Guest time over wall time for the last half second, from the fields' times (the speed options
+// step down when the host can't keep up).
+namespace
+{
+struct SpeedSample
+{
+  std::chrono::steady_clock::time_point wall;
+  u64 cycles;
+};
+SpeedSample s_speed_samples[32];
+u32 s_speed_next = 0;
+double s_speed = 1.0;
+
+void SampleSpeed(std::chrono::steady_clock::time_point now)
+{
+  const SpeedSample& oldest = s_speed_samples[s_speed_next % 32];
+  if (s_speed_next >= 32)
+  {
+    const double wall = std::chrono::duration<double>(now - oldest.wall).count();
+    if (wall > 0)
+      s_speed = static_cast<double>(g_cycles - oldest.cycles) / CPU_HZ / wall;
+  }
+  s_speed_samples[s_speed_next % 32] = {now, g_cycles};
+  ++s_speed_next;
+}
+}  // namespace
+
+double EmulationSpeed()
+{
+  return s_speed;
+}
+
 // Called by the VI at every field: pace guest time to the wall clock, stop at --seconds.
 void Throttle()
 {
   const auto now = std::chrono::steady_clock::now();
+  SampleSpeed(now);
   if (g_cycles - s_last_report_cycles >= 5 * CPU_HZ)
   {
     const double wall = std::chrono::duration<double>(now - s_last_report_wall).count();
@@ -75,7 +108,7 @@ int main(int argc, char** argv)
 {
   using namespace host;
   setvbuf(stderr, nullptr, _IONBF, 0);
-  std::string game, module, dol;
+  std::string game, module, dol, user;
   std::string dsp_coef = SKIES_DSP_COEF_DEFAULT;
   bool headless = false;
   u32 idle_pc = ~0u;
@@ -110,7 +143,7 @@ int main(int argc, char** argv)
     else if (a == "--dol")
       dol = next();
     else if (a == "--user")
-      ExiSetUserDir(next());
+      user = next();
     else
     {
       Log("usage: %s --game DIR --module FILE [--headless] [--unthrottled] [--seconds N] "
@@ -125,6 +158,8 @@ int main(int argc, char** argv)
     return 2;
   }
 
+  ExiSetUserDir(user);
+  SettingsInit(user);
   SchedInit();
   CpuInit();
   if (!LoadModule(module.c_str()) || !DiscOpen(game, dol))
@@ -149,6 +184,7 @@ int main(int argc, char** argv)
   SiInit();
   ExiInit();
   AiInit();
+  MenuApplyGame();  // the picture's shape before the window opens at it
   if (!VideoInit(headless))
     return 1;
   if (seconds > 0)
