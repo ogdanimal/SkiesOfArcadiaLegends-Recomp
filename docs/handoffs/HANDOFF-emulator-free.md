@@ -8,14 +8,18 @@ until the standalone build reaches parity; nothing here changes the default buil
 
 **Performance goal (the user's, 2026-10-25):** the standalone must run *better* than the Dolphin build, and
 weaker hardware must run it better too. The baseline is the last section (*Speed against the Dolphin
-build* and *GPU time per frame*): ahead on CPU (25% on a desktop CPU, 45-65% on E-cores, 0.45 vs 0.60 cores
-at full speed) and on GPU (about 30% less GPU time per frame than Dolphin's Vulkan renderer on an iGPU
-when both are GPU-bound; the first baseline said the opposite, from a Dolphin run at the wrong resolution).
+build*, *GPU time per frame*, *A battle scene and frame pacing*): ahead on CPU (16-25% on a desktop CPU,
+30-65% on E-cores, 0.45 vs 0.60 cores at full speed at the save point, 0.35 vs 0.49 in battle) and on GPU
+(about 44% less GPU time per frame than Dolphin's Vulkan renderer on an iGPU at 6x after forks 0032-0035:
+1.30x vs 0.77x, and at full speed there the standalone holds 33 ms frames while Dolphin is late on every one;
+the first baseline said the opposite, from a Dolphin run at the wrong resolution). Not measured yet: the
+Retroid Pocket 5 (the Android shell boots there; see *The Android shell* at the end).
 
 **Status (2026-10-25):** phases 1-3 done (title screen, audio bit-exact with Dolphin's AX HLE, first
 battle at full speed, card saves); phase 4 under way (in-game menu, save states and auto-save done; 60 fps,
-Continue, Language, Dreamcast, HD textures, mapping, rumble open); phase 5 (Android) not started. The
-latest sections at the end of this file come first when picking up.
+Continue, Language, Dreamcast, HD textures, mapping, rumble open); phase 5 (Android) started: a test app
+that boots on the Retroid Pocket 5 up to the module check (an arm64 module for the ws26 DOL was being built
+when this was written). The latest sections at the end of this file come first when picking up.
 
 Why this and not the Aurora-inside-Dolphin backend alone: inside Dolphin, Aurora only reaches parity with
 Dolphin's Vulkan renderer (sessions 5-6, `HANDOFF-aurora.md`); it pays off once the port leaves Dolphin
@@ -87,7 +91,8 @@ see *Save states*). Memory card saves are plain GCI files and carry over.
    full speed, a card save written and read back.
 4. **Features re-hosted** (*under way: menu and save states done*) in priority order: settings menu (the ImGui overlay exists), 60 fps, then the rest
    of the table above.
-5. **Android shell**, then standalone builds released beside the Dolphin builds until parity.
+5. **Android shell** (*started 2026-10-25: test app, last section*), then standalone builds released beside the
+   Dolphin builds until parity.
 
 Where the work lives: the local branch `aurora-backend` (worktree `~/projects/skies-aurora-backend`, cut
 from origin/dev a7aa0f8). It is deliberately kept local: no upstream, pushes blocked
@@ -570,4 +575,46 @@ it isn't headroom; cores in use (`cpu-sample.sh`) is.
 | Save point, UHD 770 at 6x | **33.4 / 34.5-34.9 / 36.1-36.6 / 37-39 (1.00x)** | 44.1 / 47.8 / 50.8-55.7 / 53-257 (0.77x: every frame late) |
 
 (`C:\dev\SkiesAuroraRun\user-bench-igpu6-rt` is new: `user-bench-igpu6` with `EmulationSpeed = 1.0`.)
+
+## The Android shell (2026-10-25, later): a test app, boots on the Retroid Pocket 5
+
+**What it is.** `com.skiesofarcadia.standalone` ("Skies standalone (test)"), beside the user's apps and
+touching none of them. On Android `standalone/CMakeLists.txt` builds the standalone as `libmain.so` with SDL3
+linked statically (Aurora takes SDL's `Android_LockActivityMutex`, which a shared `libSDL3.so` doesn't
+export) and Dawn's Android prebuilt; SDL's Java glue (`build/standalone/_deps/sdl-src/android-project`) plus
+`standalone/android/` (manifest, `SkiesActivity`: loads only `main`) make the APK.
+`tools/android-standalone-build.sh` configures `build/standalone-android` offline (FetchContent sources from
+the desktop build and `~/projects/skies-aurora/android-deps`), builds, and packs without Gradle (javac,
+d8, aapt2, Python's zipfile for the stored dex and libraries, zipalign -P 16, apksigner with the debug key)
+into `build/standalone-apk/skies-standalone.apk` (151 MB: libmain.so, libpng16.so, the module).
+`MODULE=` picks the arm64 module (default `build/android/jniLibs-aurora`'s, which is the wrong one, below).
+
+**Arguments, environment, log** (standalone/src/main.cpp `AndroidSetup`): SDLActivity calls main without
+arguments, so they come from `args.txt` in the app's external files folder
+(`/sdcard/Android/data/com.skiesofarcadia.standalone/files`), one per line, `$FILES` standing for that
+folder; `env.txt` there holds NAME=VALUE lines for the environment; stderr (the log) goes to `log.txt`
+there. The module is given by name (`--module libgGEAE8P_recomp.so`, found in the app's library folder).
+
+**On the device** (Pocket 5, serial <serial>; always Windows' `adb.exe`, never WSL's adb), pushed into the
+files folder (no game files in the APK): `game/sys` from `C:\dev\SkiesRomhack\build\game\GEAE8P-ws26\sys`,
+`game/files` from `C:\dev\SkiesRecomp\extracted\SkiesOfArcadiaLegends\files` (1.4 GB, 50 s),
+`user-bench-sa` (Encounters 400%, widescreen), `dsp_coef.bin` (Dolphin's `Data/Sys/GC`),
+`bench-savepoint.sst`, `bench-battle2.sst`, and `args.txt` / `env.txt` (`SKIES_MUTE=1`,
+`SKIES_PRESENT_PACING=1`, `SKIES_AURORA_LOG=1`). Started with
+`adb.exe -s <serial> shell am start -n com.skiesofarcadia.standalone/.SkiesActivity`.
+
+**First run:** the module loads, the disc and boot are read, then "module chunks matching the DOL: 5147 of
+5461 ... built for another DOL": `build/android/jniLibs-aurora` was generated from another DOL than the
+ws26 `main.dol` now in `GEAE8P-aurora` (same SHA-256 as ws26; the desktop ws26 module matches 5461 of
+5461). Being built: `NAME=sa26 MODULE_ONLY=1 DOL=/mnt/c/dev/SkiesRomhack/build/game/GEAE8P-ws26/sys/main.dol
+tools/android-ws-build.sh` (profile `skies-android-gp.profdata`) -> `build/android/jniLibs-sa26`; then
+`MODULE=build/android/jniLibs-sa26/arm64-v8a/libgGEAE8P_recomp.so tools/android-standalone-build.sh`, install
+(`adb.exe install -r`), launch, read `log.txt`.
+
+**Next:** the first picture and speed on the Pocket 5 (save point, battle; throttled and uncapped; Vulkan
+backend through Dawn); then the Dolphin build on the same DOL and module for the head-to-head. The installed
+Dolphin-build apps are on other patches (the branded test app is ws34), so that needs one of them rebuilt
+for ws26 or a new package: **ask the user before replacing an installed app.** Open for the shell itself:
+input on the Retroid's built-in pad (SDL gamepad), audio (SDL on AAudio), background/foreground and surface
+loss, the in-game menu by touch or pad, a launcher (disc import) instead of adb pushes.
 

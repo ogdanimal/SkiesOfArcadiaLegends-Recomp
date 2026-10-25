@@ -2941,7 +2941,11 @@ port's Dolphin-hosted features) and the phased plan: [handoffs/HANDOFF-emulator-
 All Aurora and emulator-free work lives on the local branch `aurora-backend` (kept local on purpose: not
 rebased, merged or pushed); dev and the releases don't carry it. Status 2026-10-25: the standalone host
 (`standalone/`) plays on desktop with no Dolphin core (audio, card saves, menu, save states); the goal is to
-run better than the Dolphin build, weak hardware included; the handoff has the numbers.
+run better than the Dolphin build, weak hardware included; the handoff has the numbers (ahead on CPU and
+GPU at the save point and in battle; `SKIES_PRESENT_PACING=1` logs frame pacing in the Dolphin build's
+format). Android: `tools/android-standalone-build.sh` builds a test app (libmain.so on SDL's Java glue, no
+Gradle) that boots on the Retroid Pocket 5; its arguments, environment and log are files in the app's
+external files folder (handoff, *The Android shell*).
 
 ## Aurora renderer (desktop; 2026-10-21, committed as patches 2026-10-22: see *Aurora renderer* under Android for the status)
 

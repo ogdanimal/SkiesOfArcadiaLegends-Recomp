@@ -158,9 +158,64 @@ void Throttle()
 }
 }  // namespace host
 
+#if defined(__ANDROID__) && defined(SKIES_STANDALONE_AURORA)
+#include <SDL3/SDL_main.h>
+#include <SDL3/SDL_system.h>
+
+#include <fstream>
+#include <vector>
+
+// The Android shell (standalone/android): SDLActivity calls main (SDL_main) without arguments. They come
+// from args.txt in the app's external files folder, one per line ($FILES in them is that folder), the
+// environment from env.txt there (NAME=VALUE lines), and the log (stderr) goes to log.txt there.
+namespace
+{
+std::vector<std::string> s_android_args;
+std::vector<char*> s_android_argv;
+
+void AndroidSetup(int& argc, char**& argv)
+{
+  const char* dir = SDL_GetAndroidExternalStoragePath();
+  if (!dir)
+    return;
+  const std::string files = dir;
+  std::freopen((files + "/log.txt").c_str(), "w", stderr);
+  const auto lines = [&](const char* name, auto&& each) {
+    std::ifstream in(files + "/" + name);
+    for (std::string line; std::getline(in, line);)
+    {
+      while (!line.empty() && (line.back() == '\r' || line.back() == ' '))
+        line.pop_back();
+      if (line.empty() || line[0] == '#')
+        continue;
+      for (size_t at; (at = line.find("$FILES")) != std::string::npos;)
+        line.replace(at, 6, files);
+      each(line);
+    }
+  };
+  lines("env.txt", [](const std::string& line) {
+    if (const size_t eq = line.find('='); eq != std::string::npos)
+      setenv(line.substr(0, eq).c_str(), line.substr(eq + 1).c_str(), 1);
+  });
+  if (argc > 1)
+    return;
+  s_android_args.push_back("skies-standalone");
+  lines("args.txt", [](const std::string& line) { s_android_args.push_back(line); });
+  for (auto& arg : s_android_args)
+    s_android_argv.push_back(arg.data());
+  s_android_argv.push_back(nullptr);
+  argc = static_cast<int>(s_android_args.size());
+  argv = s_android_argv.data();
+}
+}  // namespace
+#endif
+
 int main(int argc, char** argv)
 {
   using namespace host;
+#if defined(__ANDROID__) && defined(SKIES_STANDALONE_AURORA)
+  AndroidSetup(argc, argv);
+#endif
   setvbuf(stderr, nullptr, _IONBF, 0);
   std::string game, module, dol, user, load_state;
   std::string dsp_coef = SKIES_DSP_COEF_DEFAULT;

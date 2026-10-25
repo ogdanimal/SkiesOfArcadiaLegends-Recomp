@@ -27,6 +27,8 @@ if(SKIES_STANDALONE_AURORA)
   set(AURORA_ENABLE_CARD OFF CACHE BOOL "" FORCE)
   set(AURORA_ENABLE_SDL ON CACHE BOOL "" FORCE)
   set(AURORA_SDL3_PROVIDER "vendor" CACHE STRING "" FORCE)
+  # Static on Android too: Aurora takes SDL's activity mutex (Android_LockActivityMutex), which libSDL3.so
+  # doesn't export; SDLActivity then loads libmain.so alone (android/)
   set(AURORA_SDL3_LINKAGE "static" CACHE STRING "" FORCE)
   set(AURORA_DAWN_PROVIDER "package" CACHE STRING "" FORCE)
 else()
@@ -44,7 +46,7 @@ if(NOT TARGET zstd::libzstd)
   add_library(zstd::libzstd ALIAS libzstd_static)
 endif()
 
-add_executable(skies-standalone
+set(SKIES_STANDALONE_SOURCES
   src/main.cpp
   src/cpu.cpp
   src/scheduler.cpp
@@ -75,6 +77,14 @@ add_executable(skies-standalone
   src/interp/interp.cpp
   "${DOLPHIN_DIR}/DolRecomp/src/frontend/decoder.c"
 )
+if(ANDROID)
+  # The Android shell's native side: SDL's Java glue calls SDL_main in libmain.so
+  add_library(skies-standalone SHARED ${SKIES_STANDALONE_SOURCES})
+  set_target_properties(skies-standalone PROPERTIES OUTPUT_NAME main)
+  target_link_libraries(skies-standalone PRIVATE android log)
+else()
+  add_executable(skies-standalone ${SKIES_STANDALONE_SOURCES})
+endif()
 target_include_directories(skies-standalone PRIVATE
   src
   "${GXRUNTIME_DIR}/include"

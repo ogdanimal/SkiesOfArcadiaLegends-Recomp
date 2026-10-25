@@ -186,11 +186,15 @@ a native MusyX engine such as AxioDL's amuse), the 60 fps interpolator (built in
 a new Android shell, and about 25,000 lines of port features written against Dolphin's APIs. Status
 (2026-10-25): the standalone host plays on desktop (WSL, Windows D3D12) with no Dolphin core: audio
 bit-exact (Skies' MusyX ucode is Dolphin's AX, ported as HLE), card saves, the in-game menu, save states;
-same-machine baseline: faster than the Dolphin build on CPU, and on GPU about 44% less GPU time per frame
-(GPU-bound on an iGPU at 6x: 24.4 against ~43.5 ms, 1.30x against 0.77x, after forks 0032-0034; the first
-GPU number, "more GPU time", came from a Dolphin run at the wrong resolution). Goal set by the user:
-better than the Dolphin build, weaker hardware included. Open: 60 fps, Continue, the remaining features,
-Android.
+same-machine baseline: faster than the Dolphin build on CPU (battle too: 3.78x vs 3.25x, 1.86x vs 1.27x on
+one E-core, 0.35 vs 0.49 cores at full speed), and on GPU about 44% less GPU time per frame (GPU-bound on an
+iGPU at 6x: 24.4 against ~43.5 ms, 1.30x against 0.77x, after forks 0032-0035; at full speed there the
+standalone holds 33 ms frames, Dolphin is late on every one; the first GPU number, "more GPU time", came
+from a Dolphin run at the wrong resolution). Goal set by the user: better than the Dolphin build, weaker
+hardware included. Android: a test app (`tools/android-standalone-build.sh`,
+com.skiesofarcadia.standalone) boots on the Retroid Pocket 5 up to the module check (a ws26 arm64 module
+was being built); no device numbers yet. Open: the device head-to-head, 60 fps, Continue, the remaining
+features, the Android shell's launcher, input and lifecycle.
 
 The Aurora renderer inside Dolphin (`--graphics Aurora`, `AURORA=1`), the groundwork for it: the picture
 matches Dolphin on both Retroids, Windows and WSL (fork fixes: the XF viewport decoded per register;
