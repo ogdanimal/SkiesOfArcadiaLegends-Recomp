@@ -22,8 +22,8 @@ the emulation thread on the prime core) smoother at full speed at ~0.4-0.5 W les
 **Status (2026-10-25):** phases 1-3 done (title screen, audio bit-exact with Dolphin's AX HLE, first
 battle at full speed, card saves); phase 4 under way (in-game menu, save states and auto-save done; 60 fps,
 Continue, Language, Dreamcast, HD textures, mapping, rumble open); phase 5 (Android) started: a test app
-that plays on the Retroid Pocket 5 (from a state; pacing fixed; higher resolutions measured; launcher, input and
-lifecycle not done). The latest sections at the end of this file come first when picking up.
+that plays on the Retroid Pocket 5 (from a state; pacing fixed; higher resolutions measured; immersive; background
+and foreground at the same size work; the built-in pad and audio on the device untested by hand; no launcher yet). The latest sections at the end of this file come first when picking up.
 
 Why this and not the Aurora-inside-Dolphin backend alone: inside Dolphin, Aurora only reaches parity with
 Dolphin's Vulkan renderer (sessions 5-6, `HANDOFF-aurora.md`); it pays off once the port leaves Dolphin
@@ -462,7 +462,8 @@ GPU busy % at partial load follows the iGPU's clock governor (Dolphin shows 78% 
 the GPU-bound uncapped speed is the comparison to use; at 3x neither side is GPU-bound.
 
 **`AURORA_GPU_PROF=N` (fork 0031)** prints the GPU time per frame by pass every N frames (needs
-`SKIES_AURORA_LOG=1` in the standalone to reach the log). At the save point, iGPU 3x, before the cuts:
+`SKIES_AURORA_LOG=1` in the standalone to reach the log; on Android Aurora's info lines go to logcat, tag
+`aurora`, not log.txt). At the save point, iGPU 3x, before the cuts:
 span 9.86 ms, 11 passes: EFB passes 6.73 ms (4.7), plain EFB copies 1.20 ms (3), EFB copy conversions
 0.73 ms (2, the shadow composite's R8 copies), staging 0.28, present resample + blit 0.48.
 
@@ -538,9 +539,11 @@ not by writing. Kept for the bandwidth and memory (a quarter of the bytes writte
 more on a tiler. Checked: the fight route's 91 frames byte-identical; a state saved at 104 s with R8 copies
 reloads to the straight run's frames (6 of 6).
 
-Next GPU candidates: present resample + blit as one pass (1.0 ms); the conversions' EFB read (an R8 copy
-of a 640x480 rectangle reads the whole 6x EFB once per copy; the two read it twice). On the Retroid (a tiler), pass splits cost more than on the iGPU, so 0032-0034 should matter
-more there; that needs the Android shell (open item 3).
+Next GPU candidates (as of then): present resample + blit as one pass (1.0 ms; done since in fork 0037, see *The
+Pocket 5 at higher internal resolutions*); the conversions' EFB read (an R8 copy of a 640x480 rectangle reads the
+whole 6x EFB once per copy; the two read it twice). On the Retroid (a tiler), pass splits cost more than on the
+iGPU, so 0032-0034 should matter more there (measured since: the save point at 6x is 1.24x against Dolphin's
+0.87x there).
 
 ## A battle scene and frame pacing (2026-10-25, later)
 
@@ -779,5 +782,7 @@ looked right (placement, letterbox, sharpness), Windows presents normally.
 
 **Next GPU candidates on the tiler:** the EFB passes themselves (22.4 of 26.8 ms at the save point; per-draw
 cost needs a vendor profiler); the two copy conversions (4.2 ms; each reads the whole 6x EFB, with passes
-between them, so they can't share a read). Then the shell's gaps (immersive mode done; the built-in pad, audio on
-device, lifecycle, a launcher).
+between them, so they can't share a read). Then the shell's gaps: immersive mode and background / foreground
+are done (*The Android shell*); left are the built-in pad and audio on the device (both need a person: press the
+buttons, listen with `SKIES_MUTE` out of env.txt), a size change on return (rotation, split screen: Aurora's
+resize recreates the EFB), and a launcher (disc import) instead of adb pushes.

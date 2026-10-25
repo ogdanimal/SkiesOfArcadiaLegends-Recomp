@@ -2947,8 +2947,10 @@ format). Android: `tools/android-standalone-build.sh` builds a test app (libmain
 Gradle) that plays on the Retroid Pocket 5 (22-25% faster uncapped than the Dolphin build on the same DOL and
 module, and since the pacing fix smoother at full speed at less power: presents scheduled on the throttle's
 clock with an adaptive delay (fork 0036), the emulation thread on the prime core; handoff, *Pacing on the
-Pocket 5*); its arguments, environment and log are files in the app's
-external files folder (handoff, *The Android shell*).
+Pocket 5*; at 6x it holds full speed where the Dolphin build can't, 1.24x vs 0.87x GPU-bound, *The Pocket 5 at
+higher internal resolutions*). It runs immersive and survives background / foreground; its arguments,
+environment and log are files in the app's external files folder (handoff, *The Android shell*). All Pocket 5
+numbers are on Retroid's lowest performance setting.
 
 ## Aurora renderer (desktop; 2026-10-21, committed as patches 2026-10-22: see *Aurora renderer* under Android for the status)
 
