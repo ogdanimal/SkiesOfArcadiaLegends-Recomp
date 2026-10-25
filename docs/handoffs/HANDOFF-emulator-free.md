@@ -16,12 +16,13 @@ the first baseline said the opposite, from a Dolphin run at the wrong resolution
 (*The Android shell*, *Pacing on the Pocket 5*, at the end): 22-25% faster uncapped than the Dolphin build on
 the same DOL and module, and since the pacing fix (scheduled presents on the throttle's clock, fork 0036, and
 the emulation thread on the prime core) smoother at full speed at ~0.4-0.5 W less (battle p99 34.2-34.4 vs
-37.7-38.3 ms, save point 34.7-35.0 vs 36.2-36.3).
+37.7-38.3 ms, save point 34.7-35.0 vs 36.2-36.3); at 6x it holds full speed where Dolphin can't (GPU-bound
+1.24x vs 0.87x; *The Pocket 5 at higher internal resolutions*).
 
 **Status (2026-10-25):** phases 1-3 done (title screen, audio bit-exact with Dolphin's AX HLE, first
 battle at full speed, card saves); phase 4 under way (in-game menu, save states and auto-save done; 60 fps,
 Continue, Language, Dreamcast, HD textures, mapping, rumble open); phase 5 (Android) started: a test app
-that plays on the Retroid Pocket 5 (from a state; pacing fixed; GPU at higher resolutions, launcher, input and
+that plays on the Retroid Pocket 5 (from a state; pacing fixed; higher resolutions measured; launcher, input and
 lifecycle not done). The latest sections at the end of this file come first when picking up.
 
 Why this and not the Aurora-inside-Dolphin backend alone: inside Dolphin, Aurora only reaches parity with
@@ -728,6 +729,45 @@ The standalone on the Pocket 5 is now smoother than the Dolphin build in both sc
 against 1.38x). Windows (RTX 5080 machine, the user-bench-sa settings, throttled): present at once p99 39.7-39.9,
 max 42.5 (4-5 over 40); auto delay p99 34.9-35.1, max 35.5 in both scenes.
 
-**Next:** the GPU side at higher internal resolutions on the Pocket 5 (`android-ir-bench.sh` does both apps;
-IR 1 loads the Adreno 17-25% at 305 MHz), then the shell's gaps (immersive mode, the built-in pad, audio on
+## The Pocket 5 at higher internal resolutions (2026-10-25, night)
+
+`capture/android-ir-bench.sh` for both apps (same settings as above, lowest performance mode). GPU time per
+frame is estimated as busy % x clock / frames per second where the GPU isn't saturated; `AURORA_GPU_PROF=N`
+works on the device (Adreno 650 has timestamp queries) but its lines go to **logcat** (tag `aurora`), not
+log.txt, which is why it looked silent before.
+
+| Save point | Standalone | Dolphin bench app |
+|---|---|---|
+| 2x uncapped | 1.66x, GPU 58% @ 305 MHz | 1.37x, 54% @ 305 (standalone ~12% fewer GPU cycles per frame) |
+| 3x uncapped | 1.67x, 71% @ 400 | 1.36x, 74% @ 400 (~21% fewer) |
+| 4x uncapped | 1.65x, 87% @ 491 | 1.37x, 82% @ 670, the top clock (~36% fewer) |
+| 6x uncapped (both GPU-bound, 99% @ 670) | **1.21x, 1.24-1.25x after fork 0037** | 0.87x |
+| 4x full speed | p99 34.8 ms, GPU 71% @ 400, ~3.3 W | p99 36.4, 79% @ 490, ~4.4 W |
+| 6x full speed | **holds it**: p99 34.4, max 34.8, GPU 81% @ 670, ~5.2 W | can't: p50 39.2, p99 56 ms |
+
+| Battle | Standalone | Dolphin |
+|---|---|---|
+| 6x uncapped (neither GPU-bound) | 2.02x, GPU 83% @ 587 | 1.61x, 84% @ 441 |
+| 4x full speed | p99 34.4, GPU 43% @ 305, ~2.5 W | p99 37.4, 39% @ 305, ~3.0 W |
+| 6x full speed | p99 34.2, GPU 77% @ 305, ~2.8 W | p99 37.7, 75% @ 305, ~3.3 W |
+
+So the save point's GPU lead holds on the tiler (more at higher resolutions, where Dolphin's snapshot copies
+grow), and the standalone plays 6x at full speed where the Dolphin build can't. In battle (no shadow
+composite) the GPU per frame is about even (standalone 3-10% more at 4x-6x), unlike the desktop iGPU (20%
+less); smoother and less power overall anyway, from the CPU side.
+
+**Per pass** (`AURORA_GPU_PROF=300`). Save point 6x at 670 MHz: EFB 22.4 ms (3 passes), EFB copy conversions
+4.16 (2), present resample 0.69 + blit 0.22, staging 0.15; span 27.7 ms. Battle 4x at 305 MHz: EFB 11.8 (1),
+present resample 0.96 + blit 0.51, staging 0.17; span 13.4.
+
+**Fork 0037: no resample pass with the bilinear output sampler.** The present blit samples the source over the
+viewport itself instead of copying a viewport-sized intermediate the resample pass wrote (same bilinear
+sample; the old path quantized to 8 bits once more in between). Save point 6x: 27.7 -> 26.8 ms, 1.20-1.21x ->
+1.24-1.25x. The area sampler keeps the pass (it works in the target's pixels); `AURORA_PRESENT_RESAMPLE=1`
+keeps it always. Frame dumps read the source before either, so they can't see it; one device screenshot at 6x
+looked right (placement, letterbox, sharpness), Windows presents normally.
+
+**Next GPU candidates on the tiler:** the EFB passes themselves (22.4 of 26.8 ms at the save point; per-draw
+cost needs a vendor profiler); the two copy conversions (4.2 ms; each reads the whole 6x EFB, with passes
+between them, so they can't share a read). Then the shell's gaps (immersive mode, the built-in pad, audio on
 device, lifecycle, a launcher).

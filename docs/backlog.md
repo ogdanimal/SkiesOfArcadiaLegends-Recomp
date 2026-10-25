@@ -196,7 +196,8 @@ com.skiesofarcadia.standalone) plays on the Retroid Pocket 5: 22-25% faster unca
 on the same DOL and module (1.68x vs 1.38x, battle 2.04x vs 1.63x), and since the pacing fix (presents scheduled
 on the throttle's clock, fork 0036, with an adaptive delay; the emulation thread on the prime core: schedutil
 had clocked the sleeping thread down) smoother at full speed at ~0.4-0.5 W less (p99 34.2-34.4 vs 37.7 ms in
-battle, 34.7-35.0 vs 36.2 at the save point; Windows p99 39.8 -> 35.0 too). Open: the GPU side at higher resolutions, 60 fps, Continue, the remaining features,
+battle, 34.7-35.0 vs 36.2 at the save point; Windows p99 39.8 -> 35.0 too); at 6x it holds full speed where
+Dolphin can't (GPU-bound 1.24x vs 0.87x at the save point). Open: the EFB passes on the tiler, 60 fps, Continue, the remaining features,
 the Android shell's launcher, input and lifecycle.
 
 The Aurora renderer inside Dolphin (`--graphics Aurora`, `AURORA=1`), the groundwork for it: the picture

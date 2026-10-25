@@ -959,7 +959,7 @@ index 46ebf40b49..93353b4852 100644
  };
  
 diff --git a/GXRuntime/graphics/aurora/lib/aurora.cpp b/GXRuntime/graphics/aurora/lib/aurora.cpp
-index 8843b7b0d8..c66fd8acc8 100644
+index 8843b7b0d8..570d849b34 100644
 --- a/GXRuntime/graphics/aurora/lib/aurora.cpp
 +++ b/GXRuntime/graphics/aurora/lib/aurora.cpp
 @@ -1,7 +1,13 @@
@@ -1167,7 +1167,7 @@ index 8843b7b0d8..c66fd8acc8 100644
      wgpu::Texture currentTexture;
      wgpu::TextureView currentView;
      auto surfaceStatus = wgpu::SurfaceGetCurrentTextureStatus::Error;
-@@ -286,13 +367,14 @@ void end_frame() noexcept {
+@@ -286,13 +367,23 @@ void end_frame() noexcept {
        }
      }
  
@@ -1175,15 +1175,24 @@ index 8843b7b0d8..c66fd8acc8 100644
      const bool canPresent = currentTexture && currentView;
      if (canPresent) {
        wgpu::BindGroup presentBindGroup;
++      // Bilinear output sampling needs no resample pass: the blit samples the source over the viewport
++      // the way the resample pass would (a tiler saves writing and reading the intermediate picture). The
++      // area sampler works in the target's pixels and keeps it; AURORA_PRESENT_RESAMPLE=1 keeps it always.
++      static const bool forceResample = [] {
++        const char* v = std::getenv("AURORA_PRESENT_RESAMPLE");
++        return v != nullptr && v[0] == '1';
++      }();
        if (rmlBindGroup && !rmlOverlay) {
          presentBindGroup = rmlBindGroup;
++      } else if (!forceResample && webgpu::get_resampler() == SAMPLER_BILINEAR) {
++        presentBindGroup = webgpu::create_copy_bind_group(presentSource);
        } else {
 -        const auto& resampledSource = webgpu::resample_present_source(encoder, viewport);
 +        const auto& resampledSource = webgpu::resample_present_source(encoder, viewport, presentSource);
          presentBindGroup = webgpu::create_copy_bind_group(resampledSource);
        }
        {
-@@ -322,6 +404,8 @@ void end_frame() noexcept {
+@@ -322,6 +413,8 @@ void end_frame() noexcept {
            pass.SetBindGroup(0, rmlBindGroup, 0, nullptr);
            pass.Draw(3);
          }
@@ -1192,7 +1201,7 @@ index 8843b7b0d8..c66fd8acc8 100644
          pass.End();
        }
        {
-@@ -365,6 +449,9 @@ void end_frame() noexcept {
+@@ -365,6 +458,9 @@ void end_frame() noexcept {
          }
        }
        if (status) {
@@ -1202,7 +1211,7 @@ index 8843b7b0d8..c66fd8acc8 100644
          gfx::after_present();
        } else {
          Log.warn("Surface present failed");
-@@ -430,6 +517,9 @@ const AuroraEvent* aurora_update() { return aurora::update(); }
+@@ -430,6 +526,9 @@ const AuroraEvent* aurora_update() { return aurora::update(); }
  bool aurora_begin_frame() { return aurora::begin_frame(); }
  void aurora_end_frame() { aurora::end_frame(); }
  AuroraBackend aurora_get_backend() { return aurora::g_config.desiredBackend; }
