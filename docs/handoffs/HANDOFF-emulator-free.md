@@ -59,7 +59,7 @@ GCI files and carry over.
 
 ## What carries over
 
-- The Aurora fork (`~/projects/skies-aurora/GXRuntime`, 29 commits, `patches/` there): Skies renders exactly
+- The Aurora fork (`~/projects/skies-aurora/GXRuntime`, 30 commits, `patches/` there): Skies renders exactly
   like Dolphin on the Retroid Pocket 5, the Nova, Windows and WSL; 60 fps through a second GX context;
   the present rectangle (Picture option); the Dear ImGui overlay (the in-game menu). All of it is in the
   vendored GXRuntime on the local `aurora-backend` branch.
@@ -381,3 +381,41 @@ Found on the way, not chased:
 - **Small picture differences between runs** on draws whose vertex data the CPU rewrites every frame (the
   character, the save point's particles): Aurora reads guest memory when it parses, so where its parsing
   falls behind the CPU decides which data a draw sees. Straight runs differ from each other the same way.
+
+## Speed against the Dolphin build (2026-10-25): the baseline
+
+**Goal (the user's, 2026-10-25):** the standalone runs better than the Dolphin build, and weaker hardware
+runs it better too. Everything below is one PC (i7-12700K: 8 P-cores + 4 E-cores; RTX 5080 and the CPU's
+Intel UHD 770), Windows, the **same DOL and module on both sides** (`C:\dev\SkiesRomhack` ws26 game +
+`modules-llvm-pgo-ws26`), the same settings (`C:\dev\SkiesRecomp\build\user-bench`'s Config: internal
+resolution 1, 30 fps mode), muted, standing at the opening dungeon's save point (Dolphin:
+`savestates/05-save-point.sav`; standalone: `C:\dev\SkiesStandalone\bench-savepoint.sst`, made by the
+`fight-full.txt` route at 100 s). Dolphin: `capture/inproc-win.sh` with `user-bench-dc` (dual core).
+
+| | Standalone | Dolphin Vulkan | Dolphin D3D12 | Aurora in Dolphin | Dolphin Null |
+|---|---|---|---|---|---|
+| RTX 5080, uncapped | **2.91x** | 2.33x | 2.30x | 2.18x | 2.27x |
+| UHD 770 (iGPU), uncapped | **2.82x** | 2.16x | 1.87x | | |
+| UHD 770, internal resolution 3 | **2.62x** | 2.16x | 1.90x | | |
+| 4 E-cores, uncapped | **1.55x** | 1.06x | | | |
+| 2 E-cores | **1.50x** | 1.03x | | | |
+| 1 E-core | **1.46x** | 0.88x (below full speed) | | | |
+| CPU at full speed (all threads) | **0.45 cores** | 0.60 cores | | | |
+
+- Dolphin is CPU-bound in this scene on every renderer (Null, no drawing at all, is 2.27x); the standalone
+  is about 25% faster on the full CPU, 45-65% faster on E-cores, and still above full speed on one E-core.
+- **Where Aurora loses: GPU time per frame.** On the iGPU at internal resolution 3, Aurora kept the GPU 86%
+  busy at 2.62x; Dolphin's Vulkan renderer 54% at 2.14x: per unit of game speed Aurora spends about 30%
+  more GPU time. On a weak GPU (the Retroids, an iGPU at higher resolutions) that is the limit to work on.
+- Not measured yet: a battle scene (the ws26 DOL drifts off the scripted route's encounter; the ship
+  route (`boxfight.txt`) didn't reach one either), frame-time percentiles, the Retroids (needs the
+  standalone's Android shell).
+
+Tools (copies in `~/projects/skies-aurora/capture/`, used from `C:\dev\SkiesStandalone`):
+`bench-sa.sh LOG SECS` (the standalone from a state: `STATE=`, `SETS='set X=1&& '`, `AFFINITY=HEXMASK`,
+`THROTTLE=` empty for real time; averages the `[host] speed` lines after two), `pin.sh EXE MASK` (pins a
+running process: `start /affinity` hangs through WSL interop), `cpu-sample.sh EXE WAIT SECS` (cores in use),
+`gpu-luid.sh EXE WAIT` (which GPU adapter a process keeps busy, and how busy). `AURORA_LOW_POWER_GPU=1`
+(fork 0030) makes Aurora take the iGPU; Dolphin's is `[Hardware] Adapter = 1` (`user-bench-igpu`,
+`user-bench-igpu3` at resolution 3; `user-bench-rt` = dual core at full speed). An unmuted standalone run
+is held to 1x by the audio queue even with `--unthrottled`: benchmark with `SKIES_MUTE=1`.

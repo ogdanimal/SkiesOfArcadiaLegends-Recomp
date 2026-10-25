@@ -3521,7 +3521,7 @@ index 0000000000..d3c1b6870a
 +void render(const wgpu::RenderPassEncoder&, const DrawData&) noexcept {}
 +} // namespace aurora::imgui
 diff --git a/GXRuntime/graphics/aurora/lib/webgpu/gpu.cpp b/GXRuntime/graphics/aurora/lib/webgpu/gpu.cpp
-index 37fb564725..229c7a68fb 100644
+index 37fb564725..7c6b2b527a 100644
 --- a/GXRuntime/graphics/aurora/lib/webgpu/gpu.cpp
 +++ b/GXRuntime/graphics/aurora/lib/webgpu/gpu.cpp
 @@ -636,7 +636,33 @@ wgpu::BindGroup create_copy_bind_group(const TextureWithSampler& source) {
@@ -3559,7 +3559,22 @@ index 37fb564725..229c7a68fb 100644
    const uint32_t width = viewport_extent(viewport.width);
    const uint32_t height = viewport_extent(viewport.height);
    if (!g_resampledFrameBuffer.view || g_resampledFrameBuffer.size.width != width ||
-@@ -1061,6 +1087,9 @@ void shutdown() {
+@@ -786,9 +812,13 @@ bool initialize(AuroraBackend auroraBackend, bool allowCpu) {
+     return false;
+   }
+   {
++    // AURORA_LOW_POWER_GPU=1: the low-power adapter (a laptop's or desktop's integrated GPU; tests on
++    // weaker hardware)
++    const char* lowPower = std::getenv("AURORA_LOW_POWER_GPU");
+     const wgpu::RequestAdapterOptions options{
+         .featureLevel = wgpu::FeatureLevel::Compatibility,
+-        .powerPreference = wgpu::PowerPreference::HighPerformance,
++        .powerPreference = lowPower != nullptr && lowPower[0] != '0' ? wgpu::PowerPreference::LowPower
++                                                                     : wgpu::PowerPreference::HighPerformance,
+         .backendType = backend,
+         .compatibleSurface = g_surface,
+     };
+@@ -1061,6 +1091,9 @@ void shutdown() {
    g_frameBuffer = {};
    g_frameBufferResolved = {};
    g_depthBuffer = {};
@@ -3569,7 +3584,7 @@ index 37fb564725..229c7a68fb 100644
    g_queue = {};
    g_surface = {};
    g_device = {};
-@@ -1103,6 +1132,9 @@ static void resize_swapchain_internal(uint32_t width, uint32_t height, uint32_t
+@@ -1103,6 +1136,9 @@ static void resize_swapchain_internal(uint32_t width, uint32_t height, uint32_t
    g_frameBuffer = create_render_texture(width, height, true);
    g_frameBufferResolved = create_render_texture(width, height, false);
    g_depthBuffer = create_depth_texture(width, height);
