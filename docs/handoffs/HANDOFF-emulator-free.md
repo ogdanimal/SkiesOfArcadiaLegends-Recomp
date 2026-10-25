@@ -13,13 +13,16 @@ build*, *GPU time per frame*, *A battle scene and frame pacing*): ahead on CPU (
 (about 44% less GPU time per frame than Dolphin's Vulkan renderer on an iGPU at 6x after forks 0032-0035:
 1.30x vs 0.77x, and at full speed there the standalone holds 33 ms frames while Dolphin is late on every one;
 the first baseline said the opposite, from a Dolphin run at the wrong resolution). On the Retroid Pocket 5
-(*The Android shell*, at the end): 22-25% faster uncapped than the Dolphin build on the same DOL and module,
-but less smooth at full speed (p99 42 vs 37 ms): the open problem.
+(*The Android shell*, *Pacing on the Pocket 5*, at the end): 22-25% faster uncapped than the Dolphin build on
+the same DOL and module, and since the pacing fix (43e5480: the emulation thread pinned to the prime core, the
+throttle busy-waits its last 6 ms) as smooth or a little smoother at full speed at about the same power
+(battle p99 37.2-37.8 vs 37.7 ms, save point 35.7-35.8 vs 36.2).
 
 **Status (2026-10-25):** phases 1-3 done (title screen, audio bit-exact with Dolphin's AX HLE, first
 battle at full speed, card saves); phase 4 under way (in-game menu, save states and auto-save done; 60 fps,
 Continue, Language, Dreamcast, HD textures, mapping, rumble open); phase 5 (Android) started: a test app
-that plays on the Retroid Pocket 5 (from a state; launcher, input and lifecycle not done). The latest sections at the end of this file come first when picking up.
+that plays on the Retroid Pocket 5 (from a state; pacing fixed; GPU at higher resolutions, launcher, input and
+lifecycle not done). The latest sections at the end of this file come first when picking up.
 
 Why this and not the Aurora-inside-Dolphin backend alone: inside Dolphin, Aurora only reaches parity with
 Dolphin's Vulkan renderer (sessions 5-6, `HANDOFF-aurora.md`); it pays off once the port leaves Dolphin
@@ -567,7 +570,10 @@ build's `[present-pacing]` line every 600 presents: the interval between present
 counts over 40 and 50 ms (Skies presents 30 frames a second in both builds; Dolphin's line counts >20/>25 ms,
 which every 30 fps present exceeds). It also logs `[host-busy]`: the emulation thread's wall time per field
 outside the throttle's sleep. That includes waits in present and, on a shared core, other threads' time, so
-it isn't headroom; cores in use (`cpu-sample.sh`) is.
+it isn't headroom; cores in use (`cpu-sample.sh`) is. On a phone it also grows when the governor lowers the
+clock (*Pacing on the Pocket 5*). `[present-drain]` and `[present-call]` (added 2026-10-25, evening) split out
+the emulation thread's time in Aurora's command parsing and in `aurora_backend_present` per frame; the busy
+wait (`SKIES_THROTTLE_SPIN_MS`) is not counted in `[host-busy]`.
 
 | At full speed | Standalone interval ms p50 / p90 / p99 / max | Dolphin Vulkan |
 |---|---|---|
@@ -643,7 +649,8 @@ the Pocket 5*).
 `[present-drain]` (time per frame in `aurora_backend_drain_if_over`, Aurora's command parsing on the emulation
 thread) and `[present-call]` (time in `aurora_backend_present`): 2.4 ms and 0.4 ms (p99 0.8). The presenting
 field's 21 ms is the game's own work on a slow clock. Per-thread CPU and cluster clocks from `/proc/PID/task/*/stat`
-and `cpufreq/policy*/scaling_cur_freq` (a small on-device script) during the battle at full speed: the
+and `cpufreq/policy*/scaling_cur_freq` (`~/projects/skies-aurora/capture/android-thread-sample.sh`, run on
+the device from /data/local/tmp) during the battle at full speed: the
 emulation thread is ~78% busy on a gold core (cpu4-6, top 2.42 GHz, clocked 1.6-2.4 GHz), the prime core
 (cpu7, 2.84 GHz) idles at 1.5 GHz. schedutil picks the clock that keeps a thread ~80% busy, so a thread that
 sleeps a fifth of every field gets clocked down until the drawing field barely fits, and any spike runs over.
@@ -659,7 +666,11 @@ Desktop defaults are unchanged (none, 0).
 
 **Pocket 5, IR 1, ws26, 30 fps, muted, full speed: interval between presents, ms (600-frame windows).** Power is
 rough: the USB input (`power_supply/usb/input_current_now` x `voltage_now`, capped ~2.4 W by the PC port) plus the
-battery's draw (`bms/current_now` x 4.36 V), averaged over 30 s; launcher idle is ~1.7 W.
+battery's draw (`bms/current_now` x 4.36 V), averaged over 30 s (`capture/android-power.sh`; the device
+shell's arithmetic is 32-bit, so it multiplies mA by mV); launcher idle is ~1.7 W. A/B runs: write env.txt,
+start the activity, wait ~30 s past the state load, sample, force-stop, read log.txt's last `[present-pacing]`
+lines; the Dolphin side as in *The Android shell* (load the matching savestate with drive.py, logcat
+`present-pacing`). The Pocket 5 was on the charger at 100% for all of them.
 
 | Battle | p90 | p99 | max | >40 ms | power |
 |---|---|---|---|---|---|
