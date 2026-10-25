@@ -82,3 +82,48 @@ Where the work lives: the local branch `aurora-backend` (worktree `~/projects/sk
 from origin/dev a7aa0f8). It is deliberately kept local: no upstream, pushes blocked
 (`branch.aurora-backend.pushRemote = no-push`), not rebased onto newer dev, not merged. Phase 1 starts
 from this branch, whose vendored GXRuntime carries the fork fixes and the overlay.
+
+## Phase 1: boot spike (2026-10-24) — gate reached
+
+The title screen renders with no emulator core: SEGA / Overworks logos, the intro text, the logo, the
+opening cutscene, and (Start pressed) the real title screen with PRESS START. WSL software GPU,
+unthrottled: 2-3x real time with Aurora, 4-7x headless.
+
+**What it is.** `standalone/` (CMake, C++20): `skies-standalone --game <extracted disc> --module
+<gGEAE8P_recomp.so>`. It loads the **existing** module (StaticRecomp ABI v3) with `dlopen`, no regeneration,
+and gives it the hooks RecompCore gives it (MMIO, SPRs, cache ops, gather pipe, instruction fallback).
+Around it, hardware models written from Dolphin's (GPL-2.0+): PI, VI (half-line beam clock, display
+interrupts), CP/PE (FIFO, linked mode, tokens, draw done) with a command splitter that tracks VCD/VAT
+so side effects happen in stream order (display lists walked too), DSP (CSR, ARAM DMA, audio DMA), DI
+(reads from the extracted folder through the disc's own `fst.bin` offsets), SI (pads), EXI (IPL: SRAM,
+RTC, the UART OSReport writes to), AI. The GX stream goes to Aurora with `aurora_backend_write_raw`, as
+the Dolphin-side backend does; presentation at the game's display copy.
+
+- Build: `cmake -S standalone -B build/standalone -G Ninja -DCMAKE_BUILD_TYPE=Release`
+  (`-DSKIES_STANDALONE_AURORA=OFF` for headless). Env: `SKIES_DUMP_DIR`/`SKIES_DUMP_EVERY` (PPM frames),
+  `SKIES_PRESS="38:START,..."` (scripted pad, guest seconds), `SKIES_MUTE`, `SKIES_MMIO_RANGE` with
+  `--mmio-log`. Flags: `--headless --unthrottled --seconds N --idle-pc --dsp-coef`.
+- Boot: the apploader is not run (no interpreter for it); `boot.cpp` does its work (DOL sections, bi2 +
+  FST at the top of MEM1, low-memory pointers) plus Dolphin's BS2 state. Don't clear the DOL header's BSS
+  range: it spans `.sdata`.
+- Exception vectors are not in the module: the host emulates the SDK stub (`__OSEVStart`, checked word by
+  word on every use) and the 0xC00 system-call handler.
+
+**Audio: the gap is smaller than this handoff said.** Skies' MusyX uploads `dspSlave` (0x19E0 bytes),
+Dolphin hash **0x4e8a8b21 = the AX ucode**, which Dolphin runs in HLE (that is how the shipping port
+plays sound). So phase 2 is not a DSP emulator or amuse: `standalone/src/dsphle/` is a port of Dolphin's
+DSP HLE (mailboxes, ROM/INIT, the whole AX ucode with voices and the accelerator), and the game's MusyX
+boots it (log: "CRC 4e8a8b21: AX ucode chosen"). Not yet listened to (runs so far were muted).
+
+**Instruction fallback.** An `rfi` into the middle of a recompiled block (the lazy FP-unavailable
+switch) makes the LLVM module call `instruction_fallback` until it reaches an entry point; RecompCore
+uses Dolphin's interpreter. `standalone/src/interp/` is a one-instruction interpreter transliterated
+from DolRecomp's C emitter on GXRuntime's helpers, checked against the emitter's own output (632k
+comparisons, all 236 opcodes, 0 mismatches). About 45k fallback instructions per guest minute.
+
+**Gotchas found:** DI completion must do DIMAR += DILENGTH, DILENGTH = 0 for every command (the SDK
+retries Inquiry otherwise); WPAR's BNE bit must read 0 (Dolphin's choice; GXFlush spins otherwise).
+
+**Next (phase 2/3):** listen to the AX output (unmuted run on Windows or with WSLg audio), memory cards
+(EXI card device over GCI saves), EFB peeks (read 0 now), the ws game patch DOL + its module, real-time
+speed on a real GPU (Windows build), then gameplay to the first battle.
