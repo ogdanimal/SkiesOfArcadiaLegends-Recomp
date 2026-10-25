@@ -699,7 +699,11 @@ over 10-30 s (`capture/android-power.sh`; the device shell's arithmetic is 32-bi
 mV); launcher idle ~1.7 W. Runs: `~/projects/skies-aurora/capture/android-ir-bench.sh sa|dol IR
 uncapped|full savepoint|battle [ENV;...]` (writes env.txt / args.txt or the bench app's ini files, starts the
 app, samples GPU (`android-gpu-sample.sh`: kgsl busy % and clock) and power, reads the pacing or speed
-lines). The Pocket 5 was on the charger at 100% for all of them.
+lines). The Pocket 5 was on the charger at 100% for all of them. **All Pocket 5 numbers in this file (both apps, every
+session) were taken on Retroid's lowest performance / governor setting** (the user's setting; `settings get
+system performance_mode` = 0, `fan_mode` = 1). Its sysfs caps aren't lowered (gold 2.42 GHz, prime 2.84 GHz,
+GPU 670 MHz; floors 1.17 / 1.29 / 1.52 GHz), so what the mode changes isn't visible there; the higher modes are
+untested.
 
 | Battle | p90 | p99 | max | power |
 |---|---|---|---|---|
