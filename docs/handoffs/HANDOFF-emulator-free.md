@@ -420,9 +420,8 @@ resolution 1, 30 fps mode), muted, standing at the opening dungeon's save point 
   Dolphin runs "at internal resolution 3" were at 1x. ModernGekko's runner sets Dolphin's internal
   resolution from the user folder's `config.ini` (`resolution=640x528`), not from `GFX.ini`. At a real 3x
   Dolphin does 2.05x, and GPU-bound at 6x the standalone is ~35-40% faster.
-- Not measured yet: a battle scene (the ws26 DOL drifts off the scripted route's encounter; the ship
-  route (`boxfight.txt`) didn't reach one either), frame-time percentiles, the Retroids (needs the
-  standalone's Android shell).
+- Not measured yet: ~~a battle scene~~, ~~frame-time percentiles~~ (both measured later the same day, in
+  "A battle scene and frame pacing" below), the Retroids (needs the standalone's Android shell).
 
 Tools (copies in `~/projects/skies-aurora/capture/`, used from `C:\dev\SkiesStandalone`):
 `bench-sa.sh LOG SECS` (the standalone from a state: `STATE=`, `SETS='set X=1&& '`, `AFFINITY=HEXMASK`,
@@ -533,3 +532,42 @@ reloads to the straight run's frames (6 of 6).
 Next GPU candidates: present resample + blit as one pass (1.0 ms); the conversions' EFB read (an R8 copy
 of a 640x480 rectangle reads the whole 6x EFB once per copy; the two read it twice). On the Retroid (a tiler), pass splits cost more than on the iGPU, so 0032-0034 should matter
 more there; that needs the Android shell (open item 3).
+
+## A battle scene and frame pacing (2026-10-25, later)
+
+**The scenes.** Both builds now have a state in the same battle (the Valuan ship's interior arena, Vyse
+alone at 327/504 HP, idle at the command menu with the camera drifting; ws26 DOL, `modules-llvm-pgo-ws26`):
+- Standalone `C:\dev\SkiesStandalone\bench-battle2.sst` (150 s): from `bench-savepoint.sst` with
+  `SKIES_PRESS_FILE=box.txt` (after 100 s that script is only a box walk at the save point, 3 s per
+  direction) and `user-bench-sa`'s Encounters 400%; the battle starts around frame 3900 (~131 s).
+  (`bench-battle.sst` next to it is a failed first try: `fight-full.txt` on ws26 walks into a wall.)
+- Dolphin `C:\dev\SkiesRecomp\build\savestates\20-corridor-battle.sav`: `05-save-point.sav` in a copy of
+  `user-bench-dc` (`C:\dev\SkiesAuroraRun\user-mkbattle`), `drive.py config:Dolphin.Skies.Encounters=400`,
+  eight rounds of `tap:dpad_right:180 tap:dpad_down:180 tap:dpad_left:180 tap:dpad_up:180`, then `save:`.
+  (`02-first-battle.sav` is the opening's deck battle, a different scene.)
+
+| Battle, same PC | Standalone | Dolphin Vulkan |
+|---|---|---|
+| RTX 5080, uncapped | **3.78x** | 3.25x |
+| UHD 770 at 6x, uncapped | **2.48x** (12.2 ms GPU per frame, 4 passes) | 2.07x |
+| 4 E-cores, uncapped | **1.93x** | 1.49x |
+| 1 E-core, uncapped | **1.86x** | 1.27x |
+| Full speed, all threads: CPU | **0.35 cores** | 0.49 cores |
+
+The battle has no shadow composite, so the standalone's GPU lead there is smaller than at the save point
+(+20% against +69% at 6x); its CPU lead is about the same (16-46%, 28% less CPU at full speed).
+
+**Frame pacing.** `SKIES_PRESENT_PACING=1` (or the Dolphin build's `RECOMP_PRESENT_PACING=1`) logs the Dolphin
+build's `[present-pacing]` line every 600 presents: the interval between presents, p50/p90/p99/max, and the
+counts over 40 and 50 ms (Skies presents 30 frames a second in both builds; Dolphin's line counts >20/>25 ms,
+which every 30 fps present exceeds). It also logs `[host-busy]`: the emulation thread's wall time per field
+outside the throttle's sleep. That includes waits in present and, on a shared core, other threads' time, so
+it isn't headroom; cores in use (`cpu-sample.sh`) is.
+
+| At full speed | Standalone interval ms p50 / p90 / p99 / max | Dolphin Vulkan |
+|---|---|---|
+| Battle, 1 E-core | 33.35 / 34.4 / 35.3 / 36.2 | 33.0 / 35.3 / 36.5-37.2 / 37-39 |
+| Save point, UHD 770 at 6x | **33.4 / 34.5-34.9 / 36.1-36.6 / 37-39 (1.00x)** | 44.1 / 47.8 / 50.8-55.7 / 53-257 (0.77x: every frame late) |
+
+(`C:\dev\SkiesAuroraRun\user-bench-igpu6-rt` is new: `user-bench-igpu6` with `EmulationSpeed = 1.0`.)
+

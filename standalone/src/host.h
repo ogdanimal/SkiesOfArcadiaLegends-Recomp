@@ -24,6 +24,17 @@ extern bool g_log_mmio;
 void Log(const char* fmt, ...);
 [[noreturn]] void Fatal(const char* fmt, ...);
 
+// ---- frame timing (SKIES_PRESENT_PACING=1, or the Dolphin build's RECOMP_PRESENT_PACING=1) -----
+// Every 600 values a line "[TAG] WHAT ms over 600: p50 p90 p99 max; >A ms N, >B ms N", the Dolphin
+// build's [present-pacing] format.
+bool PacingOn();
+struct PacingWindow
+{
+  double values[600];
+  unsigned count = 0;
+};
+void PacingAdd(PacingWindow& window, double ms, const char* tag, const char* what, double over_a, double over_b);
+
 // ---- guest memory ------------------------------------------------------------------------------
 constexpr u32 RAM_SIZE = 0x01800000;  // 24 MB MEM1
 extern u8* g_ram;

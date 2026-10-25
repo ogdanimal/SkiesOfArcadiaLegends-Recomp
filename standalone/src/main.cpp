@@ -12,6 +12,7 @@
 #include "dsphle/ax.h"
 #include "dsphle/dsp_hle.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
@@ -20,6 +21,36 @@
 
 namespace host
 {
+bool PacingOn()
+{
+  static const bool on = [] {
+    for (const char* name : {"SKIES_PRESENT_PACING", "RECOMP_PRESENT_PACING"})
+      if (const char* env = std::getenv(name); env && env[0] == '1')
+        return true;
+    return false;
+  }();
+  return on;
+}
+
+void PacingAdd(PacingWindow& window, double ms, const char* tag, const char* what, double over_a, double over_b)
+{
+  constexpr unsigned N = sizeof(window.values) / sizeof(window.values[0]);
+  window.values[window.count++] = ms;
+  if (window.count < N)
+    return;
+  window.count = 0;
+  std::sort(window.values, window.values + N);
+  unsigned a = 0, b = 0;
+  for (double v : window.values)
+  {
+    a += v > over_a;
+    b += v > over_b;
+  }
+  Log("[%s] %s ms over %u: p50 %.2f p90 %.2f p99 %.2f max %.2f; >%g ms %u, >%g ms %u\n", tag, what, N,
+      window.values[N / 2], window.values[N * 9 / 10], window.values[N * 99 / 100], window.values[N - 1], over_a, a,
+      over_b, b);
+}
+
 void GpuStats(u64* frames, u64* draw_dones, u64* tokens);  // hw_gpu.cpp
 void DiStats(u64* reads, u64* bytes);                        // hw_di.cpp
 
@@ -30,6 +61,9 @@ u64 s_stop_cycles = 0;
 std::chrono::steady_clock::time_point s_wall_start;
 u64 s_last_report_cycles = 0;
 std::chrono::steady_clock::time_point s_last_report_wall;
+// The emulation thread's time per field outside the throttle's sleep (PacingOn): its headroom at full speed
+std::chrono::steady_clock::time_point s_last_wake;
+PacingWindow s_busy;
 
 void Report()
 {
@@ -85,6 +119,7 @@ void ThrottleRestart()
   s_last_report_wall = now;
   s_speed_next = 0;
   s_speed = 1.0;
+  s_last_wake = now;
 }
 
 // Called by the VI at every field: pace guest time to the wall clock, stop at --seconds.
@@ -92,6 +127,9 @@ void Throttle()
 {
   const auto now = std::chrono::steady_clock::now();
   SampleSpeed(now);
+  if (PacingOn() && s_last_wake.time_since_epoch().count() != 0)
+    PacingAdd(s_busy, std::chrono::duration<double, std::milli>(now - s_last_wake).count(), "host-busy",
+              "emulation thread per field", 1000.0 / 60, 1000.0 / 30);
   if (g_cycles - s_last_report_cycles >= 5 * CPU_HZ)
   {
     const double wall = std::chrono::duration<double>(now - s_last_report_wall).count();
@@ -105,12 +143,16 @@ void Throttle()
     RequestQuit();
   if (VideoQuitRequested())
     RequestQuit();
+  s_last_wake = now;
   if (!s_throttle)
     return;
   const auto target = s_wall_start + std::chrono::nanoseconds(static_cast<u64>(
                                          static_cast<double>(g_cycles) * 1e9 / CPU_HZ));
   if (target > now + std::chrono::milliseconds(1))
+  {
     std::this_thread::sleep_until(target);
+    s_last_wake = std::chrono::steady_clock::now();
+  }
   else if (now - target > std::chrono::milliseconds(200))
     s_wall_start += now - target - std::chrono::milliseconds(200);  // don't race to catch up
 }

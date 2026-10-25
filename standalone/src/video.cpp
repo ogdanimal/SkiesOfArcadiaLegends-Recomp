@@ -293,6 +293,18 @@ void VideoFrameEnd()
     dump = std::find(s_dump_frames.begin(), s_dump_frames.end(), s_frames) != s_dump_frames.end();
   if (dump)
     aurora_request_framebuffer_readback();
+  if (PacingOn())
+  {
+    // Between presents, as the Dolphin build's [present-pacing] (its >20 / >25 ms counts suit 60 fps; Skies
+    // presents 30 frames a second in both builds, so these count >40 / >50 ms)
+    static std::chrono::steady_clock::time_point last{};
+    static PacingWindow window;
+    const auto now = std::chrono::steady_clock::now();
+    if (last.time_since_epoch().count() != 0)
+      PacingAdd(window, std::chrono::duration<double, std::milli>(now - last).count(), "present-pacing", "interval",
+                40.0, 50.0);
+    last = now;
+  }
   aurora_backend_present();
   if (dump)
     DumpFrame();
