@@ -2,6 +2,7 @@
 // dsphle/), ARAM and its DMA, and the audio DMA that streams the DSP's mix out to the AI
 // (DSP.cpp: RegisterMMIO, UpdateInterrupts, Do_ARAM_DMA, UpdateAudioDMA).
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "dolphin_state.h"
 #include "host.h"
 #include "state.h"
 
@@ -225,6 +226,38 @@ void DspDoState(StateIO& p)
   p.Do(s_pending);
   p.DoArray(s_aram, ARAM_SIZE);
   dsphle::DoState(p);
+}
+
+// A Dolphin state's DSP: its registers and DMAs, ARAM, the interrupts it had delayed (DSPint
+// events) and the HLE (dsphle/from_dolphin.cpp)
+void DspFromDolphin(const DolphinState& d)
+{
+  if (d.U("hw/dsp/is_hle") == 0)
+    throw dsr::ParseError("the state was saved with the DSP's LLE engine");
+  s_control = static_cast<u16>(d.U("hw/dsp/dsp_control"));
+  s_aram_info = static_cast<u16>(d.U("hw/dsp/aram_info"));
+  s_aram_mode = static_cast<u16>(d.U("hw/dsp/aram_mode"));
+  s_aram_refresh = static_cast<u16>(d.U("hw/dsp/aram_refresh"));
+  s_aram_mm = static_cast<u32>(d.U("hw/dsp/aram_dma/mm_addr"));
+  s_aram_ar = static_cast<u32>(d.U("hw/dsp/aram_dma/ar_addr"));
+  s_aram_cnt = static_cast<u32>(d.U("hw/dsp/aram_dma/cnt"));
+  s_audio_current = static_cast<u32>(d.U("hw/dsp/audio_dma/current_source_address"));
+  s_audio_remaining = static_cast<u32>(d.U("hw/dsp/audio_dma/remaining_blocks_count"));
+  s_audio_source = static_cast<u32>(d.U("hw/dsp/audio_dma/source_address"));
+  s_audio_control = static_cast<u16>(d.U("hw/dsp/audio_dma/control"));
+  const std::span<const u8> aram = d.Bytes("hw/dsp/aram");
+  if (aram.size() != ARAM_SIZE)
+    throw dsr::ParseError("the state's ARAM has another size");
+  std::memcpy(s_aram, aram.data(), ARAM_SIZE);
+  s_pending.clear();
+  for (const DolphinState::Event& e : d.Events())
+  {
+    if (e.name == "DSPint")
+      s_pending.push_back({e.time, static_cast<u16>(e.userdata)});
+  }
+  SchedulePending();
+  dsphle::FromDolphin(d);
+  UpdateInterrupts();
 }
 
 u16 DspRead16(u32 offset)

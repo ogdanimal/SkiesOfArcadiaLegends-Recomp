@@ -4,6 +4,7 @@
 // (this port: GPL-3.0-or-later; DSPManager/PointerWrap replaced by the host interrupt hook)
 #pragma once
 
+#include <string>
 #include <deque>
 #include <utility>
 
@@ -12,6 +13,7 @@
 namespace host
 {
 class StateIO;
+class DolphinState;
 }
 
 namespace host::dsphle
@@ -41,6 +43,7 @@ public:
   u16 ReadDSPMailboxHigh();
   u16 ReadDSPMailboxLow();
   void DoState(StateIO& p);
+  void FromDolphin(const DolphinState& d, const std::string& at);
 
 private:
   // The actual DSP only has a single pair of mail registers, and doesn't keep track of pending

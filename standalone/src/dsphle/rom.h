@@ -20,6 +20,7 @@ public:
   void HandleMail(u32 mail) override;
   void Update() override;
   void DoState(StateIO& p) override;
+  void FromDolphin(const DolphinState& d, const std::string& at) override;
 
 private:
   struct UCodeBootInfo

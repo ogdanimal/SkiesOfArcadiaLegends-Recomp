@@ -3,6 +3,7 @@
 // (status, origin, recalibrate). Controller state comes from video.cpp (Aurora's SDL pads), and the
 // poll command's motor bits go back to them as rumble.
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "dolphin_state.h"
 #include "host.h"
 #include "state.h"
 
@@ -209,6 +210,31 @@ void SiDoState(StateIO& p)
   p.Do(s_polled);
   if (p.Reading())
     std::memset(s_motor, 0, sizeof(s_motor));
+}
+
+// A Dolphin state's SI: the channels' buffers and a controller's poll mode; the controllers
+// themselves are read again at the next poll
+void SiFromDolphin(const DolphinState& d)
+{
+  constexpr u64 GC_CONTROLLER = 6;  // SIDevices::SIDEVICE_GC_CONTROLLER
+  for (u32 ch = 0; ch < 4; ++ch)
+  {
+    const std::string at = "hw/si/channel[" + std::to_string(ch) + "]/";
+    s_ch[ch].out = static_cast<u32>(d.U(at + "out"));
+    s_ch[ch].in_hi = static_cast<u32>(d.U(at + "in_hi"));
+    s_ch[ch].in_lo = static_cast<u32>(d.U(at + "in_lo"));
+    s_ch[ch].mode = d.U(at + "device_type") == GC_CONTROLLER ?
+                        static_cast<u8>(d.U(at + "gc_controller/mode")) :
+                        3;
+  }
+  s_poll = static_cast<u32>(d.U("hw/si/poll"));
+  s_comcsr = static_cast<u32>(d.U("hw/si/com_csr"));
+  s_status = static_cast<u32>(d.U("hw/si/status_reg"));
+  s_exilk = static_cast<u32>(d.U("hw/si/exi_clock_count"));
+  d.Array("hw/si/si_buffer", s_buffer, sizeof(s_buffer));
+  s_polled = false;
+  std::memset(s_motor, 0, sizeof(s_motor));
+  UpdateInterrupts();
 }
 
 void SiPollDevices()

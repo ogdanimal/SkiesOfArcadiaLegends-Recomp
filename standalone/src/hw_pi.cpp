@@ -1,6 +1,7 @@
 // Processor interface: the interrupt cause/mask pair that drives the CPU's external interrupt
 // line, and the CPU-side FIFO pointers the gather pipe writes through (ProcessorInterface.cpp).
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "dolphin_state.h"
 #include "host.h"
 #include "state.h"
 
@@ -40,6 +41,17 @@ void PiDoState(StateIO& p)
   p.Do(g_pi_fifo_wptr);
   if (p.Reading())
     Update();
+}
+
+void PiFromDolphin(const DolphinState& d)
+{
+  s_cause = static_cast<u32>(d.U("hw/pi/interrupt_cause"));
+  s_mask = static_cast<u32>(d.U("hw/pi/interrupt_mask"));
+  s_reset_code = static_cast<u32>(d.U("hw/pi/reset_code"));
+  g_pi_fifo_base = static_cast<u32>(d.U("hw/pi/fifo_cpu_base"));
+  g_pi_fifo_end = static_cast<u32>(d.U("hw/pi/fifo_cpu_end"));
+  g_pi_fifo_wptr = static_cast<u32>(d.U("hw/pi/fifo_cpu_write_pointer"));
+  Update();
 }
 
 void PiSetInterrupt(u32 cause, bool set)

@@ -85,8 +85,14 @@ set(SKIES_STANDALONE_SOURCES
   src/dsphle/init.cpp
   src/dsphle/ax.cpp
   src/dsphle/accelerator.cpp
+  src/dsphle/from_dolphin.cpp
   src/interp/interp.cpp
   "${DOLPHIN_DIR}/DolRecomp/src/frontend/decoder.c"
+  # The Dolphin build's save states (dolphin_state.cpp): the stream reader, its LZ4 container
+  src/dolphin_state.cpp
+  src/dolphin_state/dolphin_state_reader.cpp
+  src/dolphin_state/sav_unpack.cpp
+  "${DOLPHIN_DIR}/Externals/lz4/lz4/lib/lz4.c"
   # The release runner's part (frontend.cpp) on the runner's own code: the data folder, config.ini,
   # the release's DOL patches and pins, the states' folders
   src/frontend.cpp
@@ -133,6 +139,7 @@ endif()
 target_include_directories(skies-standalone PRIVATE
   src
   "${CMAKE_CURRENT_BINARY_DIR}/release_games"
+  "${DOLPHIN_DIR}/Externals/lz4/lz4/lib"
   "${MODERNGEKKO_DIR}/tools"
   "${MODERNGEKKO_DIR}/include"
   "${GXRUNTIME_DIR}/include"

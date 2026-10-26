@@ -4,6 +4,7 @@
 // (this port: GPL-3.0-or-later). Also implements the free-function interface of dsp_hle.h on top
 // of one global DSPHLE instance; the DSPManager control-register masking stays in the host.
 
+#include "dolphin_state.h"
 #include "dsphle/dsp_hle.h"
 
 #include <utility>
@@ -290,5 +291,10 @@ u32 CurrentUcodeCrc()
 void DoState(StateIO& p)
 {
   Instance().DoState(p);
+}
+
+void FromDolphin(const DolphinState& d)
+{
+  Instance().FromDolphin(d);
 }
 }  // namespace host::dsphle

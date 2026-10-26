@@ -2,6 +2,7 @@
 // (DVDInterface.cpp: RegisterMMIO, ExecuteCommand, UpdateInterrupts). Reads complete after a
 // latency close to a fast drive; audio streaming (DTK) is off, as the disc header asks.
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "dolphin_state.h"
 #include "host.h"
 #include "state.h"
 
@@ -150,6 +151,57 @@ void DiDoState(StateIO& p)
   p.Do(s_error);
   p.Do(s_drive_ready);
   p.Do(s_pending_deint);
+}
+
+// A Dolphin state's DI. A command it had in flight completes here at the same time: a disc read
+// (FinishReadDVDThread) with the bytes the state holds for it (the DVD thread's results), copied to
+// RAM now, which the game sees only at the transfer interrupt anyway.
+void DiFromDolphin(const DolphinState& d)
+{
+  s_disr = static_cast<u32>(d.U("hw/dvd/DISR"));
+  s_dicvr = static_cast<u32>(d.U("hw/dvd/DICVR"));
+  d.Array("hw/dvd/DICMDBUF", s_cmd, 3);
+  s_dimar = static_cast<u32>(d.U("hw/dvd/DIMAR"));
+  s_dilength = static_cast<u32>(d.U("hw/dvd/DILENGTH"));
+  s_dicr = static_cast<u32>(d.U("hw/dvd/DICR"));
+  s_diimmbuf = static_cast<u32>(d.U("hw/dvd/DIIMMBUF"));
+  s_dicfg = static_cast<u32>(d.U("hw/dvd/DICFG"));
+  s_error = static_cast<u32>(d.U("hw/dvd/error_code"));
+  s_drive_ready = d.U("hw/dvd/drive_state") == 0;  // DriveState::Ready (not ReadyNoReadsMade)
+  s_pending_deint = false;
+  // FinishExecutingCommand (scheduled by SchedFromDolphin): its interrupt type, DEINT = 0
+  for (const DolphinState::Event& e : d.Events())
+  {
+    if (e.name == "FinishExecutingCommand" && (e.userdata >> 32) != 3)
+      s_pending_deint = (e.userdata & 0xFFFFFFFF) == 0;
+  }
+  const DolphinState::Event* read = d.FindEvent("FinishReadDVDThread");
+  if (!read)
+    return;
+  const u64 results = d.U("hw/dvd/thread/result_count");
+  for (u64 i = 0; i < results; ++i)
+  {
+    const std::string at = "hw/dvd/thread/result[" + std::to_string(i) + "]/";
+    if (d.U(at + "id_key") != read->userdata)
+      continue;
+    // DVDThread::ReadRequest: copy_to_ram @0, output_address @4, dvd_offset @8, length @16
+    const std::span<const u8> request = d.Bytes(at + "request");
+    const std::span<const u8> data = d.Bytes(at + "data/data");
+    u32 output = 0, length = 0;
+    std::memcpy(&output, request.data() + 4, 4);
+    std::memcpy(&length, request.data() + 16, 4);
+    s_pending_deint = data.size() != length;
+    if (!s_pending_deint && request[0] != 0)
+    {
+      u8* dst = RamPtr(output, length);
+      if (!dst)
+        throw dsr::ParseError("the state's disc read goes outside RAM");
+      std::memcpy(dst, data.data(), length);
+    }
+    Schedule(EV_DI, read->time > Now() ? read->time - Now() : 0, Complete);
+    return;
+  }
+  throw dsr::ParseError("the state's disc read has no data");
 }
 
 u32 DiRead32(u32 offset)

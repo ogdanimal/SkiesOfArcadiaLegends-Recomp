@@ -4,6 +4,7 @@
 // (this port: GPL-3.0-or-later; the DSPEmulator base class, Core::System and savestates are gone)
 #pragma once
 
+#include <string>
 #include <memory>
 
 #include "core/types.h"
@@ -13,6 +14,7 @@
 namespace host
 {
 class StateIO;
+class DolphinState;
 }
 
 namespace host::dsphle
@@ -76,6 +78,7 @@ public:
   MemoryManager GetMemory() const { return MemoryManager(); }
   u32 CurrentUcodeCrc() const;
   void DoState(StateIO& p);
+  void FromDolphin(const DolphinState& d);
 
 private:
   void SendMailToDSP(u32 mail);

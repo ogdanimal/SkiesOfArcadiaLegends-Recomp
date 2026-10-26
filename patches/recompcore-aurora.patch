@@ -288,10 +288,10 @@ index 47c60b1038..82efa7082b 100644
  
  bool aurora_backend_pad_init(void);
 diff --git a/GXRuntime/backends/aurora/aurora_graphics.cpp b/GXRuntime/backends/aurora/aurora_graphics.cpp
-index 24367bf568..af6e7d6883 100644
+index 24367bf568..f1735b2025 100644
 --- a/GXRuntime/backends/aurora/aurora_graphics.cpp
 +++ b/GXRuntime/backends/aurora/aurora_graphics.cpp
-@@ -8,11 +8,22 @@
+@@ -8,11 +8,23 @@
  #include <dolphin/vi.h>
  #include <gx/fifo.hpp>
  #include <gx/gx.hpp>
@@ -303,6 +303,7 @@ index 24367bf568..af6e7d6883 100644
 +#include <webgpu/gpu.hpp>
 +#include <window.hpp>
  #include <gx/recomp.hpp>
++#include <algorithm>
 +#include <array>
 +#include <chrono>
  #include <cstdio>
@@ -314,7 +315,7 @@ index 24367bf568..af6e7d6883 100644
  
  #if GXRUNTIME_HAS_AURORA_RECOMP
  // gxcore substrate submission lives in the Aurora fork (lib/gfx/gxcore_draw.cpp),
-@@ -586,6 +597,22 @@ void shadow_transform_observer(
+@@ -586,6 +598,22 @@ void shadow_transform_observer(
  
  extern "C" {
  
@@ -337,7 +338,7 @@ index 24367bf568..af6e7d6883 100644
  void aurora_backend_present(void) {
      if (!gx_aurora::g_initialized)
          return;
-@@ -813,9 +840,13 @@ void aurora_backend_present(void) {
+@@ -813,9 +841,13 @@ void aurora_backend_present(void) {
      }
      const unsigned long long present_fifo = gx_aurora::g_fifo_bytes;
      gx_aurora::g_fifo_bytes = 0;
@@ -352,7 +353,7 @@ index 24367bf568..af6e7d6883 100644
  #if GXRUNTIME_HAS_AURORA_RECOMP
          gx_aurora::g_shadow_transform_next_draw_index = 0;
  #endif
-@@ -852,6 +883,396 @@ void aurora_backend_call_display_list(const void* data, u32 size) {
+@@ -852,6 +884,449 @@ void aurora_backend_call_display_list(const void* data, u32 size) {
      gx_aurora::g_fifo_bytes += size;
  }
  
@@ -724,6 +725,59 @@ index 24367bf568..af6e7d6883 100644
 +        ++restored;
 +    }
 +    return restored;
++}
++
++int aurora_backend_copy_restore_rgba(const void* ram_base, uint32_t ram_size, uint32_t offset, uint32_t copy_format,
++                                     uint32_t logical_width, uint32_t logical_height, uint32_t width, uint32_t height,
++                                     const uint8_t* rgba) {
++    using namespace aurora;
++    if (!gx_aurora::g_initialized || rgba == nullptr || offset >= ram_size || width == 0 || height == 0)
++        return 0;
++    const auto fmt = static_cast<GXTexFmt>(copy_format);
++    const bool conv = gfx::tex_copy_conv::needs_conversion(fmt);
++    // As copy_tex makes them: a converted copy in its format's own texture, a resolved one in the surface's
++    // format, RGB565's without alpha
++    gfx::TextureHandle handle = conv ? gfx::new_conv_texture(width, height, fmt, "Copy Conv Texture")
++                                     : gfx::new_render_texture(width, height,
++                                                               fmt == GX_TF_RGB565 ? GX_TF_RGB565 : GX_TF_RGBA8,
++                                                               "Resolved Texture");
++    const size_t texels = static_cast<size_t>(width) * height;
++    std::vector<uint8_t> data;
++    uint32_t bytes_per_texel = 4;
++    if (handle->format == wgpu::TextureFormat::R8Unorm) {
++        data.resize(texels);
++        for (size_t k = 0; k < texels; ++k)
++            data[k] = rgba[k * 4];
++        bytes_per_texel = 1;
++    } else if (IsBgra(handle->format)) {
++        data.assign(rgba, rgba + texels * 4);
++        for (size_t k = 0; k + 3 < data.size(); k += 4)
++            std::swap(data[k], data[k + 2]);
++    } else if (IsRgba(handle->format)) {
++        data.assign(rgba, rgba + texels * 4);
++    } else {
++        return 0;
++    }
++    const wgpu::TexelCopyTextureInfo dst{.texture = handle->texture};
++    const wgpu::TexelCopyBufferLayout layout{.bytesPerRow = width * bytes_per_texel, .rowsPerImage = height};
++    const wgpu::Extent3D extent{.width = width, .height = height, .depthOrArrayLayers = 1};
++    webgpu::g_queue.WriteTexture(&dst, data.data(), data.size(), &layout, &extent);
++    const auto* dest = static_cast<const uint8_t*>(ram_base) + offset;
++    const uint32_t ram_bytes = GXGetTexBufferSize(static_cast<u16>(logical_width), static_cast<u16>(logical_height), fmt,
++                                                  GX_FALSE, 0);
++    const gx::GXState::CopyTextureRef ref{
++        .handle = handle,
++        .revision = 1,
++        .ramFingerprint = gx::copy_ram_fingerprint(dest, std::min(ram_bytes, ram_size - offset)),
++        .ramBytes = std::min(ram_bytes, ram_size - offset),
++        .logicalWidth = logical_width,
++        .logicalHeight = logical_height,
++        .copyFormat = copy_format,
++    };
++    const gx::GXState::CopyTextureKey key{.dest = dest, .width = width, .height = height, .format = fmt};
++    gx::g_gxState.copyTextureCache[key] = ref;
++    gx::g_gxState.copyTextures[dest] = ref;
++    return 1;
 +}
 +
 +// An overlay texture (RGBA8, the font atlas), replaced whole when it changes.
@@ -6491,7 +6545,7 @@ index ca511a7ab6..e5b40abc03 100644
  
  int dolgx_replay_pixels_main(const char* trace_path,
 diff --git a/GXRuntime/include/gxruntime/aurora_backend.h b/GXRuntime/include/gxruntime/aurora_backend.h
-index c9ec4b9a42..3794ad06d9 100644
+index c9ec4b9a42..4fe87575a4 100644
 --- a/GXRuntime/include/gxruntime/aurora_backend.h
 +++ b/GXRuntime/include/gxruntime/aurora_backend.h
 @@ -3,6 +3,7 @@
@@ -6502,7 +6556,7 @@ index c9ec4b9a42..3794ad06d9 100644
  
  #include <stdbool.h>
  
-@@ -19,14 +20,58 @@ typedef struct AuroraBackendConfig {
+@@ -19,14 +20,67 @@ typedef struct AuroraBackendConfig {
      bool info_logging;
      bool graphics_logging;
      bool force_untextured;
@@ -6553,6 +6607,15 @@ index c9ec4b9a42..3794ad06d9 100644
 +                                        void* user);
 +int aurora_backend_copies_restore(const void* ram_base, uint32_t ram_size, const void* data,
 +                                  uint32_t size);
++/* A save state of another build (the Dolphin build's): one EFB copy rebuilt from its RGBA8 texels
++ * (width x height, rows packed), as a GX copy of copy_format (GXTexFmt, GX_CTF_* included) at
++ * logical_width x logical_height to ram_base + offset would have made it; its memory fingerprint is
++ * the memory's now. After the guest memory is restored and aurora_backend_copies_restore (which
++ * clears the live copies). 1 if it was made. */
++int aurora_backend_copy_restore_rgba(const void* ram_base, uint32_t ram_size, uint32_t offset,
++                                     uint32_t copy_format, uint32_t logical_width,
++                                     uint32_t logical_height, uint32_t width, uint32_t height,
++                                     const uint8_t* rgba);
 +
 +/* The keyboard's default bindings on a port (the layout aurora_backend_pad_init installs when none
 + * were saved), made active; not saved (PADSerializeMappings does). No-op without SDL. */

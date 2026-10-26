@@ -2,6 +2,7 @@
 // chip select 1 (EXI_DeviceIPL.cpp: the real-time clock and SRAM the OS reads at boot, the UART
 // OSReport writes to), and the memory card in slot A (channel 0 chip select 0, hw_memcard.cpp).
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "dolphin_state.h"
 #include "host.h"
 #include "state.h"
 
@@ -280,6 +281,32 @@ void ExiDoState(StateIO& p)
   p.Do(s_ipl_cursor);
   p.Do(s_uart);
   CardDoState(p);
+}
+
+// A Dolphin state's EXI: the channels, and the IPL device's SRAM, RTC command and UART (device 1 of
+// channel 0). The memory card stays this run's: the Dolphin build's states don't hold it (its
+// GCI folder card is the one on disk, as here).
+void ExiFromDolphin(const DolphinState& d)
+{
+  for (u32 ch = 0; ch < 3; ++ch)
+  {
+    const std::string at = "hw/exi/channel[" + std::to_string(ch) + "]/";
+    s_ch[ch].status = static_cast<u32>(d.U(at + "status"));
+    s_ch[ch].dma_address = static_cast<u32>(d.U(at + "dma_memory_address"));
+    s_ch[ch].dma_length = static_cast<u32>(d.U(at + "dma_length"));
+    s_ch[ch].control = static_cast<u32>(d.U(at + "control"));
+    s_ch[ch].imm = static_cast<u32>(d.U(at + "imm_data"));
+  }
+  constexpr u64 IPL = 2;  // EXIDeviceType::MaskROM
+  const std::string ipl = "hw/exi/channel[0]/device[1]/";
+  if (d.U(ipl + "type") != IPL)
+    throw dsr::ParseError("the state's EXI has no IPL device where it should be");
+  d.Array(ipl + "ipl/sram", s_sram, sizeof(s_sram));
+  s_ipl_command = static_cast<u32>(d.U(ipl + "ipl/command"));
+  s_ipl_command_bytes = static_cast<u32>(d.U(ipl + "ipl/command_bytes_received"));
+  s_ipl_cursor = static_cast<u32>(d.U(ipl + "ipl/cursor"));
+  s_uart = d.Text(ipl + "ipl/buffer");
+  UpdateInterrupts();
 }
 
 void ExiShutdown()

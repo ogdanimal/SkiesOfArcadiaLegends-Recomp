@@ -11,6 +11,7 @@
 // for TLUT loads); the frames hold the top-level commands, and RAM as it is at each frame's end
 // (the first frame: all 24 MB; then the 4 KB pages that changed) as memory updates at its start.
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "dolphin_state.h"
 #include "host.h"
 #include "state.h"
 
@@ -270,6 +271,46 @@ void DffDoState(StateIO& p)
   }
 }
 
+// A Dolphin state's GP registers: bpmem and xfmem are laid out by register address already (BP
+// 0x00-0xFF; XF memory 0x0000-0x0FFF, then the registers 0x1000-0x1057), the CP's come out of CPState
+// as Dolphin's FillCPMemoryArray writes them, TMEM is its texMem. Which RAM a TLUT was loaded from
+// Dolphin doesn't keep: none are replayed (the game loads its palettes as it draws).
+void DffFromDolphin(const DolphinState& d)
+{
+  d.Array("video/bpmem", s_bp, 256);
+  for (u32& v : s_bp)
+    v &= 0xFFFFFF;
+  s_bp_mask = 0xFFFFFF;
+  u32 cp_state[60];
+  d.Array("video/cpmem", cp_state, 60);
+  std::memset(s_cp, 0, sizeof(s_cp));
+  for (int i = 0; i < 16; ++i)
+  {
+    s_cp[0xA0 + i] = cp_state[i];       // ARRAY_BASE
+    s_cp[0xB0 + i] = cp_state[16 + i];  // ARRAY_STRIDE
+  }
+  s_cp[0x30] = cp_state[32];  // MATINDEX_A
+  s_cp[0x40] = cp_state[33];  // MATINDEX_B
+  s_cp[0x50] = cp_state[34];  // VCD_LO
+  s_cp[0x60] = cp_state[35];  // VCD_HI
+  for (int i = 0; i < 8; ++i)
+  {
+    s_cp[0x70 + i] = cp_state[36 + i * 3];
+    s_cp[0x80 + i] = cp_state[37 + i * 3];
+    s_cp[0x90 + i] = cp_state[38 + i * 3];
+  }
+  const std::span<const u8> xf = d.Bytes("video/xfmem");
+  if (xf.size() != sizeof(s_xf_mem) + sizeof(s_xf_regs))
+    throw dsr::ParseError("the state's XF memory has another size");
+  std::memcpy(s_xf_mem, xf.data(), sizeof(s_xf_mem));
+  std::memcpy(s_xf_regs, xf.data() + sizeof(s_xf_mem), sizeof(s_xf_regs));
+  const std::span<const u8> tmem = d.Bytes("video/texmem");
+  if (tmem.size() != 1024 * 1024)
+    throw dsr::ParseError("the state's TMEM has another size");
+  s_tmem.assign(tmem.begin(), tmem.end());
+  s_tlut_loads.assign(1024, {});
+}
+
 void DffSnapshot(GpRegisters& out)
 {
   std::memcpy(out.bp, s_bp, sizeof(s_bp));
@@ -461,6 +502,36 @@ void DffCommand(const u8* p, u32 len, bool top_level)
 // After XFB copy number `frame` (its command already recorded).
 void DffFrameEnd(u64 frame)
 {
+  // SKIES_GP_DUMP=FRAME:PATH[;FRAME:PATH...]: the registers as they are at that frame's end (BP, CP,
+  // XF memory and registers, raw u32s in that order), to compare two moments
+  static const std::vector<std::pair<u64, std::string>> s_gp_dumps = [] {
+    std::vector<std::pair<u64, std::string>> dumps;
+    std::string rest = std::getenv("SKIES_GP_DUMP") ? std::getenv("SKIES_GP_DUMP") : "";
+    while (!rest.empty())
+    {
+      const size_t semi = rest.find(';');
+      const std::string one = rest.substr(0, semi);
+      rest = semi == std::string::npos ? "" : rest.substr(semi + 1);
+      const size_t colon = one.find(':');
+      if (colon != std::string::npos)
+        dumps.emplace_back(std::strtoull(one.c_str(), nullptr, 0), one.substr(colon + 1));
+    }
+    return dumps;
+  }();
+  for (const auto& [at, path] : s_gp_dumps)
+  {
+    if (at != frame)
+      continue;
+    if (FILE* f = std::fopen(path.c_str(), "wb"))
+    {
+      std::fwrite(s_bp, sizeof(s_bp), 1, f);
+      std::fwrite(s_cp, sizeof(s_cp), 1, f);
+      std::fwrite(s_xf_mem, sizeof(s_xf_mem), 1, f);
+      std::fwrite(s_xf_regs, sizeof(s_xf_regs), 1, f);
+      std::fclose(f);
+      Log("[dff] GP registers at frame %llu to %s\n", static_cast<unsigned long long>(frame), path.c_str());
+    }
+  }
   if (!s_enabled)
     return;
   if (!s_recording && frame + 1 == s_first)

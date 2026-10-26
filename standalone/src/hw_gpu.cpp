@@ -10,6 +10,7 @@
 // draw done waits for it to have parsed everything before (VideoFence) before the CPU sees it:
 // the game rebuilds display lists and vertex data once the GPU has passed its frame's tokens.
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "dolphin_state.h"
 #include "host.h"
 #include "state.h"
 
@@ -598,6 +599,81 @@ void GpuDoState(StateIO& p)
   p.Do(s_copy_dest);
   p.Do(s_copy_stride);
   p.Do(s_pending);
+}
+
+// A Dolphin state's GPU side: the gather pipe, the CP FIFO and registers, the PE (a token or finish
+// it had yet to signal, SetTokenFinish, signalled now), the vertex formats the parser needs
+// (CPState), the EFB copy registers (BP 0x4A / 0x4B / 0x4D) and FIFO bytes it hadn't parsed.
+void GpuFromDolphin(const DolphinState& d)
+{
+  const std::span<const u8> pipe = d.Bytes("hw/gpfifo/gather_pipe");
+  const u64 queued = d.U("hw/gpfifo/pipe_count");
+  if (pipe.size() != sizeof(s_gp) || queued > sizeof(s_gp))
+    throw dsr::ParseError("the state's gather pipe has another size");
+  std::memcpy(s_gp, pipe.data(), sizeof(s_gp));
+  s_gp_ptr = s_gp + queued;
+
+  const std::string cp = "video/command_processor/";
+  const auto fifo = [&](const char* name) { return static_cast<u32>(d.U(cp + "fifo/" + name)); };
+  s_fifo.base = fifo("CPBase");
+  s_fifo.end = fifo("CPEnd");
+  s_fifo.hi_wm = fifo("CPHiWatermark");
+  s_fifo.lo_wm = fifo("CPLoWatermark");
+  s_fifo.distance = fifo("CPReadWriteDistance");
+  s_fifo.wp = fifo("CPWritePointer");
+  s_fifo.rp = fifo("CPReadPointer");
+  s_fifo.bp = fifo("CPBreakpoint");
+  s_cp_ctrl = static_cast<u16>(d.U(cp + "ctrl_reg"));
+  s_cp_perf_select = static_cast<u16>(d.U(cp + "perf_select"));
+  s_cp_unk_0a = static_cast<u16>(d.U(cp + "unk_0a_reg"));
+  s_cp_int = d.Bool(cp + "interrupt_set");
+
+  const std::string pe = "video/pixel_engine/";
+  s_pe_conf[0] = static_cast<u16>(d.U(pe + "z_conf"));
+  s_pe_conf[1] = static_cast<u16>(d.U(pe + "alpha_conf"));
+  s_pe_conf[2] = static_cast<u16>(d.U(pe + "dst_alpha_conf"));
+  s_pe_conf[3] = static_cast<u16>(d.U(pe + "alpha_mode_conf"));
+  s_pe_conf[4] = static_cast<u16>(d.U(pe + "alpha_read"));
+  // UPECtrlReg: the token and finish interrupt enables in bits 0 and 1
+  s_pe_ctrl = static_cast<u16>(d.U(pe + "control") & 3);
+  s_pe_token = static_cast<u16>(d.U(pe + "token"));
+  s_pe_token_int = d.Bool(pe + "signal_token_interrupt");
+  s_pe_finish_int = d.Bool(pe + "signal_finish_interrupt");
+  if (d.FindEvent("SetTokenFinish"))
+  {
+    s_pe_token = static_cast<u16>(d.U(pe + "token_pending"));
+    s_pe_token_int |= d.Bool(pe + "token_interrupt_pending");
+    s_pe_finish_int |= d.Bool(pe + "finish_interrupt_pending");
+  }
+  PeUpdateInterrupts();
+  s_draw_dones = s_tokens = 0;
+  s_frames = d.U("video/presenter/frame_count");
+
+  // CPState: array bases [16], strides [16], matrix indices A and B, VCD low and high, VAT groups
+  // 0-2 for each of the 8 formats
+  u32 cp_state[60];
+  d.Array("video/cpmem", cp_state, 60);
+  s_vtx.vcd_lo = cp_state[34];
+  s_vtx.vcd_hi = cp_state[35];
+  for (int i = 0; i < 8; ++i)
+  {
+    s_vtx.vat_a[i] = cp_state[36 + i * 3];
+    s_vtx.vat_b[i] = cp_state[37 + i * 3];
+    s_vtx.vat_c[i] = cp_state[38 + i * 3];
+  }
+  u32 bp[256];
+  d.Array("video/bpmem", bp, 256);
+  s_copy_size = bp[0x4A] & 0xFFFFFF;
+  s_copy_dest = bp[0x4B] & 0xFFFFFF;
+  s_copy_stride = bp[0x4D] & 0xFFFFFF;
+
+  // The FIFO's bytes past the GPU's read pointer (Fifo::DoState's video buffer and its offsets)
+  const std::span<const u8> buffer = d.Bytes("video/fifo/video_buffer");
+  const u64 read = d.U("video/fifo/read_ptr_offset"), write = d.U("video/fifo/write_ptr_offset");
+  if (read > write || write > buffer.size())
+    throw dsr::ParseError("the state's GPU FIFO buffer is out of order");
+  s_pending.assign(buffer.begin() + static_cast<long>(read), buffer.begin() + static_cast<long>(write));
+  UpdateCpInterrupt();
 }
 
 void GatherPipeInstall(CPUState* cpu)

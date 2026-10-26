@@ -1,6 +1,7 @@
 // Event scheduler in Gekko core cycles. A handful of fixed event slots: the run loop compares the
 // clock against one cached deadline per dispatch and scans the slots only when something is due.
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "dolphin_state.h"
 #include "host.h"
 #include "state.h"
 
@@ -113,5 +114,50 @@ void RunDue()
     if (fn)
       fn(late);
   }
+}
+
+// A Dolphin state: its clock, and its events in the slots that do the same here (the parts that keep
+// more than a time for an event take it themselves: the DSP's delayed interrupts, a disc read in
+// flight). This run's wall-clock pacing and memory card (whose writes the state doesn't hold) keep
+// their own.
+void SchedFromDolphin(const DolphinState& d)
+{
+  g_cycles = d.Now();
+  for (int i = 0; i < EV_COUNT; ++i)
+  {
+    if (i != EV_THROTTLE && i != EV_CARD_CMD && i != EV_CARD_XFER && i != EV_CARD_FLUSH)
+      s_slots[i].when = std::numeric_limits<u64>::max();
+  }
+  const auto slot_for = [](const DolphinState::Event& e) -> int {
+    if (e.name == "VICallback")
+      return EV_VI;
+    if (e.name == "DecCallback")
+      return EV_DEC;
+    if (e.name == "DSPCallback")
+      return EV_DSP;
+    if (e.name == "AudioDMACallback")
+      return EV_AUDIO_DMA;
+    if (e.name == "AICallback")
+      return EV_AI;
+    if (e.name == "ARAMint")
+      return EV_ARAM;
+    if (e.name == "SITransferPending")
+      return EV_SI;
+    // A disc command's completion; the drive's streaming audio (DTK, reply type 3) isn't modelled
+    if (e.name == "FinishExecutingCommand" && (e.userdata >> 32) != 3)
+      return EV_DI;
+    return -1;
+  };
+  for (const DolphinState::Event& e : d.Events())
+  {
+    const int slot = slot_for(e);
+    if (slot < 0)
+      continue;
+    if (!s_known[slot])
+      throw dsr::ParseError("no handler here for the state's " + e.name);
+    s_slots[slot].when = e.time;
+    s_slots[slot].fn = s_known[slot];
+  }
+  Recompute();
 }
 }  // namespace host

@@ -2,6 +2,7 @@
 // display copy, controllers and sound. Headless builds and --headless runs keep the same entry
 // points with no window.
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "dolphin_state.h"
 #include "host.h"
 #include "state.h"
 
@@ -1004,6 +1005,59 @@ void VideoDoState(StateIO& p)
     s_loaded_copies = std::move(copies);
 }
 
+// A Dolphin state's EFB copies: its texture cache's (TextureCacheBase::DoState: each entry's
+// texels as an RGBA8 / BGRA8 texture at the internal resolution, its guest address, base format and
+// copy size), rebuilt in Aurora once the rest is in place (fork 0047). Its XFB copies aren't: the
+// display copy is presented here, not kept.
+struct DolphinCopy
+{
+  u32 offset, format, logical_width, logical_height, width, height;
+  std::vector<u8> rgba;
+};
+static std::vector<DolphinCopy> s_dolphin_copies;
+
+void VideoFromDolphin(const DolphinState& d)
+{
+  s_frames = d.U("video/presenter/frame_count");
+  // An empty snapshot: the copies of the run before the load go
+  s_loaded_copies.assign(8, 0);
+  const u32 magic = 0x53504F43;  // "COPS"
+  std::memcpy(s_loaded_copies.data(), &magic, 4);
+  s_dolphin_copies.clear();
+  const u64 count = d.U("video/texture_cache/entry_count");
+  for (u64 i = 0; i < count; ++i)
+  {
+    const std::string at = "video/texture_cache/entry[" + std::to_string(i) + "]/";
+    if (!d.Bool(at + "is_efb_copy") || d.Bool(at + "is_xfb_copy"))
+      continue;
+    // TextureConfig: width, height, levels, layers, samples, format (AbstractTextureFormat:
+    // RGBA8 = 0, BGRA8 = 1)
+    u32 config[8];
+    d.Array(at + "config", config, 8);
+    const u32 width = config[0], height = config[1], format = config[5];
+    const std::span<const u8> texels = d.Bytes(at + "data/data");
+    if (format > 1 || width == 0 || height == 0 || texels.size() < static_cast<size_t>(width) * height * 4)
+    {
+      Log("[video] state: EFB copy %llu skipped (texture format %u, %ux%u)\n",
+          static_cast<unsigned long long>(i), format, width, height);
+      continue;
+    }
+    DolphinCopy copy{static_cast<u32>(d.U(at + "addr")) & 0x01FFFFFF,
+                     static_cast<u32>(d.U(at + "format_texfmt")),
+                     static_cast<u32>(d.U(at + "native_width")),
+                     static_cast<u32>(d.U(at + "native_height")),
+                     width,
+                     height,
+                     std::vector<u8>(texels.begin(), texels.begin() + static_cast<long>(width) * height * 4)};
+    if (format == 1)
+    {
+      for (size_t k = 0; k + 3 < copy.rgba.size(); k += 4)
+        std::swap(copy.rgba[k], copy.rgba[k + 2]);
+    }
+    s_dolphin_copies.push_back(std::move(copy));
+  }
+}
+
 void VideoStateLoaded()
 {
   InterpReset();
@@ -1020,11 +1074,19 @@ void VideoStateLoaded()
                                                         static_cast<u32>(s_loaded_copies.size()));
         Log("[video] state: %d EFB copies restored\n", count);
       }
+      int converted = 0;
+      for (const DolphinCopy& c : s_dolphin_copies)
+        converted += aurora_backend_copy_restore_rgba(g_ram, RAM_SIZE, c.offset, c.format, c.logical_width,
+                                                      c.logical_height, c.width, c.height, c.rgba.data());
+      if (!s_dolphin_copies.empty())
+        Log("[video] state: %d of the Dolphin build's %zu EFB copies rebuilt\n", converted,
+            s_dolphin_copies.size());
       ArmDrawLog(frame);
     });
   }
 #endif
   s_loaded_copies = {};
+  s_dolphin_copies = {};
 }
 
 #ifdef SKIES_STANDALONE_AURORA

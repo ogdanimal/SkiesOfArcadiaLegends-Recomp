@@ -5,11 +5,13 @@
 
 #pragma once
 
+#include <string>
 #include "core/types.h"
 
 namespace host
 {
 class StateIO;
+class DolphinState;
 }
 
 namespace host::dsphle
@@ -43,6 +45,7 @@ public:
   void SetPredScale(u16 pred_scale);
   void SetInput(u16 input);
   void DoState(StateIO& p);
+  void FromDolphin(const DolphinState& d, const std::string& at);
 
 protected:
   virtual void OnRawReadEndException() = 0;

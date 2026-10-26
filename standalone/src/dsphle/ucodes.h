@@ -9,9 +9,12 @@
 
 #include "core/types.h"
 
+#include <string>
+
 namespace host
 {
 class StateIO;
+class DolphinState;
 }
 
 namespace host::dsphle
@@ -48,12 +51,16 @@ public:
   virtual void Update() = 0;
   // Save states: the task-switching state every ucode has (DoStateShared), and its own
   virtual void DoState(StateIO& p) { DoStateShared(p); }
+  // From a Dolphin build's state (dolphin_state.h), its fields under `at`; a ucode without its own
+  // has only the shared part
+  virtual void FromDolphin(const DolphinState& d, const std::string& at) { FromDolphinShared(d, at); }
 
   static u32 GetCRC(UCodeInterface* ucode) { return ucode ? ucode->m_crc : UCODE_NULL; }
 
 protected:
   void PrepareBootUCode(u32 mail);
   void DoStateShared(StateIO& p);
+  void FromDolphinShared(const DolphinState& d, const std::string& at);
 
   // Some ucodes (notably zelda) require a resume mail to be
   // sent if they are be started via PrepareBootUCode.

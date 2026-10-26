@@ -2,6 +2,7 @@
 // interrupt) as AudioInterface.cpp. Disc streaming itself is off (DTK), so the counter only
 // counts time while PSTAT is set.
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "dolphin_state.h"
 #include "host.h"
 #include "state.h"
 
@@ -74,6 +75,16 @@ void AiDoState(StateIO& p)
   p.Do(s_sample_counter);
   p.Do(s_interrupt_timing);
   p.Do(s_last_cycles);
+}
+
+void AiFromDolphin(const DolphinState& d)
+{
+  s_control = static_cast<u32>(d.U("hw/ai/control"));
+  s_volume = static_cast<u32>(d.U("hw/ai/volume"));
+  s_sample_counter = static_cast<u32>(d.U("hw/ai/sample_counter"));
+  s_interrupt_timing = static_cast<u32>(d.U("hw/ai/interrupt_timing"));
+  s_last_cycles = d.U("hw/ai/last_cpu_time");
+  UpdateInterrupts();
 }
 
 u32 AiDspSampleRate()

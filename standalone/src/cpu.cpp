@@ -1,6 +1,7 @@
 // The CPU side: the recompiled module, its CPUState hooks, the dispatch loop, exceptions and the
 // special-purpose registers the module leaves to its host.
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "dolphin_state.h"
 #include "host.h"
 #include "state.h"
 
@@ -568,6 +569,81 @@ void RaiseDecrementer()
 u32 DecrementerValue()
 {
   return s_dec_start_value - static_cast<u32>((g_cycles - s_dec_start_cycles) / TIMER_RATIO);
+}
+
+// A Dolphin state's CPU: its PowerPCState as the Dolphin build's StaticRecompCore::SyncIn hands
+// it to the same module (Dolphin's CR in its 64-bit field form, XER split in three, LR / CTR / SRRs /
+// GQRs among the SPRs), its time base and decrementer from CoreTiming's fake start values, and the
+// locked cache from its L1 cache memory.
+void CpuFromDolphin(const DolphinState& d)
+{
+  constexpr u16 LR = 8, CTR = 9, DSISR = 18, DAR = 19, SRR0 = 26, SRR1 = 27, EAR = 282, GQR0 = 912,
+                HID2 = 920;
+  constexpr u32 EXCEPTION_DECREMENTER = 1;
+  d.Array("ppc/ppcState/gpr", g_cpu.gpr, 32);
+  u64 ps[64];
+  d.Array("ppc/ppcState/ps", ps, 64);
+  for (int i = 0; i < 32; ++i)
+  {
+    std::memcpy(&g_cpu.fpr[i], &ps[i * 2], 8);
+    std::memcpy(&g_cpu.ps1[i], &ps[i * 2 + 1], 8);
+  }
+  d.Array("ppc/ppcState/spr", s_spr, 1024);
+  g_cpu.pc = static_cast<u32>(d.U("ppc/ppcState/pc"));
+  g_cpu.lr = s_spr[LR];
+  g_cpu.ctr = s_spr[CTR];
+  // ConditionRegister::GetField: LT and SO from bits 62 and 59, EQ when the low word is 0, GT when
+  // the field is positive
+  u64 cr_fields[8];
+  d.Array("ppc/ppcState/cr_fields", cr_fields, 8);
+  g_cpu.cr = 0;
+  for (int i = 0; i < 8; ++i)
+  {
+    const u64 v = cr_fields[i];
+    const u32 field = (static_cast<u32>(v >> 59) & 9) | (static_cast<u32>(v) == 0 ? 2u : 0u) |
+                      (static_cast<s64>(v) > 0 ? 4u : 0u);
+    g_cpu.cr |= field << (28 - i * 4);
+  }
+  g_cpu.xer = static_cast<u32>(d.U("ppc/ppcState/xer_stringctrl")) |
+              static_cast<u32>(d.U("ppc/ppcState/xer_ca")) << 29 |
+              static_cast<u32>(d.U("ppc/ppcState/xer_so_ov")) << 30;
+  g_cpu.fpscr = static_cast<u32>(d.U("ppc/ppcState/fpscr"));
+  g_cpu.msr = static_cast<u32>(d.U("ppc/ppcState/msr"));
+  g_cpu.srr0 = s_spr[SRR0];
+  g_cpu.srr1 = s_spr[SRR1];
+  g_cpu.dar = s_spr[DAR];
+  g_cpu.dsisr = s_spr[DSISR];
+  g_cpu.ear = s_spr[EAR];
+  g_cpu.hid2 = s_spr[HID2];
+  d.Array("ppc/ppcState/sr", g_cpu.sr, 16);
+  for (int i = 0; i < 8; ++i)
+    g_cpu.gqr[i] = s_spr[GQR0 + i];
+  g_cpu.reserve_addr = static_cast<u32>(d.U("ppc/ppcState/reserve_address"));
+  g_cpu.reserve_valid = d.Bool("ppc/ppcState/reserve");
+  // The module's own lookups start over (they cache nothing of the state's)
+  std::memset(g_cpu.locked_cache_valid, 0, sizeof(g_cpu.locked_cache_valid));
+  g_cpu.tlb_last_vps = g_cpu.tlb_last_index = 0;
+
+  // SystemTimers: TB = start value + ticks since the start ticks / 12; DEC counts down from its
+  // start value the same way
+  const u64 now = d.Now();
+  const u64 tb_ticks = now - d.U("coretiming/fake_TB_start_ticks");
+  g_cpu.timebase = d.U("coretiming/fake_TB_start_value") + tb_ticks / TIMER_RATIO;
+  s_tb_remainder = tb_ticks % TIMER_RATIO;
+  s_dec_start_value = static_cast<u32>(d.U("coretiming/fake_dec_start_value"));
+  s_dec_start_cycles = d.U("coretiming/fake_dec_start_ticks");
+  s_decrementer_pending = (d.U("ppc/ppcState/Exceptions") & EXCEPTION_DECREMENTER) != 0;
+  s_overclock_cycles = 0.0;
+  const std::span<const u8> l1 = d.Bytes("hw/memory/l1_cache");
+  if (l1.size() < sizeof(s_locked_cache))
+    throw dsr::ParseError("the state's L1 cache is smaller than the locked cache");
+  std::memcpy(s_locked_cache, l1.data(), sizeof(s_locked_cache));
+
+  g_cpu.downcount = 0;
+  g_cpu.exception = 0;
+  g_cpu.program_exception = 0;
+  if (s_module && s_module->on_state_loaded)
+    s_module->on_state_loaded(&g_cpu);
 }
 
 static void DecrementerDue(u64)

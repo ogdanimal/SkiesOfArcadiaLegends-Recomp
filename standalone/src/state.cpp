@@ -17,6 +17,7 @@
 // time, SKIES_LOAD_AT=SECONDS:PATH loads one there (as the menu does); --load-state PATH starts
 // from one (at the first frame end: Aurora's EFB then is a frame's, as at any later load).
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "dolphin_state.h"
 #include "host.h"
 #include "state.h"
 
@@ -222,6 +223,44 @@ bool Save(const std::string& path, std::string* error)
   return true;
 }
 
+// After a load: Aurora gets the EFB copies and the GP registers, the Dreamcast music its song, the
+// wall-clock pacing starts over
+void Loaded(const std::string& path, double guest_seconds, std::chrono::steady_clock::time_point start,
+            const char* what)
+{
+  VideoStateLoaded();
+#ifdef SKIES_STANDALONE_AURORA
+  DreamcastStateLoaded();
+#endif
+  DffReloadAurora();
+  ThrottleRestart();
+  const double ms =
+      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+  Log("[state] loaded %s%s: %.3f s guest, frame %llu (%.0f ms)\n", what, path.c_str(), guest_seconds,
+      static_cast<unsigned long long>(GpuFrameCount()), ms);
+}
+
+// The Dolphin build's state (dolphin_state.cpp), with this host's state from before kept to go back to
+bool LoadDolphin(const std::string& path, const std::vector<u8>& bytes,
+                 std::chrono::steady_clock::time_point start, std::string* error)
+{
+  std::vector<u8> backup;
+  {
+    StateIO w(&backup, false);
+    w.with_gpu = false;
+    DoAll(w);
+  }
+  double guest_seconds = 0;
+  if (!DolphinStateApply(bytes, &guest_seconds, error))
+  {
+    StateIO b(&backup, true);
+    DoAll(b);
+    return false;
+  }
+  Loaded(path, guest_seconds, start, "the Dolphin build's state ");
+  return true;
+}
+
 bool Load(const std::string& path, std::string* error)
 {
   const auto start = std::chrono::steady_clock::now();
@@ -250,10 +289,7 @@ bool Load(const std::string& path, std::string* error)
     return false;
   }
   if (header.magic == DOLPHIN_COOKIE)
-  {
-    *error = "a save state of the Dolphin build (converting them isn't done yet)";
-    return false;
-  }
+    return LoadDolphin(path, bytes, start, error);
   if (header.version != VERSION)
   {
     *error = "a save state of another version (" + std::to_string(header.version) + ")";
@@ -295,16 +331,7 @@ bool Load(const std::string& path, std::string* error)
     DoAll(b);
     return false;
   }
-  VideoStateLoaded();
-#ifdef SKIES_STANDALONE_AURORA
-  DreamcastStateLoaded();
-#endif
-  DffReloadAurora();
-  ThrottleRestart();
-  const double ms =
-      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
-  Log("[state] loaded %s: %.3f s guest, frame %llu (%.0f ms)\n", path.c_str(), header.guest_seconds,
-      static_cast<unsigned long long>(GpuFrameCount()), ms);
+  Loaded(path, header.guest_seconds, start, "");
   return true;
 }
 

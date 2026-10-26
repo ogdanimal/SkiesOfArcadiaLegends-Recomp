@@ -1,6 +1,7 @@
 // Video interface: the register file, the half-line beam clock and its display interrupts
 // (VideoInterface.cpp: Preset, UpdateParameters, Update, UpdateInterrupts).
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "dolphin_state.h"
 #include "host.h"
 #include "state.h"
 
@@ -111,6 +112,60 @@ void ViDoState(StateIO& p)
   p.Do(s_line_start);
   if (p.Reading())
     UpdateParameters();
+}
+
+// A Dolphin state's VI: its register structs back into the 16-bit register file (VideoInterface.h's
+// offsets; a 32-bit register's high half first), the beam where it was
+void ViFromDolphin(const DolphinState& d)
+{
+  std::memset(s_regs, 0, sizeof(s_regs));
+  const auto r16 = [&](u32 offset, const char* field) {
+    Reg(offset) = static_cast<u16>(d.U(std::string("hw/vi/") + field));
+  };
+  const auto r32 = [&](u32 offset, u32 value) {
+    Reg(offset) = static_cast<u16>(value >> 16);
+    Reg(offset + 2) = static_cast<u16>(value);
+  };
+  const auto f32 = [&](u32 offset, const char* field) {
+    r32(offset, static_cast<u32>(d.U(std::string("hw/vi/") + field)));
+  };
+  r16(0x00, "vertical_timing_register");
+  r16(0x02, "display_control_register");
+  f32(0x04, "h_timing_0");
+  f32(0x08, "h_timing_1");
+  f32(0x0C, "vblank_timing_odd");
+  f32(0x10, "vblank_timing_even");
+  f32(0x14, "burst_blanking_odd");
+  f32(0x18, "burst_blanking_even");
+  f32(0x1C, "xfb_info_top");
+  f32(0x20, "xfb_3d_info_top");
+  f32(0x24, "xfb_info_bottom");
+  f32(0x28, "xfb_3d_info_bottom");
+  u32 words[4];
+  d.Array("hw/vi/interrupt_register", words, 4);
+  for (u32 i = 0; i < 4; ++i)
+    r32(0x30 + 4 * i, words[i]);
+  d.Array("hw/vi/latch_register", words, 2);
+  for (u32 i = 0; i < 2; ++i)
+    r32(0x40 + 4 * i, words[i]);
+  r16(0x48, "picture_configuration");
+  r16(0x4A, "horizontal_scaling");
+  d.Array("hw/vi/filter_coef_tables_02", words, 3);
+  for (u32 i = 0; i < 3; ++i)
+    r32(0x4C + 4 * i, words[i]);
+  d.Array("hw/vi/filter_coef_tables_36", words, 4);
+  for (u32 i = 0; i < 4; ++i)
+    r32(0x58 + 4 * i, words[i]);
+  f32(0x68, "unknown_aa_register");
+  r16(0x6C, "clock");
+  r16(0x6E, "dtv_status");
+  r16(0x70, "fb_width");
+  const u32 border = static_cast<u32>(d.U("hw/vi/border_hblank"));
+  Reg(0x72) = static_cast<u16>(border);
+  Reg(0x74) = static_cast<u16>(border >> 16);
+  s_half_line = static_cast<u32>(d.U("hw/vi/half_line_count"));
+  s_line_start = d.U("hw/vi/ticks_last_line_start");
+  UpdateParameters();
 }
 
 bool ViIsPal()

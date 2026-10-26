@@ -85,6 +85,7 @@ public:
   void HandleMail(u32 mail) override;
   void Update() override;
   void DoState(StateIO& p) override;
+  void FromDolphin(const DolphinState& d, const std::string& at) override;
 
 protected:
   // CPU sends 0xBABE0000 | cmdlist_size to the DSP
