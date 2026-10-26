@@ -73,6 +73,8 @@ constexpr std::array MAP_ROWS{
 constexpr std::chrono::milliseconds IDLE_BEFORE_SWITCH{750};
 // The controllers SDL has, as last logged
 std::string s_pad_list;
+// GCPadNew.ini's device has had its turn at controller 1 (Follow)
+bool s_profile_device_applied = false;
 
 // A capture gives up after this long without a press (the Dolphin build's CAPTURE_TIMEOUT)
 constexpr std::chrono::milliseconds CAPTURE_TIMEOUT{6000};
@@ -573,6 +575,57 @@ void WritePadFile(int row, InputSlot slot)
   SettingsSave();
 }
 
+// Controller 1's device in GCPadNew.ini ([GCPad1] Device, "SDL/<n>/<name>": the n-th controller of
+// that name, as the Dolphin build's SDL backend and the launcher's Controls page name them): its
+// index in Aurora's list, or one with the same label (Steam's virtual gamepad for the controller
+// itself, as the launcher's FindController), -1 when it isn't there or isn't a controller
+s32 ProfileControllerIndex(u32 count)
+{
+  const std::string device = SettingGetString(SettingFile::Pad, SkiesBindings::PAD_SECTION, "Device");
+  if (!device.starts_with("SDL/"))
+    return -1;
+  const size_t slash = device.find('/', 4);
+  if (slash == std::string::npos)
+    return -1;
+  const int wanted_n = std::atoi(device.substr(4, slash - 4).c_str());
+  const std::string wanted = device.substr(slash + 1);
+  s32 same_label = -1;
+  int n = 0;
+  for (u32 i = 0; i < count; ++i)
+  {
+    const char* name = PADGetNameForControllerIndex(i);
+    if (!name)
+      continue;
+    if (wanted == name && n++ == wanted_n)
+      return static_cast<s32>(i);
+    if (same_label < 0 && SkiesBindings::DeviceLabel(name) == SkiesBindings::DeviceLabel(wanted))
+      same_label = static_cast<s32>(i);
+  }
+  return same_label;
+}
+
+// Controller 1's device back into GCPadNew.ini when it changes (the Dolphin build's SwitchTo saves
+// it), so the launcher's Controls page shows the controller in use
+void WriteProfileDevice()
+{
+  const s32 index = PADGetIndexForPort(PAD_CHAN0);
+  const char* name = index < 0 ? nullptr : PADGetNameForControllerIndex(static_cast<u32>(index));
+  if (!name || !PadFilePresent())
+    return;
+  int n = 0;
+  for (s32 i = 0; i < index; ++i)
+  {
+    const char* other = PADGetNameForControllerIndex(static_cast<u32>(i));
+    if (other && std::strcmp(other, name) == 0)
+      ++n;
+  }
+  const std::string device = "SDL/" + std::to_string(n) + "/" + name;
+  if (SettingGetString(SettingFile::Pad, SkiesBindings::PAD_SECTION, "Device") == device)
+    return;
+  SettingSetString(SettingFile::Pad, SkiesBindings::PAD_SECTION, "Device", device);
+  SettingsSave();
+}
+
 bool AnyButton(SDL_Gamepad* pad)
 {
   for (int b = 0; b < SDL_GAMEPAD_BUTTON_COUNT; ++b)
@@ -603,6 +656,19 @@ void Follow(Clock::time_point now)
     Log("[input] controllers: %s\n", list.empty() ? "none" : list.c_str());
   }
   SDL_Gamepad* current = Port1Gamepad();
+  // At start, controller 1 is the one the profile names when it's there (as in the Dolphin build),
+  // not the one Aurora remembers for port 1
+  if (!s_profile_device_applied && count > 0)
+  {
+    s_profile_device_applied = true;
+    const s32 wanted = ProfileControllerIndex(count);
+    if (wanted >= 0 && PADGetSDLGamepadForIndex(static_cast<u32>(wanted)) != current)
+    {
+      PADSetPortForIndex(static_cast<u32>(wanted), PAD_CHAN0);
+      s_controller_used = now;
+      return;
+    }
+  }
   s32 pressed = -1, first = -1;
   for (u32 i = 0; i < count; ++i)
   {
@@ -702,6 +768,7 @@ void InputPoll()
       Log("[input] controller 1: %s\n", current.c_str());
       MenuMessage("Controller: " + InputDeviceLabel(current), 2500);
       ApplyPadFileController();
+      WriteProfileDevice();
     }
     else
     {
