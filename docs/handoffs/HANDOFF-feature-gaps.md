@@ -890,9 +890,12 @@ started as players do, on an existing data folder.
   Windows build still takes the prebuilt package (shipping the patched Dawn is item 2's leftover). Logs: stdout
   is unbuffered now (main.cpp), so a crash keeps Aurora's last lines. No debugger is installed on Windows:
   `build/sa-runs/tools/mdump.py DUMP` reads a minidump's exception (module + offset) and scans the stack.
-- **Packaging (item 10): the standalone is a console program** (a console window opens beside the game, seen in
-  the sandbox); the release runner was made a GUI program on 2026-10-13 for the same reason. Build it with the
-  Windows subsystem (`WIN32_EXECUTABLE`) for the release, logging to a file instead.
+- **No console window on Windows (2026-10-26).** The sandbox showed one beside the game (the release runner was
+  made a GUI program on 2026-10-13 for the same reason). The standalone is a GUI program now (`WIN32_EXECUTABLE`,
+  entered at `main` through `/ENTRY:mainCRTStartup`; `SKIES_STANDALONE_CONSOLE=ON` keeps the console). Output a
+  parent redirects still arrives (the test scripts); started without it (the launcher, a double click) the log
+  goes to `USER/Logs/skies-standalone.log`, both streams unbuffered. Checked on Windows both ways; the
+  swapped package (`build/sa-runs/pkg-win`) has this build as `skies-run.exe`.
 - **WSL only: textures flicker in some runs under GL ES (Mesa's d3d12 driver), not a player issue.** On WSL
   Dawn skips the llvmpipe Vulkan adapter (a CPU one) and runs OpenGL ES on Mesa's d3d12 gallium driver
   (GL translated to D3D12 on the RTX 5080; llvmpipe GL itself crashes compiling Aurora's first pipeline).

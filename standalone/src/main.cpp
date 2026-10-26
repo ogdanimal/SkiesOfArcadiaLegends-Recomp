@@ -32,6 +32,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
+#include <cstdio>
 #include <filesystem>
 #include <string>
 #include <thread>
@@ -675,6 +676,24 @@ int main(int argc, char** argv)
     return 2;
   }
 
+#if defined(_WIN32)
+  // A GUI program started without redirected output (the launcher, a double click) has no stderr: the log
+  // goes to USER/Logs/skies-standalone.log, as the Dolphin build's to User/Logs
+  if (_fileno(stderr) < 0 && !user.empty())
+  {
+    const std::filesystem::path logs = std::filesystem::path(user) / "Logs";
+    std::error_code ec;
+    std::filesystem::create_directories(logs, ec);
+    const std::string log = (logs / "skies-standalone.log").string();
+    // Emptied once, then both streams append (each write at the end, so neither overwrites the other)
+    if (FILE* f = std::fopen(log.c_str(), "w"))
+      std::fclose(f);
+    if (std::freopen(log.c_str(), "a", stderr))
+      setvbuf(stderr, nullptr, _IONBF, 0);
+    if (std::freopen(log.c_str(), "a", stdout))
+      setvbuf(stdout, nullptr, _IONBF, 0);
+  }
+#endif
   ExiSetUserDir(user);
   SettingsInit(user);
   StateSetUserDir(user, launch.state_dir);

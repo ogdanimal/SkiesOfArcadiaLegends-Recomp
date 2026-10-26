@@ -107,6 +107,18 @@ if(ANDROID)
   target_link_libraries(skies-standalone PRIVATE android log)
 else()
   add_executable(skies-standalone ${SKIES_STANDALONE_SOURCES})
+  # Windows: a GUI program, so no console window opens beside the game (as the release runner since
+  # 2026-10-13), entered at main() all the same. Its log goes where the parent redirects stdout / stderr, else
+  # to USER/Logs/skies-standalone.log (main.cpp). SKIES_STANDALONE_CONSOLE=ON keeps the console (debugging).
+  option(SKIES_STANDALONE_CONSOLE "Windows: build the standalone as a console program" OFF)
+  if(WIN32 AND NOT SKIES_STANDALONE_CONSOLE)
+    set_target_properties(skies-standalone PROPERTIES WIN32_EXECUTABLE ON)
+    if(MSVC)
+      target_link_options(skies-standalone PRIVATE /ENTRY:mainCRTStartup)
+    else()
+      target_link_options(skies-standalone PRIVATE -Wl,/ENTRY:mainCRTStartup)
+    endif()
+  endif()
 endif()
 # release_games.inc, as ModernGekko's CMakeLists.txt writes it for the runner
 set(_skies_release_games "")
