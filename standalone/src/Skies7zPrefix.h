@@ -1,0 +1,106 @@
+// Copyright 2026 Dolphin Emulator Project
+// SPDX-License-Identifier: GPL-2.0-or-later
+
+// The texture pack import's LZMA SDK (lib/lzma-sdk, built as skies7z) under names of its own.
+// mGBA (Externals/mGBA, on in the Android build) links an older copy of the SDK with the same
+// function names and different structs: without this, the import calls mGBA's SzArEx_Open and
+// reads garbage (a 6 GB file table, the app killed for memory). Included before the SDK's headers
+// in TexturePackImport.cpp and forced into every skies7z source (VideoCommon/CMakeLists.txt).
+
+#pragma once
+
+#define Bcj2Dec_Decode Skies7z_Bcj2Dec_Decode
+#define Bcj2Dec_Init Skies7z_Bcj2Dec_Init
+#define Buf_Create Skies7z_Buf_Create
+#define Buf_Free Skies7z_Buf_Free
+#define Buf_Init Skies7z_Buf_Init
+#define CPU_IsSupported_AES Skies7z_CPU_IsSupported_AES
+#define CPU_IsSupported_AVX Skies7z_CPU_IsSupported_AVX
+#define CPU_IsSupported_AVX2 Skies7z_CPU_IsSupported_AVX2
+#define CPU_IsSupported_CRC32 Skies7z_CPU_IsSupported_CRC32
+#define CPU_IsSupported_NEON Skies7z_CPU_IsSupported_NEON
+#define CPU_IsSupported_PageGB Skies7z_CPU_IsSupported_PageGB
+#define CPU_IsSupported_SHA Skies7z_CPU_IsSupported_SHA
+#define CPU_IsSupported_SHA1 Skies7z_CPU_IsSupported_SHA1
+#define CPU_IsSupported_SHA2 Skies7z_CPU_IsSupported_SHA2
+#define CPU_IsSupported_SSE41 Skies7z_CPU_IsSupported_SSE41
+#define CPU_IsSupported_SSSE3 Skies7z_CPU_IsSupported_SSSE3
+#define CPU_IsSupported_VAES_AVX2 Skies7z_CPU_IsSupported_VAES_AVX2
+#define CrcCalc Skies7z_CrcCalc
+#define CrcGenerateTable Skies7z_CrcGenerateTable
+#define CrcUpdate Skies7z_CrcUpdate
+#define CrcUpdateT0_32 Skies7z_CrcUpdateT0_32
+#define CrcUpdateT0_64 Skies7z_CrcUpdateT0_64
+#define CrcUpdateT4 Skies7z_CrcUpdateT4
+#define CrcUpdateT8 Skies7z_CrcUpdateT8
+#define Delta_Decode Skies7z_Delta_Decode
+#define Delta_Encode Skies7z_Delta_Encode
+#define Delta_Init Skies7z_Delta_Init
+#define DynBuf_Construct Skies7z_DynBuf_Construct
+#define DynBuf_Free Skies7z_DynBuf_Free
+#define DynBuf_SeekToBeg Skies7z_DynBuf_SeekToBeg
+#define DynBuf_Write Skies7z_DynBuf_Write
+#define LookInStream_LookRead Skies7z_LookInStream_LookRead
+#define LookInStream_Read Skies7z_LookInStream_Read
+#define LookInStream_Read2 Skies7z_LookInStream_Read2
+#define LookInStream_SeekTo Skies7z_LookInStream_SeekTo
+#define LookToRead2_CreateVTable Skies7z_LookToRead2_CreateVTable
+#define Lzma2Dec_Allocate Skies7z_Lzma2Dec_Allocate
+#define Lzma2Dec_AllocateProbs Skies7z_Lzma2Dec_AllocateProbs
+#define Lzma2Dec_DecodeToBuf Skies7z_Lzma2Dec_DecodeToBuf
+#define Lzma2Dec_DecodeToDic Skies7z_Lzma2Dec_DecodeToDic
+#define Lzma2Dec_Init Skies7z_Lzma2Dec_Init
+#define Lzma2Dec_Parse Skies7z_Lzma2Dec_Parse
+#define Lzma2Decode Skies7z_Lzma2Decode
+#define LzmaDec_Allocate Skies7z_LzmaDec_Allocate
+#define LzmaDec_AllocateProbs Skies7z_LzmaDec_AllocateProbs
+#define LzmaDec_DecodeToBuf Skies7z_LzmaDec_DecodeToBuf
+#define LzmaDec_DecodeToDic Skies7z_LzmaDec_DecodeToDic
+#define LzmaDec_Free Skies7z_LzmaDec_Free
+#define LzmaDec_FreeProbs Skies7z_LzmaDec_FreeProbs
+#define LzmaDec_Init Skies7z_LzmaDec_Init
+#define LzmaDec_InitDicAndState Skies7z_LzmaDec_InitDicAndState
+#define LzmaDecode Skies7z_LzmaDecode
+#define LzmaProps_Decode Skies7z_LzmaProps_Decode
+#define Ppmd7_Alloc Skies7z_Ppmd7_Alloc
+#define Ppmd7_Construct Skies7z_Ppmd7_Construct
+#define Ppmd7_Free Skies7z_Ppmd7_Free
+#define Ppmd7_Init Skies7z_Ppmd7_Init
+#define Ppmd7_MakeEscFreq Skies7z_Ppmd7_MakeEscFreq
+#define Ppmd7_Update1 Skies7z_Ppmd7_Update1
+#define Ppmd7_Update1_0 Skies7z_Ppmd7_Update1_0
+#define Ppmd7_Update2 Skies7z_Ppmd7_Update2
+#define Ppmd7_UpdateModel Skies7z_Ppmd7_UpdateModel
+#define Ppmd7z_DecodeSymbol Skies7z_Ppmd7z_DecodeSymbol
+#define Ppmd7z_RangeDec_Init Skies7z_Ppmd7z_RangeDec_Init
+#define SecToLook_CreateVTable Skies7z_SecToLook_CreateVTable
+#define SecToRead_CreateVTable Skies7z_SecToRead_CreateVTable
+#define SeqInStream_ReadByte Skies7z_SeqInStream_ReadByte
+#define SeqInStream_ReadMax Skies7z_SeqInStream_ReadMax
+#define SzAlloc Skies7z_SzAlloc
+#define SzAllocTemp Skies7z_SzAllocTemp
+#define SzArEx_Extract Skies7z_SzArEx_Extract
+#define SzArEx_Free Skies7z_SzArEx_Free
+#define SzArEx_GetFileNameUtf16 Skies7z_SzArEx_GetFileNameUtf16
+#define SzArEx_Init Skies7z_SzArEx_Init
+#define SzArEx_Open Skies7z_SzArEx_Open
+#define SzAr_DecodeFolder Skies7z_SzAr_DecodeFolder
+#define SzAr_GetFolderUnpackSize Skies7z_SzAr_GetFolderUnpackSize
+#define SzFree Skies7z_SzFree
+#define SzFreeTemp Skies7z_SzFreeTemp
+#define SzGetNextFolderItem Skies7z_SzGetNextFolderItem
+#define g_CrcTable Skies7z_g_CrcTable
+#define g_CrcUpdate Skies7z_g_CrcUpdate
+#define g_CrcUpdateT0_32 Skies7z_g_CrcUpdateT0_32
+#define g_CrcUpdateT0_64 Skies7z_g_CrcUpdateT0_64
+#define g_CrcUpdateT8 Skies7z_g_CrcUpdateT8
+#define k7zSignature Skies7z_k7zSignature
+#define z7_BranchConvSt_X86_Dec Skies7z_z7_BranchConvSt_X86_Dec
+#define z7_BranchConv_ARM64_Dec Skies7z_z7_BranchConv_ARM64_Dec
+#define z7_BranchConv_ARMT_Dec Skies7z_z7_BranchConv_ARMT_Dec
+#define z7_BranchConv_ARM_Dec Skies7z_z7_BranchConv_ARM_Dec
+#define z7_BranchConv_IA64_Dec Skies7z_z7_BranchConv_IA64_Dec
+#define z7_BranchConv_PPC_Dec Skies7z_z7_BranchConv_PPC_Dec
+#define z7_BranchConv_SPARC_Dec Skies7z_z7_BranchConv_SPARC_Dec
+#define z7_x86_cpuid Skies7z_z7_x86_cpuid
+#define z7_x86_cpuid_GetMaxFunc Skies7z_z7_x86_cpuid_GetMaxFunc

@@ -9,6 +9,8 @@
 #include "texture_pack.h"
 
 #ifdef HAVE_LZMA_SDK
+#include "Skies7zPrefix.h"
+
 #include <7z.h>
 #include <7zCrc.h>
 #include <Lzma2Dec.h>

@@ -272,6 +272,9 @@ bool Load(const std::string& path, std::string* error)
     return false;
   }
   VideoStateLoaded();
+#ifdef SKIES_STANDALONE_AURORA
+  DreamcastStateLoaded();
+#endif
   DffReloadAurora();
   ThrottleRestart();
   const double ms =

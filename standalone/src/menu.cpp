@@ -100,6 +100,8 @@ enum class Option
   Rumble,
   Mapping,
   Language,
+  Music,
+  Uncensored,
 };
 
 constexpr std::array SAVES_ROWS{Option::SaveState, Option::LoadState, Option::AutoSave};
@@ -112,6 +114,7 @@ constexpr std::array GAMEPLAY_ROWS{Option::Camera,     Option::BattleSpeed, Opti
                                    Option::Gold,       Option::MagicExp,    Option::Invincible};
 constexpr std::array LANGUAGE_ROWS{Option::Language};
 constexpr std::array SOUND_ROWS{Option::Volume};
+constexpr std::array DREAMCAST_ROWS{Option::Music, Option::Uncensored};
 constexpr std::array CONTROLS_ROWS{Option::Mapping, Option::DeadZone, Option::Rumble};
 struct Tab
 {
@@ -121,7 +124,8 @@ struct Tab
 // Saves first, as in the Dolphin build: in game that's the one used most
 constexpr std::array TABS{Tab{"Saves", SAVES_ROWS}, Tab{"Graphics", GRAPHICS_ROWS},
                           Tab{"Gameplay", GAMEPLAY_ROWS}, Tab{"Language", LANGUAGE_ROWS},
-                          Tab{"Sound", SOUND_ROWS}, Tab{"Controls", CONTROLS_ROWS}};
+                          Tab{"Sound", SOUND_ROWS}, Tab{"Dreamcast", DREAMCAST_ROWS},
+                          Tab{"Controls", CONTROLS_ROWS}};
 
 // Save states (state.cpp) in USER/StateSaves/Standalone: the player's five slots are
 // <game>-slot1..5.sst, auto-saves <game>-auto-<date>-<time>.sst, the newest three kept. Not the
@@ -191,6 +195,9 @@ constexpr Key SHOW_FPS{SettingFile::Gfx, "Settings", "ShowFPS", 0, true};
 constexpr Key VSYNC{SettingFile::Gfx, "Hardware", "VSync", 0, true};
 // Dolphin's Load Custom Textures: the imported texture pack (hd_textures.cpp)
 constexpr Key HD_TEXTURES{SettingFile::Gfx, "Settings", "HiresTextures", 0, true};
+// The Dreamcast tab (dreamcast.cpp): the Dreamcast music, and the Japanese Dreamcast models
+constexpr Key DC_MUSIC{SettingFile::Main, "Skies", "DreamcastMusic", 0};
+constexpr Key UNCENSORED{SettingFile::Main, "Skies", "Uncensored", 0};
 
 int Get(const Key& key)
 {
@@ -231,6 +238,10 @@ struct Values
   int dead_zone = 0;
   int rumble = 1;
   int auto_save = 10;
+  bool dc_music_installed = false;  // the Dreamcast disc's music is imported (dreamcast.cpp)
+  bool uncensor_available = false;  // the running game has converted uncensored files
+  int music = 0;                    // 1 = the Dreamcast music
+  int uncensored = 0;
 };
 
 enum class Mode
@@ -454,6 +465,12 @@ Values ReadValues()
   values.dead_zone = std::clamp(Get(DEAD_ZONE), 0, DEAD_ZONES.back());
   values.rumble = Get(RUMBLE) != 0 ? 1 : 0;
   values.auto_save = std::max(0, Get(AUTO_SAVE));
+#ifdef SKIES_STANDALONE_AURORA
+  values.dc_music_installed = DreamcastMusicInstalled();
+  values.uncensor_available = DreamcastUncensorAvailable();
+#endif
+  values.music = Get(DC_MUSIC) != 0 ? 1 : 0;
+  values.uncensored = Get(UNCENSORED) != 0 ? 1 : 0;
   return values;
 }
 
@@ -494,6 +511,8 @@ void Apply(const Values& values, const Values& before)
   set(DEAD_ZONE, values.dead_zone, before.dead_zone);
   set(RUMBLE, values.rumble, before.rumble);
   set(AUTO_SAVE, values.auto_save, before.auto_save);
+  set(DC_MUSIC, values.music, before.music);
+  set(UNCENSORED, values.uncensored, before.uncensored);
   s_volume = values.volume;
   s_dead_zone = values.dead_zone;
   s_rumble = values.rumble != 0;
@@ -697,6 +716,14 @@ void Change(Option option, int direction, bool wrap)
   case Option::HdTextures:
     if (v.texture_pack)
       v.hd_textures = v.hd_textures ? 0 : 1;
+    break;
+  case Option::Music:
+    if (v.dc_music_installed)
+      v.music = v.music ? 0 : 1;
+    break;
+  case Option::Uncensored:
+    if (v.uncensor_available)
+      v.uncensored = v.uncensored ? 0 : 1;
     break;
   case Option::VSync:
     v.vsync = !v.vsync;
@@ -2149,6 +2176,26 @@ void Draw(float scale)
       }
       return {"HD textures", OnOff(v.hd_textures != 0),
               "Replaces the game's textures with the imported pack's."};
+    case Option::Music:
+      if (!v.dc_music_installed)
+      {
+        return {"Music", "GameCube",
+                "The Dreamcast version's music needs your Dreamcast disc: import it in the "
+                "launcher's Settings, Dreamcast tab."};
+      }
+      return {"Music", v.music ? "Dreamcast" : "GameCube",
+              "Dreamcast plays the original Dreamcast music, from your own disc."};
+    case Option::Uncensored:
+      if (!v.uncensor_available)
+      {
+        return {"Uncensored", "Off",
+                "Needs Eternal Arcadia, the Japanese Dreamcast release: import it in the "
+                "launcher's Settings, Dreamcast tab."};
+      }
+      return {"Uncensored", v.uncensored ? "On" : "Off",
+              "The original Japanese models and textures the Western releases changed (cigars, "
+              "Bellena's outfit, the tavern sign, the drinks, Gilder's victory pose, Vigoro's "
+              "outfit), from the next area or scene."};
     case Option::VSync:
       return {"V-Sync", OnOff(v.vsync), "Stops screen tearing. Can add a little input delay."};
     case Option::ShowFps:

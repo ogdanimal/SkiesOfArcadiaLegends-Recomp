@@ -1,6 +1,8 @@
 // The disc, served from an extracted game folder (sys/ + files/, Dolphin's "Extract Entire Disc"
 // layout). The disc's own FST (sys/fst.bin) keeps the original file offsets, and the game reads
-// files at those offsets, so a read is mapped back to the file that held those bytes.
+// files at those offsets, so a read is mapped back to the file that held those bytes. A file can be
+// served from another of the same size (dreamcast.cpp: a Dreamcast stream, the European disc's 60 Hz
+// copy, an uncensored model), as the Dolphin build's DirectoryBlob does.
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "host.h"
 
@@ -28,7 +30,7 @@ std::vector<u8> s_dol;  // sys/main.dol, whole: a patched DOL can outgrow its sl
 
 struct OpenFile
 {
-  const Extent* extent = nullptr;
+  std::string path;
   std::ifstream stream;
 };
 OpenFile s_open[8];
@@ -50,19 +52,68 @@ void AddSystemFile(u64 offset, std::vector<u8> data, const char* name)
   s_extents.push_back(std::move(e));
 }
 
-std::ifstream* Stream(const Extent& e)
+std::ifstream* Stream(const std::string& path)
 {
   for (OpenFile& f : s_open)
   {
-    if (f.extent == &e)
+    if (f.path == path)
       return &f.stream;
   }
   OpenFile& f = s_open[s_open_next++ % std::size(s_open)];
   f.stream.close();
   f.stream.clear();
-  f.stream.open(e.path, std::ios::binary);
-  f.extent = f.stream ? &e : nullptr;
+  f.stream.open(path, std::ios::binary);
+  f.path = f.stream ? path : std::string();
   return f.stream ? &f.stream : nullptr;
+}
+
+// n bytes of path at in_file (what the file doesn't have stays zero); false when it can't be opened
+bool ReadFile(const std::string& path, u64 in_file, u8* out, u64 n)
+{
+  std::ifstream* f = Stream(path);
+  if (!f)
+    return false;
+  f->clear();
+  f->seekg(static_cast<std::streamoff>(in_file));
+  f->read(reinterpret_cast<char*>(out), static_cast<std::streamsize>(n));
+  return true;
+}
+}  // namespace
+
+namespace
+{
+// SKIES_DISC_DUMP=DIR:REL[,REL...] (a test): those files (relative to files/) read through DiscRead as
+// the game would read them, into DIR: what the disc serves (dreamcast.cpp's redirects included)
+void DumpFiles(const std::string& files_dir)
+{
+  const char* spec = std::getenv("SKIES_DISC_DUMP");
+  if (!spec)
+    return;
+  const std::string all = spec;
+  const size_t colon = all.find(':', all.size() > 2 && all[1] == ':' ? 2 : 0);  // C:\... on Windows
+  if (colon == std::string::npos)
+    return;
+  const std::filesystem::path out_dir = all.substr(0, colon);
+  std::filesystem::create_directories(out_dir);
+  for (size_t at = colon + 1; at < all.size();)
+  {
+    const size_t comma = all.find(',', at);
+    const std::string rel = all.substr(at, comma == std::string::npos ? std::string::npos : comma - at);
+    at = comma == std::string::npos ? all.size() : comma + 1;
+    const std::string path = (std::filesystem::path(files_dir) / rel).string();
+    const auto it = std::find_if(s_extents.begin(), s_extents.end(),
+                                 [&](const Extent& e) { return e.path == path; });
+    if (it == s_extents.end())
+    {
+      Log("[disc] dump: no %s\n", rel.c_str());
+      continue;
+    }
+    std::vector<u8> data(it->size);
+    DiscRead(it->offset, data.data(), static_cast<u32>(data.size()));
+    std::ofstream(out_dir / std::filesystem::path(rel).filename(), std::ios::binary)
+        .write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
+    Log("[disc] dump: %s, %zu bytes\n", rel.c_str(), data.size());
+  }
 }
 }  // namespace
 
@@ -127,6 +178,9 @@ bool DiscOpen(const std::string& game_dir, const std::string& dol_path)
       Log("[disc] missing %s\n", e.path.c_str());
       continue;
     }
+#ifdef SKIES_STANDALONE_AURORA
+    DreamcastDiscFile(e.path);
+#endif
     s_extents.push_back(std::move(e));
     ++added;
   }
@@ -135,6 +189,7 @@ bool DiscOpen(const std::string& game_dir, const std::string& dol_path)
             [](const Extent& a, const Extent& b) { return a.offset < b.offset; });
   Log("[disc] %.6s: %u files from %s\n", reinterpret_cast<const char*>(s_boot.data()), added,
       game_dir.c_str());
+  DumpFiles(files.string());
   return true;
 }
 
@@ -176,12 +231,22 @@ bool DiscRead(u64 offset, void* out, u32 length)
       std::memcpy(dst + (from - offset), it->data.data() + in_file, n);
       continue;
     }
-    std::ifstream* f = Stream(*it);
-    if (!f)
+#ifdef SKIES_STANDALONE_AURORA
+    const std::string path = DreamcastRedirect(it->path, in_file);
+#else
+    const std::string& path = it->path;
+#endif
+    if (ReadFile(path, in_file, dst + (from - offset), n))
+      continue;
+    // A served copy that went away (removed with the game running, a cache cleared): the disc's
+    // own file rather than a read error (the Dolphin build's review D8, D19)
+    if (path == it->path)
       return false;
-    f->clear();
-    f->seekg(static_cast<std::streamoff>(in_file));
-    f->read(reinterpret_cast<char*>(dst + (from - offset)), static_cast<std::streamsize>(n));
+    static int s_warned = 0;
+    if (s_warned++ < 8)
+      Log("[disc] %s can't be read: the disc's own %s instead\n", path.c_str(), it->path.c_str());
+    if (!ReadFile(it->path, in_file, dst + (from - offset), n))
+      return false;
   }
   return true;
 }

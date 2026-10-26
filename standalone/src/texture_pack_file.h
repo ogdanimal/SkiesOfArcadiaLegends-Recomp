@@ -1,6 +1,7 @@
 // The few Dolphin Common helpers texture_pack.cpp (the Dolphin build's
 // VideoCommon/TexturePackImport.cpp, kept as it is there) calls: File::, Common::ScopeGuard,
-// StringToPath, UTF16ToUTF8, DIR_SEP. Paths are UTF-8 strings, as in Dolphin.
+// StringToPath, UTF16ToUTF8, DIR_SEP. Paths are UTF-8 strings, as in Dolphin. The Dreamcast modules
+// use them too (dolphin_shim/Common/FileUtil.h adds what else they need).
 
 #pragma once
 
@@ -196,16 +197,7 @@ class IOFile
 {
 public:
   IOFile() = default;
-  IOFile(const std::string& path, const char* mode)
-  {
-#ifdef _WIN32
-    const std::wstring wide_mode(mode, mode + std::char_traits<char>::length(mode));
-    m_file = _wfopen(StringToPath(path).c_str(), wide_mode.c_str());
-#else
-    m_file = std::fopen(path.c_str(), mode);
-#endif
-    m_good = m_file != nullptr;
-  }
+  IOFile(const std::string& path, const char* mode) { Open(path, mode); }
   ~IOFile() { Close(); }
   IOFile(const IOFile&) = delete;
   IOFile& operator=(const IOFile&) = delete;
@@ -221,7 +213,22 @@ public:
     return *this;
   }
 
+  bool Open(const std::string& path, const char* mode)
+  {
+    Close();
+#ifdef _WIN32
+    const std::wstring wide_mode(mode, mode + std::char_traits<char>::length(mode));
+    m_file = _wfopen(StringToPath(path).c_str(), wide_mode.c_str());
+#else
+    m_file = std::fopen(path.c_str(), mode);
+#endif
+    m_good = m_file != nullptr;
+    return m_good;
+  }
+
   bool IsOpen() const { return m_file != nullptr; }
+  bool IsGood() const { return m_good; }
+  explicit operator bool() const { return IsGood() && IsOpen(); }
   std::FILE* GetHandle() const { return m_file; }
   void ClearError()
   {

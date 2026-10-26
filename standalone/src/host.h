@@ -293,6 +293,27 @@ int TexturePackCommand(const std::string& pack, bool remove);
 // The window's surface in pixels (false: no window; either pointer may be null)
 bool VideoSurfaceSize(unsigned* width, unsigned* height);
 
+// ---- Dreamcast (dreamcast.cpp) ---------------------------------------------------------------------
+// The Dolphin build's Dreamcast features, its modules kept as they are (standalone/src/dreamcast/):
+// Uncensored, the Dreamcast music and streamed songs, the European disc's 60 Hz audio.
+void DreamcastSetSysDir(const std::string& dir);  // --sys: holds Skies/uncensor-manifest.json
+// disc.cpp: every file of the extracted game as the disc is opened, and the file a read of one at
+// offset_in_file comes from (the Dreamcast stream, the 60 Hz copy or the uncensored file, else itself)
+void DreamcastDiscFile(const std::string& path);
+std::string DreamcastRedirect(const std::string& path, u64 offset_in_file);
+void DreamcastPoll();          // hw_si.cpp, each pad poll: the Dreamcast music follows the game
+void DreamcastStateLoaded();   // the loaded game's song again
+void DreamcastFieldTick();     // main.cpp, each field: the game runs (the music plays)
+void DreamcastShutdown();      // the background conversions stopped, the music too
+// SKIES_DC_MUSIC_SYNC=1: the Dreamcast music mixed into the game's audio (video.cpp, 32 kHz) in guest
+// time, for deterministic runs and SKIES_WAV dumps, instead of its own real-time stream
+bool DreamcastMusicSync();
+void DreamcastAudio(s16* samples, u32 frames);
+bool DreamcastMusicInstalled();
+bool DreamcastUncensorAvailable();
+// --import-dc IMAGE [--game DIR]: the exit code
+int DreamcastImportCommand(const std::string& image, const std::string& game_dir);
+
 // ---- settings (settings.cpp) -----------------------------------------------------------------------
 // The Dolphin build's Config/Dolphin.ini and Config/GFX.ini in the user folder (read at start,
 // changed lines written back by SettingsSave).

@@ -1243,6 +1243,16 @@ void WavClose()
 
 void AudioPushSamples(const s16* samples, u32 frames)
 {
+#ifdef SKIES_STANDALONE_AURORA
+  // SKIES_DC_MUSIC_SYNC=1: the Dreamcast music in the game's audio, in guest time (dreamcast.cpp)
+  static std::vector<s16> s_with_music;
+  if (DreamcastMusicSync())
+  {
+    s_with_music.assign(samples, samples + frames * 2);
+    DreamcastAudio(s_with_music.data(), frames);
+    samples = s_with_music.data();
+  }
+#endif
   static const char* s_wav_path = std::getenv("SKIES_WAV");
   if (s_wav_path && !s_wav && s_wav_bytes == 0)
   {

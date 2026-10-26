@@ -1,7 +1,7 @@
 // skies-standalone: the recompiled game on this host, no emulator core.
 //   skies-standalone --game DIR [--module FILE] [--headless] [--unthrottled] [--seconds N]
 //                    [--mmio-log] [--idle-pc ADDR] [--dsp-coef FILE] [--user USERDIR] [--dol FILE]
-//                    [--load-state FILE] [--continue N|card]
+//                    [--load-state FILE] [--continue N|card] [--sys DIR]
 // DIR is an extracted disc (sys/ + files/); FILE the g<GAMEID>_recomp module built for its DOL (by
 // default the disc ID's, from the library path: Android's app libraries, or beside the executable).
 // USERDIR holds the memory card saves as the Dolphin build keeps them (GC/<region>/Card A/*.gci);
@@ -12,6 +12,10 @@
 //   skies-standalone --user USERDIR --import-texture-pack PACK | --remove-texture-packs
 // imports an HD texture pack (a .7z, .zip or folder, texture_pack.cpp) into USERDIR/Load/Textures/GEA,
 // adding to the ones before, or removes them all, and exits.
+//   skies-standalone --user USERDIR --import-dc DREAMCAST_DISC [--game DIR] [--sys DIR]
+// imports a Dreamcast disc (GDI or CHD; dreamcast.cpp): its music into USERDIR/DreamcastMusic, and from
+// Eternal Arcadia (the Japanese discs) the files of the Uncensored setting, converted for --game.
+// --sys is the folder with Skies/uncensor-manifest.json (by default the source tree's standalone/data/Sys).
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "host.h"
 
@@ -272,6 +276,9 @@ void Throttle()
     return v ? std::atof(v) : DEFAULT_SPIN_MS;
   }();
   const auto now = std::chrono::steady_clock::now();
+#ifdef SKIES_STANDALONE_AURORA
+  DreamcastFieldTick();
+#endif
   SampleSpeed(now);
   if (PacingOn() && s_last_wake.time_since_epoch().count() != 0)
     PacingAdd(s_busy, std::chrono::duration<double, std::milli>(now - s_last_wake).count(), "host-busy",
@@ -496,7 +503,7 @@ int main(int argc, char** argv)
   AndroidSetup(argc, argv);
 #endif
   setvbuf(stderr, nullptr, _IONBF, 0);
-  std::string game, module, dol, user, load_state, import_pack;
+  std::string game, module, dol, user, load_state, import_pack, import_dc, sys_dir;
   bool remove_packs = false;
   std::string dsp_coef = SKIES_DSP_COEF_DEFAULT;
   bool headless = false;
@@ -545,15 +552,41 @@ int main(int argc, char** argv)
       import_pack = next();
     else if (a == "--remove-texture-packs")
       remove_packs = true;
+    else if (a == "--import-dc")
+      import_dc = next();
+    else if (a == "--sys")
+      sys_dir = next();
     else
     {
       Log("usage: %s --game DIR [--module FILE] [--headless] [--unthrottled] [--seconds N] "
           "[--mmio-log] [--idle-pc ADDR] [--dsp-coef FILE] [--user USERDIR] [--dol FILE] "
-          "[--load-state FILE] [--continue N|card]\n"
-          "       %s --user USERDIR --import-texture-pack PACK | --remove-texture-packs\n",
-          argv[0], argv[0]);
+          "[--load-state FILE] [--continue N|card] [--sys DIR]\n"
+          "       %s --user USERDIR --import-texture-pack PACK | --remove-texture-packs\n"
+          "       %s --user USERDIR --import-dc DREAMCAST_DISC [--game DIR] [--sys DIR]\n",
+          argv[0], argv[0], argv[0]);
       return 2;
     }
+  }
+#ifdef SKIES_STANDALONE_AURORA
+  if (!sys_dir.empty())
+    DreamcastSetSysDir(sys_dir);
+#endif
+  if (!import_dc.empty())
+  {
+    // The Dreamcast disc (GDI or CHD): its music, and with Eternal Arcadia the uncensored files,
+    // converted for --game when it is given (dreamcast.cpp)
+    if (user.empty())
+    {
+      Log("--user is required\n");
+      return 2;
+    }
+    SettingsInit(user);
+#ifdef SKIES_STANDALONE_AURORA
+    return DreamcastImportCommand(import_dc, game);
+#else
+    Log("This build has no Dreamcast import (built without Aurora)\n");
+    return 2;
+#endif
   }
   if (!import_pack.empty() || remove_packs)
   {
@@ -622,6 +655,9 @@ int main(int argc, char** argv)
     RunCpu();
   });
   Report();
+#ifdef SKIES_STANDALONE_AURORA
+  DreamcastShutdown();
+#endif
   ExiShutdown();
   VideoShutdown();
   if (s_restart)

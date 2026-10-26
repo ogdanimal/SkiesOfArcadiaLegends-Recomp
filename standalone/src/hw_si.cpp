@@ -213,6 +213,10 @@ void SiDoState(StateIO& p)
 
 void SiPollDevices()
 {
+#ifdef SKIES_STANDALONE_AURORA
+  // The Dreamcast music follows the game at each pad poll, as the Dolphin build's SkiesMusic::Poll
+  DreamcastPoll();
+#endif
   Snapshot();
   const bool rumble = MenuRumbleAllowed();
   for (u32 i = 0; i < 4; ++i)

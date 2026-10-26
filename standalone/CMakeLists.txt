@@ -152,16 +152,86 @@ if(SKIES_STANDALONE_AURORA)
     add_library(skies7z STATIC ${_skies_7z_sources})
     target_compile_definitions(skies7z PRIVATE Z7_PPMD_SUPPORT Z7_EXTRACT_ONLY)
     target_include_directories(skies7z PUBLIC "${SKIES_LZMA_SDK_DIR}/C")
+    # Its own symbol names (src/Skies7zPrefix.h, the Dolphin build's): libchdr links another copy
+    # of the SDK's LZMA decoder (the Dreamcast import below)
+    set(_skies_7z_prefix "${CMAKE_CURRENT_SOURCE_DIR}/src/Skies7zPrefix.h")
     if(MSVC)
-      target_compile_options(skies7z PRIVATE /W0)
+      target_compile_options(skies7z PRIVATE /W0 "/FI${_skies_7z_prefix}")
     else()
-      target_compile_options(skies7z PRIVATE -w)
+      target_compile_options(skies7z PRIVATE -w "SHELL:-include \"${_skies_7z_prefix}\"")
     endif()
     target_link_libraries(skies-standalone PRIVATE skies7z)
     target_compile_definitions(skies-standalone PRIVATE HAVE_LZMA_SDK=1)
   else()
     message(STATUS "No LZMA SDK in ${SKIES_LZMA_SDK_DIR}: the texture pack import reads .zip files and folders only")
   endif()
+
+  # The Dreamcast features (feature-gap item 7): the Dolphin build's modules as they are on dev
+  # (src/dreamcast/), on the Dolphin headers they include (src/dolphin_shim/, dreamcast_host.h,
+  # dreamcast.cpp), with Highly Theoretical's AICA + ARM7 emulation (GPL-3; the repo's
+  # lib/HighlyTheoretical) and libchdr for CHD images (BSD-3; lib/libchdr), built as the Dolphin
+  # build's AudioCommon/CMakeLists.txt builds them.
+  set(SKIES_HT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../lib/HighlyTheoretical" CACHE PATH
+      "Highly Theoretical source (its Core/ directory has dcsound.c)")
+  add_library(dcsound STATIC
+    "${SKIES_HT_DIR}/Core/dcsound.c"
+    "${SKIES_HT_DIR}/Core/arm.c"
+    "${SKIES_HT_DIR}/Core/yam.c")
+  target_compile_definitions(dcsound PRIVATE EMU_COMPILE EMU_LITTLE_ENDIAN HAVE_STDINT_H DISABLE_SSF)
+  # yam.c's __fastcall is regparm(3) off Windows, which only x86 compilers take
+  if(NOT WIN32 AND NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(i.86|x86|x86_64|AMD64|amd64)$")
+    target_compile_options(dcsound PRIVATE "-Dregparm(x)=")
+  endif()
+  target_include_directories(dcsound PUBLIC "${SKIES_HT_DIR}/Core")
+  if(MSVC)
+    target_compile_options(dcsound PRIVATE /W0 /WX-)
+  else()
+    target_compile_options(dcsound PRIVATE -w)
+  endif()
+  # libchdr on the standalone's zstd, as a "system" one (cmake/Findzstd.cmake): Aurora's zstd also
+  # builds the zstd program, so libchdr's own copy would take the name of an executable
+  if(NOT TARGET zstd::zstd)
+    add_library(zstd::zstd INTERFACE IMPORTED)
+    set_property(TARGET zstd::zstd PROPERTY INTERFACE_LINK_LIBRARIES zstd::libzstd)
+  endif()
+  list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+  set(WITH_SYSTEM_ZSTD ON CACHE BOOL "" FORCE)
+  set(CHDR_WANT_TESTS OFF CACHE BOOL "" FORCE)
+  set(INSTALL_STATIC_LIBS OFF CACHE BOOL "" FORCE)
+  set(WITH_LZMA_ASM OFF CACHE BOOL "" FORCE)
+  set(_skies_shared ${BUILD_SHARED_LIBS})
+  set(BUILD_SHARED_LIBS OFF)
+  add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../lib/libchdr" libchdr EXCLUDE_FROM_ALL)
+  set(BUILD_SHARED_LIBS ${_skies_shared})
+  foreach(_skies_chdr_target IN ITEMS chdr-static chdr-lzma miniz)
+    if(TARGET ${_skies_chdr_target})
+      if(MSVC)
+        target_compile_options(${_skies_chdr_target} PRIVATE /W0 /WX-)
+      else()
+        target_compile_options(${_skies_chdr_target} PRIVATE -w)
+      endif()
+    endif()
+  endforeach()
+  add_library(skies-dreamcast STATIC
+    src/dreamcast/DiscIO/SkiesUncensor.cpp
+    src/dreamcast/DiscIO/SkiesUncensorConvert.cpp
+    src/dreamcast/DiscIO/SkiesStreams.cpp
+    src/dreamcast/AudioCommon/DCMusicImport.cpp
+    src/dreamcast/AudioCommon/DCMusic.cpp
+    src/dreamcast/Core/SkiesMusic.cpp
+    "${DOLPHIN_DIR}/Externals/picojson/picojson.cpp")
+  target_include_directories(skies-dreamcast PRIVATE
+    src/dreamcast src/dolphin_shim src "${DOLPHIN_DIR}/Externals/picojson")
+  target_compile_definitions(skies-dreamcast PRIVATE HAVE_DCMUSIC=1 HAVE_LIBCHDR=1)
+  target_link_libraries(skies-dreamcast PRIVATE dcsound chdr-static fmt::fmt)
+  target_sources(skies-standalone PRIVATE src/dreamcast.cpp)
+  set_source_files_properties(src/dreamcast.cpp PROPERTIES INCLUDE_DIRECTORIES
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/dreamcast;${CMAKE_CURRENT_SOURCE_DIR}/src/dolphin_shim")
+  # The Sys folder with Skies/uncensor-manifest.json (names and hashes, no game data): --sys DIR
+  # overrides it (the Android app is given a copy)
+  target_compile_definitions(skies-standalone PRIVATE
+    SKIES_SYS_DEFAULT="${CMAKE_CURRENT_SOURCE_DIR}/data/Sys")
+  target_link_libraries(skies-standalone PRIVATE skies-dreamcast)
 endif()
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(skies-standalone PRIVATE -Wall -Wextra -Wno-unused-parameter)
