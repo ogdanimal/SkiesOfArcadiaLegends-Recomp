@@ -12,6 +12,7 @@
 #include <cmath>
 #include <chrono>
 #include <condition_variable>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <deque>
@@ -535,6 +536,47 @@ SDL_Window* MainWindow()
   SDL_free(windows);
   return window;
 }
+
+// SKIES_RESIZE_AT=SECONDS:WxH[,SECONDS:WxH...]: the window resized at those guest times (tests: a size
+// change keeps the EFB copies)
+void ApplyTestResize()
+{
+  struct Resize
+  {
+    double seconds;
+    int width, height;
+  };
+  static std::vector<Resize> s_resizes = [] {
+    std::vector<Resize> list;
+    if (const char* v = std::getenv("SKIES_RESIZE_AT"))
+      for (const char* p = v; *p;)
+      {
+        Resize r{};
+        int used = 0;
+        if (std::sscanf(p, "%lf:%dx%d%n", &r.seconds, &r.width, &r.height, &used) != 3)
+        {
+          Log("[video] SKIES_RESIZE_AT=SECONDS:WxH[,...], not '%s'\n", v);
+          break;
+        }
+        list.push_back(r);
+        p += used;
+        if (*p == ',')
+          ++p;
+      }
+    return list;
+  }();
+  const double now = static_cast<double>(Now()) / CPU_HZ;
+  while (!s_resizes.empty() && now >= s_resizes.front().seconds)
+  {
+    const Resize r = s_resizes.front();
+    s_resizes.erase(s_resizes.begin());
+    Log("[video] resizing the window to %dx%d at %.2f s guest\n", r.width, r.height, now);
+    VideoPost([r] {
+      if (SDL_Window* window = MainWindow())
+        SDL_SetWindowSize(window, r.width, r.height);
+    });
+  }
+}
 #endif
 }  // namespace
 
@@ -914,6 +956,7 @@ void VideoFrameEnd()
 #ifdef SKIES_STANDALONE_AURORA
   if (!s_active)
     return;
+  ApplyTestResize();
   {
     const auto input = VideoInputLock();
     MenuApplyGame();

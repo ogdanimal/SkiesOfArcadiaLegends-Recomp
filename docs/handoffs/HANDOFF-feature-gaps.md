@@ -866,6 +866,15 @@ started as players do, on an existing data folder.
   option (`build/devmg-build`: `build/devmg` with `vendor/dolphin` linked to `build/devtree/rc`, whose
   empty third-party folders and DolRecomp are linked to this branch's copies) passes 30 of 30. The hidden
   row is compile-time only, not looked at in the window. Android's import (item 9) needs the same define.
+- **WSL only (GL ES on llvmpipe): textures flicker in some runs.** Pirate Isle from
+  `retroid-us-1012-slot1.sav` (or the standalone's own state made from it) draws a wrong texture on a few
+  frames (a house, a wall, the garden with a face, a rug, gold), different frames each run, in 4 of 6
+  runs. RAM and ARAM come out byte-identical in good and bad runs (the game is deterministic); no disc
+  reads or ARAM DMA in the window. Not the video thread (worse with `SKIES_VIDEO_THREAD=0`), not the parse
+  lag (`SKIES_DRAIN=0` too), not the per-frame hash memo (a BP 0x66 invalidate epoch didn't help). Windows
+  D3D12 (6 runs) and the Pocket 5 Vulkan (3 runs) give identical, clean frames every run, so it's in
+  Dawn's GL ES path; Aurora falls back to GL ES where D3D12 / Vulkan / Metal fail, so it's worth a look
+  before release (open). Judge WSL frames against Windows ones, not against each other.
 - **Pitfall:** a cold first run skips draws while pipelines compile (the shadow pass: picture 3x too bright
   for a second): compare with `AURORA_SYNC_PIPELINES=1`.
 - Tools: `build/sa-runs/sa-win.sh` (Windows run from a state, guest time read from the state);
@@ -942,9 +951,16 @@ picker flow (incl. the process-death case, D11). Dolphin-bound: config through `
   - Open: pause then Home then return (the Dolphin build's black-screen history), process kill and restore,
     "Game in progress" after a task-clearing relaunch, and Exit Game relaunch.
   - Audio must pause with the app.
-  - **A size change on return (rotation, split screen) goes through Aurora's resize, which recreates the
-    EFB and drops copies held only on the GPU.** Fix that in the fork (keep the EFB at its scale and only
-    reconfigure the surface) before the shell ships.
+  - **A size change on return (rotation, split screen) goes through Aurora's resize**: with Resolution on
+    Auto (the default, the EFB follows the window) a new size rebuilds the EFB and clears the EFB copy
+    cache (`resize_swapchain_internal`); a fixed scale keeps the EFB's size (the aspect fit undoes the
+    window's shape). Checked 2026-10-26 with `SKIES_RESIZE_AT=SECONDS:WxH[,...]` (the window resized at
+    those guest times): the world map, Pirate Isle (5 live copies), the romhack and the 1022 state show
+    nothing lost, frame by frame on Windows (the only difference is the scaling, 2.6% RMSE, no spike at
+    the resize): the game remakes those copies every frame. Not checked: a copy kept across frames (the
+    battle start's screen grab, about a second) caught by a resize. Recheck on the Pocket 5 with split
+    screen once the shell exists; keeping the copies across a resize (no cache clear, they're sampled
+    by normalised coordinates and the padded copies scale by their own size) is the fix if one shows.
 - **Pads:** controller 1 follows the last pad pressed, Bluetooth over the built-in one, resting Android axes
   ignored. Check what SDL does with two pads. The built-in pad is untested by hand.
 
