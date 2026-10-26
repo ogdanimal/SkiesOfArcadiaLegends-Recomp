@@ -23,7 +23,7 @@ cost at 4x / 6x resolution (item 2); shipping the patched Dawn and the macOS bui
 a capture with a real pad, two pads and the Pocket 5 (item 3); the restart on Android (item 4); the
 cloud-sea edges and the full 4x pack (item 5); 60 fps on the Nova and its scene list (item 6); the
 video thread on the Nova, macOS and with a pad by hand; item 7's open list (m03 and the intro in game, the
-European intro timing, Home and back with the music, the save point's music cost).
+European intro timing, the save point's music cost).
 
 ## Ground rules
 
@@ -740,9 +740,12 @@ engines' CPU cost against the performance goal (measure on the Pocket 5).
   the device thread must keep up, or Aurora's push blocks the game. With the game's audio on, uncapped runs
   are held at 1.00x by that same queue (benches stay muted). At the save point in the lowest mode the
   video thread's polling flips on and off (the game sleeps 12-18%, the threshold is 15%).
+- **Home and back with the music on** (Pocket 5): in the background neither the game's thread nor the
+  audio thread takes measurable CPU (the music stops with the game), both resume on return.
 - **Open:** the m03 scene and the intro with the Dreamcast recordings in game; the European intro timing
-  (`cs_shot`, ratio 0.993-1.005) in the standalone; Home and back with the music on; the Android picker
-  import (item 9); the save point's music cost.
+  (`cs_shot`, ratio 0.993-1.005) in the standalone; the Android picker import (item 9); the save point's
+  music cost; a romhack whose file sizes differ (Maeson 1.51: its extracted game is gone, so it needs the
+  xdelta applied to the USA ISO again).
 
 ## 8. Data folder, romhacks, saves
 
