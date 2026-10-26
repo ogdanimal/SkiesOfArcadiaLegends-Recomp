@@ -26,9 +26,10 @@ full speed p99 ~17.7 ms against 24.5-25.9, at 0.4-0.9 W less; with the PNG HD pa
 battle at full speed, card saves); phase 4 under way: in-game menu, save states and auto-save, and the
 feature-gap plan's items 0-6 done on desktop (European / Japanese discs, Continue, graphics options with
 MSAA up to 8x, input with rumble / mapping / controller follow, Language, HD textures, 60 fps), items 5 and 6
-checked on the Pocket 5 too (fork 0045), and Aurora moved to a video thread (fork 0046); open: the
-Dreamcast features (next), data folder / romhacks / save import, the launchers, packaging, and the device
-checks of items 0-4; phase 5 (Android) started: a test app that plays on the Retroid Pocket 5 (from a
+checked on the Pocket 5 too (fork 0045), Aurora moved to a video thread (fork 0046), and item 7 (the
+Dreamcast features: Uncensored, the Dreamcast music and streams, the European 60 Hz audio) done on desktop
+and the Pocket 5; open: data folder / romhacks / save import, the launchers, packaging (items 8-10), and the
+device checks of items 0-4; phase 5 (Android) started: a test app that plays on the Retroid Pocket 5 (from a
 state; pacing fixed; higher resolutions measured; immersive; Home and back work, with the video thread too;
 the built-in pad and audio on the device untested by hand; no launcher yet).
 
@@ -979,3 +980,23 @@ present waits; Android reads it lazily, after `env.txt`), `SKIES_VIDEO_SPIN=auto
 `SKIES_PIN_VIDEO=fast|none|N`, `SKIES_DRAIN` (the video thread parses each chunk at once by default).
 **Open:** the Nova; a pad by hand on Windows and the Pocket 5 (the input lock); macOS (main-thread SDL is
 kept, so it should hold).
+
+## Dreamcast features (feature-gap item 7, 2026-10-26)
+
+Commit 9862a64; details and measurements in *HANDOFF-feature-gaps.md* item 7.
+
+- **The Dolphin build's modules as they are** (`standalone/src/dreamcast/`, byte-identical to dev's patched
+  tree): Uncensored, the Dreamcast music and its import, the Dreamcast streamed songs, the European disc's
+  60 Hz audio. They include Dolphin headers, which `standalone/src/dolphin_shim/` provides at the same paths
+  (over `dreamcast_host.h`; only the `skies-dreamcast` library sees them); `dreamcast.cpp` is the glue. This
+  is the pattern for the remaining Dolphin-hosted features: copy the files, shim the headers.
+- **Where they hook in:** `disc.cpp` (every file registered at open, each read through the redirects),
+  `hw_si.cpp` (the music's poll), `state.cpp` (the song after a load), `main.cpp` (`--import-dc`, `--sys`,
+  the field heartbeat for "running"), the in-game menu's Dreamcast tab. The music renders in real time in an
+  SDL audio stream of its own (`SKIES_DC_MUSIC_SYNC=1`: in the game's audio, in guest time, for dumps).
+- **Results:** every output (the import, the converted uncensored files, the converted streams, the 726
+  European 60 Hz files) byte-identical to the Dolphin build's; the music plays and restarts after a load.
+  Pocket 5 at full speed with the music: ahead of the Dolphin build in battle (p99 34.3 vs 37.7 ms, ~0.5 W
+  less), level at the save point (p99 ~36 vs ~36.5 ms), where it costs the standalone ~2 ms of p99.
+- **Watch for:** SDL's device thread must keep up, or Aurora's audio push (queue > 250 ms) blocks the game
+  thread (seen with the `dummy` driver and with the device thread on the little cores).

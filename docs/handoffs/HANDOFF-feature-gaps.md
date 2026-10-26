@@ -14,13 +14,16 @@ checks and leftovers in its section below; the Japanese game's memory card fixed
 Pocket 5 checks of items 5 and 6 are done too: HD textures as fast as without the pack after a loader-thread
 fix (fork 0045); 60 fps smoother than the Dolphin build's at full speed and at less power, and since the
 video thread (Aurora off the game's thread, a4f4014, fork 0046) ahead uncapped too (save point 1.70x
-against 1.41x; item 6, *The video thread*). **Pick up at item 7** (Dreamcast). Standing leftovers:
+against 1.41x; item 6, *The video thread*). Item 7 (Dreamcast) done too (9862a64): every output
+byte-identical to the Dolphin build's, the music level with it at the save point and ahead in battle.
+**Pick up at items 8-10** (data folder / romhacks / saves, the Android launcher, packaging). Standing leftovers:
 the European / Japanese first field and an APK with their modules on the Pocket 5 (item 0); a first battle
 and card save after Continue, Windows and the Pocket 5 (item 1); the 4x-MSAA specks in the light beam and GPU
 cost at 4x / 6x resolution (item 2); shipping the patched Dawn and the macOS build (item 2); rumble by hand,
 a capture with a real pad, two pads and the Pocket 5 (item 3); the restart on Android (item 4); the
 cloud-sea edges and the full 4x pack (item 5); 60 fps on the Nova and its scene list (item 6); the
-video thread on the Nova, macOS and with a pad by hand.
+video thread on the Nova, macOS and with a pad by hand; item 7's open list (m03 and the intro in game, the
+European intro timing, Home and back with the music, the save point's music cost).
 
 ## Ground rules
 
@@ -106,7 +109,7 @@ the Dolphin build's tabs and rows but the Dreamcast tab (Rumble on its own key `
 | 4 | Language (European disc) | `recompcore-language.patch` | **done** (desktop): SRAM from the key, Language tab, restart | ~1 day |
 | 5 | HD textures (+ import) | `recompcore-hd-textures`, `hd-textures-nested`, review D2 / D22 | **done** (desktop + Pocket 5): CLI import, menu row, live; async loads; fork 0042-0043, 0045 | ~2-3 days |
 | 6 | 60 fps | `recompcore-frame-interpolation`, `battle-specials`, `field-speed`, review D6 / D25 | **done** (desktop + Pocket 5): record, blend, replay, retrace presents, budget, holds, menu; fork 0044; video thread (fork 0046) | 3-4 sessions |
-| 7 | Dreamcast: Uncensored, Dreamcast music, DC streams, EU 60 Hz audio | `uncensor`, `skies-dcmusic-eu`, `dcmusic-streams`, `dcmusic-fx`, `pal60`, review D3 / D4 / D16-D21 | none | 1,200-1,800 lines of glue |
+| 7 | Dreamcast: Uncensored, Dreamcast music, DC streams, EU 60 Hz audio | `uncensor`, `skies-dcmusic-eu`, `dcmusic-streams`, `dcmusic-fx`, `pal60`, review D3 / D4 / D16-D21 | **done** (desktop + Pocket 5): dev's modules as they are, shim, `--import-dc`, menu tab | 1,200-1,800 lines of glue |
 | 8 | Data folder, romhacks, save import / backup | `data-folder`, `romhack`, `state-folders`; `lib/ModernGekko/tools/*` | `--user`, `--dol` | 3-5 days |
 | 9 | Android launcher (disc import, settings, Continue, saves) | `skies-android-app`, `android*`, review D7 / D8 / D11-D15 | adb pushes, args.txt | 1.5-2 weeks |
 | 10 | Packaging and CI | `.github/workflows/release.yml`, `validate.yml` | hand-built test APK and exe | 2-3 days |
@@ -679,6 +682,67 @@ Two standalone hook points carry all of it:
 Size: ~2,500 lines moved, 1,200-1,800 lines of glue. Risks: audio-thread timing under the standalone's
 scheduler; the right song after a state load; first-run conversion time on weak Android hardware; the AICA
 engines' CPU cost against the performance goal (measure on the Pocket 5).
+
+**Done (2026-10-26, commit 9862a64; desktop + Pocket 5):**
+
+- **The modules as they are on dev** (`standalone/src/dreamcast/`: `DiscIO/SkiesUncensor*`,
+  `DiscIO/SkiesStreams.{h,cpp}` + `SkiesPal60Data.inc`, `AudioCommon/DCMusic*`, `AudioCommon/DCMusicImport*`,
+  `Core/SkiesMusic*`; byte-identical to the patched tree, so dev's fixes copy over with `cp`). They include
+  Dolphin's headers, which `standalone/src/dolphin_shim/` provides at the same paths with only what they
+  use (`File::`, logs, `Common::ToLower`, SHA-1, `Config::SKIES_*` on the Dolphin build's keys,
+  `MemoryManager` on guest RAM, `OSD::AddMessage` to the menu's messages, `SConfig::GetGameID`,
+  `Core::GetState`), over `dreamcast_host.h`; only the `skies-dreamcast` library sees that folder. The
+  glue is `dreamcast.cpp`. To refresh from dev: apply dev's series to a scratch worktree of the vendored
+  tree (`build/devtree`, this session's recipe) and copy the files over.
+- **Disc** (`disc.cpp`): every file registered at open (`SkiesStreams::Register`, `SkiesUncensor::Register`,
+  DirectoryBlob's order), each read through both redirects (latched at offset 0 in the modules), the
+  disc's own file when a served copy can't be read. Open streams are now cached by path.
+- **Import:** `skies-standalone --user U --import-dc IMAGE [--game DIR] [--sys DIR]` (GDI or CHD via libchdr;
+  the extra uncensor files from the manifest; then `Prepare` for `--game`, Android's `SkiesImport.cpp`
+  order). `--sys` holds `Skies/uncensor-manifest.json` (default: the source tree's `standalone/data/Sys`, a
+  copy of dev's; the Android test app gets `$FILES/sys` pushed and `--sys $FILES/sys` in args.txt).
+- **Music:** `SkiesMusic::Poll` at each pad poll (`hw_si.cpp`, the game thread, as Dolphin's CPU thread),
+  `OnStateLoaded` after a load (`state.cpp`). The AICA renders in real time in an SDL audio stream of its
+  own (`SDL_OpenAudioDeviceStream` with a callback, 48 kHz, the Volume setting applied; SDL mixes it with
+  Aurora's stream), silent while the game's thread doesn't advance (`dchost::GameRunning`: a field
+  heartbeat from `Throttle`, 250 ms). `SKIES_DC_MUSIC_SYNC=1` mixes it into the game's audio in guest
+  time instead (deterministic; in `SKIES_WAV` dumps), `=2` renders it nowhere (the game's audio with its
+  music muted). Menu: the Dreamcast tab (Music, Uncensored; the Dolphin build's keys and texts).
+- **Build:** Highly Theoretical's `dcsound` and libchdr as dev builds them; libchdr on the standalone's zstd
+  (`cmake/Findzstd.cmake`: Aurora's zstd also builds the `zstd` program, which took the target name); the
+  7z decoder gets dev's `Skies7zPrefix.h` names (libchdr's LZMA decoder clashed); `IOFile` gains `Open`
+  and `operator bool`.
+- **Checked:** both Eternal Arcadia GDIs imported in ~5 s: the 123 music files byte-identical to the Dolphin
+  build's import (`C:\dev\SkiesUncensor\app-cli\User`), its 70 uncensored files identical and 3 more from
+  the newer manifest (73 of 73); `SKIES_DISC_DUMP=DIR:REL,...` (a test switch) shows the converted bytes
+  served with Uncensored on and the disc's own with it off (four files). The converted m01 / m03 streams
+  identical to the Dolphin build's (`C:\dev\SkiesUncensor\app\User\DreamcastMusic\STREAMS`). The
+  European ws29 game (`C:\dev\SkiesPal60\GEAP8P-ws29`): "280 sound banks and 223 streams ready" ~20 s in,
+  all 726 files identical to the Dolphin build's cache. Music (Windows, ws26 battle state): the battle
+  theme (M0458) starts, the GameCube music fades out over ~1.5 s after the state load (SYNC=2), levels as
+  the Dolphin build's choice; the real-time stream renders the same profile; after a mid-run state load
+  the song starts again. Pocket 5: Uncensored converted on the device in the background and served
+  (identical to WSL's); the music at full speed:
+
+  | Full speed, music on (Volume 0, real audio driver) | Standalone | Dolphin bench app |
+  |---|---|---|
+  | Battle: p99 / max | 34.3 / 37.3 ms (off: 33.9 / 34.6) | 37.7 / 38.0 |
+  | Battle power | ~2.2 W | ~2.7 W |
+  | Save point: p99 / max (3 runs) | 35.9-36.6 / 37.5-39.0 (off: 34.3 / 35.1) | 36.2-36.7 / 37.2-37.6 |
+  | Save point power | 2.9-3.0 W | 3.0-3.3 W |
+
+  The AICA thread (SDL's device thread) takes ~10-20% of a gold core. Ahead in battle; level with the
+  Dolphin build at the save point, where the music costs the standalone ~2 ms of p99 (the game thread's
+  `host-busy` p99 30 -> 32 ms: contention from the chips beside it) in the lowest performance mode.
+- **Found on the way:** with SDL's `dummy` audio driver and two streams the device drained the game's
+  stream slowly and Aurora's push wait (queue > 250 ms) stalled the game (40% late frames); the real
+  driver doesn't. Moving SDL's device thread to the little cores (a tried `SKIES_PIN_AUDIO`) did the same:
+  the device thread must keep up, or Aurora's push blocks the game. With the game's audio on, uncapped runs
+  are held at 1.00x by that same queue (benches stay muted). At the save point in the lowest mode the
+  video thread's polling flips on and off (the game sleeps 12-18%, the threshold is 15%).
+- **Open:** the m03 scene and the intro with the Dreamcast recordings in game; the European intro timing
+  (`cs_shot`, ratio 0.993-1.005) in the standalone; Home and back with the music on; the Android picker
+  import (item 9); the save point's music cost.
 
 ## 8. Data folder, romhacks, saves
 
