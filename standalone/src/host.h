@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace host
@@ -90,6 +91,9 @@ void Deschedule(EventId id);
 bool IsScheduled(EventId id);
 u64 Now();
 std::chrono::steady_clock::time_point WallForGuest(u64 cycles);  // {} unthrottled
+std::chrono::steady_clock::duration ThrottleIdle();  // main.cpp: the throttle's sleeps so far
+std::chrono::steady_clock::duration VideoPresentTime();  // video.cpp: time in Aurora's present calls so far
+bool Throttled();
 // The run loop's clock: Advance() moves time by dispatched cycles; RunDue() fires due events.
 extern u64 g_cycles;
 extern u64 g_next_event;
@@ -165,14 +169,39 @@ void ViInit();
 u16 ViRead16(u32 offset);
 void ViWrite16(u32 offset, u16 value);
 bool ViIsPal();
+u32 ViXfbAddress();  // the frame buffer the VI scans out (top field), physical
 
 // GPU: command processor, pixel engine, the gather pipe and the GX command stream into Aurora.
 void GpuInit();
 u64 GpuFrameCount();  // XFB copies so far
-// dff.cpp (debug): SKIES_DFF frame capture as a Dolphin FIFO log
+u32 GpuXfbCopyAddress();  // the destination of the latest XFB copy, physical
+// dff.cpp: the GP registers the command stream left (and, debug, SKIES_DFF frame capture as a
+// Dolphin FIFO log)
 void DffInit();
 void DffCommand(const u8* p, u32 len, bool top_level);
 void DffFrameEnd(u64 frame);
+struct GpRegisters
+{
+  u32 bp[256];
+  u32 cp[256];
+  u32 xf_mem[4096];
+  u32 xf_regs[88];
+  std::vector<std::pair<u32, u32>> tluts;  // the last TLUT load to each TMEM offset: BP 0x64, 0x65
+};
+void DffSnapshot(GpRegisters& out);
+const u32* DffBp();
+const u32* DffCp();
+// The registers as the FIFO commands that set them (no draw done, tokens, copies or TMEM loads)
+void DffRegisterCommands(const GpRegisters& regs, std::vector<u8>& fifo);
+// interp60.cpp: 60 fps, the Dolphin build's frame interpolation (VideoCommon/FrameInterpolator).
+// Every command of a game frame, top level and inside display lists (hw_gpu.cpp Apply).
+void InterpCommand(const u8* p, u32 len);
+// The frame's XFB copy (recorded; not yet sent to Aurora): with interpolation on, keeps the real
+// picture in Aurora slot real_slot and, when the frame pairs with the previous one, replays the
+// in-between picture into real_slot + 1. -1: off (present as usual); 0: the real picture kept; 1:
+// both.
+int InterpFrameEnd(int real_slot);
+void InterpReset();  // a state load: the recorded frames go
 u16 CpRead16(u32 offset);
 void CpWrite16(u32 offset, u16 value);
 u16 PeRead16(u32 offset);
@@ -265,6 +294,7 @@ void MenuApplyGame();
 void MenuFilterPad(PadStatus& pad);
 // The game's rumble reaches the controllers: Rumble is on and the menu isn't open.
 bool MenuRumbleAllowed();
+bool MenuInterpHeld();  // 60 fps held off: the game runs fast (field / battle speed)
 // True (once) when the menu asked for the game to start again (a new language on the European disc,
 // saved already): the run ends and main starts the same game without a state or Continue.
 bool MenuTakeRestartRequest();

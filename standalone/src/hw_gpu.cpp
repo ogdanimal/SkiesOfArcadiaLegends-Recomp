@@ -361,6 +361,7 @@ Effect Apply(const u8* p, u32 len, int depth)
 {
   Trace(p, len, depth);
   DffCommand(p, len, depth == 0);
+  InterpCommand(p, len);
   switch (p[0])
   {
   case 0x08:
@@ -718,6 +719,11 @@ u32 EfbRead(u32)
   // Skies never peeks or pokes the EFB: GXPeek*/GXPoke{ARGB,Z} aren't linked into the DOL and no
   // run has touched 0xC8000000. 0 is what the Dolphin build's Aurora backend (Null EFB) returns.
   return 0;
+}
+
+u32 GpuXfbCopyAddress()
+{
+  return ((s_copy_dest & 0xFFFFFF) << 5) & 0x01FFFFFF;
 }
 
 u64 GpuFrameCount()

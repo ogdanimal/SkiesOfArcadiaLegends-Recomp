@@ -84,6 +84,8 @@ std::chrono::steady_clock::time_point s_last_report_wall;
 // The emulation thread's time per field outside the throttle's sleep (PacingOn): its headroom at full speed
 std::chrono::steady_clock::time_point s_last_wake;
 PacingWindow s_busy;
+// The throttle's sleeps and spins in all: the time the emulation thread had to spare
+std::chrono::steady_clock::duration s_idle{};
 
 void Report()
 {
@@ -137,6 +139,16 @@ std::chrono::steady_clock::time_point WallForGuest(u64 cycles)
 double EmulationSpeed()
 {
   return s_speed;
+}
+
+std::chrono::steady_clock::duration ThrottleIdle()
+{
+  return s_idle;
+}
+
+bool Throttled()
+{
+  return s_throttle;
 }
 
 void ThrottleRestart()
@@ -264,6 +276,7 @@ void Throttle()
     else
       std::this_thread::sleep_until(target);
     s_last_wake = std::chrono::steady_clock::now();
+    s_idle += s_last_wake - now;
   }
   else if (now - target > std::chrono::milliseconds(200))
     s_wall_start += now - target - std::chrono::milliseconds(200);  // don't race to catch up

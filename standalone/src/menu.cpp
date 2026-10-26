@@ -76,6 +76,7 @@ enum class Option
   AutoSave,
   Picture,
   Hud,
+  FrameRate,
   Resolution,
   Antialiasing,
   TextureFilter,
@@ -101,10 +102,10 @@ enum class Option
 };
 
 constexpr std::array SAVES_ROWS{Option::SaveState, Option::LoadState, Option::AutoSave};
-constexpr std::array GRAPHICS_ROWS{Option::Picture,      Option::Hud,           Option::Resolution,
-                                   Option::Antialiasing, Option::TextureFilter, Option::Anisotropy,
-                                   Option::Scaling,      Option::HdTextures,    Option::VSync,
-                                   Option::ShowFps};
+constexpr std::array GRAPHICS_ROWS{Option::Picture,       Option::Hud,        Option::FrameRate,
+                                   Option::Resolution,    Option::Antialiasing, Option::TextureFilter,
+                                   Option::Anisotropy,    Option::Scaling,    Option::HdTextures,
+                                   Option::VSync,         Option::ShowFps};
 constexpr std::array GAMEPLAY_ROWS{Option::Camera,     Option::BattleSpeed, Option::FieldSpeed,
                                    Option::Encounters, Option::HoldB,       Option::Exp,
                                    Option::Gold,       Option::MagicExp,    Option::Invincible};
@@ -158,6 +159,8 @@ struct Key
 };
 constexpr Key WIDESCREEN{SettingFile::Main, "Skies", "Widescreen", -1};
 constexpr Key HUD{SettingFile::Main, "Skies", "Hud", -1};
+// -1 (unset) and 0: 30 fps, 1: 60 fps (interp60.cpp)
+constexpr Key FRAME_MODE{SettingFile::Main, "Skies", "FrameMode", -1};
 constexpr Key CAMERA_CONTROL{SettingFile::Main, "Skies", "CameraControl", 1};
 constexpr Key ENCOUNTERS{SettingFile::Main, "Skies", "Encounters", 100};
 constexpr Key EXP{SettingFile::Main, "Skies", "Exp", 100};
@@ -202,6 +205,7 @@ struct Values
 {
   int widescreen = 1;
   int hud = 2;
+  int frame_mode = 0;
   int efb_scale = 0;
   int msaa = 1;
   int texture_filter = 0;  // 0 the game's, 1 nearest (Sharp), 2 linear (Smooth)
@@ -301,6 +305,8 @@ int s_applied_scaling = -1;
 int s_volume = 100;
 int s_dead_zone = 0;
 bool s_rumble = true;
+// 60 fps is held off while the game runs fast (qol::Write)
+bool s_interp_held = false;
 // Whether a texture pack is imported: at the first frame, then whenever the menu opens
 bool s_texture_pack = false;
 
@@ -419,6 +425,7 @@ Values ReadValues()
   values.widescreen = widescreen < 0 ? 1 : widescreen;
   const int hud = Get(HUD);
   values.hud = hud < 0 ? 2 : hud;
+  values.frame_mode = Get(FRAME_MODE) >= 1 ? 1 : 0;
   values.efb_scale = Get(EFB_SCALE);
   values.msaa = MsaaRunning(Get(MSAA));
   values.texture_filter = std::clamp(Get(TEXTURE_FILTER), 0, 2);
@@ -463,6 +470,7 @@ void Apply(const Values& values, const Values& before)
   };
   set(WIDESCREEN, values.widescreen, before.widescreen);
   set(HUD, values.hud, before.hud);
+  set(FRAME_MODE, values.frame_mode, before.frame_mode);
   set(EFB_SCALE, values.efb_scale, before.efb_scale);
   set(MSAA, values.msaa, before.msaa);
   set(TEXTURE_FILTER, values.texture_filter, before.texture_filter);
@@ -666,6 +674,9 @@ void Change(Option option, int direction, bool wrap)
     break;
   case Option::Hud:
     v.hud = Step(HUDS, v.hud, direction, wrap);
+    break;
+  case Option::FrameRate:
+    v.frame_mode = v.frame_mode ? 0 : 1;
     break;
   case Option::Resolution:
     v.efb_scale = Step(EFB_SCALES, v.efb_scale, direction, wrap);
@@ -1140,6 +1151,11 @@ void Write()
                 place == Place::Field ? (quarters <= 5 ? 1.0f : std::max(1.25f, speed - 1.0f)) :
                 speed >= 3            ? speed / 2.0f :
                                         1.0f;
+  // 60 fps is held off while the game runs fast, as in the Dolphin build: its frames come quicker
+  // than in-between ones could add to. A spell or special attack in a battle at speed plays at normal
+  // speed (the game patch's qol_normal_speed, ws28), so interpolation comes back for it.
+  constexpr u32 NORMAL_SPEED = 0x80002BDC;
+  s_interp_held = fast && !(place == Place::Battle && Read32(NORMAL_SPEED) == 1);
 }
 
 // Z tapped in battle: next battle speed; Z+X in the field: next field speed.
@@ -1728,6 +1744,11 @@ bool MenuTakeRestartRequest()
   return requested;
 }
 
+bool MenuInterpHeld()
+{
+  return s_interp_held;
+}
+
 bool MenuRumbleAllowed()
 {
   return s_rumble && s_mode != Mode::Open;
@@ -2073,6 +2094,9 @@ void Draw(float scale)
                            "Screen edges",
               "Where the HUD sits on a wide picture: at the edges, or nearer the middle in a 16:9 "
               "or 21:9 area (easier to see on an ultrawide). Original keeps the GameCube's layout."};
+    case Option::FrameRate:
+      return {"Frame rate", v.frame_mode ? "60 fps (interpolated)" : "30 fps (original)",
+              "60 fps adds in-between frames for smoother motion. 30 fps is the original."};
     case Option::Resolution:
       return {"Resolution", ResolutionText(v.efb_scale),
               "Higher is sharper but needs a faster graphics chip. Match window draws at the "

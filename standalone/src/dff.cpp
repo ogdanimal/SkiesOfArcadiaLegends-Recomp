@@ -270,15 +270,38 @@ void DffDoState(StateIO& p)
   }
 }
 
-// Aurora only ever sees the command stream, so after a load the registers go to it as commands, as
-// the Dolphin build's Aurora backend does after a savestate (VideoBackends/Aurora ReloadRegisterState,
+void DffSnapshot(GpRegisters& out)
+{
+  std::memcpy(out.bp, s_bp, sizeof(s_bp));
+  std::memcpy(out.cp, s_cp, sizeof(s_cp));
+  std::memcpy(out.xf_mem, s_xf_mem, sizeof(s_xf_mem));
+  std::memcpy(out.xf_regs, s_xf_regs, sizeof(s_xf_regs));
+  out.tluts.clear();
+  for (const TlutLoad& t : s_tlut_loads)
+  {
+    if (t.loaded)
+      out.tluts.emplace_back(t.src, t.load);
+  }
+}
+
+const u32* DffBp()
+{
+  return s_bp;
+}
+
+const u32* DffCp()
+{
+  return s_cp;
+}
+
+// Aurora only ever sees the command stream, so registers go to it as commands, as the Dolphin
+// build's Aurora backend does after a savestate (VideoBackends/Aurora ReloadRegisterState,
 // FifoPlayer::LoadRegisters): the TLUT loads, every BP register but those with side effects (draw
 // done, tokens, the EFB copy, TLUT and TMEM loads, perf counters, the mask), the CP's vertex
-// descriptors, formats and arrays, then XF memory and registers, then the display copy's clear.
-void DffReloadAurora()
+// descriptors, formats and arrays, then XF memory and registers.
+void DffRegisterCommands(const GpRegisters& regs, std::vector<u8>& fifo)
 {
-  std::vector<u8> fifo;
-  fifo.reserve(32 * 1024);
+  fifo.reserve(fifo.size() + 32 * 1024);
   const auto put32 = [&](u32 value) {
     for (int shift = 24; shift >= 0; shift -= 8)
       fifo.push_back(static_cast<u8>(value >> shift));
@@ -287,12 +310,10 @@ void DffReloadAurora()
     fifo.push_back(0x61);
     put32((reg << 24) | (value & 0xFFFFFF));
   };
-  for (const TlutLoad& t : s_tlut_loads)
+  for (const auto& [src, load] : regs.tluts)
   {
-    if (!t.loaded)
-      continue;
-    bp(0x64, t.src);
-    bp(0x65, t.load);
+    bp(0x64, src);
+    bp(0x65, load);
   }
   for (u32 reg = 0; reg < 0xFE; ++reg)
   {
@@ -307,13 +328,13 @@ void DffReloadAurora()
     case 0x67:
       continue;
     default:
-      bp(reg, s_bp[reg]);
+      bp(reg, regs.bp[reg]);
     }
   }
   const auto cp = [&](u8 reg) {
     fifo.push_back(0x08);
     fifo.push_back(reg);
-    put32(s_cp[reg]);
+    put32(regs.cp[reg]);
   };
   cp(0x30);
   cp(0x40);
@@ -335,7 +356,7 @@ void DffReloadAurora()
     fifo.push_back(0x10);
     put32(0x000F0000u | address);
     for (u32 i = 0; i < 16; ++i)
-      put32(s_xf_mem[address + i]);
+      put32(regs.xf_mem[address + i]);
   }
   for (u32 reg = 0; reg < 88; ++reg)
   {
@@ -345,13 +366,27 @@ void DffReloadAurora()
       continue;
     fifo.push_back(0x10);
     put32(0x1000u | reg);
-    put32(s_xf_regs[reg]);
+    put32(regs.xf_regs[reg]);
   }
-  // A state is taken just after a display copy, which cleared the EFB (Aurora applies only that
-  // clear): the same copy again leaves the EFB as the next frame expects it (the clear colour and
-  // depth: Skies' save point and minimap copy the EFB's depth).
+}
+
+// After a state load: the registers, then the display copy's clear. A state is taken just after a
+// display copy, which cleared the EFB (Aurora applies only that clear): the same copy again leaves
+// the EFB as the next frame expects it (the clear colour and depth: Skies' save point and minimap
+// copy the EFB's depth).
+void DffReloadAurora()
+{
+  static GpRegisters regs;
+  DffSnapshot(regs);
+  std::vector<u8> fifo;
+  DffRegisterCommands(regs, fifo);
   if (s_bp[0x52] & 0x4000)
-    bp(0x52, s_bp[0x52]);
+  {
+    fifo.push_back(0x61);
+    const u32 value = (0x52u << 24) | (s_bp[0x52] & 0xFFFFFF);
+    for (int shift = 24; shift >= 0; shift -= 8)
+      fifo.push_back(static_cast<u8>(value >> shift));
+  }
   VideoCommands(fifo.data(), static_cast<u32>(fifo.size()));
 }
 

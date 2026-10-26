@@ -6,11 +6,13 @@
 #include "state.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cmath>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <filesystem>
 #include <string>
 #include <thread>
@@ -39,6 +41,8 @@ void aurora_backend_set_present_rect(int left, int top, int width, int height);
 void aurora_backend_set_present_time(long long steady_ns);
 void aurora_backend_set_present_callback(void (*callback)(void));
 void aurora_backend_set_frame_buffer_aspect_fit(int fit);
+void aurora_backend_present_kept(int slot);
+void aurora_backend_synchronize(void);
 }
 #endif
 
@@ -89,17 +93,56 @@ bool ResolveGuestAddress(void*, u32 address, u32, DolGuestAddressSpace, DolGuest
   return true;
 }
 
+// 60 fps (interp60.cpp): Aurora keeps each frame's real picture in slot frame % 4 * 2 and the
+// in-between one leading up to it in the slot after; the retraces present them (s_retrace_presents):
+// the first retrace after the frame's XFB copy the in-between picture (the real one when there is
+// none), the next the real one, as the Dolphin build's single-core order. Counted from the copy, as
+// the 30 fps presents are, not from the VI's flip to the frame's XFB: the game flips a field late
+// now and then, and a field then went without a picture (about 15 intervals of 33 ms in 20 s on
+// Windows where the game itself takes a third field 2-3 times).
+struct Shown
+{
+  u32 address;  // the frame's XFB, physical
+  u64 frame;
+  bool interp;
+  u32 retraces = 0;
+};
+std::deque<Shown> s_shown;
+std::atomic<bool> s_retrace_presents{false};
+// SKIES_INTERP_TRACE=1: each frame end and retrace present in the log
+const bool s_interp_trace = std::getenv("SKIES_INTERP_TRACE") != nullptr;
+
+int RealSlot(u64 frame)
+{
+  return static_cast<int>(frame % 4) * 2;
+}
+
+// The time the emulation thread spent in Aurora's present calls, which wait for the render worker
+// when it holds the previous picture until its scheduled time: not work (interp60.cpp's budget)
+std::chrono::steady_clock::duration s_present_time{};
+
+void Present(int slot)
+{
+  const auto start = std::chrono::steady_clock::now();
+  if (slot < 0)
+    aurora_backend_present();
+  else
+    aurora_backend_present_kept(slot);
+  s_present_time += std::chrono::steady_clock::now() - start;
+}
+
 // On the render worker after each present: the interval between presents, as the Dolphin build's
-// [present-pacing] (its >20 / >25 ms counts suit 60 fps; Skies presents 30 frames a second in both builds,
-// so these count >40 / >50 ms)
+// [present-pacing] (>20 / >25 ms counts with 60 fps; Skies presents 30 frames a second otherwise, so
+// then >40 / >50 ms)
 void PresentDone()
 {
   static std::chrono::steady_clock::time_point last{};
   static PacingWindow window;
   const auto now = std::chrono::steady_clock::now();
+  const bool sixty = s_retrace_presents.load(std::memory_order_relaxed);
   if (last.time_since_epoch().count() != 0)
     PacingAdd(window, std::chrono::duration<double, std::milli>(now - last).count(), "present-pacing", "interval",
-              40.0, 50.0);
+              sixty ? 20.0 : 40.0, sixty ? 25.0 : 50.0);
   last = now;
 }
 
@@ -171,7 +214,14 @@ void ApplyPresentRect()
                                   (static_cast<int>(height) - h) / 2, w, h);
 }
 
-void DumpFrame()
+bool DumpWanted(u64 frame)
+{
+  if (!s_dump_frames.empty())
+    return std::find(s_dump_frames.begin(), s_dump_frames.end(), frame) != s_dump_frames.end();
+  return s_dump_every != 0 && frame >= s_dump_from && (frame % s_dump_every) == 0;
+}
+
+void DumpFrame(u64 frame, const char* suffix)
 {
   const u8* rgba = nullptr;
   u32 width = 0, height = 0;
@@ -185,12 +235,12 @@ void DumpFrame()
   }
   if (!rgba)
   {
-    Log("[video] frame %llu: readback never completed\n", static_cast<unsigned long long>(s_frames));
+    Log("[video] frame %llu: readback never completed\n", static_cast<unsigned long long>(frame));
     return;
   }
   char path[512];
-  std::snprintf(path, sizeof(path), "%s/frame_%06llu.ppm", s_dump_dir.c_str(),
-                static_cast<unsigned long long>(s_frames));
+  std::snprintf(path, sizeof(path), "%s/frame_%06llu%s.ppm", s_dump_dir.c_str(),
+                static_cast<unsigned long long>(frame), suffix);
   FILE* f = std::fopen(path, "wb");
   if (!f)
     return;
@@ -383,9 +433,24 @@ void VideoFrameEnd()
   ApplyPresentRect();
   MenuFrame();
   ArmDrawLog();
-  bool dump = s_dump_every != 0 && s_frames >= s_dump_from && (s_frames % s_dump_every) == 0;
-  if (!s_dump_frames.empty())
-    dump = std::find(s_dump_frames.begin(), s_dump_frames.end(), s_frames) != s_dump_frames.end();
+  // 60 fps: the pictures kept here, presented from the retraces
+  const int kept = InterpFrameEnd(RealSlot(s_frames));
+  if (kept >= 0)
+  {
+    s_shown.push_back(Shown{GpuXfbCopyAddress(), s_frames, kept == 1});
+    if (s_interp_trace)
+      Log("[interp-trace] frame %llu end: xfb %08x, %s; VI shows %08x\n", static_cast<unsigned long long>(s_frames),
+          GpuXfbCopyAddress(), kept == 1 ? "real + in-between" : "real", ViXfbAddress() & 0x01FFFFFF);
+    while (s_shown.size() > 3)
+      s_shown.pop_front();
+    s_retrace_presents = true;
+    if (aurora_backend_should_quit())
+      RequestQuit();
+    return;
+  }
+  s_retrace_presents = false;
+  s_shown.clear();
+  const bool dump = DumpWanted(s_frames);
   if (dump)
     aurora_request_framebuffer_readback();
   SchedulePresent();
@@ -396,14 +461,14 @@ void VideoFrameEnd()
     PacingAdd(drains, s_drain_ms, "present-drain", "in drains per frame", 2.0, 8.0);
     s_drain_ms = 0;
     static PacingWindow call;
-    aurora_backend_present();
+    Present(-1);
     PacingAdd(call, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - now).count(),
               "present-call", "in aurora_backend_present", 2.0, 8.0);
   }
   else
-    aurora_backend_present();
+    Present(-1);
   if (dump)
-    DumpFrame();
+    DumpFrame(s_frames, "");
   if (aurora_backend_should_quit())
     RequestQuit();
 #endif
@@ -455,7 +520,9 @@ void VideoDoState(StateIO& p)
 
 void VideoStateLoaded()
 {
+  InterpReset();
 #ifdef SKIES_STANDALONE_AURORA
+  s_shown.clear();
   if (s_active && !s_loaded_copies.empty())
   {
     const int count = aurora_backend_copies_restore(g_ram, RAM_SIZE, s_loaded_copies.data(),
@@ -470,6 +537,46 @@ void VideoStateLoaded()
 
 void VideoRetrace()
 {
+#ifdef SKIES_STANDALONE_AURORA
+  if (!s_active || !s_retrace_presents)
+    return;
+  // The newest frame (a frame done in less than two fields gives up its real picture to the next)
+  if (s_shown.empty())
+    return;
+  Shown* current = &s_shown.back();
+  ++current->retraces;
+  bool interp;
+  if (current->retraces == 1)
+    interp = current->interp;
+  else if (current->retraces == 2 && current->interp)
+    interp = false;
+  else
+    return;  // the real picture shows already
+  if (s_interp_trace)
+    Log("[interp-trace] retrace %u of frame %llu: %s (slot %d)\n", current->retraces,
+        static_cast<unsigned long long>(current->frame), interp ? "in-between" : "real",
+        RealSlot(current->frame) + (interp ? 1 : 0));
+  const bool dump = DumpWanted(current->frame);
+  if (dump)
+  {
+    // The readback goes with the next submitted present: none may be queued before this one
+    aurora_backend_synchronize();
+    aurora_request_framebuffer_readback();
+  }
+  SchedulePresent();
+  Present(RealSlot(current->frame) + (interp ? 1 : 0));
+  if (dump)
+    DumpFrame(current->frame, interp ? "-interp" : "");
+#endif
+}
+
+std::chrono::steady_clock::duration VideoPresentTime()
+{
+#ifdef SKIES_STANDALONE_AURORA
+  return s_present_time;
+#else
+  return {};
+#endif
 }
 
 bool VideoSurfaceSize(unsigned* width, unsigned* height)
