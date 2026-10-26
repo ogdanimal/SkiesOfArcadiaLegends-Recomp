@@ -20,8 +20,9 @@ the emulation thread on the prime core) smoother at full speed at ~0.4-0.5 W les
 1.24x vs 0.87x; *The Pocket 5 at higher internal resolutions*).
 
 **Status (2026-10-25):** phases 1-3 done (title screen, audio bit-exact with Dolphin's AX HLE, first
-battle at full speed, card saves); phase 4 under way (in-game menu, save states and auto-save done; 60 fps,
-Continue, Language, Dreamcast, HD textures, mapping, rumble open); phase 5 (Android) started: a test app
+battle at full speed, card saves); phase 4 under way (in-game menu, save states and auto-save done; since
+the feature-gap plan also the European / Japanese discs, Continue and the graphics options with MSAA up to
+8x; 60 fps, Language, Dreamcast, HD textures, mapping, rumble open); phase 5 (Android) started: a test app
 that plays on the Retroid Pocket 5 (from a state; pacing fixed; higher resolutions measured; immersive; background
 and foreground at the same size work; the built-in pad and audio on the device untested by hand; no launcher yet). The latest sections at the end of this file come first when picking up. **The plan for the
 remaining Dolphin-build features (60 fps, Continue, Language, Dreamcast, HD textures, input, graphics options,
@@ -80,7 +81,7 @@ see *Save states*). Memory card saves are plain GCI files and carry over.
 
 ## What carries over
 
-- The Aurora fork (`~/projects/skies-aurora/GXRuntime`, 33 commits, `patches/` there): Skies renders exactly
+- The Aurora fork (`~/projects/skies-aurora/GXRuntime`, 39 commits, `patches/` there): Skies renders exactly
   like Dolphin on the Retroid Pocket 5, the Nova, Windows and WSL; 60 fps through a second GX context;
   the present rectangle (Picture option); the Dear ImGui overlay (the in-game menu). All of it is in the
   vendored GXRuntime on the local `aurora-backend` branch.
@@ -274,6 +275,9 @@ with `rsync -a standalone/ /mnt/c/dev/SkiesStandalone/standalone/`. Code changes
 MSVC byte swaps in the DSP HLE, a static page-aligned RAM. New options that came with it: `--dol FILE`
 (a patched DOL without copying the disc), `SKIES_PRESS_FILE` (cmd's `set /p` cuts at 1023 characters),
 `SKIES_POKE=ADDR=WORDS` (guest words written every frame, e.g. the QOL patch's `qol_input`).
+Since 2026-10-25 (late night) also `build-dawnsrc.bat configure|build`: the same build with Dawn compiled from
+the patched tree at `C:\dev\dawn-src\dawn-266c1cf` into `build-dawnsrc\` (MSAA 2x / 8x; details and its two
+traps in HANDOFF-feature-gaps.md, item 2). The bat lives only in `C:\dev\SkiesStandalone`.
 
 - Modules: `VerifyModule` hashes every chunk against the DOL in RAM at boot and refuses a module for
   another DOL (it found that `C:\dev\SkiesGfx`'s DLL matches no ws DOL exactly). Matching pairs:
@@ -793,3 +797,31 @@ between them, so they can't share a read). Then the shell's gaps: immersive mode
 are done (*The Android shell*); left are the built-in pad and audio on the device (both need a person: press the
 buttons, listen with `SKIES_MUTE` out of env.txt), a size change on return (rotation, split screen: Aurora's
 resize recreates the EFB), and a launcher (disc import) instead of adb pushes.
+
+## Feature gaps 0-2 (2026-10-25, late night): other discs, Continue, graphics options
+
+Following [HANDOFF-feature-gaps.md](HANDOFF-feature-gaps.md), which has each item's details, checks and
+test inputs. Commits on this branch: 56cc7a3 (item 0), d017920 + 18d37f5 (item 1), 1f0ab81 (item 2),
+a87e9be + af20d20 + 2d565dc (MSAA 2x / 8x).
+
+- **European and Japanese discs:** idle PC per disc, the European disc runs as NTSC-U (60 Hz, card in
+  `GC/USA`, `DiscRunsAsNtsc()`), `--module` optional (`g<disc ID>_recomp` from the disc ID; on Android
+  `libg<ID>_recomp.so`, and `tools/android-standalone-build.sh` takes several in `MODULE`).
+- **The Japanese game could not mount its memory card at all** before d017920: VI register 0x6E (DTV status)
+  read 0, so the SDK's font encoding said ANSI against the card's Shift-JIS header.
+- **Continue:** `--continue N|card` or `[Skies] AutoLoadCard` (one shot), as the Dolphin build's autoload;
+  `--load-state` wins and clears the key.
+- **Graphics options:** Anti-aliasing, Texture filtering, Anisotropic filtering, Scaling rows, live, on the
+  Dolphin build's keys (fork 0038; `settings.cpp` parses base 0 since Dolphin writes MSAA in hex). The
+  anisotropy default is now Dolphin's (the game's own 2x / 4x; Aurora had made it 16x).
+- **MSAA beyond 4x:** WebGPU allows 1 / 4 and Aurora runs Dawn with `skip_validation`; a Dawn patch
+  (`patches/dawn/0001-extra-sample-counts.patch`) and fork 0039 list 2x / 8x where the GPU has them.
+  Builds with it: WSL `build/standalone-dawnsrc` (`-DSKIES_DAWN_PROVIDER=vendor
+  -DFETCHCONTENT_SOURCE_DIR_DAWN=… -DDAWN_USE_X11=OFF`), Android `DAWN_SRC=… tools/android-standalone-build.sh`
+  (`build/standalone-apk-dawnsrc`), Windows `build-dawnsrc.bat`. Measured: Pocket 5 Off / 2x / 4x (2x +5% GPU,
+  4x +30%); RTX 5080 Off / 2x / 4x / 8x (8x about 2.2 ms GPU per frame at 3x). The default builds still use
+  the prebuilt Dawn and offer Off / 4x.
+- **Device state:** the Pocket 5's standalone test app is the patched (`dawnsrc`) APK, its files and settings
+  as they were (env.txt LF, GFX.ini CRLF; back them up with `adb exec-out cat`, not `adb shell cat`).
+- **Next:** item 3 (input: release keyboard layout, rumble, names, Button mapping); before shipping any of
+  this, a way to ship the patched Dawn (CI or our own prebuilt packages) and the macOS build.

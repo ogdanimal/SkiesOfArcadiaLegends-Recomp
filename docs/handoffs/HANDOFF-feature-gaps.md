@@ -7,6 +7,13 @@ each one is, where its code lives, what the standalone has, the port steps, how 
 (so the port is checked the same way), and size. Read *HANDOFF-emulator-free.md* first (the standalone's
 architecture: *In-game menu*, *Save states*, *The Android shell*, *Pacing on the Pocket 5*).
 
+**Progress (2026-10-25, late night):** items 0, 1 and 2 done (2 including MSAA 2x / 8x through a Dawn patch),
+each with its checks and leftovers in its section below; the Japanese game's memory card fixed on the way
+(item 1). **Pick up at item 3.** Standing leftovers: the European / Japanese first field and an APK with
+their modules on the Pocket 5 (item 0); a first battle and card save after Continue, Windows and the Pocket
+5 (item 1); the 4x-MSAA specks in the light beam and GPU cost at 4x / 6x resolution (item 2); shipping the
+patched Dawn and the macOS build (item 2).
+
 ## Ground rules
 
 - **Where:** worktree `~/projects/skies-aurora-backend`, branch `aurora-backend`. Local only: never push,
