@@ -18,7 +18,10 @@ against 1.41x; item 6, *The video thread*). Item 7 (Dreamcast) done too (9862a64
 byte-identical to the Dolphin build's, the music level with it at the save point and ahead in battle.
 **2026-10-26 later (items 8-10 started):** the desktop runner contract is in (6e06979: `frontend.cpp`,
 states under the Dolphin build's names, GCPadNew.ini bindings) and the Dolphin `.sav` converter works
-(f0c2131, 0a762c3, c27b402, fork 0047); see *Items 8-10* below, *Done so far*. **Pick up at items 8-10**, now one goal: the standalone **replaces** the Dolphin build as a normal update
+(f0c2131, 0a762c3, c27b402, fork 0047); see *Items 8-10* below, *Done so far*. **2026-10-26 evening:**
+converted states checked on WSL (15) and the Pocket 5 (8), a ten-minute play and card saves from one on
+Windows, the launcher leftovers as `patches/moderngekko-standalone-launcher.patch` (fb58a2b) and controller 1
+following GCPadNew.ini's Device (2d80f3f). **Pick up at items 8-10**, now one goal: the standalone **replaces** the Dolphin build as a normal update
 (the user, 2026-10-26; *Items 8-10* below has the approach, the runner contract and what doesn't carry over
 yet). Standing leftovers:
 the European / Japanese first field and an APK with their modules on the Pocket 5 (item 0); a first battle
@@ -87,7 +90,9 @@ European intro timing, the save point's music cost).
   under display scaling). With 60 fps on, dumps write `frame_N-interp.ppm` too.
 - **`--seconds` with `--load-state`** counts the state's guest clock, and `[video] frame` numbers continue
   from the state's.
-- **Test files on C: from this plan, for the user to keep or delete** (in `C:\dev\SkiesStandalone`):
+- **Test files on C: from this plan, for the user to keep or delete** (in `C:\dev\SkiesStandalone`;
+  2026-10-26 evening adds `build\user-lp\` (a test card save, from a relative `--user` path), and
+  `standalone\src\input.cpp` synced to 2d80f3f with the build rebuilt):
   `user-in1\`, `user lang\`, `user-hd\`, `user-hd-png\` (texture packs imported), `in1.log` `in2.log`
   `in3.log`, `lang.log`, `langtest.bat`, `hd-on.log` `hd-off.log`, `time-hd.log` `time-hd-png.log`,
   `async-hd.log` `async-hd-png.log`, `menu-hd.log`, `menu-hd.png` `menu-hd2.png`, `shot-dpi.ps1` (a tool;
@@ -819,7 +824,11 @@ started as players do, on an existing data folder.
   build now loads (as the Dolphin build).
 - **Controller bindings:** GCPadNew.ini is the source of truth (dev's `Core/SkiesBindings.cpp` verbatim in
   `standalone/src/skies_bindings/`): keyboard applied at the first poll, a controller's when it takes port 1,
-  the mapping page writes back. Keyboard checked on WSL; **controller side untested (needs a pad).**
+  the mapping page writes back. Keyboard checked on WSL. 2d80f3f: controller 1 starts on the profile's
+  `Device` (`SDL/<n>/<name>`, what the launcher's Controls page writes) when it's connected, and port 1's
+  device goes back into the file when it changes (the Dolphin build's SwitchTo); checked on Windows with a
+  DualSense Edge (bindings applied, `Device` written, nothing else in the file changed). **Still to do by
+  hand: remapping with a pad, and two pads (the profile's one must win at start).**
 - **Converter (f0c2131, fork 0047).** `dolphin_state/dolphin_state_reader.cpp` walks the Dolphin stream
   (state 191; every marker checked, must end on the last byte; all 10 test states pass), `dolphin_state.cpp`
   applies it, each part has a `*FromDolphin`. Results: Windows room state matches the Dolphin build's frames
@@ -831,20 +840,49 @@ started as players do, on an existing data folder.
   build lays extracted games out with DirectoryBlob (other file offsets than sys/fst.bin); after every load
   files are served at the offsets of the game's FST in RAM. Without it any disc read after a converted load
   read the wrong file (intro states wrote through garbage pointers ~10 s in).
+- **Converted states on WSL and the Pocket 5 (2026-10-26 evening).** WSL (Aurora on Mesa's GL ES, the
+  US ws32 / EU ws30 / JP ws34 DOLs and Linux modules): all 10 test states plus both intro states and four
+  of the Dolphin build's bench states (`05-save-point`, `10-worldmap-android`, `17-ship-battle-baltor`,
+  `20-corridor-battle`), 30 guest seconds each: every load restored the DOL's code and remapped the files
+  (5551 US / 5608 EU / 5547 JP), Dolphin EFB copies rebuilt where a state had them (1-2), no errors,
+  pictures right. Pocket 5 (test app rebuilt with the converter and installed over the old one, data
+  kept; ws26 DOL): the two Retroid states, both Retroid bench states (18, 19), a Windows, a Linux, the
+  save-point and the US intro state, 40 s each: all 1.00x, pictures right. WSL runs 0.45x in some scenes
+  (Alfonso's throne room): GL ES on llvmpipe, the same after loading the standalone's own re-save, so
+  not the converter (headless 2.56x there).
+- **Ten-minute play (Windows, 2026-10-26 evening).** From the Dolphin build's `05-save-point.sav`: the save
+  point's menu, a card save to file #01, then 600 guest seconds of walking and pressing A (encounters
+  normal by mistake: the user folder went in as a relative path): out of the save room through the
+  battleship's corridors, battles with Vyse and Aika from about six minutes in (attacks, a counter, a
+  spell), a battle won after it with the results screen. 1.00x throughout, no errors. A second run kept in
+  the save room overwrote file #01 113 times over ten minutes (every one "Saving completed", game time
+  0:13 to 0:22), and a cold boot's `--continue card` came up in the save room from that card.
+- **Launcher (fb58a2b, `patches/moderngekko-standalone-launcher.patch`, after dev's three moderngekko
+  patches).** CMake `MODERNGEKKO_STANDALONE_RUNNER`: no Graphics backend row (Aurora picks D3D12 / Vulkan /
+  Metal itself, GL ES as the fallback; the standalone ignores config.ini's `backend=`); Import a save also
+  takes the standalone's own states ("SKST" at 24, version 2, unpacked size, one zstd frame to the end
+  of the file); without the option they're refused as another version's. `tools/save-import-test.py`
+  takes a standalone state as a fifth argument (8 more cases); a Linux build of dev's launcher with the
+  option (`build/devmg-build`: `build/devmg` with `vendor/dolphin` linked to `build/devtree/rc`, whose
+  empty third-party folders and DolRecomp are linked to this branch's copies) passes 30 of 30. The hidden
+  row is compile-time only, not looked at in the window. Android's import (item 9) needs the same define.
 - **Pitfall:** a cold first run skips draws while pipelines compile (the shadow pass: picture 3x too bright
   for a second): compare with `AURORA_SYNC_PIPELINES=1`.
-- Tools: `build/sa-runs/sa-win.sh` (Windows run from a state, guest time read from the state),
+- Tools: `build/sa-runs/sa-win.sh` (Windows run from a state, guest time read from the state);
+  `win-play.sh` (the same with a press script in times after the state, `SAVEAT=`, `AUTOSAVE=`, unthrottled),
+  `wsl-conv.sh` / `wsl-sweep.sh` (WSL runs per region), `dev-conv.sh` (a Pocket 5 run from a state pushed to
+  `files/conv/`, log and frames pulled); `lp-play.txt` / `lp-play2.txt` (the long plays' scripts: the
+  save-point menu is RIGHT x4, DOWN x3, LEFT, then A; A on Slot A, A on the file, A on Yes);
   `SKIES_GP_DUMP=FRAME:PATH`, `SKIES_DI_TRACE=1`; the Dolphin build saves states on request through
   `--automation-dir D` (`D/commands/001.txt`: `command=save_state` / `path=x.sav`; `D/status.txt` has
   frame_count) and dumps frames / audio with `[Movie] DumpFrames`, `[Settings] DumpFramesAsImages`,
   `[DSP] DumpAudio` in the user dir's ini files.
 
-**Next for items 8-10:** a 10+ minute play from a converted state (card save after it, Continue in the
-launcher by hand: the launcher's Continue passes the newest `.sav`); converted states on WSL/Linux and the
-Pocket 5; the launcher-side leftovers (its Controls page still writes GCPadNew.ini for Dolphin device names;
-its graphics backend row means nothing to Aurora; its Import a save validates `.sav` with Dolphin's
-StateFile); macOS frontend check; then item 9 (Android shell) and 10 (packaging: the standalone in
-build-release-win.bat etc. with `SKIES_RELEASE_*`, Dawn DLLs, Sys).
+**Next for items 8-10:** by hand (the user): remapping with a pad and two pads; Continue in the launcher
+with the swapped package (`build/sa-runs/pkg-win`, `skies-run.exe` = the standalone as of 2d80f3f,
+`skies-run-dolphin.exe` kept). macOS frontend check. Then item 9 (Android shell) and 10 (packaging: the
+standalone in build-release-win.bat etc. with `SKIES_RELEASE_*`, Dawn DLLs, Sys, and the launcher built
+with `moderngekko-standalone-launcher.patch` and `MODERNGEKKO_STANDALONE_RUNNER=ON`).
 
 **Android (item 9):** the same goal: dev's app (Kotlin launcher screens + JNI in Dolphin's native library)
 must start the standalone's game activity (`libmain.so`, SDL) instead of Dolphin's emulation, with its
