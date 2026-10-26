@@ -158,8 +158,9 @@ u16 ViRead16(u32 offset)
       h = 2 * Hlw();
     return static_cast<u16>(h);
   }
-  case 0x6E:  // DTV status: no component cable
-    return 0;
+  case 0x6E:  // DTV status: no component cable; bit 1 a Japanese console (the SDK's OSGetFontEncode:
+              // Shift-JIS, which the card's header must match or the Japanese game can't mount it)
+    return DiscHeader()[3] == 'J' ? 2 : 0;
   default:
     return Reg(offset);
   }
