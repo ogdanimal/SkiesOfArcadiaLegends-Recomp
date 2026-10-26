@@ -2656,7 +2656,7 @@ index 45a8ba80e8..4bde5e1b6e 100644
    u32 format() const noexcept { return mFormat != aurora::gfx::InvalidTextureFormat ? mFormat : raw_format(); }
    GXTexWrapMode wrap_s() const noexcept { return static_cast<GXTexWrapMode>(get_bits(mode0, 2, 0)); }
 diff --git a/GXRuntime/graphics/aurora/lib/gfx/texture_replacement.cpp b/GXRuntime/graphics/aurora/lib/gfx/texture_replacement.cpp
-index 31e04c6a4f..36fed1cc15 100644
+index 31e04c6a4f..5170d14915 100644
 --- a/GXRuntime/graphics/aurora/lib/gfx/texture_replacement.cpp
 +++ b/GXRuntime/graphics/aurora/lib/gfx/texture_replacement.cpp
 @@ -18,8 +18,13 @@
@@ -2673,15 +2673,22 @@ index 31e04c6a4f..36fed1cc15 100644
  #include <filesystem>
  #include <list>
  #include <mutex>
-@@ -27,6 +32,7 @@
+@@ -27,8 +32,14 @@
  #include <span>
  #include <string>
  #include <string_view>
 +#include <thread>
  #include <vector>
  
++#if defined(__linux__)
++#include <sched.h>
++#include <unistd.h>
++#endif
++
  using namespace aurora::gx;
-@@ -100,6 +106,34 @@ uint64_t s_replacementCacheBytes = 0;
+ using aurora::webgpu::g_device;
+ 
+@@ -100,6 +111,34 @@ uint64_t s_replacementCacheBytes = 0;
  uint64_t s_nextRegistrationId = 1;
  uint64_t s_nextSequence = 1;
  uint32_t s_sourceEntryCount = 0;
@@ -2716,7 +2723,7 @@ index 31e04c6a4f..36fed1cc15 100644
  
  absl::flat_hash_map<const GXTlutObj*, TlutMetadata> s_pendingTluts;
  std::array<TlutMetadata, MaxTluts> s_loadedTluts{};
-@@ -411,7 +445,8 @@ std::optional<aurora::texture::TextureSourceKey> parse_replacement_filename(std:
+@@ -411,7 +450,8 @@ std::optional<aurora::texture::TextureSourceKey> parse_replacement_filename(std:
      return std::nullopt;
    }
  
@@ -2726,7 +2733,7 @@ index 31e04c6a4f..36fed1cc15 100644
    size_t partCount = 0;
    size_t offset = 0;
    bool consumedAll = false;
-@@ -424,7 +459,7 @@ std::optional<aurora::texture::TextureSourceKey> parse_replacement_filename(std:
+@@ -424,7 +464,7 @@ std::optional<aurora::texture::TextureSourceKey> parse_replacement_filename(std:
      }
      offset = next + 1;
    }
@@ -2735,7 +2742,7 @@ index 31e04c6a4f..36fed1cc15 100644
      return std::nullopt;
    }
  
-@@ -438,7 +473,9 @@ std::optional<aurora::texture::TextureSourceKey> parse_replacement_filename(std:
+@@ -438,7 +478,9 @@ std::optional<aurora::texture::TextureSourceKey> parse_replacement_filename(std:
      ++index;
    }
  
@@ -2746,7 +2753,7 @@ index 31e04c6a4f..36fed1cc15 100644
    if (remaining != 2 && remaining != 3) {
      return std::nullopt;
    }
-@@ -454,12 +491,7 @@ std::optional<aurora::texture::TextureSourceKey> parse_replacement_filename(std:
+@@ -454,12 +496,7 @@ std::optional<aurora::texture::TextureSourceKey> parse_replacement_filename(std:
      textureHash = *parsedTex;
    }
  
@@ -2760,7 +2767,7 @@ index 31e04c6a4f..36fed1cc15 100644
    if (!format.has_value()) {
      return std::nullopt;
    }
-@@ -527,9 +559,10 @@ constexpr bool is_unsupported_texture_format(wgpu::TextureFormat format) {
+@@ -527,9 +564,10 @@ constexpr bool is_unsupported_texture_format(wgpu::TextureFormat format) {
    case wgpu::TextureFormat::BC5RGSnorm:
    case wgpu::TextureFormat::BC6HRGBUfloat:
    case wgpu::TextureFormat::BC6HRGBFloat:
@@ -2772,7 +2779,7 @@ index 31e04c6a4f..36fed1cc15 100644
    case wgpu::TextureFormat::ASTC4x4Unorm:
    case wgpu::TextureFormat::ASTC4x4UnormSrgb:
    case wgpu::TextureFormat::ASTC5x4Unorm:
-@@ -808,12 +841,18 @@ aurora::gfx::TextureHandle load_entry_handle(const aurora::texture::ReplacementK
+@@ -808,12 +846,18 @@ aurora::gfx::TextureHandle load_entry_handle(const aurora::texture::ReplacementK
  
    aurora::gfx::TextureHandle handle;
    if (entry.kind == EntryKind::File) {
@@ -2791,10 +2798,32 @@ index 31e04c6a4f..36fed1cc15 100644
    } else {
      handle = create_raw_texture_handle(entry);
      if (!handle) {
-@@ -824,8 +863,89 @@ aurora::gfx::TextureHandle load_entry_handle(const aurora::texture::ReplacementK
+@@ -824,8 +868,129 @@ aurora::gfx::TextureHandle load_entry_handle(const aurora::texture::ReplacementK
    return handle;
  }
  
++// The cores the loaders run on (Linux and Android): not those of a thread the host kept on some cores,
++// when that thread starts them. Threads inherit their creator's affinity, and the first lookup comes from
++// the thread that parses the GX stream: in the Skies standalone on Android that is the game's thread,
++// kept on the prime core, where the decodes then took fields from the game (Retroid Pocket 5, PNG pack:
++// six fields over 33 ms as a battle's textures loaded). A creator on all cores leaves them as they are.
++#if defined(__linux__)
++long cpu_count() noexcept { return std::min<long>(sysconf(_SC_NPROCESSORS_CONF), CPU_SETSIZE); }
++
++void set_loader_affinity(const cpu_set_t& creator) noexcept {
++  cpu_set_t others;
++  CPU_ZERO(&others);
++  for (long cpu = 0; cpu < cpu_count(); ++cpu) {
++    if (!CPU_ISSET(cpu, &creator)) {
++      CPU_SET(cpu, &others);
++    }
++  }
++  if (CPU_COUNT(&others) > 0) {
++    sched_setaffinity(0, sizeof(others), &others);
++  }
++}
++#endif
++
 +void loader_thread() noexcept {
 +  for (;;) {
 +    LoadJob job;
@@ -2836,8 +2865,26 @@ index 31e04c6a4f..36fed1cc15 100644
 +    if (s_loaders.empty()) {
 +      s_loadersStop = false;
 +      const unsigned threads = std::clamp(std::thread::hardware_concurrency() / 4, 1u, 2u);
++#if defined(__linux__)
++      cpu_set_t creator;
++      const bool pinned = sched_getaffinity(0, sizeof(creator), &creator) == 0 &&
++                          CPU_COUNT(&creator) < cpu_count();
++      if (pinned) {
++        Log.info("texture_replacement: loader threads off the {} core(s) of the thread that started them",
++                 CPU_COUNT(&creator));
++      }
++#endif
 +      for (unsigned i = 0; i < threads; ++i) {
++#if defined(__linux__)
++        s_loaders.emplace_back([pinned, creator] {
++          if (pinned) {
++            set_loader_affinity(creator);
++          }
++          loader_thread();
++        });
++#else
 +        s_loaders.emplace_back(loader_thread);
++#endif
 +      }
 +    }
 +    s_loadQueue.push_back({.id = entry.id, .entry = entry});
@@ -2882,7 +2929,7 @@ index 31e04c6a4f..36fed1cc15 100644
    const auto* entry = find_selected_entry_locked(key);
    if (entry == nullptr) {
      return std::nullopt;
-@@ -837,7 +957,31 @@ find_replacement_for_key_locked(const aurora::texture::ReplacementKey& key) noex
+@@ -837,7 +1002,31 @@ find_replacement_for_key_locked(const aurora::texture::ReplacementKey& key) noex
    }
  
    erase_cache_locked(key);
@@ -2915,7 +2962,7 @@ index 31e04c6a4f..36fed1cc15 100644
    if (!handle) {
      return std::nullopt;
    }
-@@ -941,6 +1085,13 @@ void clear_replacement_runtime_state_locked() noexcept {
+@@ -941,6 +1130,13 @@ void clear_replacement_runtime_state_locked() noexcept {
    s_replacementLru.clear();
    s_replacementCacheBytes = 0;
    s_sourceEntryCount = 0;
@@ -2929,7 +2976,7 @@ index 31e04c6a4f..36fed1cc15 100644
  }
  
  bool is_source_key(const aurora::texture::ReplacementKey& key) noexcept {
-@@ -1030,6 +1181,7 @@ void unregister_replacement(const ReplacementRegistration& registration) {
+@@ -1030,6 +1226,7 @@ void unregister_replacement(const ReplacementRegistration& registration) {
      --s_sourceEntryCount;
    }
    s_failedIds.erase(registration.id);
@@ -2937,7 +2984,7 @@ index 31e04c6a4f..36fed1cc15 100644
    erase_cache_locked(registration.key);
    if (entries.empty()) {
      s_entriesByKey.erase(it);
-@@ -1057,6 +1209,7 @@ void unregister_replacements(const ReplacementKey& key) {
+@@ -1057,6 +1254,7 @@ void unregister_replacements(const ReplacementKey& key) {
    }
    for (const auto& entry : it->second) {
      s_failedIds.erase(entry.id);
@@ -2945,7 +2992,7 @@ index 31e04c6a4f..36fed1cc15 100644
    }
    erase_cache_locked(key);
    s_entriesByKey.erase(it);
-@@ -1137,12 +1290,30 @@ void reload_replacement_directory(const std::filesystem::path& root, Replacement
+@@ -1137,12 +1335,30 @@ void reload_replacement_directory(const std::filesystem::path& root, Replacement
    unregister_replacements(group);
    group = load_replacement_directory(root, options);
  }
@@ -2976,7 +3023,7 @@ index 31e04c6a4f..36fed1cc15 100644
    texture::clear_replacements();
    s_pendingTluts.clear();
    for (auto& tlut : s_loadedTluts) {
-@@ -1189,7 +1360,8 @@ void load_tlut(const GXTlutObj* obj, uint32_t idx) noexcept {
+@@ -1189,7 +1405,8 @@ void load_tlut(const GXTlutObj* obj, uint32_t idx) noexcept {
  }
  
  std::optional<TextureHandle> find_source_replacement_locked(const GXTexObj_& obj,
@@ -2986,7 +3033,7 @@ index 31e04c6a4f..36fed1cc15 100644
    const auto replacementKey = find_source_replacement_key_locked(sourceKey);
    if (!replacementKey.has_value()) {
      // Enable for debugging
-@@ -1197,10 +1369,12 @@ std::optional<TextureHandle> find_source_replacement_locked(const GXTexObj_& obj
+@@ -1197,10 +1414,12 @@ std::optional<TextureHandle> find_source_replacement_locked(const GXTexObj_& obj
      return std::nullopt;
    }
  
@@ -3001,7 +3048,7 @@ index 31e04c6a4f..36fed1cc15 100644
    ZoneScoped;
  
    std::lock_guard lk(s_registryMutex);
-@@ -1211,7 +1385,7 @@ std::optional<TextureHandle> find_replacement(const GXTexObj_& obj) noexcept {
+@@ -1211,7 +1430,7 @@ std::optional<TextureHandle> find_replacement(const GXTexObj_& obj) noexcept {
    if (obj.data != nullptr) {
      texture::ReplacementKey pointerKey{texture::TexturePointerKey{.data = obj.data}};
      if (s_entriesByKey.contains(pointerKey)) {
@@ -3010,7 +3057,7 @@ index 31e04c6a4f..36fed1cc15 100644
      }
    }
  
-@@ -1220,10 +1394,10 @@ std::optional<TextureHandle> find_replacement(const GXTexObj_& obj) noexcept {
+@@ -1220,10 +1439,10 @@ std::optional<TextureHandle> find_replacement(const GXTexObj_& obj) noexcept {
    }
  
    const auto sourceKey = build_source_key(obj);
@@ -3023,7 +3070,7 @@ index 31e04c6a4f..36fed1cc15 100644
    ZoneScoped;
  
    std::lock_guard lk(s_registryMutex);
-@@ -1234,7 +1408,7 @@ std::optional<TextureHandle> find_replacement(const GXTexObj_& obj, const GXTlut
+@@ -1234,7 +1453,7 @@ std::optional<TextureHandle> find_replacement(const GXTexObj_& obj, const GXTlut
    if (obj.data != nullptr) {
      texture::ReplacementKey pointerKey{texture::TexturePointerKey{.data = obj.data}};
      if (s_entriesByKey.contains(pointerKey)) {
@@ -3032,7 +3079,7 @@ index 31e04c6a4f..36fed1cc15 100644
      }
    }
  
-@@ -1243,7 +1417,7 @@ std::optional<TextureHandle> find_replacement(const GXTexObj_& obj, const GXTlut
+@@ -1243,7 +1462,7 @@ std::optional<TextureHandle> find_replacement(const GXTexObj_& obj, const GXTlut
    }
  
    const auto sourceKey = build_source_key(obj, tlut);
