@@ -19,10 +19,12 @@ the emulation thread on the prime core) smoother at full speed at ~0.4-0.5 W les
 37.7-38.3 ms, save point 34.7-35.0 vs 36.2-36.3); at 6x it holds full speed where Dolphin can't (GPU-bound
 1.24x vs 0.87x; *The Pocket 5 at higher internal resolutions*).
 
-**Status (2026-10-25):** phases 1-3 done (title screen, audio bit-exact with Dolphin's AX HLE, first
-battle at full speed, card saves); phase 4 under way (in-game menu, save states and auto-save done; since
-the feature-gap plan also the European / Japanese discs, Continue and the graphics options with MSAA up to
-8x; 60 fps, Language, Dreamcast, HD textures, mapping, rumble open); phase 5 (Android) started: a test app
+**Status (2026-10-26):** phases 1-3 done (title screen, audio bit-exact with Dolphin's AX HLE, first
+battle at full speed, card saves); phase 4 under way: in-game menu, save states and auto-save, and the
+feature-gap plan's items 0-6 done on desktop (European / Japanese discs, Continue, graphics options with
+MSAA up to 8x, input with rumble / mapping / controller follow, Language, HD textures, 60 fps); open: the
+Dreamcast features, data folder / romhacks / save import, the launchers, packaging, and the device checks
+of items 3-6 (60 fps on the Pocket 5 above all); phase 5 (Android) started: a test app
 that plays on the Retroid Pocket 5 (from a state; pacing fixed; higher resolutions measured; immersive; background
 and foreground at the same size work; the built-in pad and audio on the device untested by hand; no launcher yet). The latest sections at the end of this file come first when picking up. **The plan for the
 remaining Dolphin-build features (60 fps, Continue, Language, Dreamcast, HD textures, input, graphics options,
@@ -96,7 +98,7 @@ see *Save states*). Memory card saves are plain GCI files and carry over.
 2. **Audio decision.** *Done: Skies' MusyX ucode is Dolphin's AX, ported as HLE; bit-exact.* Prototype amuse against a DSP emulator. Gate: the intro music plays, in time.
 3. **Playable on desktop.** *Done 2026-10-25 (WSL and Windows D3D12).* Input, card saves, disc reads and streamed audio, speed. Gate: the first battle at
    full speed, a card save written and read back.
-4. **Features re-hosted** (*under way: menu and save states done*) in priority order: settings menu (the ImGui overlay exists), 60 fps, then the rest
+4. **Features re-hosted** (*under way: menu, save states and feature-gap items 0-6 done on desktop*) in priority order: settings menu (the ImGui overlay exists), 60 fps, then the rest
    of the table above.
 5. **Android shell** (*started 2026-10-25: test app, last section*), then standalone builds released beside the
    Dolphin builds until parity.
@@ -318,9 +320,10 @@ changes, Invincible, the speed step-down) are drawn top left for their time.
 
 Not offered yet, as the standalone can't do them (save states came after, see the next section):
 60 fps, Language, the Dreamcast tab,
-HD textures, Button mapping, Rumble, auto-load of a card save (Continue). (Since 2026-10-25 Continue,
-Rumble, Button mapping and the release keyboard layout are in: *Input* at the end and
-HANDOFF-feature-gaps.md items 1 and 3.)
+HD textures, Button mapping, Rumble, auto-load of a card save (Continue). (Since 2026-10-25/26 all but the
+Dreamcast tab are in: Continue, Rumble, Button mapping and the release keyboard layout, Language, HD
+textures, Frame rate; *Input*, *Language*, *HD textures* and *60 fps* at the end, and
+HANDOFF-feature-gaps.md items 1 and 3-6.)
 
 Checked (2026-10-25): WSL window (X11 screenshots): the menu over the intro, Picture switched live
 to 4:3 and saved; Esc and the arrow keys through real XTEST key events; Resolution to Native live;

@@ -45,8 +45,29 @@ and the Nova, and its scene list (item 6).
   bindings (see *Input*). Card saves (GCI) are shared.
 - Carried-over rules: sub-agents use Sonnet; the Pocket 5 is available but don't unlock it or inject input,
   and ask before replacing an installed app; only Windows' `adb.exe`; delete frame dumps and screenshots after
-  viewing, no loop capture; C: deletions need two approvals; Windows Dolphin-build launches call
-  `C:\dev\sync-controls.bat USER_DIR` first; never `pkill -f` a pattern from your own command line.
+  viewing, no loop capture; C: deletions need two approvals (so Windows test output goes to WSL: *Testing
+  practice* below); Windows Dolphin-build launches call `C:\dev\sync-controls.bat USER_DIR` first; never
+  `pkill -f` a pattern from your own command line.
+
+## Testing practice (learned in items 3-6)
+
+- **Exact comparisons on Windows only.** WSL runs aren't repeatable (two runs with the same settings
+  differ in some frames); Windows D3D12 runs with `SKIES_RTC=847000789` and `AURORA_SYNC_PIPELINES=1` are
+  (60 fps on vs off: real frames pixel-identical). WSL is fine for "does it work" and the logs.
+- **Windows output into WSL:** `SKIES_DUMP_DIR`, `RUNLOG`, `--user` and screenshots take
+  `\\wsl.localhost\Ubuntu\...` paths (`wslpath -w`), so nothing new lands on C: and it can be deleted
+  without asking. Packs and games can be read from WSL the same way.
+- **Frame dumps** don't include the in-game menu (the overlay is drawn after the readback): screenshot the
+  window with `C:\dev\SkiesStandalone\shot-dpi.ps1 OUT.png` (DPI-aware; `shot.ps1` cuts the window off
+  under display scaling). With 60 fps on, dumps write `frame_N-interp.ppm` too.
+- **`--seconds` with `--load-state`** counts the state's guest clock, and `[video] frame` numbers continue
+  from the state's.
+- **Test files on C: from this plan, for the user to keep or delete** (in `C:\dev\SkiesStandalone`):
+  `user-in1\`, `user lang\`, `user-hd\`, `user-hd-png\` (texture packs imported), `in1.log` `in2.log`
+  `in3.log`, `lang.log`, `langtest.bat`, `hd-on.log` `hd-off.log`, `time-hd.log` `time-hd-png.log`,
+  `async-hd.log` `async-hd-png.log`, `menu-hd.log`, `menu-hd.png` `menu-hd2.png`, `shot-dpi.ps1` (a tool;
+  worth keeping). Earlier: `skies-standalone-msaa.apk`, `user-msaa*`, `dumps-msaa*`, `dumps-cont*`,
+  `msaa*.log`, `cont*.log`, `build-dawnsrc\`, `C:\dev\dawn-src`.
 
 ## The gaps
 
@@ -54,8 +75,9 @@ The Dolphin build's in-game menu (dev): **Saves** (same in both), **Graphics** (
 Resolution, Antialiasing, Texture filter, Anisotropy, Scaling, HD textures, V-Sync, Show FPS), **Gameplay**
 (same in both), **Language**, **Sound** (Volume), **Dreamcast** (Music, Uncensored; the launchers add Intro
 music, `[Skies] DreamcastIntro`), **Controls** (Button mapping, Stick dead zone, Rumble). The standalone's
-(`standalone/src/menu.cpp`): Saves, Graphics (Picture, HUD, Resolution, V-Sync, Show FPS), Gameplay, Sound
-(Volume), Controls (Stick dead zone, its own key `StandaloneDeadZone`).
+when this plan began (`standalone/src/menu.cpp`): Saves, Graphics (Picture, HUD, Resolution, V-Sync, Show
+FPS), Gameplay, Sound (Volume), Controls (Stick dead zone, its own key `StandaloneDeadZone`). Now (items 2-6):
+the Dolphin build's tabs and rows but the Dreamcast tab (Rumble on its own key `StandaloneRumble`).
 
 | # | Gap | Dolphin source (dev) | Standalone today | Size |
 |---|---|---|---|---|
@@ -646,7 +668,8 @@ checks 3-5 days).
 
 ## Totals
 
-Roughly 4-6 weeks of sessions for everything:
+Roughly 4-6 weeks of sessions for everything (as estimated; by 2026-10-26 items 0-6 took about two days
+on desktop, the device checks still to come):
 
 - Items 0-4: about a week.
 - HD textures: half a week.
