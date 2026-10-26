@@ -658,6 +658,22 @@ bool VideoInit(bool headless)
     Log("[video] Aurora could not initialize its window or GPU device\n");
     return false;
   }
+  // No graphics API started (Aurora's last resort is Dawn's Null backend, which draws nothing): say so rather
+  // than run behind a black window. DOL_AURORA_BACKEND=null shows it.
+  if (aurora_get_backend() == BACKEND_NULL)
+  {
+    dol_aurora_shutdown();
+#if defined(_WIN32)
+    const char* apis = "Direct3D 12, Direct3D 11 or Vulkan";
+#elif defined(__APPLE__)
+    const char* apis = "Metal";
+#else
+    const char* apis = "Vulkan or OpenGL ES";
+#endif
+    FrontendError("No graphics support", std::string("The game couldn't start ") + apis +
+                                             " on this device. Updating the graphics driver usually fixes this.");
+    return false;
+  }
   aurora_backend_set_guest_address_resolver(ResolveGuestAddress, nullptr);
   // config.ini's Screen (the launcher's Fullscreen)
   if (g_window.fullscreen)

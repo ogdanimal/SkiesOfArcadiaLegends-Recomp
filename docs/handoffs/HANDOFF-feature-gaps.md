@@ -866,6 +866,14 @@ started as players do, on an existing data folder.
   option (`build/devmg-build`: `build/devmg` with `vendor/dolphin` linked to `build/devtree/rc`, whose
   empty third-party folders and DolRecomp are linked to this branch's copies) passes 30 of 30. The hidden
   row is compile-time only, not looked at in the window. Android's import (item 9) needs the same define.
+- **Graphics APIs (2026-10-26).** Aurora tries D3D12, Metal, Vulkan, D3D11, OpenGL ES, then Dawn's Null (draws
+  nothing); a build has what its Dawn was built with: Windows D3D12 / Vulkan / D3D11 (no GL ES), Linux and
+  Android Vulkan / GL ES, macOS Metal. On Windows Vulkan and D3D11 never started before fork 0049: Dawn loads
+  `vulkan-1.dll` and `d3dcompiler_47.dll` by full path only (its bare-name try fails with error 87 under
+  `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR`); Aurora now gives it System32. Checked on the RTX 5080 with
+  `DOL_AURORA_BACKEND=vulkan|d3d11`: the same picture as D3D12 (over 100 dB). If only Null starts, the standalone
+  says so in a dialog ("No graphics support") and exits instead of running behind a black window
+  (`DOL_AURORA_BACKEND=null` shows it). Not checked: a PC where D3D12 really fails, D3D11's speed on a weak GPU.
 - **WSL only: textures flicker in some runs under GL ES (Mesa's d3d12 driver), not a player issue.** On WSL
   Dawn skips the llvmpipe Vulkan adapter (a CPU one) and runs OpenGL ES on Mesa's d3d12 gallium driver
   (GL translated to D3D12 on the RTX 5080; llvmpipe GL itself crashes compiling Aurora's first pipeline).
