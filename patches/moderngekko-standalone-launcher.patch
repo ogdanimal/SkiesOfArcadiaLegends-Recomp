@@ -1,0 +1,192 @@
+The launcher for a release whose runner is the standalone build (standalone/, no Dolphin core):
+MODERNGEKKO_STANDALONE_RUNNER hides the graphics backend row (Aurora picks the graphics API itself) and
+lets Import a save take the standalone's own states ("SKST", one zstd frame) as well as Dolphin's.
+Applies after dev's moderngekko-local, moderngekko-macos and moderngekko-launcher-signal patches.
+
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -46,6 +46,8 @@
+        "Read and write default-game.txt beside branded executables" OFF)
+ option(MODERNGEKKO_GAMECUBE_CONTROLLERS
+        "Generate GameCube controller profiles instead of Wii Remote profiles" OFF)
++option(MODERNGEKKO_STANDALONE_RUNNER
++       "The launcher starts a standalone runner (no Dolphin core): no graphics backend row, imports its states" OFF)
+ set(MODERNGEKKO_LOG_FILENAME "ModernGekko.log" CACHE STRING
+     "Runner log filename")
+ set(MODERNGEKKO_DISC_PREPARER_OUTPUT_NAME "" CACHE STRING
+@@ -599,6 +601,10 @@
+         target_compile_definitions(moderngekko-launcher PRIVATE
+             MODERNGEKKO_GAMECUBE_CONTROLLERS=1)
+     endif()
++    if(MODERNGEKKO_STANDALONE_RUNNER)
++        target_compile_definitions(moderngekko-launcher PRIVATE
++            MODERNGEKKO_STANDALONE_RUNNER=1)
++    endif()
+     if(MODERNGEKKO_USER_DIRECTORY_IN_DOCUMENTS)
+         target_compile_definitions(moderngekko-launcher PRIVATE
+             MODERNGEKKO_USER_DIRECTORY_IN_DOCUMENTS=1)
+--- a/tools/moderngekko_launcher.cpp
++++ b/tools/moderngekko_launcher.cpp
+@@ -2089,6 +2089,7 @@
+     };
+     const auto backend_row = [&]
+     {
++#ifndef MODERNGEKKO_STANDALONE_RUNNER
+       row_label("Graphics backend");
+       if (ImGui::BeginCombo("##graphics_backend",
+                             graphics_backends[graphics_backend_index].text))
+@@ -2121,6 +2122,9 @@
+         ImGui::EndCombo();
+       }
+       describe("How the game draws. Keep " DEFAULT_GRAPHICS_BACKEND " unless the game won't start.");
++#endif
++      // The standalone runner draws through Aurora, which picks the graphics API itself (Direct3D
++      // 12, Vulkan or Metal, OpenGL ES when none of those starts): no row
+     };
+     // An on / off setting: a check box in the plain panel, a labelled two-choice dropdown like the
+     // other rows in the branded Settings window. True when the value changed.
+--- a/tools/save_import.cpp
++++ b/tools/save_import.cpp
+@@ -18,6 +18,10 @@
+ #include "Core/SavestateLayout.h"
+ #include "Core/StateFile.h"
+ 
++#ifdef MODERNGEKKO_STANDALONE_RUNNER
++#include <zstd.h>
++#endif
++
+ namespace moderngekko::frontend
+ {
+ namespace fs = std::filesystem;
+@@ -38,6 +42,12 @@
+ constexpr std::uint64_t MAX_STATE_BYTES = 1ull << 30;
+ // LZ4 can't unpack a chunk to more than 255 times its packed size.
+ constexpr std::uint64_t LZ4_MAX_RATIO = 255;
++// The standalone runner's own states (standalone/src/state.cpp Header): "SKST" where Dolphin's
++// version cookie is, its format version, the unpacked size, then one zstd frame
++constexpr std::uint32_t STANDALONE_STATE_MAGIC = 0x54534B53;
++constexpr std::uint32_t STANDALONE_STATE_VERSION = 2;
++constexpr std::size_t STANDALONE_HEADER_SIZE = 80;
++constexpr std::uint64_t STANDALONE_MAX_RAW_SIZE = 512ull << 20;
+ 
+ std::uint32_t ReadLE32(const std::uint8_t* bytes)
+ {
+@@ -430,6 +440,32 @@
+   return ImportCardSaves(std::move(saves), user_directory, game);
+ }
+ 
++// A checked state into the game's state folder under a new name, dated now
++SaveImportResult PlaceState(const fs::path& source, const fs::path& user_directory,
++                            const SaveImportGame& game)
++{
++  const fs::path folder =
++      game.state_directory.empty() ? user_directory / "StateSaves" : game.state_directory;
++  if (std::string failure = EnsureFolder(folder); !failure.empty())
++    return {false, failure};
++  // A new name every time, so nothing is replaced
++  const std::time_t now = std::time(nullptr);
++  fs::path destination;
++  std::error_code ec;
++  for (std::size_t sequence = 0;; ++sequence)
++  {
++    destination = folder / State::Layout::TimestampedName(now, sequence, game.state_prefix);
++    if (!fs::exists(destination, ec))
++      break;
++  }
++  if (const std::string failure = StagedCopy(source, destination); !failure.empty())
++    return {false, "Could not copy the save state into place: " + failure};
++  // Dated now (a copy can keep the original's date), so Continue starts from it
++  fs::last_write_time(destination, fs::file_time_type::clock::now(), ec);
++  return {true, "Imported the save state as " + PathToString(destination.filename()) +
++                    ". Continue starts from it."};
++}
++
+ SaveImportResult ImportState(const fs::path& source, std::uintmax_t size,
+                              const std::array<std::uint8_t, 32>& head,
+                              const fs::path& user_directory, const SaveImportGame& game)
+@@ -489,28 +525,50 @@
+     return {false, damaged};
+   }
+   in.close();
++  return PlaceState(source, user_directory, game);
++}
+ 
+-  const fs::path folder =
+-      game.state_directory.empty() ? user_directory / "StateSaves" : game.state_directory;
+-  if (std::string failure = EnsureFolder(folder); !failure.empty())
+-    return {false, failure};
+-  // A new name every time, so nothing is replaced
+-  const std::time_t now = std::time(nullptr);
+-  fs::path destination;
+-  std::error_code ec;
+-  for (std::size_t sequence = 0;; ++sequence)
++#ifdef MODERNGEKKO_STANDALONE_RUNNER
++std::uint64_t ReadLE64(const std::uint8_t* bytes)
++{
++  return ReadLE32(bytes) | (static_cast<std::uint64_t>(ReadLE32(bytes + 4)) << 32);
++}
++
++// A state the standalone runner wrote, checked as its loader checks one (state.cpp LoadState): this
++// game, this format version, an unpacked size it accepts, and one whole zstd frame of that size that
++// ends where the file does
++SaveImportResult ImportStandaloneState(const fs::path& source, std::uintmax_t size,
++                                       const fs::path& user_directory, const SaveImportGame& game)
++{
++  const std::string damaged = "That save state is damaged and can't be loaded.";
++  if (size <= STANDALONE_HEADER_SIZE || size > MAX_STATE_BYTES)
++    return {false, damaged};
++  std::vector<std::uint8_t> bytes(static_cast<std::size_t>(size));
+   {
+-    destination = folder / State::Layout::TimestampedName(now, sequence, game.state_prefix);
+-    if (!fs::exists(destination, ec))
+-      break;
++    std::ifstream in(source, std::ios::binary);
++    if (!in.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size())))
++      return {false, "Could not read that file."};
+   }
+-  if (const std::string failure = StagedCopy(source, destination); !failure.empty())
+-    return {false, "Could not copy the save state into place: " + failure};
+-  // Dated now (a copy can keep the original's date), so Continue starts from it
+-  fs::last_write_time(destination, fs::file_time_type::clock::now(), ec);
+-  return {true, "Imported the save state as " + PathToString(destination.filename()) +
+-                    ". Continue starts from it."};
++  const std::string id(reinterpret_cast<const char*>(bytes.data()), 6);
++  if (id != game.game_id)
++    return {false, WrongGameText(id, game, true)};
++  if (ReadLE32(&bytes[32]) != STANDALONE_STATE_VERSION)
++  {
++    return {false, "That save state was made by a different version of this port and can't be "
++                   "loaded by this one. Memory card saves work across versions."};
++  }
++  const std::uint64_t raw_size = ReadLE64(&bytes[72]);
++  const std::uint8_t* frame = bytes.data() + STANDALONE_HEADER_SIZE;
++  const std::size_t frame_size = bytes.size() - STANDALONE_HEADER_SIZE;
++  if (raw_size == 0 || raw_size > STANDALONE_MAX_RAW_SIZE ||
++      ZSTD_getFrameContentSize(frame, frame_size) != raw_size ||
++      ZSTD_findFrameCompressedSize(frame, frame_size) != frame_size)
++  {
++    return {false, damaged};
++  }
++  return PlaceState(source, user_directory, game);
+ }
++#endif
+ }  // namespace
+ 
+ fs::path CardSaveFolder(const fs::path& user_directory, std::string_view game_id)
+@@ -536,6 +594,16 @@
+     in.read(reinterpret_cast<char*>(head.data()), head.size());
+   }
+ 
++  // A state of the standalone runner: its magic where Dolphin's version cookie is
++  if (size >= head.size() && ReadLE32(&head[24]) == STANDALONE_STATE_MAGIC)
++  {
++#ifdef MODERNGEKKO_STANDALONE_RUNNER
++    return ImportStandaloneState(source, size, user_directory, game);
++#else
++    return {false, "That save state was made by a different version of this port and can't be "
++                   "loaded by this one. Memory card saves work across versions."};
++#endif
++  }
+   // A Dolphin save state: the version cookie at 24. Checked first, since a state can happen to
+   // have any size; the cookie can't occur there in a card save (that is inside the file name).
+   const std::uint32_t cookie_version = ReadLE32(&head[24]) - State::COOKIE_BASE;

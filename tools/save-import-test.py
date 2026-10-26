@@ -5,15 +5,18 @@ Fixtures: GCS and MaxDrive SAV wrappers of the card saves, a 59-block card image
 saved last), wrong region / game / state version, junk, a cut-short GCI; then replacing (with
 .pre-import.bak, then .pre-import.2.bak), the same save under another name, a file where the card folder should be. The
 launcher's user directory is WORKDIR/xdg (XDG_DATA_HOME), so the real one is never touched.
-usage: tools/save-import-test.py LAUNCHER SAVES_DIR STATE.sav WORKDIR
+usage: tools/save-import-test.py LAUNCHER SAVES_DIR STATE.sav WORKDIR [SA_STATE.sav]
   LAUNCHER   lib/ModernGekko/build-release-linux/SkiesOfArcadiaLegends (tools/build-release-linux.sh)
   SAVES_DIR  a folder with the game's three card saves, 8P-GEAE-SA_LEGENDS.000/.001/.002.gci
   STATE.sav  a save state made by this build's Dolphin state version (e.g. build/savestates/*.sav)
   WORKDIR    scratch folder, emptied first (refused when not empty and not made by this test)
+  SA_STATE   a state the standalone runner wrote (standalone/src/state.cpp, "SKST"), for a launcher
+             built with MODERNGEKKO_STANDALONE_RUNNER: its own states import, damaged ones don't
 Prints PASS / FAIL per case and FAILURES: N (0 expected)."""
 import os, shutil, struct, subprocess, sys, time
 
 launcher, saves, state, work = sys.argv[1:5]
+sa_state = sys.argv[5] if len(sys.argv) > 5 else None
 fx = os.path.join(work, "fixtures"); xdg = os.path.join(work, "xdg")
 # WORKDIR is emptied: only one this script made (its marker file) or an empty / new folder
 MARK = ".save-import-test"
@@ -116,6 +119,22 @@ p_state_cut = put("cut-state.sav", st[:-1000])
 zero_chunk = bytearray(st); struct.pack_into("<i", zero_chunk, ext + 16, 0)
 p_state_zero = put("zero-chunk-state.sav", bytes(zero_chunk))
 
+# The standalone's states (SA_STATE): header of 80 bytes (game ID at 0, "SKST" at 24, version at 32,
+# unpacked size at 72), then one zstd frame
+if sa_state:
+    sa = open(sa_state, "rb").read()
+    p_sa = put("standalone-state.sav", sa)
+    sa_ver = bytearray(sa); struct.pack_into("<I", sa_ver, 32, 3)
+    p_sa_ver = put("standalone-v3-state.sav", bytes(sa_ver))
+    sa_game = bytearray(sa); sa_game[0:6] = b"GALE01"
+    p_sa_game = put("standalone-melee-state.sav", bytes(sa_game))
+    sa_huge = bytearray(sa); struct.pack_into("<Q", sa_huge, 72, 1 << 60)
+    p_sa_huge = put("standalone-huge-state.sav", bytes(sa_huge))
+    sa_size = bytearray(sa); struct.pack_into("<Q", sa_size, 72, struct.unpack_from("<Q", sa, 72)[0] + 1)
+    p_sa_size = put("standalone-size-state.sav", bytes(sa_size))
+    p_sa_cut = put("standalone-cut-state.sav", sa[:-1000])
+    p_sa_tail = put("standalone-tail-state.sav", sa + b"\0" * 16)
+
 env = dict(os.environ, XDG_DATA_HOME=xdg)
 fails = 0
 def run(label, path, ok, expect):
@@ -148,6 +167,13 @@ run("card image with a 4-block save refused", p_card_four, False, "On that memor
 run("state claiming 2^60 bytes refused", p_state_huge, False, "damaged")
 run("state with its chunk cut short refused", p_state_cut, False, "damaged")
 run("state with a zero-length chunk refused", p_state_zero, False, "damaged")
+if sa_state:
+    run("standalone state of another version refused", p_sa_ver, False, "different version")
+    run("standalone state of another game refused", p_sa_game, False, "another game")
+    run("standalone state claiming 2^60 bytes refused", p_sa_huge, False, "damaged")
+    run("standalone state with the wrong unpacked size refused", p_sa_size, False, "damaged")
+    run("standalone state cut short refused", p_sa_cut, False, "damaged")
+    run("standalone state with bytes after its frame refused", p_sa_tail, False, "damaged")
 print("      nothing written:", not os.path.exists(user) or not any(os.scandir(user)))
 run("GCI file 1 into an empty card", os.path.join(saves, "8P-GEAE-SA_LEGENDS.000.gci"), True, "Imported file 1. Continue loads it.")
 run("same GCI again: replaced, old kept", os.path.join(saves, "8P-GEAE-SA_LEGENDS.000.gci"), True, "kept as 8P-GEAE-SA_LEGENDS.000.gci.pre-import.bak")
@@ -162,6 +188,9 @@ run("card image: files 3 and 1, last saved first", p_card, True, "Continue loads
 run("save state", p_state, True, "Continue starts from it")
 time.sleep(1.1)
 run("save state again: new name", p_state, True, "state-skies-import-")
+if sa_state:
+    time.sleep(1.1)
+    run("standalone state", p_sa, True, "Continue starts from it")
 ls()
 # imported GCIs are byte-identical to the originals
 for n in range(3):
