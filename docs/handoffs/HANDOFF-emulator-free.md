@@ -867,8 +867,11 @@ Commit 2b6be40; fork 0042-0043. Details and checks in *HANDOFF-feature-gaps.md* 
   the game's own texture draws until then, as in Dolphin; `AURORA_SYNC_REPLACEMENTS=1` for frame-exact runs.
   The log line `[textures] N of M loaded, ... decodes ... uploads ...` every 600 frames.
 - **Checked:** both v0.06 packs import byte-identical; the fight route on WSL and Windows with 89-91 files in
-  use, the moon and skies replaced, off and on live; Windows speed unchanged. **Open:** the Pocket 5
-  head-to-head (PNG pack, BC7 skipped there) and the full 4x pack.
+  use, the moon and skies replaced, off and on live; Windows speed unchanged. **Pocket 5:** the loaders
+  inherited the pinned emulation thread's prime core (they start from it) and hitched the battle's first
+  seconds; fork 0045 puts them on the other cores. With the PNG pack the standalone is as fast as without it
+  (uncapped 1.65x / ~2.0x against the Dolphin build's 1.37x / 1.63x), smoother, at half the memory (PSS
+  ~600 MB against ~1.1 GB); BC7 skipped there, no noise. **Open:** the full 4x pack.
 
 ## 60 fps (feature-gap item 6, 2026-10-26)
 
@@ -879,4 +882,7 @@ Commit e88be2c; fork 0044. Details and checks in *HANDOFF-feature-gaps.md* item 
   retraces present the in-between picture, then the real one. `[Skies] FrameMode`, Graphics > Frame rate.
 - Single-threaded: the replay costs the emulation thread a second Aurora parse of the frame, so the
   Dolphin build's single-core budget decides per scene; on a desktop it always fits (Windows uncapped
-  3.6x with it, 5.0x without). The Pocket 5 is untested; a thread for Aurora's parse is the fallback.
+  3.6x with it, 5.0x without). **Pocket 5:** full speed at 60 fps in both bench scenes, p99 17.7-18.0 ms
+  and nothing over 20 (the Dolphin build's 60 fps: p99 24.5-25.9, 13-42% over 20), 0.45-0.7 W less; but
+  uncapped the save point drops to 1.25x (Dolphin 1.41x, its interpolation on the GPU thread), and the
+  present delay sits at 27.5-30 ms. A thread for Aurora's parse is the next step for the headroom.

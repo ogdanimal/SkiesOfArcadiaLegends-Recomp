@@ -7,16 +7,20 @@ each one is, where its code lives, what the standalone has, the port steps, how 
 (so the port is checked the same way), and size. Read *HANDOFF-emulator-free.md* first (the standalone's
 architecture: *In-game menu*, *Save states*, *The Android shell*, *Pacing on the Pocket 5*).
 
-**Progress (2026-10-26):** items 0-6 done on desktop (6 = 60 fps; its device checks open) (2 including MSAA 2x / 8x through a Dawn patch;
+**Progress (2026-10-26):** items 0-6 done on desktop (2 including MSAA 2x / 8x through a Dawn patch;
 3 = input: rumble, release keyboard layout, names, Button mapping, controller follow; 4 = Language with the
-restart; 5 = HD textures: import, menu row, files decoded off the render thread), each with its checks and
-leftovers in its section below; the Japanese game's memory card fixed on the way (item 1). **Pick up at the
-Pocket 5 checks of items 5 and 6** (with the user's go-ahead), else item 7 (Dreamcast). Standing leftovers: the European / Japanese first field and an APK with their modules on the
-Pocket 5 (item 0); a first battle and card save after Continue, Windows and the Pocket 5 (item 1); the
-4x-MSAA specks in the light beam and GPU cost at 4x / 6x resolution (item 2); shipping the patched Dawn and
-the macOS build (item 2); rumble by hand, a capture with a real pad, two pads and the Pocket 5 (item 3); the
-restart on Android (item 4); the Pocket 5 head-to-head with the PNG pack (item 5); 60 fps on the Pocket 5
-and the Nova, and its scene list (item 6).
+restart; 5 = HD textures: import, menu row, files decoded off the render thread; 6 = 60 fps), each with its
+checks and leftovers in its section below; the Japanese game's memory card fixed on the way (item 1). The
+Pocket 5 checks of items 5 and 6 are done too: HD textures as fast as without the pack after a loader-thread
+fix (fork 0045); 60 fps smoother than the Dolphin build's at full speed and at less power, but with less
+uncapped headroom at the save point (1.25x against 1.41x: item 6, *Pocket 5*). **Pick up at item 7**
+(Dreamcast), or first the 60 fps parse thread if the user wants the uncapped lead back. Standing leftovers:
+the European / Japanese first field and an APK with their modules on the Pocket 5 (item 0); a first battle
+and card save after Continue, Windows and the Pocket 5 (item 1); the 4x-MSAA specks in the light beam and GPU
+cost at 4x / 6x resolution (item 2); shipping the patched Dawn and the macOS build (item 2); rumble by hand,
+a capture with a real pad, two pads and the Pocket 5 (item 3); the restart on Android (item 4); the
+cloud-sea edges and the full 4x pack (item 5); 60 fps on the Nova, its scene list, Home and back, the
+uncapped headroom and the present delay on the Pocket 5 (item 6).
 
 ## Ground rules
 
@@ -86,8 +90,8 @@ the Dolphin build's tabs and rows but the Dreamcast tab (Rumble on its own key `
 | 2 | Graphics options (MSAA, texture filter, anisotropy, scaling) | `recompcore-gfx-options.patch`, `skies-settings` | **done** (WSL): four rows, live; fork 0038 | ~1 day |
 | 3 | Input: release keyboard layout, rumble, names, Button mapping, menu-close rule | `recompcore-input`, `controller-names`, `menu-close`, `android-pad-follow`, review D23-D26 | **done** (desktop): rumble, release layout, names, mapping page, follow; fork 0040-0041 | ~2 days |
 | 4 | Language (European disc) | `recompcore-language.patch` | **done** (desktop): SRAM from the key, Language tab, restart | ~1 day |
-| 5 | HD textures (+ import) | `recompcore-hd-textures`, `hd-textures-nested`, review D2 / D22 | **done** (desktop): CLI import, menu row, live; async loads; fork 0042-0043 | ~2-3 days |
-| 6 | 60 fps | `recompcore-frame-interpolation`, `battle-specials`, `field-speed`, review D6 / D25 | **done on desktop**: record, blend, replay, retrace presents, budget, holds, menu; fork 0044; devices open | 3-4 sessions |
+| 5 | HD textures (+ import) | `recompcore-hd-textures`, `hd-textures-nested`, review D2 / D22 | **done** (desktop + Pocket 5): CLI import, menu row, live; async loads; fork 0042-0043, 0045 | ~2-3 days |
+| 6 | 60 fps | `recompcore-frame-interpolation`, `battle-specials`, `field-speed`, review D6 / D25 | **done** (desktop + Pocket 5): record, blend, replay, retrace presents, budget, holds, menu; fork 0044; uncapped headroom open | 3-4 sessions |
 | 7 | Dreamcast: Uncensored, Dreamcast music, DC streams, EU 60 Hz audio | `uncensor`, `skies-dcmusic-eu`, `dcmusic-streams`, `dcmusic-fx`, `pal60`, review D3 / D4 / D16-D21 | none | 1,200-1,800 lines of glue |
 | 8 | Data folder, romhacks, save import / backup | `data-folder`, `romhack`, `state-folders`; `lib/ModernGekko/tools/*` | `--user`, `--dol` | 3-5 days |
 | 9 | Android launcher (disc import, settings, Continue, saves) | `skies-android-app`, `android*`, review D7 / D8 / D11-D15 | adb pushes, args.txt | 1.5-2 weeks |
@@ -421,10 +425,40 @@ Dolphin build; decide whether to translate `GCPadNew.ini` once on first run.
 - **Not compared:** the Dolphin build's "149 of 745 across 9 states" came from Dolphin states the standalone
   can't load; the fight route reaches 89-91. Both hash the same way (no misses among the files the route
   uses, and the replaced textures are the ones expected), so the counts differ by coverage.
-- **Open:** the Pocket 5 head-to-head with the PNG pack (speed, GPU time, memory; the Dolphin build ran it at
-  1.003x) and BC7 skipped there (the DDS pack); a side-by-side with the Dolphin build of the cloud sea in the
-  first battle (a few straight cloud-quad edges show with the pack: possibly the pack's own); the full 4x pack
-  (15,497 textures, about 4 GB of GPU memory if all were used; Aurora's replacement cache evicts past 4 GB).
+- **Open:** a side-by-side with the Dolphin build of the cloud sea in the first battle (a few straight
+  cloud-quad edges show with the pack: possibly the pack's own); the full 4x pack (15,497 textures, about 4 GB
+  of GPU memory if all were used; Aurora's replacement cache evicts past 4 GB).
+
+**Pocket 5 (2026-10-26):** the PNG pack imported on WSL and pushed into both test apps
+(`user-bench-sa/Load/Textures/GEA`, the bench app's `Load/Textures/GEA`), `HiresTextures = True`, IR 1,
+30 fps, muted, lowest performance mode, `capture/android-ir-bench.sh`; memory from `dumpsys meminfo` and
+kgsl's `gpumem_mapped` 40 s in.
+
+- **A hitch found and fixed (fork 0045):** the battle state's load window had 6-8 intervals over 40 ms with
+  the pack (one without it: the load itself); the emulation thread took up to 58-67 ms a field, copies came
+  111 ms late at p99. The loader threads start at the first lookup, which comes from the emulation thread
+  (Aurora parses there), and threads inherit their creator's affinity, so both loaders ran on cpu7 with the
+  pinned game (a thread sample showed them there). Now a loader started by a thread kept on some cores runs
+  on the other cores (Linux / Android; desktop unpinned, unchanged). After it, two runs: one interval over
+  40 ms (the load), the game thread at most 32 ms a field, copies 12.4 ms late at p99; the decodes took
+  286 ms in all instead of 657 (longest 30 instead of 69). logcat (tag `aurora`) says `loader threads off
+  the 1 core(s) of the thread that started them`.
+- **Head-to-head with the pack:**
+
+  | | Standalone | Dolphin bench app |
+  |---|---|---|
+  | Battle, full speed: p99 / max ms | 34.4 / 36.3 (2.2 W) | 38.0 / 39.1 (2.4 W) |
+  | Save point, full speed | 34.8 / 36.4 (2.5 W) | 36.3 / 37.4 (2.7 W) |
+  | Uncapped, save point / battle | 1.65x / 1.97-2.03x | 1.37x / 1.63x |
+  | PSS, battle (pack off) | 604 MB (601) | 1,118 MB (1,038) |
+  | PSS / kgsl mapped, save point | 596 / 534 MB | 1,162 / 2,091 MB |
+
+  Speed is the same as without the pack in both apps. In use: 45 of 744 files at the battle (64 MB), 20 at
+  the save point (25 MB), none failed.
+- **BC7 (the DDS pack):** `HD textures on: 744 files registered (...), BC7 skipped on this GPU`; at the
+  battle 25 files loaded and 20 BC7 files refused (`unsupported format: 62` in logcat), the game's own
+  textures drawn for those; one device screenshot, no noise; pacing as with the PNG pack.
+- The packs were removed from both test apps afterwards and `HiresTextures` set back to False.
 
 ## 6. 60 fps (frame interpolation)
 
@@ -532,11 +566,37 @@ presents; menu + holds + states; devices).
   field), nothing skipped after the boot logos; uncapped 3.6x with it, 5.0x without. Per frame: keep
   0.3-1.0 ms, blend 0.1-0.8, feed 0.2-1.7 (Aurora parses the replay on the emulation thread). WSL
   runs aren't deterministic (off vs off differs), so exact comparisons are Windows'.
-- **Open:** the Pocket 5 (pacing, full speed, the budget there, head-to-head with the Dolphin build's
-  60 fps) and the Nova; the scene list above (title clouds, the game's menu fade, the Valuan ladder,
-  cloud sea, world-map flight, battle at speed with spells for the hold); Android's Home and back.
-  If the Pocket 5 can't fit the replay, the next step is parsing Aurora's FIFO on a thread of its own
-  (the Dolphin build's dual-core shape): the replay's cost today is mostly that parse.
+- **Open:** the Nova; the scene list above (title clouds, the game's menu fade, the Valuan ladder,
+  cloud sea, world-map flight, battle at speed with spells for the hold); Android's Home and back; the
+  uncapped headroom and the present delay on the Pocket 5 (below).
+
+**Pocket 5 (2026-10-26):** the APK of e88be2c (+ fork 0045) installed over the test app; IR 1, muted,
+lowest performance mode, `[Skies] FrameMode = 1` in both apps (`capture/android-ir-bench.sh`). The 30 fps
+baseline on this build is unchanged (battle p99 34.4, max 35.0).
+
+| 60 fps, full speed | Standalone | Dolphin bench app (60 fps) |
+|---|---|---|
+| Battle: p50 / p99 / max ms; over 20 ms | 16.6 / 17.7 / 18.5; none | 17.3 / 24.5 / 25.5; 80 |
+| Save point | 16.7 / 17.7-18.0 / 19.4-20.0; none | 18.5 / 25.9 / 26.7; 251 (18 over 25) |
+| Power, battle / save point | ~2.45 / ~3.1 W | ~2.9 / ~3.8 W |
+| Uncapped, save point (30 fps) | **1.25x** (1.65x) | **1.41x** (1.38x) |
+| Uncapped, battle (30 fps) | 1.66x (~2.0x) | 1.69x (1.63x) |
+
+- **At full speed it is better in every number:** even 60 fps where the Dolphin build has 13-42% of its
+  intervals over 20 ms, at 0.45-0.7 W less. 1197 of 1200 battle frames interpolated, none skipped. The
+  budget switched replays off once, right after the save point's state load (31.2 ms of work in a frame,
+  shader compiles), and on again after 30 frames (32 frames at 30 fps).
+- **Uncapped, the lead is gone:** the Dolphin build interpolates on its GPU thread, so its speed doesn't
+  move; the standalone does it on the emulation thread. Save point uncapped: a game frame takes 26.7 ms
+  instead of 20.2; the stats (`SKIES_INTERP_STATS`) account for 3.9 ms of the 6.5 (keep 0.5, blend 1.1,
+  feed 2.1, keep in-between 0.2), the rest is outside them (the recording in `InterpCommand`, the second
+  present, Aurora's parse of the replay where it isn't in "feed"). The save point at 1.25x still has 25%
+  headroom at IR 1, but less than the Dolphin build's 41%: against the performance goal, the next step is
+  the one planned: Aurora's FIFO parse (and the replay feed) on a thread of their own, then measure the
+  recording.
+- **Present delay:** with 60 fps the auto delay settles at 27.5-30 ms (the 30 ms cap) instead of 14-19: it
+  is now set from each retrace's lateness, and the retrace inside the heavy drawing field is late. Pacing
+  holds anyway (nothing over 20 ms), so the cost is latency; worth a look with the parse thread.
 
 ## 7. Dreamcast features and disc audio
 
