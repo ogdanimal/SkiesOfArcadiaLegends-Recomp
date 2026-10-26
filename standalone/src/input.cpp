@@ -64,6 +64,12 @@ constexpr std::array MAP_ROWS{
     MapRow{"D-pad right", PAD_BUTTON_RIGHT, -1},
 };
 
+// How long controller 1 must have been idle before a press on another controller takes it over
+// (the Dolphin build's IDLE_BEFORE_SWITCH)
+constexpr std::chrono::milliseconds IDLE_BEFORE_SWITCH{750};
+// The controllers SDL has, as last logged
+std::string s_pad_list;
+
 // A capture gives up after this long without a press (the Dolphin build's CAPTURE_TIMEOUT)
 constexpr std::chrono::milliseconds CAPTURE_TIMEOUT{6000};
 // A stick or trigger counts as pulled past half way, and as let go under a quarter
@@ -342,6 +348,56 @@ Seen CaptureKeyboard(const MapRow& row)
   }
   return Seen::Nothing;
 }
+
+bool AnyButton(SDL_Gamepad* pad)
+{
+  for (int b = 0; b < SDL_GAMEPAD_BUTTON_COUNT; ++b)
+  {
+    if (SDL_GetGamepadButton(pad, static_cast<SDL_GamepadButton>(b)))
+      return true;
+  }
+  return false;
+}
+
+// Controller 1 follows the controller in use (the Dolphin build's SkiesInput::Follow,
+// android-pad-follow): with no controller on port 1, the first there is (or the one pressed); a
+// button on another controller while controller 1 has been idle IDLE_BEFORE_SWITCH, that one. Buttons
+// only for the others: an axis may rest away from 0 on some Android pads. Aurora keeps the choice
+// (its port preferences, USER/Config/Aurora/controller_ports.dat).
+void Follow(Clock::time_point now)
+{
+  const u32 count = PADCount();
+  std::string list;
+  for (u32 i = 0; i < count; ++i)
+  {
+    const char* name = PADGetNameForControllerIndex(i);
+    list += (list.empty() ? "" : ", ") + std::string(name ? name : "?");
+  }
+  if (list != s_pad_list)
+  {
+    s_pad_list = list;
+    Log("[input] controllers: %s\n", list.empty() ? "none" : list.c_str());
+  }
+  SDL_Gamepad* current = Port1Gamepad();
+  s32 pressed = -1, first = -1;
+  for (u32 i = 0; i < count; ++i)
+  {
+    SDL_Gamepad* pad = PADGetSDLGamepadForIndex(i);
+    if (!pad || pad == current)
+      continue;
+    if (first < 0)
+      first = static_cast<s32>(i);
+    if (pressed < 0 && AnyButton(pad))
+      pressed = static_cast<s32>(i);
+  }
+  const bool take = current ? pressed >= 0 && now - s_controller_used > IDLE_BEFORE_SWITCH :
+                              pressed >= 0 || first >= 0;
+  if (!take)
+    return;
+  PADSetPortForIndex(static_cast<u32>(pressed >= 0 ? pressed : first), PAD_CHAN0);
+  s_controller_used = now;
+  // The "Controller: <name>" message follows from InputPoll's name check
+}
 #endif
 }  // namespace
 
@@ -394,6 +450,8 @@ void InputPoll()
       }
     }
   }
+  if (s_capture.row < 0)
+    Follow(now);
   if (SDL_Gamepad* pad = Port1Gamepad())
   {
     bool used = false;
