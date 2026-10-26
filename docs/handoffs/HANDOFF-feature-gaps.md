@@ -16,7 +16,9 @@ fix (fork 0045); 60 fps smoother than the Dolphin build's at full speed and at l
 video thread (Aurora off the game's thread, a4f4014, fork 0046) ahead uncapped too (save point 1.70x
 against 1.41x; item 6, *The video thread*). Item 7 (Dreamcast) done too (9862a64): every output
 byte-identical to the Dolphin build's, the music level with it at the save point and ahead in battle.
-**Pick up at items 8-10** (data folder / romhacks / saves, the Android launcher, packaging). Standing leftovers:
+**Pick up at items 8-10**, now one goal: the standalone **replaces** the Dolphin build as a normal update
+(the user, 2026-10-26; *Items 8-10* below has the approach, the runner contract and what doesn't carry over
+yet). Standing leftovers:
 the European / Japanese first field and an APK with their modules on the Pocket 5 (item 0); a first battle
 and card save after Continue, Windows and the Pocket 5 (item 1); the 4x-MSAA specks in the light beam and GPU
 cost at 4x / 6x resolution (item 2); shipping the patched Dawn and the macOS build (item 2); rumble by hand,
@@ -746,6 +748,58 @@ engines' CPU cost against the performance goal (measure on the Pocket 5).
   (`cs_shot`, ratio 0.993-1.005) in the standalone; the Android picker import (item 9); the save point's
   music cost; a romhack whose file sizes differ (Maeson 1.51: its extracted game is gone, so it needs the
   xdelta applied to the USA ISO again).
+
+## Items 8-10: the standalone replaces the Dolphin build (decided 2026-10-26)
+
+**The user's decisions:** "The goal is for standalone to replace dolphin", and "ideally users would download
+this updated version and be able to continue on like any other update." So the standalone is not a runtime
+option beside Dolphin: the existing launchers start it as the game's runtime, and an update over an
+existing install must carry on with the same data folder, imported game, settings, saves and imports.
+
+**Desktop approach (started, nothing committed yet):** the standalone takes the runner's place
+(`skies-run.exe` in the release package) and keeps its command-line contract, so dev's launcher starts it
+unchanged. Dev's launcher (`tools/moderngekko_launcher.cpp` ~3700) runs `SiblingRunner(argv[0])` (the
+runner beside the launcher) with `--game GAME --user-dir USER [--load-state FILE] [--wayland | -X11]`
+(netplay flags are dropped: no netplay). The runner (`tools/moderngekko_run.cpp` `RunMain`) does, before
+the runtime, what the standalone must do too:
+
+1. `FindUserDirectory(executable_directory)` when no `--user-dir` (portable.txt, data-folder.txt, the
+   default `Skies of Arcadia Legends` folder); a box when a moved data folder is missing.
+2. `default-game.txt` when no `--game`; `config.ini` (`frontend_config` `LoadConfig`: resolution, which it
+   sets every boot and writes back when the menu changes it; fullscreen; FPS in the title).
+3. The release table (`release_games.inc` from CMake lists `MODERNGEKKO_REQUIRED_DISC_ID`,
+   `..._DOL_SHA256`, `..._DOL_PATCH_MANIFEST`; dev's `tools/build-release-win.bat` fills them from
+   `release/skies-widescreen*.dolpatch`): `ApplyDolPatchManifest` patches the game's `sys/main.dol` in place
+   ("The game needs updating" box on failure, exit `RUNNER_EXIT_EXPLAINED`), romhack notes,
+   `RomhackTag` / `StateFolderFor` / `MoveDiscStates` for the state folder, `DolMatchesPin`.
+4. The module beside the program or in `USER/StaticRecompModules` ("Game files missing" box).
+5. Restart for a language change (the standalone has its own).
+
+`lib/ModernGekko/tools/{user_directory,dol_patch,frontend_config}.cpp`, `release_games.hpp` and
+`include/moderngekko/sha256.hpp` are identical to dev's on this branch and std-only: the standalone can
+compile them directly (only `moderngekko_launcher.cpp` is newer on dev). Dev's tools as patched:
+`build/devmg` (a worktree of the ModernGekko submodule with dev's three `moderngekko-*.patch`); dev's
+patched vendored tree: `build/devtree` (item 7's).
+
+**Test plan:** a copy of a release package (e.g. `C:\dev\SkiesPerf\build\SkiesOfArcadiaLegends-v0.83.0-perftest1-windows`:
+the launcher `Skies of Arcadia Legends.exe`, the runner `skies-run.exe`, `gGEAE8P_recomp.dll`, `patches/`,
+`Sys/`) with `skies-run.exe` replaced by the standalone (plus Dawn's DLLs, libpng / zlib); the launcher
+started as players do, on an existing data folder.
+
+**What doesn't carry over yet (the seamless update):**
+- **Dolphin save states** (`state-skies-*.sav`, `recovery-skies-*.sav`): the standalone can't load them.
+  The launcher's Continue, state list, Import a save and Back up saves know only those; they must learn the
+  standalone's `.sst` (and Continue fall back to the newest card save when the newest state is Dolphin's),
+  or the old states be converted (RAM, ARAM and hardware registers are in Dolphin's state; its GPU-side EFB
+  copies are not in the standalone's form: a real project; ask the user).
+- **Controller bindings:** Dolphin's `Config/GCPadNew.ini` (the launcher's Controls page writes it); the
+  standalone uses Aurora's bindings in `Config/Aurora`. Convert on first start, or have both read the same.
+- Card saves, `Dolphin.ini` / `GFX.ini` settings, the imported game and module, HD packs and the Dreamcast
+  imports carry over as they are (shared formats and folders).
+
+**Android (item 9):** the same goal: dev's app (Kotlin launcher screens + JNI in Dolphin's native library)
+must start the standalone's game activity (`libmain.so`, SDL) instead of Dolphin's emulation, with its
+imports and settings JNI built against the standalone's code (item 7's modules show the pattern).
 
 ## 8. Data folder, romhacks, saves
 
