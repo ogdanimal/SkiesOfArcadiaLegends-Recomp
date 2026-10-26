@@ -23,7 +23,9 @@ the emulation thread on the prime core) smoother at full speed at ~0.4-0.5 W les
 battle at full speed, card saves); phase 4 under way (in-game menu, save states and auto-save done; 60 fps,
 Continue, Language, Dreamcast, HD textures, mapping, rumble open); phase 5 (Android) started: a test app
 that plays on the Retroid Pocket 5 (from a state; pacing fixed; higher resolutions measured; immersive; background
-and foreground at the same size work; the built-in pad and audio on the device untested by hand; no launcher yet). The latest sections at the end of this file come first when picking up.
+and foreground at the same size work; the built-in pad and audio on the device untested by hand; no launcher yet). The latest sections at the end of this file come first when picking up. **The plan for the
+remaining Dolphin-build features (60 fps, Continue, Language, Dreamcast, HD textures, input, graphics options,
+the launcher, packaging) is [HANDOFF-feature-gaps.md](HANDOFF-feature-gaps.md).**
 
 Why this and not the Aurora-inside-Dolphin backend alone: inside Dolphin, Aurora only reaches parity with
 Dolphin's Vulkan renderer (sessions 5-6, `HANDOFF-aurora.md`); it pays off once the port leaves Dolphin

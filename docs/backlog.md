@@ -200,7 +200,7 @@ battle, 34.7-35.0 vs 36.2 at the save point; Windows p99 39.8 -> 35.0 too); at 6
 Dolphin can't (GPU-bound 1.24x vs 0.87x at the save point; fork 0037 dropped the present resample pass). The
 shell is immersive and survives background / foreground. Open: the EFB passes on the tiler, 60 fps, Continue, the
 remaining features, the Android shell's launcher, the built-in pad and audio on the device (by hand), size
-changes on return.
+changes on return. The plan for the features: [handoffs/HANDOFF-feature-gaps.md](handoffs/HANDOFF-feature-gaps.md).
 
 The Aurora renderer inside Dolphin (`--graphics Aurora`, `AURORA=1`), the groundwork for it: the picture
 matches Dolphin on both Retroids, Windows and WSL (fork fixes: the XF viewport decoded per register;
