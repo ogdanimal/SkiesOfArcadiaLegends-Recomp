@@ -25,6 +25,7 @@
 #include "gxruntime/platform.h"
 
 #include <SDL3/SDL_thread.h>
+#include <SDL3/SDL_video.h>
 #include <aurora/aurora.h>
 #include <aurora/gfx.h>
 #include <dolphin/gx.h>
@@ -523,8 +524,36 @@ void DumpFrame(u64 frame, const char* suffix)
   std::fwrite(rgb.data(), 1, rgb.size(), f);
   std::fclose(f);
 }
+
+// Aurora's window (the only one)
+SDL_Window* MainWindow()
+{
+  int count = 0;
+  SDL_Window** windows = SDL_GetWindows(&count);
+  SDL_Window* window = windows && count > 0 ? windows[0] : nullptr;
+  SDL_free(windows);
+  return window;
+}
 #endif
 }  // namespace
+
+void VideoSetTitleFps(double fps)
+{
+#ifdef SKIES_STANDALONE_AURORA
+  if (!g_window.fps_in_title || !s_active)
+    return;
+  // As the Dolphin build's runner: "<title> | 29.9 FPS"
+  char text[32];
+  std::snprintf(text, sizeof(text), " | %.1f FPS", std::isfinite(fps) && fps > 0 ? fps : 0.0);
+  std::string title = g_window.title + text;
+  VideoPost([title = std::move(title)] {
+    if (SDL_Window* window = MainWindow())
+      SDL_SetWindowTitle(window, title.c_str());
+  });
+#else
+  (void)fps;
+#endif
+}
 
 bool VideoInit(bool headless)
 {
@@ -562,7 +591,7 @@ bool VideoInit(bool headless)
   const char* h = std::getenv("SKIES_HEIGHT");
   // The DOL is in memory by now, so the window can open at the picture's shape (960 lines high).
   const AuroraBackendConfig config = {
-      .app_name = "Skies of Arcadia Legends (standalone)",
+      .app_name = g_window.title.c_str(),
       .window_width = w ? static_cast<unsigned>(std::atoi(w))
                         : static_cast<unsigned>(960.0 * PictureAspect() + 0.5),
       .window_height = h ? static_cast<unsigned>(std::atoi(h)) : 960u,
@@ -587,6 +616,10 @@ bool VideoInit(bool headless)
     return false;
   }
   aurora_backend_set_guest_address_resolver(ResolveGuestAddress, nullptr);
+  // config.ini's Screen (the launcher's Fullscreen)
+  if (g_window.fullscreen)
+    if (SDL_Window* window = MainWindow())
+      SDL_SetWindowFullscreen(window, true);
   if (PacingOn())
     aurora_backend_set_present_callback(PresentDone);
   // As the Dolphin-side backend (ApplyEfbScale): the EFB keeps 640x480 times the scale whatever the

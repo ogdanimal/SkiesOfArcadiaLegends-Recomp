@@ -3,6 +3,11 @@
 // a header that names the game, the DOL and the recompiled module, since a state only makes sense
 // with the very code it was taken from.
 //
+// The files are where and as the Dolphin build kept its states (menu.cpp: StateSaves/state-skies-
+// slotN.sav, recovery-skies-*.sav), so the launchers list, Continue from, move and back them up as
+// before; the header starts as Dolphin's does (the game ID first) and tells the two apart. A Dolphin
+// build's state loads too: dolphin_state.cpp converts it.
+//
 // States are taken and put back by the run loop between two dispatches (cpu.cpp), once the next
 // frame's display copy is done (hw_gpu.cpp calls StateFrameEnd): the picture is presented and the
 // next frame not started, so after a load Aurora only needs the GP registers again
@@ -33,23 +38,37 @@ namespace
 namespace fs = std::filesystem;
 
 constexpr u32 MAGIC = 0x54534B53;  // "SKST"
-constexpr u32 VERSION = 1;
+constexpr u32 VERSION = 2;
+// Dolphin's version cookie (StateFile.h COOKIE_BASE + STATE_VERSION) of the states the Dolphin build
+// writes
+constexpr u32 DOLPHIN_COOKIE = 0xBAADBABE + 191;
+// Dolphin's state time: seconds since 2000-01-01 (Common::Timer DOUBLE_TIME_OFFSET)
+constexpr double DOLPHIN_TIME_OFFSET = 946684800.0;
 constexpr u64 MAX_RAW_SIZE = 512ull << 20;
 // A request waits for a display copy this long at most (a game that stops drawing, a load screen)
 constexpr u64 FRAME_WAIT = CPU_HZ / 2;
 
 struct Header
 {
+  // As a Dolphin state starts (StateFile.h StateHeaderLegacy, then the version cookie): the game ID,
+  // which the launcher reads to move a version's states into its folder (MoveDiscStates), and a
+  // cookie an older Dolphin build reads as a version it doesn't know, so it refuses the file cleanly
+  char game_id[6];
+  u8 reserved1[2];
+  u32 lzo_size;  // 0
+  u8 reserved2[4];
+  double dolphin_time;  // when it was saved, as Dolphin counts
   u32 magic;
+  u32 version_string_length;  // 0
   u32 version;
-  char game_id[8];
+  u32 reserved3;
   u64 dol_hash;     // FNV-1a 64 of the DOL booted
   u64 module_hash;  // ModuleFingerprint
   double guest_seconds;
   s64 saved_at;  // time(), for the record
   u64 raw_size;  // the state before compression
 };
-static_assert(sizeof(Header) == 56);
+static_assert(sizeof(Header) == 80);
 
 enum class Kind
 {
@@ -66,7 +85,7 @@ struct Request
 };
 Request s_request;
 bool s_frame_ended = false;
-std::string s_user_dir;
+std::string s_user_dir, s_state_dir;
 
 // SKIES_SAVE_AT, SKIES_LOAD_AT
 struct TestAt
@@ -173,13 +192,14 @@ bool Save(const std::string& path, std::string* error)
   DoAll(p);
 
   Header header{};
+  std::memcpy(header.game_id, DiscHeader(), 6);
+  header.saved_at = static_cast<s64>(std::time(nullptr));
+  header.dolphin_time = static_cast<double>(header.saved_at) - DOLPHIN_TIME_OFFSET;
   header.magic = MAGIC;
   header.version = VERSION;
-  std::memcpy(header.game_id, DiscHeader(), 6);
   header.dol_hash = DolHash();
   header.module_hash = ModuleFingerprint();
   header.guest_seconds = static_cast<double>(g_cycles) / CPU_HZ;
-  header.saved_at = static_cast<s64>(std::time(nullptr));
   header.raw_size = raw.size();
 
   const size_t bound = ZSTD_compressBound(raw.size());
@@ -219,14 +239,9 @@ bool Load(const std::string& path, std::string* error)
     return false;
   }
   std::memcpy(&header, bytes.data(), sizeof(Header));
-  if (header.magic != MAGIC)
+  if (header.magic != MAGIC && header.magic != DOLPHIN_COOKIE)
   {
-    *error = "not a save state of this host";
-    return false;
-  }
-  if (header.version != VERSION)
-  {
-    *error = "a save state of another version (" + std::to_string(header.version) + ")";
+    *error = "not a save state";
     return false;
   }
   if (std::memcmp(header.game_id, DiscHeader(), 6) != 0)
@@ -234,11 +249,20 @@ bool Load(const std::string& path, std::string* error)
     *error = "a save state of another game (" + std::string(header.game_id, 6) + ")";
     return false;
   }
-  if (header.dol_hash != DolHash() || header.module_hash != ModuleFingerprint())
+  if (header.magic == DOLPHIN_COOKIE)
   {
-    *error = "a save state of another game patch or build";
+    *error = "a save state of the Dolphin build (converting them isn't done yet)";
     return false;
   }
+  if (header.version != VERSION)
+  {
+    *error = "a save state of another version (" + std::to_string(header.version) + ")";
+    return false;
+  }
+  // As the Dolphin build loads its states: one from before an update (another game patch or module
+  // build) loads too, since the game's data and the CPU's registers are the same kind of thing
+  if (header.dol_hash != DolHash() || header.module_hash != ModuleFingerprint())
+    Log("[state] %s was saved with another game patch or module build\n", path.c_str());
   if (header.raw_size == 0 || header.raw_size > MAX_RAW_SIZE)
   {
     *error = "a damaged save state";
@@ -292,9 +316,10 @@ void Queue(Kind kind, const std::string& path, const std::string& message)
 }
 }  // namespace
 
-void StateSetUserDir(const std::string& user_dir)
+void StateSetUserDir(const std::string& user_dir, const std::string& state_dir)
 {
   s_user_dir = user_dir;
+  s_state_dir = state_dir;
   s_save_at = ParseTestAt("SKIES_SAVE_AT");
   s_load_at = ParseTestAt("SKIES_LOAD_AT");
 }
@@ -303,7 +328,7 @@ std::string StateDirectory()
 {
   if (s_user_dir.empty())
     return {};
-  return (fs::path(s_user_dir) / "StateSaves" / "Standalone").string();
+  return s_state_dir.empty() ? (fs::path(s_user_dir) / "StateSaves").string() : s_state_dir;
 }
 
 void StateRequestSave(const std::string& path, const std::string& message)

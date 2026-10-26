@@ -314,13 +314,48 @@ bool DreamcastUncensorAvailable();
 // --import-dc IMAGE [--game DIR]: the exit code
 int DreamcastImportCommand(const std::string& image, const std::string& game_dir);
 
+// ---- the release runner's part (frontend.cpp) ------------------------------------------------------
+// What the command line and the release give the start: the launchers' form (--game G --user-dir U,
+// or nothing at all) goes through FrontendPrepare, the test form (--game G [--user U]) doesn't.
+struct LaunchOptions
+{
+  enum class WindowSystem
+  {
+    Default,
+    X11,
+    Wayland,
+  };
+  std::string game, user, module, dsp_coef, sys_dir;
+  std::string state_dir;     // "" = USER/StateSaves
+  int efb_scale = 0;         // config.ini's resolution (0: none)
+  bool frame_interpolation = false;  // config.ini's (the first start's 60 fps)
+  WindowSystem window_system = WindowSystem::Default;
+};
+// The window as config.ini and --title say (video.cpp)
+struct WindowOptions
+{
+  std::string title = "Skies of Arcadia Legends";
+  bool fullscreen = false;
+  bool fps_in_title = false;
+};
+extern WindowOptions g_window;
+// Fills in what the launcher's runner did before the game started (data folder, default game,
+// config.ini, the release's DOL patch and pin, the states' folder, the module, the Sys folder): -1 to
+// go on, else the exit code, with a message box first where a player must act
+int FrontendPrepare(const char* argv0, LaunchOptions& options);
+void FrontendError(const char* title, const std::string& message);
+// The in-game menu's Resolution, back into config.ini (which sets it at the next start)
+void FrontendResolutionChanged(int scale);
+void VideoSetTitleFps(double fps);  // FPS in the title, when config.ini says so (video.cpp)
+
 // ---- settings (settings.cpp) -----------------------------------------------------------------------
-// The Dolphin build's Config/Dolphin.ini and Config/GFX.ini in the user folder (read at start,
-// changed lines written back by SettingsSave).
+// The Dolphin build's Config/Dolphin.ini, Config/GFX.ini and Config/GCPadNew.ini (controller 1's
+// bindings) in the user folder (read at start, changed lines written back by SettingsSave).
 enum class SettingFile
 {
   Main,
   Gfx,
+  Pad,
 };
 void SettingsInit(const std::string& user_dir);
 // USER/Config (empty without --user)
@@ -329,6 +364,8 @@ const std::string& SettingsConfigDir();
 const std::string& SettingsUserDir();
 int SettingGet(SettingFile file, const char* section, const char* key, int fallback);
 void SettingSet(SettingFile file, const char* section, const char* key, int value, bool boolean = false);
+std::string SettingGetString(SettingFile file, const char* section, const char* key);  // "" if unset
+void SettingSetString(SettingFile file, const char* section, const char* key, const std::string& value);
 void SettingsSave();
 
 // ---- the in-game menu and the player options (menu.cpp) --------------------------------------------
@@ -399,8 +436,10 @@ void ThrottleRestart();
 // The whole machine in one file, taken and put back between two dispatches of the run loop, after
 // a frame's display copy (the picture is complete and the next frame not started).
 class StateIO;
-void StateSetUserDir(const std::string& user_dir);
-// USER/StateSaves/Standalone (empty without --user)
+// user_dir/StateSaves, or state_dir when it's given (a romhack's or another version's folder)
+void StateSetUserDir(const std::string& user_dir, const std::string& state_dir = {});
+// Where the states are (empty without --user): the Dolphin build's folders and names, so the
+// launchers list, back up and Continue from them as before
 std::string StateDirectory();
 // Done at the next frame end; the message is shown once it worked.
 void StateRequestSave(const std::string& path, const std::string& message);

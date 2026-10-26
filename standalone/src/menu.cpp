@@ -127,9 +127,11 @@ constexpr std::array TABS{Tab{"Saves", SAVES_ROWS}, Tab{"Graphics", GRAPHICS_ROW
                           Tab{"Sound", SOUND_ROWS}, Tab{"Dreamcast", DREAMCAST_ROWS},
                           Tab{"Controls", CONTROLS_ROWS}};
 
-// Save states (state.cpp) in USER/StateSaves/Standalone: the player's five slots are
-// <game>-slot1..5.sst, auto-saves <game>-auto-<date>-<time>.sst, the newest three kept. Not the
-// Dolphin build's files (state-skies-slotN.sav): the two builds' states don't load in each other.
+// Save states (state.cpp) where and as the Dolphin build's menu kept them (StateDirectory: StateSaves,
+// or another version's or a romhack's folder), so the launchers list, Continue from and back them up
+// as before: the player's five slots are state-skies-slot1..5.sav, auto-saves
+// recovery-skies-<date>-<time>.sav, the newest three kept. A slot the Dolphin build saved loads too
+// (state.cpp converts its state), and the next save to it writes this host's.
 constexpr int SAVE_SLOTS = 5;
 constexpr int AUTO_KEEP = 3;
 // Minutes between auto-saves (0 = off).
@@ -490,6 +492,8 @@ void Apply(const Values& values, const Values& before)
   set(HUD, values.hud, before.hud);
   set(FRAME_MODE, values.frame_mode, before.frame_mode);
   set(EFB_SCALE, values.efb_scale, before.efb_scale);
+  if (values.efb_scale != before.efb_scale)
+    FrontendResolutionChanged(values.efb_scale);
   set(MSAA, values.msaa, before.msaa);
   set(TEXTURE_FILTER, values.texture_filter, before.texture_filter);
   set(ANISOTROPY, values.anisotropy, before.anisotropy);
@@ -603,32 +607,23 @@ std::string FieldSpeedText(int speed)
 }
 
 // ---- save state files --------------------------------------------------------------------------
-std::string GameCode()
-{
-  return std::string(reinterpret_cast<const char*>(DiscHeader()), 6);
-}
-
 std::string SlotPath(int slot)
 {
-  return (std::filesystem::path(StateDirectory()) / (GameCode() + "-slot" + std::to_string(slot) + ".sst"))
+  return (std::filesystem::path(StateDirectory()) / ("state-skies-slot" + std::to_string(slot) + ".sav"))
       .string();
 }
 
-std::string AutoPrefix()
-{
-  return GameCode() + "-auto-";
-}
+constexpr std::string_view AUTO_PREFIX = "recovery-skies-";
 
 // The auto-saves, oldest first (their names sort by time)
 std::vector<std::filesystem::path> AutoSaves()
 {
   std::vector<std::filesystem::path> found;
   std::error_code ec;
-  const std::string prefix = AutoPrefix();
   for (const auto& entry : std::filesystem::directory_iterator(StateDirectory(), ec))
   {
     const std::string name = entry.path().filename().string();
-    if (name.rfind(prefix, 0) == 0 && entry.path().extension() == ".sst")
+    if (name.starts_with(AUTO_PREFIX) && entry.path().extension() == ".sav")
       found.push_back(entry.path());
   }
   std::sort(found.begin(), found.end());
@@ -1557,7 +1552,7 @@ void Poll()
   if (!local || !std::strftime(stamp, sizeof(stamp), "%Y%m%d-%H%M%S", local))
     std::snprintf(stamp, sizeof(stamp), "%lld", static_cast<long long>(t));
   const std::string path =
-      (std::filesystem::path(StateDirectory()) / (AutoPrefix() + stamp + ".sst")).string();
+      (std::filesystem::path(StateDirectory()) / (std::string(AUTO_PREFIX) + stamp + ".sav")).string();
   Log("[menu] auto-save to %s\n", path.c_str());
   StateRequestSave(path, "");
 }
@@ -2477,6 +2472,7 @@ void MenuFrame()
     s_fps = s_fps_frames / elapsed;
     s_fps_frames = 0;
     s_fps_since = now;
+    VideoSetTitleFps(s_fps);
   }
 #ifdef SKIES_STANDALONE_AURORA
   unsigned width = 0, height = 0;

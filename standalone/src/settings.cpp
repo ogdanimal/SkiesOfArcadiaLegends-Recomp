@@ -1,6 +1,7 @@
 // Player settings in the Dolphin build's files, so both builds share one set of choices: the user
 // folder's Config/Dolphin.ini ([Skies] as Core/Config/SkiesSettings.cpp names them, [DSP] Volume)
-// and Config/GFX.ini ([Settings] InternalResolution / ShowFPS, [Hardware] VSync). Only the lines
+// and Config/GFX.ini ([Settings] InternalResolution / ShowFPS, [Hardware] VSync), and controller 1's
+// bindings in Config/GCPadNew.ini (input.cpp, as the launchers' Controls pages). Only the lines
 // that change are rewritten; everything else in the files stays as it was. Without a user folder
 // the settings live for the run only.
 // SPDX-License-Identifier: GPL-3.0-or-later
@@ -146,7 +147,7 @@ struct IniFile
   }
 };
 
-IniFile s_files[2];  // SettingFile::Main, SettingFile::Gfx
+IniFile s_files[3];  // SettingFile::Main, SettingFile::Gfx, SettingFile::Pad
 std::string s_config_dir;
 std::string s_user_dir;
 }  // namespace
@@ -163,6 +164,7 @@ void SettingsInit(const std::string& user_dir)
   s_config_dir = config.string();
   s_files[0].path = config / "Dolphin.ini";
   s_files[1].path = config / "GFX.ini";
+  s_files[2].path = config / "GCPadNew.ini";
   for (IniFile& f : s_files)
     f.Load();
 }
@@ -196,6 +198,18 @@ void SettingSet(SettingFile file, const char* section, const char* key, int valu
 {
   s_files[static_cast<int>(file)].Set(section, key,
                                       boolean ? (value ? "True" : "False") : std::to_string(value));
+}
+
+std::string SettingGetString(SettingFile file, const char* section, const char* key)
+{
+  std::string value;
+  s_files[static_cast<int>(file)].Get(section, key, &value);
+  return value;
+}
+
+void SettingSetString(SettingFile file, const char* section, const char* key, const std::string& value)
+{
+  s_files[static_cast<int>(file)].Set(section, key, value);
 }
 
 void SettingsSave()

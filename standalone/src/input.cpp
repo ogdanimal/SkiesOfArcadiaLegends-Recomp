@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <cctype>
 #include <chrono>
+#include <cstring>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -15,6 +16,8 @@
 #ifdef SKIES_STANDALONE_AURORA
 #include <SDL3/SDL.h>
 #include <dolphin/pad.h>
+
+#include "Core/SkiesBindings.h"
 
 #include "gxruntime/aurora_backend.h"
 #endif
@@ -27,6 +30,7 @@ using Clock = std::chrono::steady_clock;
 
 // The controller on port 1 as last seen ("" none)
 std::string s_port1_name;
+bool s_keyboard_applied = false;  // GCPadNew.ini's keyboard bindings are in Aurora's
 // When the keyboard and controller 1 were last used (the menu's hints name what's in use)
 Clock::time_point s_keyboard_used{};
 Clock::time_point s_controller_used{};
@@ -349,6 +353,226 @@ Seen CaptureKeyboard(const MapRow& row)
   return Seen::Nothing;
 }
 
+// ---- GCPadNew.ini ----------------------------------------------------------------------------
+// Controller 1's bindings are the Dolphin build's: its GCPadNew.ini ([GCPad1], SkiesBindings'
+// expressions), which the launchers' Controls pages write and the mapping page here writes too, so
+// an update from the Dolphin build keeps a player's bindings and both sides show the same. What the
+// file says goes into Aurora's mapping: the keyboard's at the first read, a controller's each time
+// one takes port 1 (Aurora keeps a mapping per controller). A file without [GCPad1] (a data folder
+// the launcher never opened) leaves Aurora's own.
+
+// Dolphin's SDL gamepad controls (InputCommon's SDLGamepad.h names; the face buttons also by their
+// positional Xbox names, which its profiles use)
+struct PadControl
+{
+  const char* name;
+  int button;  // SDL_GamepadButton, -1 for an axis
+  int axis;    // SDL_GamepadAxis
+  PADAxisSign sign;
+};
+constexpr std::array PAD_CONTROLS{
+    PadControl{"Button A", SDL_GAMEPAD_BUTTON_SOUTH, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Button B", SDL_GAMEPAD_BUTTON_EAST, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Button X", SDL_GAMEPAD_BUTTON_WEST, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Button Y", SDL_GAMEPAD_BUTTON_NORTH, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Button S", SDL_GAMEPAD_BUTTON_SOUTH, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Button E", SDL_GAMEPAD_BUTTON_EAST, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Button W", SDL_GAMEPAD_BUTTON_WEST, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Button N", SDL_GAMEPAD_BUTTON_NORTH, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Back", SDL_GAMEPAD_BUTTON_BACK, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Guide", SDL_GAMEPAD_BUTTON_GUIDE, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Start", SDL_GAMEPAD_BUTTON_START, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Thumb L", SDL_GAMEPAD_BUTTON_LEFT_STICK, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Thumb R", SDL_GAMEPAD_BUTTON_RIGHT_STICK, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Shoulder L", SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Shoulder R", SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Pad N", SDL_GAMEPAD_BUTTON_DPAD_UP, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Pad S", SDL_GAMEPAD_BUTTON_DPAD_DOWN, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Pad W", SDL_GAMEPAD_BUTTON_DPAD_LEFT, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Pad E", SDL_GAMEPAD_BUTTON_DPAD_RIGHT, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Misc 1", SDL_GAMEPAD_BUTTON_MISC1, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Paddle 1", SDL_GAMEPAD_BUTTON_RIGHT_PADDLE1, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Paddle 2", SDL_GAMEPAD_BUTTON_LEFT_PADDLE1, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Paddle 3", SDL_GAMEPAD_BUTTON_RIGHT_PADDLE2, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Paddle 4", SDL_GAMEPAD_BUTTON_LEFT_PADDLE2, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Touchpad", SDL_GAMEPAD_BUTTON_TOUCHPAD, -1, AXIS_SIGN_POSITIVE},
+    // Dolphin's vertical axes are XInput's: Y+ is up, SDL's negative
+    PadControl{"Left X+", -1, SDL_GAMEPAD_AXIS_LEFTX, AXIS_SIGN_POSITIVE},
+    PadControl{"Left X-", -1, SDL_GAMEPAD_AXIS_LEFTX, AXIS_SIGN_NEGATIVE},
+    PadControl{"Left Y+", -1, SDL_GAMEPAD_AXIS_LEFTY, AXIS_SIGN_NEGATIVE},
+    PadControl{"Left Y-", -1, SDL_GAMEPAD_AXIS_LEFTY, AXIS_SIGN_POSITIVE},
+    PadControl{"Right X+", -1, SDL_GAMEPAD_AXIS_RIGHTX, AXIS_SIGN_POSITIVE},
+    PadControl{"Right X-", -1, SDL_GAMEPAD_AXIS_RIGHTX, AXIS_SIGN_NEGATIVE},
+    PadControl{"Right Y+", -1, SDL_GAMEPAD_AXIS_RIGHTY, AXIS_SIGN_NEGATIVE},
+    PadControl{"Right Y-", -1, SDL_GAMEPAD_AXIS_RIGHTY, AXIS_SIGN_POSITIVE},
+    PadControl{"Trigger L", -1, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, AXIS_SIGN_POSITIVE},
+    PadControl{"Trigger R", -1, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, AXIS_SIGN_POSITIVE},
+};
+
+const PadControl* FindPadControl(std::string_view name)
+{
+  for (const PadControl& control : PAD_CONTROLS)
+  {
+    if (name == control.name)
+      return &control;
+  }
+  return nullptr;
+}
+
+// The name a binding is written with: the face buttons by their Xbox names, as the defaults
+std::string PadControlName(PADSignedNativeAxis axis, u32 button)
+{
+  for (const PadControl& control : PAD_CONTROLS)
+  {
+    if (axis.nativeAxis >= 0 ? control.axis == axis.nativeAxis && control.sign == axis.sign :
+                               control.button >= 0 && static_cast<u32>(control.button) == button)
+      return control.name;
+  }
+  return {};
+}
+
+bool PadFilePresent()
+{
+  return !SettingGetString(SettingFile::Pad, SkiesBindings::PAD_SECTION, "Buttons/A").empty();
+}
+
+std::string PadExpression(const char* key)
+{
+  return SettingGetString(SettingFile::Pad, SkiesBindings::PAD_SECTION, key);
+}
+
+// A row's control in the file for the slot ("" unbound); a trigger's controller binding is its
+// analog half when that has one, else the button
+std::string PadFileControl(int row, InputSlot slot, std::string* device = nullptr)
+{
+  const SkiesBindings::Input& input = SkiesBindings::Inputs()[row];
+  const SkiesBindings::Slot s =
+      slot == InputSlot::Keyboard ? SkiesBindings::Slot::Keyboard : SkiesBindings::Slot::Controller;
+  if (slot == InputSlot::Controller && input.analog_key)
+  {
+    const std::string analog = SkiesBindings::SlotControl(PadExpression(input.analog_key), s);
+    if (!analog.empty())
+      return analog;
+  }
+  return SkiesBindings::SlotControl(PadExpression(input.key), s, device);
+}
+
+// A key the file names as any of Dolphin's keyboard devices calls it (DirectInput, X11, Android,
+// macOS), as SDL's scancode
+s32 PadFileScancode(std::string_view control)
+{
+  const auto same = [control](const char* name) {
+    if (!name || !*name || std::strlen(name) != control.size())
+      return false;
+    for (std::size_t i = 0; i < control.size(); ++i)
+    {
+      if (std::tolower(static_cast<unsigned char>(name[i])) !=
+          std::tolower(static_cast<unsigned char>(control[i])))
+        return false;
+    }
+    return true;
+  };
+  for (const SkiesBindings::KeyName& key : SkiesBindings::KeyNames())
+  {
+    if (same(key.dinput) || same(key.x11) || same(key.android) || same(key.quartz))
+    {
+      const SDL_Scancode scancode = SDL_GetScancodeFromName(key.id);
+      return scancode == SDL_SCANCODE_UNKNOWN ? PAD_KEY_INVALID : static_cast<s32>(scancode);
+    }
+  }
+  return PAD_KEY_INVALID;
+}
+
+void ApplyPadFileController()
+{
+  if (!PadFilePresent() || Port1Gamepad() == nullptr)
+    return;
+  // Aurora loads the controller's saved mapping at its first read: before ours, not over it
+  u32 count = 0;
+  PADGetButtonMappings(PAD_CHAN0, &count);
+  PADGetAxisMappings(PAD_CHAN0, &count);
+  for (int row = 0; row < static_cast<int>(MAP_ROWS.size()); ++row)
+  {
+    const PadControl* control = FindPadControl(PadFileControl(row, InputSlot::Controller));
+    if (!control)
+    {
+      // Unbound, or a control Aurora has no name for: unbound here too (not A and B, as the page)
+      if (row > 1)
+        SetController(MAP_ROWS[row], {-1, AXIS_SIGN_POSITIVE}, PAD_NATIVE_BUTTON_INVALID);
+      continue;
+    }
+    if (control->button >= 0)
+      SetController(MAP_ROWS[row], {-1, AXIS_SIGN_POSITIVE}, static_cast<u32>(control->button));
+    else if (MAP_ROWS[row].axis >= 0)
+      SetController(MAP_ROWS[row], {control->axis, control->sign}, PAD_NATIVE_BUTTON_INVALID);
+  }
+  Log("[input] controller bindings from GCPadNew.ini\n");
+}
+
+void ApplyPadFileKeyboard()
+{
+  if (!PadFilePresent())
+    return;
+  std::string keys;
+  for (int row = 0; row < static_cast<int>(MAP_ROWS.size()); ++row)
+  {
+    SetKey(MAP_ROWS[row], PadFileScancode(PadFileControl(row, InputSlot::Keyboard)));
+    keys += std::string(keys.empty() ? "" : ", ") + MAP_ROWS[row].label + " " + KeyLabel(KeyFor(MAP_ROWS[row]));
+  }
+  Log("[input] keyboard bindings from GCPadNew.ini: %s\n", keys.c_str());
+}
+
+// The row's binding as Aurora now has it, back into the file
+void WritePadFile(int row, InputSlot slot)
+{
+  if (SettingsConfigDir().empty())
+    return;
+  const SkiesBindings::Input& input = SkiesBindings::Inputs()[row];
+  const MapRow& r = MAP_ROWS[row];
+  const auto set = [](const char* key, const std::string& expression) {
+    SettingSetString(SettingFile::Pad, SkiesBindings::PAD_SECTION, key, expression);
+  };
+  if (slot == InputSlot::Keyboard)
+  {
+    std::string device;
+    SkiesBindings::SlotControl(PadExpression(input.key), SkiesBindings::Slot::Keyboard, &device);
+    if (device.empty())
+      device = SkiesBindings::DefaultKeyboardDevice();
+    const s32 scancode = KeyFor(r);
+    const SkiesBindings::KeyName* key =
+        scancode == PAD_KEY_INVALID ? nullptr :
+                                      SkiesBindings::FindKey(SDL_GetScancodeName(static_cast<SDL_Scancode>(scancode)));
+    const std::string control = key ? SkiesBindings::PlatformKeyName(*key) : std::string();
+    set(input.key, SkiesBindings::SetSlot(PadExpression(input.key), SkiesBindings::Slot::Keyboard,
+                                          control.empty() ? "" : device, control));
+  }
+  else
+  {
+    PADSignedNativeAxis axis{-1, AXIS_SIGN_POSITIVE};
+    u32 button = PAD_NATIVE_BUTTON_INVALID;
+    if (r.button != 0)
+      if (const PADButtonMapping* b = FindButton(r.button))
+        button = b->nativeButton;
+    if (r.axis >= 0)
+      if (const PADAxisMapping* a = FindAxis(r.axis))
+      {
+        if (a->nativeAxis.nativeAxis >= 0)
+          axis = a->nativeAxis;
+        else if (a->nativeButton >= 0)
+          button = static_cast<u32>(a->nativeButton);
+      }
+    const std::string control = PadControlName(axis, button);
+    set(input.key,
+        SkiesBindings::SetSlot(PadExpression(input.key), SkiesBindings::Slot::Controller, "", control));
+    // A trigger: its analog half too when the control is an axis, else only the button
+    if (input.analog_key)
+      set(input.analog_key, SkiesBindings::SetSlot(PadExpression(input.analog_key),
+                                                   SkiesBindings::Slot::Controller, "",
+                                                   axis.nativeAxis >= 0 ? control : ""));
+  }
+  SettingsSave();
+}
+
 bool AnyButton(SDL_Gamepad* pad)
 {
   for (int b = 0; b < SDL_GAMEPAD_BUTTON_COUNT; ++b)
@@ -450,6 +674,11 @@ void InputPoll()
       }
     }
   }
+  if (!s_keyboard_applied)
+  {
+    s_keyboard_applied = true;
+    ApplyPadFileKeyboard();
+  }
   if (s_capture.row < 0)
     Follow(now);
   if (SDL_Gamepad* pad = Port1Gamepad())
@@ -472,6 +701,7 @@ void InputPoll()
     {
       Log("[input] controller 1: %s\n", current.c_str());
       MenuMessage("Controller: " + InputDeviceLabel(current), 2500);
+      ApplyPadFileController();
     }
     else
     {
@@ -575,7 +805,10 @@ bool InputPollCapture()
     return true;
   // Bound, cancelled or timed out (nothing changes)
   if (seen == Seen::Bound)
+  {
+    WritePadFile(s_capture.row, s_capture.slot);
     PADSerializeMappings();
+  }
   s_capture.row = -1;
   return false;
 #else
@@ -599,6 +832,7 @@ void InputClear(int row, InputSlot slot)
       return;
     SetController(r, {-1, AXIS_SIGN_POSITIVE}, PAD_NATIVE_BUTTON_INVALID);
   }
+  WritePadFile(row, slot);
   PADSerializeMappings();
   Log("[input] %s (%s) cleared\n", r.label, slot == InputSlot::Keyboard ? "keyboard" : "controller");
 #else
@@ -629,6 +863,8 @@ bool InputResetDefaults(InputSlot slot)
     }
     PADRestoreDefaultMapping(PAD_CHAN0);
   }
+  for (int row = 0; row < InputMappingRows(); ++row)
+    WritePadFile(row, slot);
   PADSerializeMappings();
   Log("[input] %s defaults restored\n", slot == InputSlot::Keyboard ? "keyboard" : "controller");
   return true;

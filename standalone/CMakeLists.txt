@@ -17,6 +17,12 @@ option(SKIES_STANDALONE_AURORA "Draw through GXRuntime's Aurora renderer" ON)
 set(DOLPHIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../lib/ModernGekko/vendor/dolphin")
 set(GXRUNTIME_DIR "${DOLPHIN_DIR}/GXRuntime" CACHE PATH "Vendored GXRuntime (patched submodule)")
 set(MODULE_ABI_DIR "${DOLPHIN_DIR}/Source/Core/Core/PowerPC/StaticRecomp")
+set(MODERNGEKKO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../lib/ModernGekko")
+# A release build: the games it runs, one .dolpatch per disc ID in the same order (as the Dolphin
+# build's MODERNGEKKO_REQUIRED_DISC_ID / MODERNGEKKO_DOL_PATCH_MANIFEST; each patch's output-sha256
+# is the DOL the release pins). The patches ship in the package's patches/ folder.
+set(SKIES_RELEASE_DISC_IDS "" CACHE STRING "Release disc IDs (GEAE8P;GEAP8P;GEAJ8P), empty: any game")
+set(SKIES_RELEASE_DOL_PATCHES "" CACHE STRING "The release's .dolpatch files, in SKIES_RELEASE_DISC_IDS' order")
 
 if(SKIES_STANDALONE_AURORA)
   # As ModernGekko builds its Aurora video backend: no gxcore/recomp frontend, no Aurora card or
@@ -81,6 +87,12 @@ set(SKIES_STANDALONE_SOURCES
   src/dsphle/accelerator.cpp
   src/interp/interp.cpp
   "${DOLPHIN_DIR}/DolRecomp/src/frontend/decoder.c"
+  # The release runner's part (frontend.cpp) on the runner's own code: the data folder, config.ini,
+  # the release's DOL patches and pins, the states' folders
+  src/frontend.cpp
+  "${MODERNGEKKO_DIR}/tools/user_directory.cpp"
+  "${MODERNGEKKO_DIR}/tools/dol_patch.cpp"
+  "${MODERNGEKKO_DIR}/tools/frontend_config.cpp"
 )
 if(ANDROID)
   # The Android shell's native side: SDL's Java glue calls SDL_main in libmain.so
@@ -90,8 +102,39 @@ if(ANDROID)
 else()
   add_executable(skies-standalone ${SKIES_STANDALONE_SOURCES})
 endif()
+# release_games.inc, as ModernGekko's CMakeLists.txt writes it for the runner
+set(_skies_release_games "")
+list(LENGTH SKIES_RELEASE_DISC_IDS _skies_game_count)
+list(LENGTH SKIES_RELEASE_DOL_PATCHES _skies_patch_count)
+if(_skies_game_count AND NOT _skies_game_count EQUAL _skies_patch_count)
+  message(FATAL_ERROR "SKIES_RELEASE_DOL_PATCHES needs one patch per SKIES_RELEASE_DISC_IDS entry")
+endif()
+foreach(_skies_index RANGE ${_skies_game_count})
+  if(_skies_index EQUAL _skies_game_count)
+    break()
+  endif()
+  list(GET SKIES_RELEASE_DISC_IDS ${_skies_index} _skies_id)
+  list(GET SKIES_RELEASE_DOL_PATCHES ${_skies_index} _skies_patch)
+  file(STRINGS "${_skies_patch}" _skies_sha REGEX "^output-sha256 ")
+  string(REGEX REPLACE "^output-sha256 +([0-9a-fA-F]+).*" "\\1" _skies_sha "${_skies_sha}")
+  get_filename_component(_skies_patch_name "${_skies_patch}" NAME)
+  string(APPEND _skies_release_games "{\"${_skies_id}\", \"${_skies_sha}\", \"patches/${_skies_patch_name}\"},\n")
+endforeach()
+# The runner's files as they are (its own warning flags are fewer)
+set_source_files_properties(
+  "${MODERNGEKKO_DIR}/tools/user_directory.cpp" "${MODERNGEKKO_DIR}/tools/dol_patch.cpp"
+  "${MODERNGEKKO_DIR}/tools/frontend_config.cpp"
+  PROPERTIES COMPILE_OPTIONS "$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-w>")
+file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/release_games/release_games.inc"
+     CONTENT "${_skies_release_games}" @ONLY)
+if(_skies_game_count)
+  target_compile_definitions(skies-standalone PRIVATE MODERNGEKKO_RELEASE_GAMES=1)
+endif()
 target_include_directories(skies-standalone PRIVATE
   src
+  "${CMAKE_CURRENT_BINARY_DIR}/release_games"
+  "${MODERNGEKKO_DIR}/tools"
+  "${MODERNGEKKO_DIR}/include"
   "${GXRUNTIME_DIR}/include"
   "${MODULE_ABI_DIR}"
   "${DOLPHIN_DIR}/DolRecomp/src/frontend")
@@ -120,6 +163,10 @@ if(SKIES_STANDALONE_AURORA)
   # packs through Dolphin's minizip-ng on Aurora's zlib, .7z packs through the LZMA SDK's decoder
   # (public domain; the repo's lib/lzma-sdk), as VideoCommon/CMakeLists.txt builds them there.
   target_sources(skies-standalone PRIVATE src/texture_pack.cpp src/hd_textures.cpp)
+  # Controller 1's bindings in the Dolphin build's GCPadNew.ini (input.cpp): its expressions and key
+  # names, dev's Core/SkiesBindings.cpp as it is
+  target_sources(skies-standalone PRIVATE src/skies_bindings/Core/SkiesBindings.cpp)
+  target_include_directories(skies-standalone PRIVATE src/skies_bindings)
   set(MZ_COMPAT OFF CACHE BOOL "" FORCE)
   set(MZ_ZLIB ON CACHE BOOL "" FORCE)
   foreach(_mz_off IN ITEMS MZ_BZIP2 MZ_LZMA MZ_ZSTD MZ_LIBCOMP MZ_FETCH_LIBS MZ_PKCRYPT MZ_WZAES

@@ -9,6 +9,11 @@
 // --load-state starts from a save state (state.cpp); --seconds then counts the state's guest clock.
 // --continue boots straight into card save file N (1-99) or the newest one ("card"), as the launchers'
 // Continue ([Skies] AutoLoadCard; needs a ws20+ game patch).
+// The launchers start it as they started the Dolphin build's runner (skies-run): --game G --user-dir U
+// [--load-state F] [-X11 | --wayland] [--title T], or with no --game; that form does the runner's
+// part first (frontend.cpp: data folder, default-game.txt, config.ini, the release's DOL patch, the
+// states' folder, the module beside the program) and ignores the runner's --graphics / --audio /
+// --mods / --no-mods / --allow-interpreter.
 //   skies-standalone --user USERDIR --import-texture-pack PACK | --remove-texture-packs
 // imports an HD texture pack (a .7z, .zip or folder, texture_pack.cpp) into USERDIR/Load/Textures/GEA,
 // adding to the ones before, or removes them all, and exits.
@@ -503,9 +508,11 @@ int main(int argc, char** argv)
   AndroidSetup(argc, argv);
 #endif
   setvbuf(stderr, nullptr, _IONBF, 0);
-  std::string game, module, dol, user, load_state, import_pack, import_dc, sys_dir;
+  std::string game, module, dol, user, load_state, import_pack, import_dc, sys_dir, dsp_coef;
   bool remove_packs = false;
-  std::string dsp_coef = SKIES_DSP_COEF_DEFAULT;
+  bool runner_form = false;  // --user-dir: the launchers' command line
+  LaunchOptions::WindowSystem window_system = LaunchOptions::WindowSystem::Default;
+  std::string title;
   bool headless = false;
   u32 idle_pc = ~0u;
   int continue_file = 0;
@@ -541,6 +548,30 @@ int main(int argc, char** argv)
       dol = next();
     else if (a == "--user")
       user = next();
+    else if (a == "--user-dir")
+    {
+      user = next();
+      runner_form = true;
+    }
+    else if (a == "--title")
+      title = next();
+    else if (a == "-X11" || a == "--x11")
+      window_system = LaunchOptions::WindowSystem::X11;
+    else if (a == "--wayland")
+      window_system = LaunchOptions::WindowSystem::Wayland;
+    else if (a == "--mute")
+    {
+#if defined(_WIN32)
+      _putenv("SKIES_MUTE=1");
+#else
+      setenv("SKIES_MUTE", "1", 1);
+#endif
+    }
+    else if (a == "--graphics" || a == "--audio" || a == "--mods")
+      next();  // the runner's: Aurora picks its own GPU backend; no mods
+    else if (a == "--no-mods" || a == "--allow-interpreter")
+    {
+    }
     else if (a == "--load-state")
       load_state = next();
     else if (a == "--continue")
@@ -603,15 +634,54 @@ int main(int argc, char** argv)
     return 2;
 #endif
   }
+  LaunchOptions launch;
+#if !defined(__ANDROID__)
+  if (runner_form || game.empty())
+  {
+    launch.game = game;
+    launch.user = user;
+    launch.module = module;
+    launch.dsp_coef = dsp_coef;
+    launch.sys_dir = sys_dir;
+    launch.window_system = window_system;
+    if (const int code = FrontendPrepare(argv[0], launch); code >= 0)
+      return code;
+    game = launch.game;
+    user = launch.user;
+    module = launch.module;
+    dsp_coef = launch.dsp_coef;
+    sys_dir = launch.sys_dir;
+  }
+#endif
+  if (!title.empty())
+    g_window.title = title;
+  if (dsp_coef.empty())
+    dsp_coef = SKIES_DSP_COEF_DEFAULT;
+#ifdef SKIES_STANDALONE_AURORA
+  if (!sys_dir.empty())
+    DreamcastSetSysDir(sys_dir);
+#endif
   if (game.empty())
   {
     Log("--game is required\n");
     return 2;
   }
+  if (!load_state.empty() && !std::filesystem::is_regular_file(load_state))
+  {
+    // As the runner: a state that isn't there would boot to the title screen and look like it worked
+    Log("savestate not found: %s\n", load_state.c_str());
+    return 2;
+  }
 
   ExiSetUserDir(user);
   SettingsInit(user);
-  StateSetUserDir(user);
+  StateSetUserDir(user, launch.state_dir);
+  // config.ini's resolution at every start, as the runner set it; its 60 fps for a first start
+  // that has no Frame rate yet
+  if (launch.efb_scale > 0)
+    SettingSet(SettingFile::Gfx, "Settings", "InternalResolution", launch.efb_scale);
+  if (launch.frame_interpolation && SettingGet(SettingFile::Main, "Skies", "FrameMode", -1) < 0)
+    SettingSet(SettingFile::Main, "Skies", "FrameMode", 1);
   SchedInit();
   CpuInit();
   if (!DiscOpen(game, dol))
