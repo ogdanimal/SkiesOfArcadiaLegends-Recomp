@@ -1,7 +1,9 @@
 package com.skiesofarcadia.standalone;
 
+import android.content.Intent;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Process;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowInsets;
@@ -16,6 +18,15 @@ public class SkiesActivity extends SDLActivity {
   @Override
   protected String[] getLibraries() {
     return new String[] {"main"};
+  }
+
+  // The Language restart (main.cpp Restart): SkiesRestartActivity, in a process of its own, ends this one and
+  // starts the game again (SDL runs the native main once per process). Called from the game's thread.
+  public void restartGame() {
+    final Intent intent = new Intent(this, SkiesRestartActivity.class);
+    intent.putExtra(SkiesRestartActivity.EXTRA_PID, Process.myPid());
+    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+    startActivity(intent);
   }
 
   // Immersive from the start: the surface is the whole screen before Aurora sizes its swap chain (resizing it

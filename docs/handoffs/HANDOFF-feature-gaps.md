@@ -29,10 +29,10 @@ Items 9 and 10 need dev's code merged in first; **the user said hold** (no merge
 10 need dev's current code* below). **Pick up at items 8-10**, now one goal: the standalone **replaces** the Dolphin build as a normal update
 (the user, 2026-10-26; *Items 8-10* below has the approach, the runner contract and what doesn't carry over
 yet). Standing leftovers:
-the European / Japanese first field and an APK with their modules on the Pocket 5 (item 0); a first battle
+the European / Japanese first field on the Pocket 5 (the European disc boots and plays its opening there, 2026-10-26; item 0); a first battle
 and card save after Continue, Windows and the Pocket 5 (item 1); the 4x-MSAA specks in the light beam and GPU
 cost at 4x / 6x resolution (item 2); shipping the patched Dawn and the macOS build (item 2); rumble by hand,
-a capture with a real pad, two pads and the Pocket 5 (item 3); the restart on Android (item 4); the
+a capture with a real pad, two pads and the Pocket 5 (item 3); the
 cloud-sea edges and the full 4x pack (item 5); 60 fps on the Nova and its scene list (item 6); the
 video thread on the Nova, macOS and with a pad by hand; item 7's open list (m03 and the intro in game, the
 European intro timing, the save point's music cost).
@@ -378,9 +378,15 @@ Dolphin build; decide whether to translate `GCPadNew.ini` once on first run.
   standalone execs itself with the same arguments less `--load-state` / `--continue` (Linux: the real path
   of `/proc/self/exe`, since exec'ing the link names the process "exe"; Windows `_execv` with each argument
   quoted for the C runtime, since it joins them unquoted; macOS `argv[0]`). `SKIES_PRESS(_FILE)` are cleared
-  for the new run (a test script would otherwise change the language again). **Android:** no restart yet
-  (`CanRestart` false: the row says "Changes when the game next starts."): relaunching the activity needs a
-  device test.
+  for the new run (a test script would otherwise change the language again). **Android (2026-10-26):**
+  `Restart` writes `restart.flag` in the files folder and calls `SkiesActivity.restartGame` (JNI);
+  `SkiesRestartActivity`, in its own process (`:restart`), ends the game's process and starts `SkiesActivity`
+  in a new one (SDL runs the native main once per process); `AndroidSetup` takes the flag away and leaves out
+  `--load-state` / `--continue` and `SKIES_PRESS(_FILE)` for that start. Checked on the Pocket 5 with the
+  European disc (ws34 game in `files/game-eu`, its module bundled beside the US one): Language -> Deutsch, A, A
+  by `SKIES_PRESS`; the system log shows the game's process ending at 12.7 s, `:restart` starting, a new game
+  process 0.1 s later and no second restart; frame 750 of the new run is the German opening text. Not checked:
+  a restart that drops a `--load-state` (the filter is two lines).
 - **Checked:** WSL, European disc ws30 (`skies-pal60/build/game/GEAP8P-ws30`, `build/ws30eu/module`), frame 750
   (the opening text) with Language 0 / 1 / 2 / 3: English, German, French, Spanish; in the window: Language ->
   Deutsch, A, A: "restart for the language", the new process (named skies-standalone) shows German; one A then

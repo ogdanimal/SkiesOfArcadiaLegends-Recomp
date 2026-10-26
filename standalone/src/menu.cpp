@@ -351,11 +351,7 @@ bool IsEurope()
 // Android yet (the activity would have to be relaunched; untested), where it applies next start.
 bool CanRestart()
 {
-#ifdef __ANDROID__
-  return false;
-#else
   return IsEurope();
-#endif
 }
 
 // A game address (or an instruction word) in the USA release, the European one and the Japanese

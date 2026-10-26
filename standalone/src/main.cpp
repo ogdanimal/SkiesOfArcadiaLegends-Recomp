@@ -337,13 +337,16 @@ void Throttle()
 #if defined(__ANDROID__) && defined(SKIES_STANDALONE_AURORA)
 #include <SDL3/SDL_main.h>
 #include <SDL3/SDL_system.h>
+#include <jni.h>
 
+#include <cstdio>
 #include <fstream>
 #include <vector>
 
 // The Android shell (standalone/android): SDLActivity calls main (SDL_main) without arguments. They come
 // from args.txt in the app's external files folder, one per line ($FILES in them is that folder), the
-// environment from env.txt there (NAME=VALUE lines), and the log (stderr) goes to log.txt there.
+// environment from env.txt there (NAME=VALUE lines), and the log (stderr) goes to log.txt there. After a
+// restart (restart.flag there, Restart) the state / Continue arguments and a test's presses are left out.
 namespace
 {
 std::vector<std::string> s_android_args;
@@ -356,6 +359,7 @@ void AndroidSetup(int& argc, char**& argv)
     return;
   const std::string files = dir;
   std::freopen((files + "/log.txt").c_str(), "w", stderr);
+  const bool restarted = std::remove((files + "/restart.flag").c_str()) == 0;
   const auto lines = [&](const char* name, auto&& each) {
     std::ifstream in(files + "/" + name);
     for (std::string line; std::getline(in, line);)
@@ -369,14 +373,32 @@ void AndroidSetup(int& argc, char**& argv)
       each(line);
     }
   };
-  lines("env.txt", [](const std::string& line) {
-    if (const size_t eq = line.find('='); eq != std::string::npos)
-      setenv(line.substr(0, eq).c_str(), line.substr(eq + 1).c_str(), 1);
+  lines("env.txt", [&](const std::string& line) {
+    const size_t eq = line.find('=');
+    if (eq == std::string::npos)
+      return;
+    const std::string name = line.substr(0, eq);
+    if (restarted && (name == "SKIES_PRESS" || name == "SKIES_PRESS_FILE"))
+      return;
+    setenv(name.c_str(), line.substr(eq + 1).c_str(), 1);
   });
   if (argc > 1)
     return;
   s_android_args.push_back("skies-standalone");
-  lines("args.txt", [](const std::string& line) { s_android_args.push_back(line); });
+  bool skip_next = false;
+  lines("args.txt", [&](const std::string& line) {
+    if (skip_next)
+    {
+      skip_next = false;
+      return;
+    }
+    if (restarted && (line == "--load-state" || line == "--continue"))
+    {
+      skip_next = true;
+      return;
+    }
+    s_android_args.push_back(line);
+  });
   for (auto& arg : s_android_args)
     s_android_argv.push_back(arg.data());
   s_android_argv.push_back(nullptr);
@@ -426,12 +448,31 @@ namespace
 {
 // The same game started again, as the Dolphin build's frontend does for a new language: this
 // executable with the same arguments, less a save state or a Continue (the game starts at its title
-// screen). Only where CanRestart (menu.cpp) offers it: not Android.
+// screen). Only where CanRestart (menu.cpp) offers it. Android: the activity starts the game again in a new
+// process (SkiesActivity.restartGame; SDL runs main once per process) and restart.flag tells AndroidSetup.
 void Restart(int argc, char** argv)
 {
 #if defined(__ANDROID__)
   (void)argc;
   (void)argv;
+  host::Log("[host] starting again\n");
+  if (const char* dir = SDL_GetAndroidExternalStoragePath())
+    std::ofstream(std::string(dir) + "/restart.flag") << "1\n";
+  JNIEnv* env = static_cast<JNIEnv*>(SDL_GetAndroidJNIEnv());
+  jobject activity = static_cast<jobject>(SDL_GetAndroidActivity());
+  if (env && activity)
+  {
+    jclass cls = env->GetObjectClass(activity);
+    if (jmethodID restart = env->GetMethodID(cls, "restartGame", "()V"))
+      env->CallVoidMethod(activity, restart);
+    if (env->ExceptionCheck())
+    {
+      env->ExceptionDescribe();
+      env->ExceptionClear();
+    }
+    env->DeleteLocalRef(cls);
+    env->DeleteLocalRef(activity);
+  }
 #else
   std::vector<char*> args;
   for (int i = 0; i < argc; ++i)

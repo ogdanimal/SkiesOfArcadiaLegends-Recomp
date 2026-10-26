@@ -1,4 +1,4 @@
-From f4c463ba9a9dfbe5047c025924a8bd8c87e78e8b Mon Sep 17 00:00:00 2001
+From 7e67073c28444cf773c039bb5cfd2f70556b6a25 Mon Sep 17 00:00:00 2001
 From: ogdanimal <306057786+ogdanimal@users.noreply.github.com>
 Date: Mon, 26 Oct 2026 18:46:21 -0400
 Subject: [PATCH] Vulkan: a device without VK_KHR_swapchain reports surfaces
@@ -16,7 +16,7 @@ Claude-Session: https://claude.ai/code/session_01RjydsaTAV42JRd8fVw2QCA
  1 file changed, 8 insertions(+)
 
 diff --git a/src/dawn/native/vulkan/PhysicalDeviceVk.cpp b/src/dawn/native/vulkan/PhysicalDeviceVk.cpp
-index 2265b6441..d83907402 100644
+index 2265b6441..1332b271e 100644
 --- a/src/dawn/native/vulkan/PhysicalDeviceVk.cpp
 +++ b/src/dawn/native/vulkan/PhysicalDeviceVk.cpp
 @@ -1522,6 +1522,14 @@ std::optional<uint32_t> PhysicalDevice::GetDefaultComputeSubgroupSize() const {
@@ -28,7 +28,7 @@ index 2265b6441..d83907402 100644
 +    // a swap chain calling the null vkCreateSwapchainKHR. The surface queries below are instance-level and
 +    // succeed regardless.
 +    if (!mDeviceInfo.HasExt(DeviceExt::Swapchain)) {
-+        return DAWN_VALIDATION_ERROR("%s can't present: no VK_KHR_swapchain.", this);
++        return DAWN_VALIDATION_ERROR("The device can't present: no VK_KHR_swapchain.");
 +    }
 +
      // Gather the Vulkan surface capabilities.
