@@ -21,7 +21,12 @@ states under the Dolphin build's names, GCPadNew.ini bindings) and the Dolphin `
 (f0c2131, 0a762c3, c27b402, fork 0047); see *Items 8-10* below, *Done so far*. **2026-10-26 evening:**
 converted states checked on WSL (15) and the Pocket 5 (8), a ten-minute play and card saves from one on
 Windows, the launcher leftovers as `patches/moderngekko-standalone-launcher.patch` (fb58a2b) and controller 1
-following GCPadNew.ini's Device (2d80f3f). **Pick up at items 8-10**, now one goal: the standalone **replaces** the Dolphin build as a normal update
+following GCPadNew.ini's Device (2d80f3f). **2026-10-26 late:** a window resize loses nothing visible
+(`SKIES_RESIZE_AT`, e5e673d); the WSL texture flicker is Mesa's d3d12 GL driver, not Dawn or Aurora (fork 0048
+`DOL_AURORA_BACKEND`, 6195e00); on Windows the Vulkan and D3D11 fallbacks start now (fork 0049) and a PC with
+no working API gets a "No graphics support" dialog (f3953d2); the manifest says `userLandscape` (039930d).
+Items 9 and 10 need dev's code merged in first; **the user said hold** (no merge or rebase for now; *Items 9 and
+10 need dev's current code* below). **Pick up at items 8-10**, now one goal: the standalone **replaces** the Dolphin build as a normal update
 (the user, 2026-10-26; *Items 8-10* below has the approach, the runner contract and what doesn't carry over
 yet). Standing leftovers:
 the European / Japanese first field and an APK with their modules on the Pocket 5 (item 0); a first battle
@@ -902,7 +907,8 @@ started as players do, on an existing data folder.
 with the swapped package (`build/sa-runs/pkg-win`, `skies-run.exe` = the standalone as of 2d80f3f,
 `skies-run-dolphin.exe` kept). macOS frontend check. Then item 9 (Android shell) and 10 (packaging: the
 standalone in build-release-win.bat etc. with `SKIES_RELEASE_*`, Dawn DLLs, Sys, and the launcher built
-with `moderngekko-standalone-launcher.patch` and `MODERNGEKKO_STANDALONE_RUNNER=ON`).
+with `moderngekko-standalone-launcher.patch` and `MODERNGEKKO_STANDALONE_RUNNER=ON`). Both wait for the
+merge the user put on hold (next paragraph).
 
 **Items 9 and 10 need dev's current code on this branch** (2026-10-26): `aurora-backend` is 79 commits ahead
 of origin/dev and 40 behind (merge base a7aa0f8, before ws31 / v0.82). The launcher patch is made against dev's
@@ -912,8 +918,8 @@ trial merge of origin/dev (in a throwaway worktree, deleted after) conflicts onl
 dev's patches first and `aurora` last), and on dev's stack `recompcore-aurora.patch` misses one hunk (the
 one line `s_placeholder.reset();` in `FrameInterpolator.cpp`'s `Shutdown`, beside review D6's change);
 `moderngekko-standalone-launcher.patch` applies on top of dev's three moderngekko patches plus
-`moderngekko-aurora.patch`. Merging or rebasing is the user's call (the branch is kept local, never
-rebased or merged so far).
+`moderngekko-aurora.patch`. Merging or rebasing is the user's call: asked 2026-10-26, the answer was
+**hold** (no merge, no rebase); don't ask again unless something changes.
 
 **Android (item 9):** the same goal: dev's app (Kotlin launcher screens + JNI in Dolphin's native library)
 must start the standalone's game activity (`libmain.so`, SDL) instead of Dolphin's emulation, with its

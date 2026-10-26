@@ -28,8 +28,10 @@ feature-gap plan's items 0-6 done on desktop (European / Japanese discs, Continu
 MSAA up to 8x, input with rumble / mapping / controller follow, Language, HD textures, 60 fps), items 5 and 6
 checked on the Pocket 5 too (fork 0045), Aurora moved to a video thread (fork 0046), and item 7 (the
 Dreamcast features: Uncensored, the Dreamcast music and streams, the European 60 Hz audio) done on desktop
-and the Pocket 5; open: data folder / romhacks / save import, the launchers, packaging (items 8-10), and the
-device checks of items 0-4; phase 5 (Android) started: a test app that plays on the Retroid Pocket 5 (from a
+and the Pocket 5; item 8 mostly done (the runner contract, Dolphin `.sav` states converted at load, the
+launcher patch, controller Device); graphics APIs on Windows: D3D12, then Vulkan and D3D11 (they never
+started before fork 0049), a dialog when none starts; open: the Android shell and packaging (items 9-10,
+waiting for dev to be merged in, on hold by the user), and the device checks of items 0-4; phase 5 (Android) started: a test app that plays on the Retroid Pocket 5 (from a
 state; pacing fixed; higher resolutions measured; immersive; Home and back work, with the video thread too;
 the built-in pad and audio on the device untested by hand; no launcher yet).
 
