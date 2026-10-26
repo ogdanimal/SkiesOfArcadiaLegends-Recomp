@@ -28,7 +28,9 @@ no working API gets a "No graphics support" dialog (f3953d2); the manifest says 
 Windows Sandbox (3319001): Smart App Control blocks the unsigned exe (backlog), D3D11 draws, D3D12 crashes the
 sandbox's kernel (Windows' GPU-PV), Vulkan's crash fixed in Dawn (`patches/dawn/0002`). No console window on
 Windows, the log to `USER/Logs` (64ea652). The Language restart on Android, checked on the Pocket 5 with the
-European disc (fde8bf1).
+European disc (fde8bf1). **2026-10-26 night:** a resize during the battle start's screen grab blacked the
+grab out for a second; fork 0050 keeps EFB copies across a resize (WSL and Windows checked; item 9,
+*Lifecycle*). The desktop Language restart from a loaded state boots clean (item 4).
 Items 9 and 10 need dev's code merged in first; **the user said hold** (no merge or rebase for now; *Items 9 and
 10 need dev's current code* below). **Pick up at items 8-10**, now one goal: the standalone **replaces** the Dolphin build as a normal update
 (the user, 2026-10-26; *Items 8-10* below has the approach, the runner contract and what doesn't carry over
@@ -389,8 +391,10 @@ Dolphin build; decide whether to translate `GCPadNew.ini` once on first run.
   `--load-state` / `--continue` and `SKIES_PRESS(_FILE)` for that start. Checked on the Pocket 5 with the
   European disc (ws34 game in `files/game-eu`, its module bundled beside the US one): Language -> Deutsch, A, A
   by `SKIES_PRESS`; the system log shows the game's process ending at 12.7 s, `:restart` starting, a new game
-  process 0.1 s later and no second restart; frame 750 of the new run is the German opening text. Not checked:
-  a restart that drops a `--load-state` (the filter is two lines).
+  process 0.1 s later and no second restart; frame 750 of the new run is the German opening text. A restart
+  that drops a `--load-state`: checked on WSL 2026-10-26 (`linux-eu-1017.sav`, Language -> Deutsch, A, A
+  by `SKIES_PRESS` 3 s after the load; the new run boots at 0 s with no state load and shows German at frame
+  750). Not checked on Android (the filter is two lines in `AndroidSetup`).
 - **Checked:** WSL, European disc ws30 (`skies-pal60/build/game/GEAP8P-ws30`, `build/ws30eu/module`), frame 750
   (the opening text) with Language 0 / 1 / 2 / 3: English, German, French, Spanish; in the window: Language ->
   Deutsch, A, A: "restart for the language", the new process (named skies-standalone) shows German; one A then
@@ -1014,10 +1018,19 @@ picker flow (incl. the process-death case, D11). Dolphin-bound: config through `
     window's shape). Checked 2026-10-26 with `SKIES_RESIZE_AT=SECONDS:WxH[,...]` (the window resized at
     those guest times): the world map, Pirate Isle (5 live copies), the romhack and the 1022 state show
     nothing lost, frame by frame on Windows (the only difference is the scaling, 2.6% RMSE, no spike at
-    the resize): the game remakes those copies every frame. Not checked: a copy kept across frames (the
-    battle start's screen grab, about a second) caught by a resize. Recheck on the Pocket 5 with split
-    screen once the shell exists; keeping the copies across a resize (no cache clear, they're sampled
-    by normalised coordinates and the padded copies scale by their own size) is the fix if one shows.
+    the resize): the game remakes those copies every frame. **A copy kept across frames** (the battle
+    start's screen grab, spun and broken up for about a second) **went black when a resize caught it**:
+    Aurora cleared every EFB copy on a new size. Fork 0050 keeps the copies (sampled by normalised
+    coordinates; the padded copies scale by their own size) and drops only the reuse cache keyed by the
+    old size, so the next copy to each address replaces its texture. Checked 2026-10-26 from
+    `05-save-point.sav` with Encounters 400%, a box walk and `SKIES_RTC=846000000` (the encounter roll
+    follows the clock; pinned, two runs match frame for frame), resized to 1920x1080 mid-spin: before,
+    the spin frames were black (5-23% RMSE against the run without a resize); after, 0.2-1.2% on WSL
+    (Vulkan on llvmpipe) and 0.2-0.9% on Windows D3D12, the scaling's level (the battle frames after it
+    1-1.6%); the run without a resize byte-identical to the old build. 40 resizes through the field
+    and the transition: every frame right, peak memory 1.30 GB against 1.24 GB without (bigger final
+    windows), so a dragged window edge doesn't pile up copies. Recheck on the Pocket 5 with split
+    screen once the shell exists.
 - **Pads:** controller 1 follows the last pad pressed, Bluetooth over the built-in one, resting Android axes
   ignored. Check what SDL does with two pads. The built-in pad is untested by hand.
 
