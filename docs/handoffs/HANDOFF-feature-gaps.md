@@ -7,15 +7,15 @@ each one is, where its code lives, what the standalone has, the port steps, how 
 (so the port is checked the same way), and size. Read *HANDOFF-emulator-free.md* first (the standalone's
 architecture: *In-game menu*, *Save states*, *The Android shell*, *Pacing on the Pocket 5*).
 
-**Progress (2026-10-26, early):** items 0-4 done on desktop (2 including MSAA 2x / 8x through a Dawn patch;
+**Progress (2026-10-26):** items 0-5 done on desktop (2 including MSAA 2x / 8x through a Dawn patch;
 3 = input: rumble, release keyboard layout, names, Button mapping, controller follow; 4 = Language with the
-restart), each with its checks and leftovers in its section below; the Japanese game's memory card fixed on the
-way (item 1). **Pick up at item 5** (HD textures), or first the item 3 hands-on checks if the user has the
-pads to hand. Standing leftovers: the European / Japanese first field and an APK with their modules on the
+restart; 5 = HD textures: import, menu row, files decoded off the render thread), each with its checks and
+leftovers in its section below; the Japanese game's memory card fixed on the way (item 1). **Pick up at item
+6** (60 fps), or first the item 3 hands-on checks if the user has the pads to hand. Standing leftovers: the European / Japanese first field and an APK with their modules on the
 Pocket 5 (item 0); a first battle and card save after Continue, Windows and the Pocket 5 (item 1); the
 4x-MSAA specks in the light beam and GPU cost at 4x / 6x resolution (item 2); shipping the patched Dawn and
 the macOS build (item 2); rumble by hand, a capture with a real pad, two pads and the Pocket 5 (item 3); the
-restart on Android (item 4).
+restart on Android (item 4); the Pocket 5 head-to-head with the PNG pack (item 5).
 
 ## Ground rules
 
@@ -63,7 +63,7 @@ music, `[Skies] DreamcastIntro`), **Controls** (Button mapping, Stick dead zone,
 | 2 | Graphics options (MSAA, texture filter, anisotropy, scaling) | `recompcore-gfx-options.patch`, `skies-settings` | **done** (WSL): four rows, live; fork 0038 | ~1 day |
 | 3 | Input: release keyboard layout, rumble, names, Button mapping, menu-close rule | `recompcore-input`, `controller-names`, `menu-close`, `android-pad-follow`, review D23-D26 | **done** (desktop): rumble, release layout, names, mapping page, follow; fork 0040-0041 | ~2 days |
 | 4 | Language (European disc) | `recompcore-language.patch` | **done** (desktop): SRAM from the key, Language tab, restart | ~1 day |
-| 5 | HD textures (+ import) | `recompcore-hd-textures`, `hd-textures-nested`, review D2 / D22 | Aurora has a loader, not wired | ~2-3 days |
+| 5 | HD textures (+ import) | `recompcore-hd-textures`, `hd-textures-nested`, review D2 / D22 | **done** (desktop): CLI import, menu row, live; async loads; fork 0042-0043 | ~2-3 days |
 | 6 | 60 fps | `recompcore-frame-interpolation`, `battle-specials`, `field-speed`, review D6 / D25 | none (Aurora's replay context exists) | 3-4 sessions |
 | 7 | Dreamcast: Uncensored, Dreamcast music, DC streams, EU 60 Hz audio | `uncensor`, `skies-dcmusic-eu`, `dcmusic-streams`, `dcmusic-fx`, `pal60`, review D3 / D4 / D16-D21 | none | 1,200-1,800 lines of glue |
 | 8 | Data folder, romhacks, save import / backup | `data-folder`, `romhack`, `state-folders`; `lib/ModernGekko/tools/*` | `--user`, `--dol` | 3-5 days |
@@ -353,6 +353,55 @@ Dolphin build; decide whether to translate `GCPadNew.ini` once on first run.
 - **Check (as the Dolphin build):** CLI import `diff -r` against the pack (745 textures; the 4x pack
   15,497); first-battle faces change and toggle live; the Pocket 5 at full speed with the PNG pack (the
   Dolphin build: 1.003x); GPU and memory cost head-to-head.
+
+**Done (2026-10-26, desktop):**
+
+- **Import** (`standalone/src/texture_pack.{h,cpp}`): the Dolphin build's `TexturePackImport.{h,cpp}` from dev
+  (with review D2 / D22), word for word below its includes, so fixes there copy over; `texture_pack_file.h`
+  stands in for the Dolphin `Common` helpers it calls (`File::` on `std::filesystem` with UTF-8 paths,
+  `IOFile` with 64-bit seeks, `ScopeGuard`, `UTF16ToUTF8`, `DIR_SEP`). `.zip` through Dolphin's minizip-ng
+  (`Externals/minizip-ng`, on Aurora's zlib), `.7z` through `lib/lzma-sdk` (as `skies7z`; no renamed symbols
+  needed, no mGBA here). CLI: `skies-standalone --user USERDIR --import-texture-pack PACK` /
+  `--remove-texture-packs` (imports or removes, prints the summary and the BC7 count, exits). The Android
+  picker belongs to item 9.
+- **Loading** (`standalone/src/hd_textures.cpp`): `GFX.ini [Settings] HiresTextures` with something imported
+  registers `USER/Load/Textures/GEA` (and the disc ID's folder, as Dolphin) with Aurora's texture replacement
+  (`aurora::texture::load_replacement_directory`); off unregisters them. `MenuApplyGame` applies it every
+  frame (live), the pack's presence read at the first frame and at each menu open. Every 600 frames the log
+  says how many files have loaded, failed, GPU MB, and the decode / upload times.
+- **Menu:** Graphics > HD textures after Scaling (the Dolphin build's row: Off with "Needs a texture pack you
+  downloaded: import it in the launcher's Settings, Graphics tab." when nothing is imported; the user folder
+  is shared, so the Dolphin build's launcher import works for the standalone too), plus a note naming the
+  pack's BC7 count when the GPU can't draw BC7.
+- **Fork 0042:** Aurora's name parser took at most six `_` parts, so Dolphin's longest names
+  (`tex1_WxH_m_<hash>_<tlut>_<fmt>_arb`) were rejected: 5 of the v0.06 pack's palette textures never loaded
+  (now 744 of 745 register; the 745th is the pack's stray duplicate `..._0(1).png`, which Dolphin skips too).
+  BC7 off on Qualcomm's own Android driver (vendor 0x5143, driver string without Mesa / turnip), as the
+  Dolphin build's `BUG_BROKEN_BPTC`. `replacement_stats()`, `bc7_supported()`.
+- **Fork 0043, files decoded on loader threads** (as Dolphin's `CustomAssetLoader`; one or two threads): the
+  first lookup queues the file and the game's own texture draws meanwhile, tagged in the static texture
+  caches with the count of finished decodes; a cache hit looks again once a decode has finished, keeping the
+  same game texture while it waits (no second conversion). Windows fight route (RTX): the render thread spent
+  478 ms in all on the PNG pack (longest 89.5 ms, a visible hitch), 167 ms (58.7) on the DDS pack; now 43 ms
+  (11.6) and 19 ms (6.7) of uploads, the decodes (349 / 111 ms) off it. `AURORA_SYNC_REPLACEMENTS=1` loads on
+  the render thread at first use (frame-exact runs: with async loads a replacement shows a frame or a few
+  later, like Dolphin's).
+- **Checked:** PNG `.7z` on WSL: 745 textures in 3.5 s, `diff -r` against the unpacked `GEA` identical (only
+  six empty placeholder folders aren't made); DDS `.7z` on Windows read from `\\wsl.localhost`: identical, 535
+  BC7. The 4x pack's 6.5 GB `06_SoAL_HD_Unsorted_Assets.7z` opens (its header lies past 4 GB) and unpacks
+  (stopped after 980 of 9,829 files, 15 s; not imported in full, it would add 8.7 GB). Fight route
+  (`fight-full.txt`, plain USA DOL): WSL and Windows D3D12, 89-91 of 744 files loaded by the first battle,
+  none failed; the battle intro's moon and the skies replaced (frames compared on and off); the menu turned
+  it off and on mid-run (the game's moon back, then the pack's). Windows speed unchanged: 5.28x on, 5.24x off
+  (uncapped means of 36 samples). GPU memory at the first battle: PNG 256 MB, DDS 107 MB. The Android APK
+  builds with it (`DAWN_SRC=... tools/android-standalone-build.sh`, not installed).
+- **Not compared:** the Dolphin build's "149 of 745 across 9 states" came from Dolphin states the standalone
+  can't load; the fight route reaches 89-91. Both hash the same way (no misses among the files the route
+  uses, and the replaced textures are the ones expected), so the counts differ by coverage.
+- **Open:** the Pocket 5 head-to-head with the PNG pack (speed, GPU time, memory; the Dolphin build ran it at
+  1.003x) and BC7 skipped there (the DDS pack); a side-by-side with the Dolphin build of the cloud sea in the
+  first battle (a few straight cloud-quad edges show with the pack: possibly the pack's own); the full 4x pack
+  (15,497 textures, about 4 GB of GPU memory if all were used; Aurora's replacement cache evicts past 4 GB).
 
 ## 6. 60 fps (frame interpolation)
 

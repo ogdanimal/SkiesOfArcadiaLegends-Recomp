@@ -81,7 +81,7 @@ see *Save states*). Memory card saves are plain GCI files and carry over.
 
 ## What carries over
 
-- The Aurora fork (`~/projects/skies-aurora/GXRuntime`, 41 commits, `patches/` there): Skies renders exactly
+- The Aurora fork (`~/projects/skies-aurora/GXRuntime`, 43 commits, `patches/` there): Skies renders exactly
   like Dolphin on the Retroid Pocket 5, the Nova, Windows and WSL; 60 fps through a second GX context;
   the present rectangle (Picture option); the Dear ImGui overlay (the in-game menu). All of it is in the
   vendored GXRuntime on the local `aurora-backend` branch.
@@ -850,3 +850,19 @@ Commits d950049, 1caa857, 6b9abe1; fork 0040 (080ec53) and 0041. Details and che
 The European disc's language from `[Skies] Language` into the IPL SRAM (`hw_exi.cpp`), a Language tab, and the
 Dolphin build's "A twice restarts" on desktop (the standalone execs itself without `--load-state` /
 `--continue`; Android not yet). Checked on WSL and Windows; details in *HANDOFF-feature-gaps.md* item 4.
+
+## HD textures (feature-gap item 5, 2026-10-26)
+
+Commit 2b6be40; fork 0042-0043. Details and checks in *HANDOFF-feature-gaps.md* item 5.
+
+- **Import:** `--user USERDIR --import-texture-pack PACK` (.7z, .zip, folder, archives in a pack) /
+  `--remove-texture-packs`, the Dolphin build's `TexturePackImport` word for word (`texture_pack.cpp`, its
+  Dolphin helpers in `texture_pack_file.h`; minizip-ng and `lib/lzma-sdk` built in). Into
+  `USER/Load/Textures/GEA`, shared with the Dolphin build.
+- **Drawing:** `GFX.ini [Settings] HiresTextures` registers the files with Aurora's texture replacement, live
+  from Graphics > HD textures (`hd_textures.cpp`). Files decode on one or two loader threads (fork 0043) and
+  the game's own texture draws until then, as in Dolphin; `AURORA_SYNC_REPLACEMENTS=1` for frame-exact runs.
+  The log line `[textures] N of M loaded, ... decodes ... uploads ...` every 600 frames.
+- **Checked:** both v0.06 packs import byte-identical; the fight route on WSL and Windows with 89-91 files in
+  use, the moon and skies replaced, off and on live; Windows speed unchanged. **Open:** the Pocket 5
+  head-to-head (PNG pack, BC7 skipped there) and the full 4x pack.
