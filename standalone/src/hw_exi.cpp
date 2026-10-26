@@ -5,6 +5,7 @@
 #include "host.h"
 #include "state.h"
 
+#include <algorithm>
 #include <cstring>
 #include <ctime>
 #include <string>
@@ -70,7 +71,12 @@ void FixSramChecksums()
 void InitSram()
 {
   std::memset(s_sram, 0, sizeof(s_sram));
-  s_sram[0x16] = 0;     // language: English
+  // Language: the European disc's from [Skies] Language (0 English, 1 German, 2 French, 3 Spanish, the
+  // Dolphin build's key: GetLanguageAdjustedForRegion), read by the game once at boot; English
+  // elsewhere
+  s_sram[0x16] = DiscHeader()[3] == 'P' ?
+                     static_cast<u8>(std::clamp(SettingGet(SettingFile::Main, "Skies", "Language", 0), 0, 3)) :
+                     0;
   s_sram[0x17] = 0x2C;  // flags: stereo, setup done (Dolphin's template)
   const char slot_a[] = "DOLPHINSLOTA", slot_b[] = "DOLPHINSLOTB";
   std::memcpy(s_sram + 0x18, slot_a, 12);

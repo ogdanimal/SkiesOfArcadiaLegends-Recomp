@@ -844,3 +844,9 @@ Commits d950049, 1caa857, 6b9abe1; fork 0040 (080ec53) and 0041. Details and che
 - **Controller 1 follows** the pad last pressed (750 ms idle rule), as the Dolphin build; without it a second
   pad was GameCube port 2.
 - **Not checked yet:** rumble felt by hand, capture with a real pad, two pads, the Pocket 5.
+
+## Language (feature-gap item 4, 2026-10-26)
+
+The European disc's language from `[Skies] Language` into the IPL SRAM (`hw_exi.cpp`), a Language tab, and the
+Dolphin build's "A twice restarts" on desktop (the standalone execs itself without `--load-state` /
+`--continue`; Android not yet). Checked on WSL and Windows; details in *HANDOFF-feature-gaps.md* item 4.

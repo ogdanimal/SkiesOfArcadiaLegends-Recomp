@@ -16,12 +16,19 @@
 #include "dsphle/dsp_hle.h"
 
 #include <algorithm>
+#include <cerrno>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <string>
 #include <thread>
+#include <vector>
+#if defined(_WIN32)
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
 
 #if defined(__linux__)
 #include <sched.h>
@@ -66,6 +73,8 @@ namespace
 {
 bool s_throttle = true;
 u64 s_stop_cycles = 0;
+// The menu asked for the game to start again (a new language): main runs itself again
+bool s_restart = false;
 std::chrono::steady_clock::time_point s_wall_start;
 u64 s_last_report_cycles = 0;
 std::chrono::steady_clock::time_point s_last_report_wall;
@@ -227,6 +236,11 @@ void Throttle()
     RequestQuit();
   if (VideoQuitRequested())
     RequestQuit();
+  if (MenuTakeRestartRequest())
+  {
+    s_restart = true;
+    RequestQuit();
+  }
   s_last_wake = now;
   if (!s_throttle)
     return;
@@ -337,6 +351,86 @@ std::string DefaultModule(const std::string& disc_id, const char* argv0)
   std::error_code ec;
   const std::filesystem::path beside = std::filesystem::path(argv0).parent_path() / name;
   return std::filesystem::exists(beside, ec) ? beside.string() : name;
+#endif
+}
+}  // namespace
+
+namespace
+{
+// The same game started again, as the Dolphin build's frontend does for a new language: this
+// executable with the same arguments, less a save state or a Continue (the game starts at its title
+// screen). Only where CanRestart (menu.cpp) offers it: not Android.
+void Restart(int argc, char** argv)
+{
+#if defined(__ANDROID__)
+  (void)argc;
+  (void)argv;
+#else
+  std::vector<char*> args;
+  for (int i = 0; i < argc; ++i)
+  {
+    const std::string a = argv[i];
+    if ((a == "--load-state" || a == "--continue") && i + 1 < argc)
+    {
+      ++i;
+      continue;
+    }
+    args.push_back(argv[i]);
+  }
+  args.push_back(nullptr);
+  host::Log("[host] starting again\n");
+  // A scripted run's presses (SKIES_PRESS) are for its first start: replayed, they would change the
+  // language and restart again
+#if defined(_WIN32)
+  _putenv("SKIES_PRESS=");
+  _putenv("SKIES_PRESS_FILE=");
+#else
+  unsetenv("SKIES_PRESS");
+  unsetenv("SKIES_PRESS_FILE");
+#endif
+#if defined(_WIN32)
+  // _execv joins the arguments with spaces as they are: quote each for the C runtime's parser (a
+  // user folder with a space in it), backslashes before a quote doubled
+  std::vector<std::string> quoted;
+  for (char* const* a = args.data(); *a; ++a)
+  {
+    const std::string arg = *a;
+    if (!arg.empty() && arg.find_first_of(" \t\"") == std::string::npos)
+    {
+      quoted.push_back(arg);
+      continue;
+    }
+    std::string q = "\"";
+    size_t slashes = 0;
+    for (const char c : arg)
+    {
+      if (c == '\\')
+      {
+        ++slashes;
+        continue;
+      }
+      q.append(c == '"' ? slashes * 2 + 1 : slashes, '\\');
+      slashes = 0;
+      q += c;
+    }
+    q.append(slashes * 2, '\\');
+    q += '"';
+    quoted.push_back(q);
+  }
+  std::vector<char*> win_args;
+  for (std::string& q : quoted)
+    win_args.push_back(q.data());
+  win_args.push_back(nullptr);
+  _execv(argv[0], win_args.data());
+#elif defined(__linux__)
+  // The executable's real path (exec'ing /proc/self/exe itself would name the process "exe")
+  std::error_code ec;
+  const std::string self = std::filesystem::read_symlink("/proc/self/exe", ec).string();
+  execv(self.empty() ? argv[0] : self.c_str(), args.data());
+#else
+  execv(argv[0], args.data());
+#endif
+  host::Log("[host] couldn't start again (errno %d)\n", errno);
 #endif
 }
 }  // namespace
@@ -452,5 +546,7 @@ int main(int argc, char** argv)
   Report();
   ExiShutdown();
   VideoShutdown();
+  if (s_restart)
+    Restart(argc, argv);
   return 0;
 }

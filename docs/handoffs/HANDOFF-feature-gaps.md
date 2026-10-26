@@ -7,14 +7,15 @@ each one is, where its code lives, what the standalone has, the port steps, how 
 (so the port is checked the same way), and size. Read *HANDOFF-emulator-free.md* first (the standalone's
 architecture: *In-game menu*, *Save states*, *The Android shell*, *Pacing on the Pocket 5*).
 
-**Progress (2026-10-25, late night):** items 0, 1, 2 and 3 done on desktop (2 including MSAA 2x / 8x through a
-Dawn patch; 3 = input: rumble, release keyboard layout, names, Button mapping, controller follow), each with its
-checks and leftovers in its section below; the Japanese game's memory card fixed on the way (item 1). **Pick up
-at item 4** (Language), or first the item 3 hands-on checks if the user has the pads to hand. Standing
-leftovers: the European / Japanese first field and an APK with their modules on the Pocket 5 (item 0); a first
-battle and card save after Continue, Windows and the Pocket 5 (item 1); the 4x-MSAA specks in the light beam
-and GPU cost at 4x / 6x resolution (item 2); shipping the patched Dawn and the macOS build (item 2); rumble by
-hand, a capture with a real pad, two pads and the Pocket 5 (item 3).
+**Progress (2026-10-26, early):** items 0-4 done on desktop (2 including MSAA 2x / 8x through a Dawn patch;
+3 = input: rumble, release keyboard layout, names, Button mapping, controller follow; 4 = Language with the
+restart), each with its checks and leftovers in its section below; the Japanese game's memory card fixed on the
+way (item 1). **Pick up at item 5** (HD textures), or first the item 3 hands-on checks if the user has the
+pads to hand. Standing leftovers: the European / Japanese first field and an APK with their modules on the
+Pocket 5 (item 0); a first battle and card save after Continue, Windows and the Pocket 5 (item 1); the
+4x-MSAA specks in the light beam and GPU cost at 4x / 6x resolution (item 2); shipping the patched Dawn and
+the macOS build (item 2); rumble by hand, a capture with a real pad, two pads and the Pocket 5 (item 3); the
+restart on Android (item 4).
 
 ## Ground rules
 
@@ -61,7 +62,7 @@ music, `[Skies] DreamcastIntro`), **Controls** (Button mapping, Stick dead zone,
 | 1 | Continue (card save at boot) | `patches/game/autoload.c`; `autoload` in `SkiesMenu.cpp` | **done** (desktop): `--continue`, `AutoLoadCard`; JP card mount fixed | ~0.5 day |
 | 2 | Graphics options (MSAA, texture filter, anisotropy, scaling) | `recompcore-gfx-options.patch`, `skies-settings` | **done** (WSL): four rows, live; fork 0038 | ~1 day |
 | 3 | Input: release keyboard layout, rumble, names, Button mapping, menu-close rule | `recompcore-input`, `controller-names`, `menu-close`, `android-pad-follow`, review D23-D26 | **done** (desktop): rumble, release layout, names, mapping page, follow; fork 0040-0041 | ~2 days |
-| 4 | Language (European disc) | `recompcore-language.patch` | SRAM fixed to English | ~1 day |
+| 4 | Language (European disc) | `recompcore-language.patch` | **done** (desktop): SRAM from the key, Language tab, restart | ~1 day |
 | 5 | HD textures (+ import) | `recompcore-hd-textures`, `hd-textures-nested`, review D2 / D22 | Aurora has a loader, not wired | ~2-3 days |
 | 6 | 60 fps | `recompcore-frame-interpolation`, `battle-specials`, `field-speed`, review D6 / D25 | none (Aurora's replay context exists) | 3-4 sessions |
 | 7 | Dreamcast: Uncensored, Dreamcast music, DC streams, EU 60 Hz audio | `uncensor`, `skies-dcmusic-eu`, `dcmusic-streams`, `dcmusic-fx`, `pal60`, review D3 / D4 / D16-D21 | none | 1,200-1,800 lines of glue |
@@ -304,6 +305,30 @@ Dolphin build; decide whether to translate `GCPadNew.ini` once on first run.
   (if `OSGetLanguage` is HLE'd, hook that). Restart: re-exec without `--load-state` on desktop; on Android
   finish and relaunch the activity (mind the lifecycle: the Dolphin build's black-screen history).
 - **Check:** each language to the opening text, frames compared; one A then B saves without restarting.
+
+**Done (2026-10-26, early):**
+
+- `hw_exi.cpp` `InitSram`: the language byte (`s_sram[0x16]`, Dolphin's SRAM with the RTC word first) is
+  `[Skies] Language` (0-3, clamped) for a 'P' disc, 0 otherwise; the checksums are fixed after it as before.
+  The recompiled OS reads it through the EXI SRAM read at boot: no HLE.
+- `menu.cpp`: a Language tab between Gameplay and Sound (the Dolphin build's order) with the Dolphin build's
+  row: four languages on the European disc; "English" / "Other languages need the European disc." on the
+  USA one, "Japanese" / "The Japanese disc is in Japanese only." on the Japanese one; a changed value: A
+  asks "Press <A> again to restart" (gold), the second A closes the menu (saving the key) and asks for a
+  restart; moving, a tab change or Left / Right drop the question; B instead keeps it for the next start.
+- Restart (`main.cpp` `Restart`): `MenuTakeRestartRequest` ends the run as a quit does; after the shutdown the
+  standalone execs itself with the same arguments less `--load-state` / `--continue` (Linux: the real path
+  of `/proc/self/exe`, since exec'ing the link names the process "exe"; Windows `_execv` with each argument
+  quoted for the C runtime, since it joins them unquoted; macOS `argv[0]`). `SKIES_PRESS(_FILE)` are cleared
+  for the new run (a test script would otherwise change the language again). **Android:** no restart yet
+  (`CanRestart` false: the row says "Changes when the game next starts."): relaunching the activity needs a
+  device test.
+- **Checked:** WSL, European disc ws30 (`skies-pal60/build/game/GEAP8P-ws30`, `build/ws30eu/module`), frame 750
+  (the opening text) with Language 0 / 1 / 2 / 3: English, German, French, Spanish; in the window: Language ->
+  Deutsch, A, A: "restart for the language", the new process (named skies-standalone) shows German; one A then
+  B: Français saved, no restart. Windows (`C:\dev\SkiesLang` game + module, user folder `user lang` with a
+  space, the menu driven by `SKIES_PRESS`): restart, German at frame 750, the presses not replayed. Save
+  states keep their language (SRAM is in the EXI section and the text pack in RAM).
 
 ## 5. HD textures
 

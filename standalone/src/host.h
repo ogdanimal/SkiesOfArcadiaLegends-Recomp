@@ -254,6 +254,9 @@ void MenuApplyGame();
 void MenuFilterPad(PadStatus& pad);
 // The game's rumble reaches the controllers: Rumble is on and the menu isn't open.
 bool MenuRumbleAllowed();
+// True (once) when the menu asked for the game to start again (a new language on the European disc,
+// saved already): the run ends and main starts the same game without a state or Continue.
+bool MenuTakeRestartRequest();
 // Before each present: the menu, messages and the FPS counter through Aurora's overlay.
 void MenuFrame();
 void MenuMessage(const std::string& text, int milliseconds);

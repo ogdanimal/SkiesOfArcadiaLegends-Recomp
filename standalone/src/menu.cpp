@@ -96,6 +96,7 @@ enum class Option
   DeadZone,
   Rumble,
   Mapping,
+  Language,
 };
 
 constexpr std::array SAVES_ROWS{Option::SaveState, Option::LoadState, Option::AutoSave};
@@ -105,6 +106,7 @@ constexpr std::array GRAPHICS_ROWS{Option::Picture,      Option::Hud,           
 constexpr std::array GAMEPLAY_ROWS{Option::Camera,     Option::BattleSpeed, Option::FieldSpeed,
                                    Option::Encounters, Option::HoldB,       Option::Exp,
                                    Option::Gold,       Option::MagicExp,    Option::Invincible};
+constexpr std::array LANGUAGE_ROWS{Option::Language};
 constexpr std::array SOUND_ROWS{Option::Volume};
 constexpr std::array CONTROLS_ROWS{Option::Mapping, Option::DeadZone, Option::Rumble};
 struct Tab
@@ -114,8 +116,8 @@ struct Tab
 };
 // Saves first, as in the Dolphin build: in game that's the one used most
 constexpr std::array TABS{Tab{"Saves", SAVES_ROWS}, Tab{"Graphics", GRAPHICS_ROWS},
-                          Tab{"Gameplay", GAMEPLAY_ROWS}, Tab{"Sound", SOUND_ROWS},
-                          Tab{"Controls", CONTROLS_ROWS}};
+                          Tab{"Gameplay", GAMEPLAY_ROWS}, Tab{"Language", LANGUAGE_ROWS},
+                          Tab{"Sound", SOUND_ROWS}, Tab{"Controls", CONTROLS_ROWS}};
 
 // Save states (state.cpp) in USER/StateSaves/Standalone: the player's five slots are
 // <game>-slot1..5.sst, auto-saves <game>-auto-<date>-<time>.sst, the newest three kept. Not the
@@ -171,6 +173,9 @@ constexpr Key DEAD_ZONE{SettingFile::Main, "Skies", "StandaloneDeadZone", 0};
 // Controller vibration on / off (the Dolphin build's is the profile's Rumble/Motor binding)
 constexpr Key RUMBLE{SettingFile::Main, "Skies", "StandaloneRumble", 1};
 constexpr Key VOLUME{SettingFile::Main, "DSP", "Volume", 100};
+// The European disc's language (0 English, 1 Deutsch, 2 Français, 3 Español): the IPL's, which the
+// game reads once at boot (hw_exi.cpp InitSram)
+constexpr Key LANGUAGE{SettingFile::Main, "Skies", "Language", 0};
 constexpr Key EFB_SCALE{SettingFile::Gfx, "Settings", "InternalResolution", 0};
 constexpr Key MSAA{SettingFile::Gfx, "Settings", "MSAA", 1};
 constexpr Key TEXTURE_FILTER{SettingFile::Gfx, "Enhancements", "ForceTextureFiltering", 0};
@@ -210,6 +215,7 @@ struct Values
   int field_speed = 100;
   int invincible = 0;
   int volume = 100;
+  int language = 0;
   int dead_zone = 0;
   int rumble = 1;
   int auto_save = 10;
@@ -223,6 +229,12 @@ enum class Mode
 };
 
 Mode s_mode = Mode::Closed;
+// Language (European disc): the game reads it once, at boot, so a second A on a changed language
+// restarts the game in it. The values are applied and saved with the close; then the run ends and
+// main starts it again (MenuTakeRestartRequest).
+bool s_restart_confirm = false;
+bool s_restart_requested = false;
+
 // When the menu last closed, and whether a slow release has been logged since
 Clock::time_point s_closing_since;
 bool s_closing_logged = false;
@@ -299,6 +311,22 @@ Region GameRegion()
 {
   const u8 code = DiscHeader()[3];
   return code == 'P' ? Region::Europe : code == 'J' ? Region::Japan : Region::Usa;
+}
+
+bool IsEurope()
+{
+  return GameRegion() == Region::Europe;
+}
+
+// A restart for a new language: the desktop starts its own executable again (main.cpp). Not on
+// Android yet (the activity would have to be relaunched; untested), where it applies next start.
+bool CanRestart()
+{
+#ifdef __ANDROID__
+  return false;
+#else
+  return IsEurope();
+#endif
 }
 
 // A game address (or an instruction word) in the USA release, the European one and the Japanese
@@ -399,6 +427,7 @@ Values ReadValues()
   values.field_speed = std::clamp(Get(FIELD_SPEED), 100, FIELD_SPEEDS.back());
   values.invincible = Get(INVINCIBLE) != 0 ? 1 : 0;
   values.volume = std::clamp(Get(VOLUME), 0, 100);
+  values.language = std::clamp(Get(LANGUAGE), 0, 3);
   values.dead_zone = std::clamp(Get(DEAD_ZONE), 0, DEAD_ZONES.back());
   values.rumble = Get(RUMBLE) != 0 ? 1 : 0;
   values.auto_save = std::max(0, Get(AUTO_SAVE));
@@ -436,6 +465,7 @@ void Apply(const Values& values, const Values& before)
   set(FIELD_SPEED, values.field_speed, before.field_speed);
   set(INVINCIBLE, values.invincible, before.invincible);
   set(VOLUME, values.volume, before.volume);
+  set(LANGUAGE, values.language, before.language);
   set(DEAD_ZONE, values.dead_zone, before.dead_zone);
   set(RUMBLE, values.rumble, before.rumble);
   set(AUTO_SAVE, values.auto_save, before.auto_save);
@@ -653,6 +683,11 @@ void Change(Option option, int direction, bool wrap)
     break;
   case Option::Mapping:
     break;
+  case Option::Language:
+    if (IsEurope())
+      v.language = (v.language + direction + 4) % 4;
+    s_restart_confirm = false;
+    break;
   case Option::Encounters:
     v.encounters = Step(ENCOUNTER_RATES, v.encounters, direction, wrap);
     break;
@@ -754,6 +789,7 @@ void Open()
   s_previous = 0xFFFF;  // nothing counts as pressed until it's released once
   s_repeat_button = 0;
   s_load_confirm = false;
+  s_restart_confirm = false;
   s_mapping = false;
   s_capturing = false;
   s_keyboard_hints = InputKeyboardInUse();
@@ -1314,6 +1350,7 @@ PadStatus FilterOpen(const PadStatus& raw)
   const auto switch_tab = [&](int direction) {
     s_tab = (s_tab + direction + tab_count) % tab_count;
     s_load_confirm = false;
+    s_restart_confirm = false;
   };
   if (pressed & (PAD_TRIGGER_L | PAD_TRIGGER_R))
   {
@@ -1339,7 +1376,10 @@ PadStatus FilterOpen(const PadStatus& raw)
     return Released(raw);
   }
   if (pressed & (PAD_BUTTON_UP | PAD_BUTTON_DOWN))
+  {
     s_load_confirm = false;
+    s_restart_confirm = false;
+  }
   // Up from the first setting and Down from the last reach the tab bar
   if (pressed & PAD_BUTTON_UP)
     s_selected = s_selected == 0 ? TAB_BAR : s_selected - 1;
@@ -1378,6 +1418,18 @@ PadStatus FilterOpen(const PadStatus& raw)
   }
   else if ((pressed & PAD_BUTTON_A) && option == Option::Mapping)
     OpenMapping();
+  else if ((pressed & PAD_BUTTON_A) && option == Option::Language && s_staged.language != s_current.language &&
+           CanRestart())
+  {
+    // Restarting throws away the play since the last save, so it takes a second A too.
+    if (s_restart_confirm)
+    {
+      Close();
+      s_restart_requested = true;
+      Log("[menu] restart for the language\n");
+    }
+    s_restart_confirm = !s_restart_confirm;
+  }
   else if (pressed & PAD_BUTTON_A)
     Change(option, 1, true);
   else if (pressed & (PAD_BUTTON_B | PAD_BUTTON_START))
@@ -1647,6 +1699,13 @@ void MenuMessage(const std::string& text, int milliseconds)
 int MenuVolume()
 {
   return s_volume;
+}
+
+bool MenuTakeRestartRequest()
+{
+  const bool requested = s_restart_requested;
+  s_restart_requested = false;
+  return requested;
 }
 
 bool MenuRumbleAllowed()
@@ -1943,6 +2002,8 @@ void Draw(float scale)
 {
   const Values v = s_staged;
   const int tab = s_tab, selected = s_selected;
+  // The buttons' names in hints, in the keyboard's keys while it's the one in use
+  const HintKeys keys = s_keyboard_hints ? s_hint_keys : HintKeys{};
 
   struct Row
   {
@@ -1961,7 +2022,7 @@ void Draw(float scale)
               saves ? "Left / Right picks a slot, A saves to it." : no_saves};
     case Option::LoadState:
       return {"Load state",
-              s_load_confirm   ? std::string("Press A again to load") :
+              s_load_confirm   ? "Press " + keys.a + " again to load" :
               s_load_slot == 0 ? "Auto-save   " + SlotTime(0) :
                                  "Slot " + std::to_string(s_load_slot) + "   " + SlotTime(s_load_slot),
               saves ? "Left / Right picks a slot or the newest auto-save, A twice loads it." : no_saves};
@@ -2042,6 +2103,23 @@ void Draw(float scale)
               "Ignores small stick movements. Raise it if a stick drifts."};
     case Option::Rumble:
       return {"Rumble", v.rumble ? "On" : "Off", "Controller vibration."};
+    case Option::Language:
+    {
+      static constexpr const char* LANGUAGES[] = {"English", "Deutsch", "Fran\xc3\xa7" "ais", "Espa\xc3\xb1ol"};
+      if (GameRegion() == Region::Japan)
+        return {"Language", "Japanese", "The Japanese disc is in Japanese only."};
+      if (!IsEurope())
+        return {"Language", "English", "Other languages need the European disc."};
+      if (v.language == s_current.language)
+        return {"Language", LANGUAGES[v.language],
+                "The game's text. The European disc has English, German, French and Spanish."};
+      if (s_restart_confirm)
+        return {"Language", "Press " + keys.a + " again to restart",
+                "The game starts again at its title screen: play since your last save is lost."};
+      return {"Language", LANGUAGES[v.language],
+              CanRestart() ? "Restart the game to use it now, or it changes when the game next starts." :
+                             "Changes when the game next starts."};
+    }
     case Option::Mapping:
       return {"Button mapping", "Change...",
               s_keyboard_hints || !s_has_keyboard ?
@@ -2054,7 +2132,6 @@ void Draw(float scale)
   const std::span<const Option> options = TABS[tab].rows;
   const bool on_tabs = selected == TAB_BAR;
   // The controls for the selected row, in the keyboard's keys while it's the one in use
-  const HintKeys keys = s_keyboard_hints ? s_hint_keys : HintKeys{};
   const bool mapping = s_mapping;
   const int map_row = s_map_row, map_column = s_map_column;
   const int input_count = static_cast<int>(s_map_labels.size());
@@ -2072,6 +2149,8 @@ void Draw(float scale)
       current == Option::SaveState ? tabs + "Up / Down: choose    Left / Right: slot    " + keys.a + ": save" + close :
       current == Option::LoadState ? tabs + "Up / Down: choose    Left / Right: slot    " + keys.a + ": load" + close :
       current == Option::Mapping   ? tabs + "Up / Down: choose    " + keys.a + ": open" + close :
+      current == Option::Language && v.language != s_current.language && CanRestart() ?
+                                     tabs + "Up / Down: choose    Left / Right: change    " + keys.a + ": restart" + close :
                                      tabs + "Up / Down: choose    Left / Right or " + keys.a + ": change" + close;
 
   // The layout is in units of the picture (a 480-line picture = 1 unit per pixel), times the
@@ -2240,7 +2319,8 @@ void Draw(float scale)
       draw->AddTriangleFilled(at(lx, mid), at(lx + s, mid - s), at(lx + s, mid + s), gold);
       draw->AddTriangleFilled(at(rx, mid), at(rx - s, mid - s), at(rx - s, mid + s), gold);
     }
-    const bool confirm = options[i] == Option::LoadState && s_load_confirm;
+    const bool confirm = (options[i] == Option::LoadState && s_load_confirm) ||
+                         (options[i] == Option::Language && s_restart_confirm);
     draw->AddText(ui, px(TEXT), at(PAD + LABEL_W + 22.0f, text_y), confirm ? gold : white,
                   row.value.c_str());
     draw->AddText(ui, px(SMALL), at(PAD + LABEL_W, y + BOX_H + 3.0f), dim, row.description, nullptr,
