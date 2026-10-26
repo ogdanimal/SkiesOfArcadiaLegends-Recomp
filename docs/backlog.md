@@ -198,11 +198,18 @@ on the throttle's clock, fork 0036, with an adaptive delay; the emulation thread
 had clocked the sleeping thread down) smoother at full speed at ~0.4-0.5 W less (p99 34.2-34.4 vs 37.7 ms in
 battle, 34.7-35.0 vs 36.2 at the save point; Windows p99 39.8 -> 35.0 too); at 6x it holds full speed where
 Dolphin can't (GPU-bound 1.24x vs 0.87x at the save point; fork 0037 dropped the present resample pass). The
-shell is immersive and survives background / foreground. Since then (feature-gap items 0-2): the European and
-Japanese discs, Continue, the graphics options with MSAA up to 8x (a Dawn patch; Pocket 5 2x, RTX 5080 8x),
-and the Japanese memory card fixed. Open: the EFB passes on the tiler, 60 fps, the
-remaining features (next: input), the Android shell's launcher, the built-in pad and audio on the device (by hand), size
-changes on return. The plan for the features: [handoffs/HANDOFF-feature-gaps.md](handoffs/HANDOFF-feature-gaps.md).
+shell is immersive and survives background / foreground. Since then (feature-gap items 0-6, 2026-10-25/26): the
+European and Japanese discs, Continue, the graphics options with MSAA up to 8x (a Dawn patch; Pocket 5 2x, RTX 5080
+8x), input (rumble, keyboard layout, Button mapping, controller follow), Language, HD textures (pack import; on
+the Pocket 5 as fast as without the pack, half the Dolphin build's memory, BC7 skipped there; fork 0045 fixed
+a loader-thread hitch) and 60 fps (frame interpolation), and the Japanese memory card fixed. Aurora now runs on
+a video thread beside the game (fork 0046, `HANDOFF-emulator-free.md`, *The video thread*): Pocket 5 uncapped
+1.77x / 1.70x at the save point at 30 / 60 fps (Dolphin 1.38x / 1.41x), 2.15x / 2.05x in battle (1.63x /
+1.69x); 60 fps at full speed p99 ~17.7 ms against Dolphin's 24.5-25.9, at less power. Ahead as an engine, not
+yet a replacement (features 7-10 missing, not played through; `HANDOFF-emulator-free.md`, *Where it stands*).
+Open: the Dreamcast features (next), data folder / romhacks / saves, the Android launcher, packaging; the EFB
+passes on the tiler; the built-in pad and audio on the device (by hand), size changes on return. The plan for
+the features: [handoffs/HANDOFF-feature-gaps.md](handoffs/HANDOFF-feature-gaps.md).
 
 The Aurora renderer inside Dolphin (`--graphics Aurora`, `AURORA=1`), the groundwork for it: the picture
 matches Dolphin on both Retroids, Windows and WSL (fork fixes: the XF viewport decoded per register;

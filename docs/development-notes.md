@@ -2950,7 +2950,14 @@ clock with an adaptive delay (fork 0036), the emulation thread on the prime core
 Pocket 5*; at 6x it holds full speed where the Dolphin build can't, 1.24x vs 0.87x GPU-bound, *The Pocket 5 at
 higher internal resolutions*). It runs immersive and survives background / foreground; its arguments,
 environment and log are files in the app's external files folder (handoff, *The Android shell*). All Pocket 5
-numbers are on Retroid's lowest performance setting.
+numbers are on Retroid's lowest performance setting. Status 2026-10-26: the feature-gap plan's items 0-6 are
+done (discs, Continue, graphics options, input, Language, HD textures, 60 fps;
+[handoffs/HANDOFF-feature-gaps.md](handoffs/HANDOFF-feature-gaps.md)), and Aurora runs on a video thread
+beside the game (handoff, *The video thread*): the game waits for it only at the frame's tokens, and only for
+commands that read guest RAM (Skies rebuilds its display lists after them); on phones it polls while the game
+has no time to spare, or the governor leaves its cores at half clock. With it 60 fps costs 4-5% of the
+uncapped speed (25% before) and the Pocket 5 is ahead of the Dolphin build at 30 and 60 fps. Profiling on the
+device: the test app is `profileable`, so `simpleperf record --app com.skiesofarcadia.standalone` works.
 
 ## Aurora renderer (desktop; 2026-10-21, committed as patches 2026-10-22: see *Aurora renderer* under Android for the status)
 

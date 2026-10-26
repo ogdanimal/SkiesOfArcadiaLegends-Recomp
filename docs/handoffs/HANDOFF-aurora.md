@@ -412,7 +412,9 @@ matched its own shell): its partial output is not a result; rerun it with the st
 ## Open
 
 1. The emulator-free path (the branch stays local, see *What is where*): phases 1-3 done, phase 4 under
-   way, its performance goal and baseline in [HANDOFF-emulator-free.md](HANDOFF-emulator-free.md).
+   way (feature-gap items 0-6 done, Aurora on a video thread since 2026-10-26, fork 0046), ahead of the
+   Dolphin build on the Pocket 5 at 30 and 60 fps; its performance goal, numbers and *Where it stands* in
+   [HANDOFF-emulator-free.md](HANDOFF-emulator-free.md).
 2. The coverage survey above (battles, menus, world map, Baltor, Antonio) on the Pocket 5.
 3. OSD details: the OSD message font scale on a 1920x1080 surface (ImGui scale 1 everywhere),
    the on-screen keyboard / mouse paths of `OnScreenUI` are not wired (menu by pad only).

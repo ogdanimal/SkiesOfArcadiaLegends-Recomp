@@ -17,16 +17,30 @@ the first baseline said the opposite, from a Dolphin run at the wrong resolution
 the same DOL and module, and since the pacing fix (scheduled presents on the throttle's clock, fork 0036, and
 the emulation thread on the prime core) smoother at full speed at ~0.4-0.5 W less (battle p99 34.2-34.4 vs
 37.7-38.3 ms, save point 34.7-35.0 vs 36.2-36.3); at 6x it holds full speed where Dolphin can't (GPU-bound
-1.24x vs 0.87x; *The Pocket 5 at higher internal resolutions*).
+1.24x vs 0.87x; *The Pocket 5 at higher internal resolutions*). Since the video thread (2026-10-26, *The video
+thread*: Aurora off the game's thread) the Pocket 5 runs uncapped 1.77x / 2.15x at 30 fps (save point /
+battle) and 1.70x / 2.05x at 60 fps, against the Dolphin build's 1.38x / 1.63x and 1.41x / 1.69x; 60 fps at
+full speed p99 ~17.7 ms against 24.5-25.9, at 0.4-0.9 W less; with the PNG HD pack, half its memory.
 
 **Status (2026-10-26):** phases 1-3 done (title screen, audio bit-exact with Dolphin's AX HLE, first
 battle at full speed, card saves); phase 4 under way: in-game menu, save states and auto-save, and the
 feature-gap plan's items 0-6 done on desktop (European / Japanese discs, Continue, graphics options with
-MSAA up to 8x, input with rumble / mapping / controller follow, Language, HD textures, 60 fps); open: the
-Dreamcast features, data folder / romhacks / save import, the launchers, packaging, and the device checks
-of items 3-6 (60 fps on the Pocket 5 above all); phase 5 (Android) started: a test app
-that plays on the Retroid Pocket 5 (from a state; pacing fixed; higher resolutions measured; immersive; background
-and foreground at the same size work; the built-in pad and audio on the device untested by hand; no launcher yet). The latest sections at the end of this file come first when picking up. **The plan for the
+MSAA up to 8x, input with rumble / mapping / controller follow, Language, HD textures, 60 fps), items 5 and 6
+checked on the Pocket 5 too (fork 0045), and Aurora moved to a video thread (fork 0046); open: the
+Dreamcast features (next), data folder / romhacks / save import, the launchers, packaging, and the device
+checks of items 0-4; phase 5 (Android) started: a test app that plays on the Retroid Pocket 5 (from a
+state; pacing fixed; higher resolutions measured; immersive; Home and back work, with the video thread too;
+the built-in pad and audio on the device untested by hand; no launcher yet).
+
+**Where it stands (2026-10-26):** as an engine it is ahead of the Dolphin build on every number measured
+(speed at 30 and 60 fps, pacing, power, memory, GPU time at high resolutions; pictures matched to Dolphin's
+exact frames) and deterministic, which makes regressions easy to catch. It is not yet the better *port*:
+items 7-10 are missing (no player could run it without adb pushes), it has been checked on bench scenes,
+the opening, the first fight route and save states rather than played through (each new scene or device so
+far found something: display lists rebuilt after the tokens, loader threads on the pinned core, the
+governor's clock), and it carries 46 fork patches and hardware models of its own on a local branch 40+
+commits behind dev. Confidence would come from items 7-10 plus long play, or an automated sweep comparing
+both builds' frames over save states spread through the game. The latest sections at the end of this file come first when picking up. **The plan for the
 remaining Dolphin-build features (60 fps, Continue, Language, Dreamcast, HD textures, input, graphics options,
 the launcher, packaging) is [HANDOFF-feature-gaps.md](HANDOFF-feature-gaps.md).**
 
