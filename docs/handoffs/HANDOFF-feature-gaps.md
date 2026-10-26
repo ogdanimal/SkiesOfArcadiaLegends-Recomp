@@ -893,6 +893,17 @@ with the swapped package (`build/sa-runs/pkg-win`, `skies-run.exe` = the standal
 standalone in build-release-win.bat etc. with `SKIES_RELEASE_*`, Dawn DLLs, Sys, and the launcher built
 with `moderngekko-standalone-launcher.patch` and `MODERNGEKKO_STANDALONE_RUNNER=ON`).
 
+**Items 9 and 10 need dev's current code on this branch** (2026-10-26): `aurora-backend` is 79 commits ahead
+of origin/dev and 40 behind (merge base a7aa0f8, before ws31 / v0.82). The launcher patch is made against dev's
+launcher and doesn't apply to this branch's; dev's Android launcher and release scripts have moved on too. A
+trial merge of origin/dev (in a throwaway worktree, deleted after) conflicts only in the patch lists
+(`patches/README.md`, `recompcore.series`, `tools/apply-patches.sh`, `tools/check-patches.sh`: keep both,
+dev's patches first and `aurora` last), and on dev's stack `recompcore-aurora.patch` misses one hunk (the
+one line `s_placeholder.reset();` in `FrameInterpolator.cpp`'s `Shutdown`, beside review D6's change);
+`moderngekko-standalone-launcher.patch` applies on top of dev's three moderngekko patches plus
+`moderngekko-aurora.patch`. Merging or rebasing is the user's call (the branch is kept local, never
+rebased or merged so far).
+
 **Android (item 9):** the same goal: dev's app (Kotlin launcher screens + JNI in Dolphin's native library)
 must start the standalone's game activity (`libmain.so`, SDL) instead of Dolphin's emulation, with its
 imports and settings JNI built against the standalone's code (item 7's modules show the pattern).
@@ -944,8 +955,10 @@ picker flow (incl. the process-death case, D11). Dolphin-bound: config through `
 
 **Behaviours to match** (dev's `recompcore-android*.patch`, `HANDOFF-android.md`):
 
-- **Orientation:** `USER_LANDSCAPE` (both landscapes, honouring the rotation lock, #12). The standalone's
-  manifest says `sensorLandscape`, which ignores the lock.
+- **Orientation:** `USER_LANDSCAPE` (both landscapes, honouring the rotation lock, #12). Already so once the
+  window is up: Aurora's SDL hint is `LandscapeLeft LandscapeRight`, and SDLActivity's `setOrientationBis`
+  then requests `USER_LANDSCAPE` (the Pocket 5's log: `requestedOrientation=11`). The manifest said
+  `sensorLandscape` for the moment before the window; it says `userLandscape` now (not yet installed).
 - **Lifecycle:** done so far are immersive mode from the start and Home / back at the same surface size (the
   EFB is kept).
   - Open: pause then Home then return (the Dolphin build's black-screen history), process kill and restore,
