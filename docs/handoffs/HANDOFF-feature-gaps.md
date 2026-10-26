@@ -866,15 +866,18 @@ started as players do, on an existing data folder.
   option (`build/devmg-build`: `build/devmg` with `vendor/dolphin` linked to `build/devtree/rc`, whose
   empty third-party folders and DolRecomp are linked to this branch's copies) passes 30 of 30. The hidden
   row is compile-time only, not looked at in the window. Android's import (item 9) needs the same define.
-- **WSL only (GL ES on llvmpipe): textures flicker in some runs.** Pirate Isle from
-  `retroid-us-1012-slot1.sav` (or the standalone's own state made from it) draws a wrong texture on a few
-  frames (a house, a wall, the garden with a face, a rug, gold), different frames each run, in 4 of 6
-  runs. RAM and ARAM come out byte-identical in good and bad runs (the game is deterministic); no disc
-  reads or ARAM DMA in the window. Not the video thread (worse with `SKIES_VIDEO_THREAD=0`), not the parse
-  lag (`SKIES_DRAIN=0` too), not the per-frame hash memo (a BP 0x66 invalidate epoch didn't help). Windows
-  D3D12 (6 runs) and the Pocket 5 Vulkan (3 runs) give identical, clean frames every run, so it's in
-  Dawn's GL ES path; Aurora falls back to GL ES where D3D12 / Vulkan / Metal fail, so it's worth a look
-  before release (open). Judge WSL frames against Windows ones, not against each other.
+- **WSL only: textures flicker in some runs under GL ES (Mesa's d3d12 driver), not a player issue.** On WSL
+  Dawn skips the llvmpipe Vulkan adapter (a CPU one) and runs OpenGL ES on Mesa's d3d12 gallium driver
+  (GL translated to D3D12 on the RTX 5080; llvmpipe GL itself crashes compiling Aurora's first pipeline).
+  There Pirate Isle (`retroid-us-1012-slot1.sav`, or the standalone's own state from it) draws a wrong
+  texture on a few frames (a house, a wall, the garden, a rug, gold), different frames each run, in most
+  runs. RAM and ARAM come out byte-identical in good and bad runs. Not the video thread, the parse lag, the
+  per-frame hash memo or llvmpipe's threads. Identical, clean frames every run on: Windows D3D12 (6 runs),
+  the Pocket 5's Vulkan (3), the Pocket 5's **OpenGL ES** on Adreno (3, `DOL_AURORA_BACKEND=gles`, fork
+  0048, 1.00x) and WSL's Vulkan on llvmpipe (4, `DOL_AURORA_VULKAN_CPU=1`, about as fast as the d3d12 GL
+  path here). So Dawn's GL ES backend is fine; the d3d12 GL driver is the cause. Use
+  `DOL_AURORA_VULKAN_CPU=1` for WSL runs that are compared frame by frame (`build/sa-runs/glflick.sh TAG
+  RUNS [ENV=VAL]` counts the distinct versions of 19 frames across runs).
 - **Pitfall:** a cold first run skips draws while pipelines compile (the shadow pass: picture 3x too bright
   for a second): compare with `AURORA_SYNC_PIPELINES=1`.
 - Tools: `build/sa-runs/sa-win.sh` (Windows run from a state, guest time read from the state);

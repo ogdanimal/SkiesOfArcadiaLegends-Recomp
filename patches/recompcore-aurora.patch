@@ -103,10 +103,10 @@ index f25215d3ab..4b2cb177e3 100644
  } // extern "C"
 +#endif // AURORA_NO_SDL
 diff --git a/GXRuntime/backends/aurora/aurora_backend.cpp b/GXRuntime/backends/aurora/aurora_backend.cpp
-index 4b7454f19c..ee2a32b2db 100644
+index 4b7454f19c..3d87641529 100644
 --- a/GXRuntime/backends/aurora/aurora_backend.cpp
 +++ b/GXRuntime/backends/aurora/aurora_backend.cpp
-@@ -3,10 +3,15 @@
+@@ -3,10 +3,16 @@
  #include <aurora/aurora.h>
  #include <aurora/event.h>
  #include <aurora/gfx.h>
@@ -115,6 +115,7 @@ index 4b7454f19c..ee2a32b2db 100644
 +#endif
  #include <cstdio>
  #include <cstdlib>
++#include <string_view>
  #include <cstring>
 +#ifdef __ANDROID__
 +#include <android/log.h>
@@ -122,7 +123,7 @@ index 4b7454f19c..ee2a32b2db 100644
  
  namespace gx_aurora {
  
-@@ -131,6 +136,13 @@ void log_callback(AuroraLogLevel level, const char* module, const char* message,
+@@ -131,6 +137,13 @@ void log_callback(AuroraLogLevel level, const char* module, const char* message,
      }
      std::fprintf(level >= LOG_ERROR ? stderr : stdout, "[aurora:%s:%s] %s\n",
                   level_name, module ? module : "core", message ? message : "");
@@ -136,7 +137,7 @@ index 4b7454f19c..ee2a32b2db 100644
      if (level == LOG_FATAL)
          std::abort();
  }
-@@ -179,6 +191,10 @@ void install_platform_ops() {
+@@ -179,6 +192,10 @@ void install_platform_ops() {
  
  } // namespace gx_aurora
  
@@ -147,7 +148,7 @@ index 4b7454f19c..ee2a32b2db 100644
  extern "C" {
  
  bool aurora_backend_should_quit(void) {
-@@ -189,6 +205,9 @@ bool dol_aurora_initialize(int argc, char** argv,
+@@ -189,6 +206,9 @@ bool dol_aurora_initialize(int argc, char** argv,
                             const AuroraBackendConfig* backend_config) {
      if (gx_aurora::g_initialized)
          return true;
@@ -157,7 +158,7 @@ index 4b7454f19c..ee2a32b2db 100644
  
      const AuroraBackendConfig defaults = {
          .app_name = "GXRuntime",
-@@ -199,6 +218,12 @@ bool dol_aurora_initialize(int argc, char** argv,
+@@ -199,6 +219,12 @@ bool dol_aurora_initialize(int argc, char** argv,
          .info_logging = false,
          .graphics_logging = false,
          .force_untextured = false,
@@ -170,7 +171,7 @@ index 4b7454f19c..ee2a32b2db 100644
      };
      if (backend_config == nullptr)
          backend_config = &defaults;
-@@ -208,6 +233,12 @@ bool dol_aurora_initialize(int argc, char** argv,
+@@ -208,6 +234,25 @@ bool dol_aurora_initialize(int argc, char** argv,
          backend_config->app_name != nullptr ? backend_config->app_name
                                              : defaults.app_name;
      config.desiredBackend = BACKEND_AUTO;
@@ -180,10 +181,23 @@ index 4b7454f19c..ee2a32b2db 100644
 +        config.desiredBackend = BACKEND_VULKAN;
 +        config.allowCpuAdapter = true;
 +    }
++    // DOL_AURORA_BACKEND=gles|vulkan|d3d12|metal: try that API first (tests of a fallback path, such as
++    // OpenGL ES on a device that has Vulkan); the usual order follows if it fails.
++    if (const char* api = std::getenv("DOL_AURORA_BACKEND")) {
++        const std::string_view name = api;
++        if (name == "gles")
++            config.desiredBackend = BACKEND_OPENGLES;
++        else if (name == "vulkan")
++            config.desiredBackend = BACKEND_VULKAN;
++        else if (name == "d3d12")
++            config.desiredBackend = BACKEND_D3D12;
++        else if (name == "metal")
++            config.desiredBackend = BACKEND_METAL;
++    }
      config.vsync = backend_config->vsync;
      config.windowWidth = backend_config->window_width != 0
                               ? backend_config->window_width
-@@ -220,6 +251,13 @@ bool dol_aurora_initialize(int argc, char** argv,
+@@ -220,6 +265,13 @@ bool dol_aurora_initialize(int argc, char** argv,
      config.logLevel = backend_config->info_logging ? LOG_INFO : LOG_ERROR;
      config.mem1Size = 0;
      config.mem2Size = 0;
@@ -197,7 +211,7 @@ index 4b7454f19c..ee2a32b2db 100644
  
      const AuroraInfo info = aurora_initialize(argc, argv, &config);
      gx_aurora::g_initialized = info.window != nullptr;
-@@ -361,6 +399,7 @@ bool dol_aurora_initialize(int argc, char** argv,
+@@ -361,6 +413,7 @@ bool dol_aurora_initialize(int argc, char** argv,
      gx_aurora::g_audio_low_log_push = 0;
      gx_aurora::g_audio_sample_rate = 32000;
  
@@ -205,7 +219,7 @@ index 4b7454f19c..ee2a32b2db 100644
      if (SDL_InitSubSystem(SDL_INIT_AUDIO)) {
          SDL_AudioSpec spec{};
          spec.format = SDL_AUDIO_S16;
-@@ -376,6 +415,7 @@ bool dol_aurora_initialize(int argc, char** argv,
+@@ -376,6 +429,7 @@ bool dol_aurora_initialize(int argc, char** argv,
      } else {
          std::fprintf(stderr, "[audio] SDL audio initialization failed: %s\n", SDL_GetError());
      }
@@ -213,7 +227,7 @@ index 4b7454f19c..ee2a32b2db 100644
  
      gx_aurora::poll_events();
      gx_aurora::g_frame_open = !gx_aurora::g_should_quit && aurora_begin_frame();
-@@ -383,14 +423,23 @@ bool dol_aurora_initialize(int argc, char** argv,
+@@ -383,14 +437,23 @@ bool dol_aurora_initialize(int argc, char** argv,
      return true;
  }
  
@@ -238,7 +252,7 @@ index 4b7454f19c..ee2a32b2db 100644
  #if GXRUNTIME_HAS_AURORA_RECOMP
      gx_aurora::trace_close_and_log();
      if (gx_aurora::g_gx_core_enabled) {
-@@ -401,11 +450,13 @@ void dol_aurora_shutdown(void) {
+@@ -401,11 +464,13 @@ void dol_aurora_shutdown(void) {
                       gx_aurora::g_shadow_frontend_failed ? 1 : 0);
      }
  #endif
