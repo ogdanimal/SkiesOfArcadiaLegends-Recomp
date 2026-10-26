@@ -123,6 +123,10 @@ u32 RtcSeconds();
 bool DiscOpen(const std::string& game_dir, const std::string& dol_path);
 bool DiscRead(u64 offset, void* out, u32 length);
 const u8* DiscHeader();  // boot.bin (0x440 bytes)
+// The console region the game boots on: the disc's, except the European game, which runs as an NTSC-U
+// game as in the Dolphin build (SConfig::SetPathsAndGameMetadata): its render mode follows the TV format
+// and only NTSC gives it the 60 Hz mode the port is built for. Its card lives in GC/USA there too.
+bool DiscRunsAsNtsc();
 const std::vector<u8>& DiscDol();  // sys/main.dol
 
 // ---- MMIO (mmio.cpp) ---------------------------------------------------------------------------

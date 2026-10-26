@@ -1,8 +1,9 @@
 // skies-standalone: the recompiled game on this host, no emulator core.
-//   skies-standalone --game DIR --module FILE [--headless] [--unthrottled] [--seconds N]
+//   skies-standalone --game DIR [--module FILE] [--headless] [--unthrottled] [--seconds N]
 //                    [--mmio-log] [--idle-pc ADDR] [--dsp-coef FILE] [--user USERDIR] [--dol FILE]
 //                    [--load-state FILE]
-// DIR is an extracted disc (sys/ + files/); FILE the g<GAMEID>_recomp module built for its DOL.
+// DIR is an extracted disc (sys/ + files/); FILE the g<GAMEID>_recomp module built for its DOL (by
+// default the disc ID's, from the library path: Android's app libraries, or beside the executable).
 // USERDIR holds the memory card saves as the Dolphin build keeps them (GC/<region>/Card A/*.gci);
 // without it no card is inserted. --dol boots that DOL (a game-patched main.dol) instead of sys/main.dol.
 // --load-state starts from a save state (state.cpp); --seconds then counts the state's guest clock.
@@ -16,6 +17,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <string>
 #include <thread>
 
@@ -301,6 +303,42 @@ void AndroidSetup(int& argc, char**& argv)
 }  // namespace
 #endif
 
+namespace
+{
+// The SDK scheduler's idle spin in SelectThread, per game (release/<disc ID>.ini StaticRecompIdlePC)
+u32 DefaultIdlePc(const std::string& disc_id)
+{
+  if (disc_id == "GEAE8P")
+    return 0x80237BA8u;
+  if (disc_id == "GEAP8P")
+    return 0x8023B02Cu;
+  if (disc_id == "GEAJ8P")
+    return 0x8023772Cu;
+  return 0;
+}
+
+// The disc's module by name: Android loads it from the APK's libraries; the desktop takes the one
+// beside the executable, else leaves it to the library path.
+std::string DefaultModule(const std::string& disc_id, const char* argv0)
+{
+#if defined(__ANDROID__)
+  (void)argv0;
+  return "libg" + disc_id + "_recomp.so";
+#else
+#if defined(_WIN32)
+  const std::string name = "g" + disc_id + "_recomp.dll";
+#elif defined(__APPLE__)
+  const std::string name = "g" + disc_id + "_recomp.dylib";
+#else
+  const std::string name = "g" + disc_id + "_recomp.so";
+#endif
+  std::error_code ec;
+  const std::filesystem::path beside = std::filesystem::path(argv0).parent_path() / name;
+  return std::filesystem::exists(beside, ec) ? beside.string() : name;
+#endif
+}
+}  // namespace
+
 int main(int argc, char** argv)
 {
   using namespace host;
@@ -348,16 +386,16 @@ int main(int argc, char** argv)
       load_state = next();
     else
     {
-      Log("usage: %s --game DIR --module FILE [--headless] [--unthrottled] [--seconds N] "
+      Log("usage: %s --game DIR [--module FILE] [--headless] [--unthrottled] [--seconds N] "
           "[--mmio-log] [--idle-pc ADDR] [--dsp-coef FILE] [--user USERDIR] [--dol FILE] "
           "[--load-state FILE]\n",
           argv[0]);
       return 2;
     }
   }
-  if (game.empty() || module.empty())
+  if (game.empty())
   {
-    Log("--game and --module are required\n");
+    Log("--game is required\n");
     return 2;
   }
 
@@ -366,16 +404,19 @@ int main(int argc, char** argv)
   StateSetUserDir(user);
   SchedInit();
   CpuInit();
-  if (!LoadModule(module.c_str()) || !DiscOpen(game, dol))
+  if (!DiscOpen(game, dol))
     return 1;
   const std::string disc_id(reinterpret_cast<const char*>(DiscHeader()), 6);
+  if (module.empty())
+    module = DefaultModule(disc_id, argv[0]);
+  if (!LoadModule(module.c_str()))
+    return 1;
   if (disc_id != ModuleGameId())
     Log("[host] warning: disc %s, module built for %s\n", disc_id.c_str(), ModuleGameId());
   if (!Boot(game) || !VerifyModule())
     return 1;
-  // The SDK scheduler's idle spin (release/GEAE8P.ini StaticRecompIdlePC)
   if (idle_pc == ~0u)
-    idle_pc = disc_id == "GEAE8P" ? 0x80237BA8u : 0;
+    idle_pc = DefaultIdlePc(disc_id);
   SetIdlePc(idle_pc);
   dsphle::SetResamplingCoefficientsPath(dsp_coef.c_str());
 

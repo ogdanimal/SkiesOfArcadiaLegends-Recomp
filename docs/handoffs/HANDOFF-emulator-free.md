@@ -607,7 +607,8 @@ into `build/standalone-apk/skies-standalone.apk` (151 MB: libmain.so, libpng16.s
 arguments, so they come from `args.txt` in the app's external files folder
 (`/sdcard/Android/data/com.skiesofarcadia.standalone/files`), one per line, `$FILES` standing for that
 folder; `env.txt` there holds NAME=VALUE lines for the environment; stderr (the log) goes to `log.txt`
-there. The module is given by name (`--module libgGEAE8P_recomp.so`, found in the app's library folder).
+there. The module is the disc's own by default (`libg<disc ID>_recomp.so` in the app's library folder;
+`--module` overrides it).
 
 **On the device** (Pocket 5, serial <serial>; always Windows' `adb.exe`, never WSL's adb), pushed into the
 files folder (no game files in the APK): `game/sys` from `C:\dev\SkiesRomhack\build\game\GEAE8P-ws26\sys`,

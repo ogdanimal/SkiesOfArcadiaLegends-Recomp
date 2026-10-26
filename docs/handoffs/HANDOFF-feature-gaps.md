@@ -48,7 +48,7 @@ music, `[Skies] DreamcastIntro`), **Controls** (Button mapping, Stick dead zone,
 
 | # | Gap | Dolphin source (dev) | Standalone today | Size |
 |---|---|---|---|---|
-| 0 | European / Japanese discs run right | `release/GEAP8P.ini`, `GEAJ8P.ini`; `ConfigManager` hunk in `skies-dcmusic-eu` | idle PC USA only; EU boots as PAL 50 Hz | hours |
+| 0 | European / Japanese discs run right | `release/GEAP8P.ini`, `GEAJ8P.ini`; `ConfigManager` hunk in `skies-dcmusic-eu` | **done** (desktop): idle PC per disc, EU as NTSC, module by disc ID | hours |
 | 1 | Continue (card save at boot) | `patches/game/autoload.c`; `autoload` in `SkiesMenu.cpp` | none | ~0.5 day |
 | 2 | Graphics options (MSAA, texture filter, anisotropy, scaling) | `recompcore-gfx-options.patch`, `skies-settings` | none | ~1 day |
 | 3 | Input: release keyboard layout, rumble, names, Button mapping, menu-close rule | `recompcore-input`, `controller-names`, `menu-close`, `android-pad-follow`, review D23-D26 | Aurora's own layout, dead zone only, rumble ignored | ~2 days |
@@ -64,20 +64,30 @@ music, `[Skies] DreamcastIntro`), **Controls** (Button mapping, Stick dead zone,
 one, with device checks), then 7, then 8-10 together (they're what makes it shippable). Each step ends with
 its checks and a commit; device-heavy ones end with a head-to-head.
 
-## 0. European and Japanese discs (do first)
+## 0. European and Japanese discs (done 2026-10-25, desktop)
 
-- **Idle PC.** `standalone/src/main.cpp:378` sets the SDK scheduler's idle-spin skip for GEAE8P only
-  (`0x80237BA8`); EU and JP spin. Take the values from `release/GEAP8P.ini` (`StaticRecompIdlePC =
-  0x8023B02C`) and `release/GEAJ8P.ini` (`0x8023772C`), better read from those files than hard-coded.
-- **EU at 60 Hz.** The Dolphin build forces GEAP8P to NTSC-U (the `SConfig::SetPathsAndGameMetadata` /
-  ConfigManager hunk in `recompcore-skies-dcmusic-eu.patch`); the game patch's `pal60.c` (in ws29+ DOLs)
-  fixes the intro script, and the audio data needs item 7's pal60 part. The standalone treats a 'P' disc as
-  PAL (`boot.cpp:65`, `hw_vi.cpp:124`): force NTSC for GEAP8P, keep its card in `GC/USA` as the Dolphin
-  build does (check `hw_memcard.cpp:434`'s region folder against dev).
-- **Module per disc.** `--module` is explicit; the Android shell bundles only `libgGEAE8P_recomp.so`. Pick
-  `g<disc ID>_recomp` from the disc header (`main.cpp` already warns on a mismatch).
-- **Check:** boot each disc to the title and the first field on desktop; EU intro against m01 (item 7 makes
-  it exact); `[host] speed` uncapped against the USA disc (the idle PC is worth a lot).
+- **Idle PC per disc** (`main.cpp` `DefaultIdlePc`, the values of `release/<disc ID>.ini`
+  `StaticRecompIdlePC`: USA `0x80237BA8`, EU `0x8023B02C`, JP `0x8023772C`; a table, not read from the
+  files, since the Android app has no `release/`). All three are the same `lwz r0,RunQueueBits / cmplwi /
+  beq` loop in their DOLs.
+- **The European disc runs as NTSC-U**, as in the Dolphin build (its `SConfig::SetPathsAndGameMetadata`
+  hunk in `recompcore-skies-dcmusic-eu.patch`): `DiscRunsAsNtsc()` (`disc.cpp`) drives the boot TV format
+  (`boot.cpp`: 0x800000CC, r1 / r2 / r13), the VI preset (`hw_vi.cpp`) and the card folder (`GC/USA`,
+  `hw_memcard.cpp`). Game version differences (addresses in `menu.cpp`) still key on the disc ID's 4th
+  letter. The intro script's 60 Hz fix is in the DOL (`pal60.c`, ws29+); the audio data's is item 7.
+- **Module from the disc ID:** `--module` is optional; without it `g<disc ID>_recomp` is loaded (Android
+  `libg<ID>_recomp.so` from the APK's libraries; desktop the one beside the executable, else the library
+  path). `tools/android-standalone-build.sh` takes several modules in `MODULE` (space-separated) and names
+  them `libg<ID>_recomp.so`.
+- **Checked (WSL, headless and Aurora, 40 guest s from boot):** USA 1,178 frames (unchanged), EU 1,177 (it
+  was PAL before: 50 Hz), JP 1,178; cards in `GC/USA`, `GC/USA`, `GC/JAP`; EU and JP pictures at frames 300
+  and 1,150 right (Overworks logo, the opening sky). Idle PC worth ~30% of boot time uncapped: EU 11.2 ->
+  7.8 s wall, JP 9.7 -> 6.3 s, same frame counts. Test inputs: EU `~/projects/skies-pal60/build/game/
+  GEAP8P-ws30` + `build/ws30eu/module`; JP `GEAJ8P-ws34` there + this worktree's `build/ws34jp/module`
+  (Linux module made for this check, gen script as `skies-pal60/build/ws30eu/build.sh`).
+- **Not checked yet:** the first field on EU / JP (needs a state or a scripted New Game), the EU intro
+  against m01 (item 7), an APK with the EU / JP arm64 modules on the Pocket 5 (`skies-pal60/build/android/
+  module-ws34-GEA{P,J}8P` match the ws34 DOLs).
 
 ## 1. Continue (auto-load of a card save)
 

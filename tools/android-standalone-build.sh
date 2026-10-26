@@ -3,8 +3,9 @@
 # standalone/ cross-built for arm64 as libmain.so (SDL3 and Aurora linked in, Dawn's Android prebuilt), SDL's Java
 # glue plus standalone/android, packed without Gradle (javac, d8, aapt2, zipalign, apksigner with the debug key).
 #   tools/android-standalone-build.sh           -> build/standalone-apk/skies-standalone.apk
-# MODULE= the arm64 recomp module to bundle (default: build/android/jniLibs-sa26's, made from the ws26 DOL with
-# NAME=sa26 MODULE_ONLY=1 tools/android-ws-build.sh; it must match the DOL pushed to the device).
+# MODULE= the arm64 recomp module(s) to bundle, space-separated (default: build/android/jniLibs-sa26's, made from the
+# ws26 DOL with NAME=sa26 MODULE_ONLY=1 tools/android-ws-build.sh; each must match the DOL pushed to the device).
+# The app loads the disc's own (libg<disc ID>_recomp.so) unless args.txt gives --module.
 # AURORA_DEPS= Dawn's Android prebuilt and the abseil / sqlite3 / tracy / png sources (as android-ws-build.sh);
 # SDL, fmt, xxhash and zstd come from the desktop build's FetchContent sources (build/standalone/_deps).
 # No game files go into the APK: the game folder is pushed to the app's external files folder (see the handoff).
@@ -20,7 +21,7 @@ D=$PWD/build/standalone/_deps
 AD=${AURORA_DEPS:-$HOME/projects/skies-aurora/android-deps}
 MODULE=${MODULE:-build/android/jniLibs-sa26/arm64-v8a/libgGEAE8P_recomp.so}
 export PATH=/usr/lib/llvm-20/bin:$PATH
-[ -f "$MODULE" ] || { echo "no module at $MODULE"; exit 1; }
+for m in $MODULE; do [ -f "$m" ] || { echo "no module at $m"; exit 1; }; done
 [ -d "$D/sdl-src" ] || { echo "build the desktop standalone first (its FetchContent sources)"; exit 1; }
 
 if [ ! -f $B/build.ninja ]; then
@@ -68,7 +69,11 @@ STRIP=$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip
 mkdir -p $O/lib
 $STRIP --strip-debug -o $O/lib/libmain.so $B/libmain.so
 $STRIP --strip-debug -o $O/lib/libpng16.so $B/_deps/png-build/libpng16.so
-cp "$MODULE" $O/lib/
+# as the disc ID's library name (android-ws-build.sh's are named so already)
+for m in $MODULE; do
+  b=$(basename "$m"); case $b in lib*) ;; *) b=lib$b ;; esac
+  cp "$m" "$O/lib/$b"
+done
 # dex and native libraries stored, not deflated
 python3 -I - "$O/base.apk" "$O/dex/classes.dex" $O/lib/*.so <<'EOF'
 import os, sys, zipfile

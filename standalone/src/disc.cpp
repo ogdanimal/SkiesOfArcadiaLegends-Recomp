@@ -143,6 +143,11 @@ const u8* DiscHeader()
   return s_boot.data();
 }
 
+bool DiscRunsAsNtsc()
+{
+  return s_boot[3] != 'P' || std::memcmp(s_boot.data(), "GEAP8P", 6) == 0;
+}
+
 const std::vector<u8>& DiscDol()
 {
   return s_dol;

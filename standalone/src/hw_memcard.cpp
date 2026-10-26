@@ -431,7 +431,7 @@ bool CardInsert(const std::string& user_dir, const std::string& game_id, u8* sra
   if (user_dir.empty() || game_id.size() < 4)
     return false;
   const char region = game_id[3];
-  const char* region_dir = region == 'J' ? "JAP" : region == 'P' ? "EUR" : "USA";
+  const char* region_dir = region == 'J' ? "JAP" : DiscRunsAsNtsc() ? "USA" : "EUR";
   s_folder = fs::path(user_dir) / "GC" / region_dir / "Card A";
   std::error_code ec;
   fs::create_directories(s_folder, ec);

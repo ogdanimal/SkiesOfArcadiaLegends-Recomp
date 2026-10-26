@@ -62,7 +62,7 @@ u32 RtcSeconds()
 bool Boot(const std::string& game_dir)
 {
   const u8* disc = DiscHeader();
-  const bool ntsc = disc[3] == 'E' || disc[3] == 'J';
+  const bool ntsc = DiscRunsAsNtsc();
 
   // The disc ID block (DVDReadDiscID: the first 0x20 bytes of the disc)
   std::memcpy(g_ram, disc, 0x20);

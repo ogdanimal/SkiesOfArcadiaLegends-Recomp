@@ -121,7 +121,7 @@ bool ViIsPal()
 void ViInit()
 {
   std::memset(s_regs, 0, sizeof(s_regs));
-  s_pal = DiscHeader()[3] == 'P';
+  s_pal = !DiscRunsAsNtsc();
   // Preset(): what the IPL leaves
   Reg(0x00) = 6;                    // EQU 6, ACV 0
   Reg(0x02) = s_pal ? 0x0101 : 1;   // ENB, FMT
