@@ -772,8 +772,7 @@ engines' CPU cost against the performance goal (measure on the Pocket 5).
   audio thread takes measurable CPU (the music stops with the game), both resume on return.
 - **Open:** the m03 scene and the intro with the Dreamcast recordings in game; the European intro timing
   (`cs_shot`, ratio 0.993-1.005) in the standalone; the Android picker import (item 9); the save point's
-  music cost; a romhack whose file sizes differ (Maeson 1.51: its extracted game is gone, so it needs the
-  xdelta applied to the USA ISO again).
+  music cost. (A romhack whose file sizes differ: done 2026-10-26, item 8.)
 
 ## Items 8-10: the standalone replaces the Dolphin build (decided 2026-10-26)
 
@@ -967,8 +966,13 @@ Most of this is already Dolphin-free in `lib/ModernGekko/tools/` (std-only or `m
   the JNI `checkDataMove` / `moveDataFolder` / `pointDataFolder`): desktop calls `FindUserDirectory` at
   startup and passes the result as `--user`; Android reuses the Kotlin and JNI as they are.
 - **Romhacks** (data-only `.dolpatch` on the pinned code; code-changing hacks refused; `RomhackTag`
-  separates states): call `DolMatchesPin` / `RomhackTag` in the launchers; test `disc.cpp` with a romhack
-  whose file sizes differ (untested).
+  separates states): call `DolMatchesPin` / `RomhackTag` in the launchers. `disc.cpp` with a romhack whose
+  file sizes differ: checked 2026-10-26 on WSL with Maeson 1.51 (`C:\dev\SkiesRomhack\discs\maeson.iso`
+  extracted to `build/game-maeson151` by a small GCM extractor; 292 of its 5552 files differ in size from
+  the US disc's, the battle data among them): a cold boot with the ws32 DOL (the module's code; the hack's
+  own DOL kept in `sys/orig`) and `zt1.txt` plays the opening into the first deck battle like the US game,
+  331 disc reads, no errors. The release path (the hack's DOL with the widescreen patch applied by the
+  frontend) not run.
 - **States:** the standalone keeps `USER/StateSaves/Standalone/<disc ID>-slotN.sst` / `-auto-*.sst`; Continue
   picks the newest whose header matches the disc ID and DOL hash; Back up saves must include
   `StateSaves/Standalone/*.sst` (today's Kotlin takes only `StateSaves/*.sav` and cards).
