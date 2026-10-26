@@ -262,6 +262,25 @@ void MenuMessage(const std::string& text, int milliseconds);
 // At each controller read with a window: the "Controller: <name>" message when port 1 changes hands.
 void InputPoll();
 std::string InputDeviceLabel(std::string_view name);
+// The Controls tab's Button mapping page: a row per GameCube input (A ... D-pad right), each with a
+// controller and a keyboard binding, kept in Aurora's mapping store (USER/Config/Aurora).
+enum class InputSlot
+{
+  Controller,
+  Keyboard,
+};
+int InputMappingRows();
+const char* InputMappingName(int row);
+std::string InputBindingLabel(int row, InputSlot slot);  // "-" for none
+bool InputClearable(int row, InputSlot slot);           // not the controller's A and B
+// A capture: false (and a message) without the device. Poll it at each controller read: true while
+// it waits; the next new press binds (saved), Esc / Back or 6 s without one keep the old binding.
+bool InputStartCapture(int row, InputSlot slot);
+bool InputPollCapture();
+void InputClear(int row, InputSlot slot);
+bool InputResetDefaults(InputSlot slot);  // false (and a message) without the device
+bool InputKeyboardInUse();                // the keyboard was used after controller 1
+bool InputHasKeyboard();
 // Continue from a card save ([Skies] AutoLoadCard, one shot, as the launchers set it): file 1..99, or
 // CONTINUE_NEWEST for the game's newest save on card A; 0 leaves the key's value. The game patch
 // (autoload.c, ws20+) loads it at boot, straight into the field. Before the first frame.

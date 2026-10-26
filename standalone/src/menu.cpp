@@ -95,6 +95,7 @@ enum class Option
   Volume,
   DeadZone,
   Rumble,
+  Mapping,
 };
 
 constexpr std::array SAVES_ROWS{Option::SaveState, Option::LoadState, Option::AutoSave};
@@ -105,7 +106,7 @@ constexpr std::array GAMEPLAY_ROWS{Option::Camera,     Option::BattleSpeed, Opti
                                    Option::Encounters, Option::HoldB,       Option::Exp,
                                    Option::Gold,       Option::MagicExp,    Option::Invincible};
 constexpr std::array SOUND_ROWS{Option::Volume};
-constexpr std::array CONTROLS_ROWS{Option::DeadZone, Option::Rumble};
+constexpr std::array CONTROLS_ROWS{Option::Mapping, Option::DeadZone, Option::Rumble};
 struct Tab
 {
   const char* name;
@@ -222,6 +223,25 @@ enum class Mode
 };
 
 Mode s_mode = Mode::Closed;
+// When the menu last closed, and whether a slow release has been logged since
+Clock::time_point s_closing_since;
+bool s_closing_logged = false;
+
+// Controls, Button mapping: a page of its own over the tabs, a row per GameCube input (input.cpp)
+// and two columns (controller, keyboard), then the two resets. A on a binding waits for the new one.
+bool s_mapping = false;
+int s_map_row = 0;
+int s_map_column = 0;  // 0 = controller, 1 = keyboard
+bool s_capturing = false;
+std::vector<std::array<std::string, 2>> s_map_labels;  // the bindings as shown
+// The hints name keyboard keys while the keyboard is the one in use: these, read when the menu opens
+bool s_keyboard_hints = false;
+bool s_has_keyboard = false;
+struct HintKeys
+{
+  std::string a = "A", b = "B", x = "X", l = "L", r = "R";
+};
+HintKeys s_hint_keys;
 int s_tab = 0;
 int s_selected = 0;  // row within the tab, TAB_BAR = the tab bar itself (as in the launchers)
 constexpr int TAB_BAR = -1;
@@ -631,6 +651,8 @@ void Change(Option option, int direction, bool wrap)
   case Option::Rumble:
     v.rumble = v.rumble ? 0 : 1;
     break;
+  case Option::Mapping:
+    break;
   case Option::Encounters:
     v.encounters = Step(ENCOUNTER_RATES, v.encounters, direction, wrap);
     break;
@@ -711,6 +733,16 @@ u16 Pressed(u16 buttons, bool repeat_sideways)
   return pressed;
 }
 
+// The keyboard's keys for the hints' buttons (rows A, B, X, L, R of the mapping page)
+void ReadHintKeys()
+{
+  const auto key = [](int row, const char* fallback) {
+    const std::string label = InputBindingLabel(row, InputSlot::Keyboard);
+    return label.empty() || label == "-" ? std::string(fallback) : label;
+  };
+  s_hint_keys = {key(0, "A"), key(1, "B"), key(2, "X"), key(6, "L"), key(7, "R")};
+}
+
 void Open()
 {
   s_mode = Mode::Open;
@@ -722,6 +754,11 @@ void Open()
   s_previous = 0xFFFF;  // nothing counts as pressed until it's released once
   s_repeat_button = 0;
   s_load_confirm = false;
+  s_mapping = false;
+  s_capturing = false;
+  s_keyboard_hints = InputKeyboardInUse();
+  s_has_keyboard = InputHasKeyboard();
+  ReadHintKeys();
   ReadSlotTimes();
   Log("[menu] open\n");
 }
@@ -729,6 +766,8 @@ void Open()
 void Close()
 {
   s_mode = Mode::Closing;
+  s_closing_since = Clock::now();
+  s_closing_logged = false;
   Apply(s_staged, s_current);
   Log("[menu] closed\n");
 }
@@ -1188,8 +1227,86 @@ PadStatus FilterClosed(const PadStatus& raw)
   return out;
 }
 
+// The mapping page's rows: the inputs, then the two resets
+int MappingRows()
+{
+  return InputMappingRows() + 2;
+}
+
+void ReadMapping()
+{
+  const int count = InputMappingRows();
+  s_map_labels.resize(count);
+  for (int i = 0; i < count; ++i)
+    s_map_labels[i] = {InputBindingLabel(i, InputSlot::Controller), InputBindingLabel(i, InputSlot::Keyboard)};
+  ReadHintKeys();
+}
+
+void OpenMapping()
+{
+  s_mapping = true;
+  s_map_row = 0;
+  s_map_column = InputKeyboardInUse() ? 1 : 0;
+  s_capturing = false;
+  ReadMapping();
+}
+
+PadStatus FilterMapping(const PadStatus& raw)
+{
+  const InputSlot slot = s_map_column ? InputSlot::Keyboard : InputSlot::Controller;
+  if (s_capturing)
+  {
+    // The press goes to the binding, not the menu, and counts once it's been released
+    if (!InputPollCapture())
+    {
+      s_capturing = false;
+      s_previous = 0xFFFF;
+      ReadMapping();
+    }
+    return Released(raw);
+  }
+  const u16 pressed = Pressed(MenuButtons(raw), false);
+  const int count = InputMappingRows();
+  const int rows = MappingRows();
+  if (pressed & PAD_BUTTON_UP)
+    s_map_row = (s_map_row + rows - 1) % rows;
+  else if (pressed & PAD_BUTTON_DOWN)
+    s_map_row = (s_map_row + 1) % rows;
+  else if (pressed & (PAD_BUTTON_LEFT | PAD_BUTTON_RIGHT))
+    s_map_column = s_map_column ? 0 : 1;
+  else if (pressed & PAD_BUTTON_A)
+  {
+    if (s_map_row < count)
+    {
+      s_capturing = InputStartCapture(s_map_row, slot);
+    }
+    else
+    {
+      const bool controller = s_map_row == count;
+      if (InputResetDefaults(controller ? InputSlot::Controller : InputSlot::Keyboard))
+      {
+        ReadMapping();
+        MenuMessage(controller ? "Controller buttons reset" : "Keyboard keys reset", 2000);
+      }
+    }
+  }
+  else if ((pressed & PAD_BUTTON_X) && s_map_row < count && InputClearable(s_map_row, slot))
+  {
+    InputClear(s_map_row, slot);
+    ReadMapping();
+  }
+  else if (pressed & (PAD_BUTTON_B | PAD_BUTTON_START))
+  {
+    s_mapping = false;
+  }
+  return Released(raw);
+}
+
 PadStatus FilterOpen(const PadStatus& raw)
 {
+  s_keyboard_hints = InputKeyboardInUse();
+  if (s_mapping)
+    return FilterMapping(raw);
   const std::span<const Option> rows = TABS[s_tab].rows;
   const bool on_tabs = s_selected == TAB_BAR;
   const u16 pressed = Pressed(MenuButtons(raw), !on_tabs && rows[s_selected] == Option::Volume);
@@ -1259,6 +1376,8 @@ PadStatus FilterOpen(const PadStatus& raw)
       s_load_confirm = !s_load_confirm;
     }
   }
+  else if ((pressed & PAD_BUTTON_A) && option == Option::Mapping)
+    OpenMapping();
   else if (pressed & PAD_BUTTON_A)
     Change(option, 1, true);
   else if (pressed & (PAD_BUTTON_B | PAD_BUTTON_START))
@@ -1646,7 +1765,8 @@ void MenuFilterPad(PadStatus& pad)
     pad = FilterClosed(pad);
     break;
   case Mode::Open:
-    if (menu_key)
+    // Esc / Back during a capture cancel it (input.cpp), not the menu
+    if (menu_key && !s_capturing)
     {
       Close();
       pad = Released(pad);
@@ -1659,6 +1779,12 @@ void MenuFilterPad(PadStatus& pad)
     // game at once.
     if ((pad.buttons & CLOSING_BUTTONS) != 0 || pad.trig_l > 0xA0 || pad.trig_r > 0xA0)
     {
+      if (!s_closing_logged && Clock::now() - s_closing_since > std::chrono::seconds(2))
+      {
+        s_closing_logged = true;
+        Log("[menu] closed 2 s ago, still waiting for release: buttons %04x triggers %u,%u\n",
+            pad.buttons, pad.trig_l, pad.trig_r);
+      }
       pad = Released(pad);
     }
     else
@@ -1916,18 +2042,37 @@ void Draw(float scale)
               "Ignores small stick movements. Raise it if a stick drifts."};
     case Option::Rumble:
       return {"Rumble", v.rumble ? "On" : "Off", "Controller vibration."};
+    case Option::Mapping:
+      return {"Button mapping", "Change...",
+              s_keyboard_hints || !s_has_keyboard ?
+                  "The controller button and keyboard key for each GameCube button." :
+                  "The controller button and keyboard key for each GameCube button. "
+                  "The keyboard plays too: Esc opens this menu."};
     }
     return {"", "", ""};
   };
   const std::span<const Option> options = TABS[tab].rows;
   const bool on_tabs = selected == TAB_BAR;
-  const std::string close = "    B or Esc: close";
+  // The controls for the selected row, in the keyboard's keys while it's the one in use
+  const HintKeys keys = s_keyboard_hints ? s_hint_keys : HintKeys{};
+  const bool mapping = s_mapping;
+  const int map_row = s_map_row, map_column = s_map_column;
+  const int input_count = static_cast<int>(s_map_labels.size());
+  const InputSlot map_slot = map_column ? InputSlot::Keyboard : InputSlot::Controller;
+  const std::string tabs = keys.l + " / " + keys.r + ": tab    ";
+  const std::string close = "    " + keys.b + " or Esc: close";
   const Option current = on_tabs ? Option::Picture : options[selected];
   const std::string hint =
-      on_tabs                          ? "Left / Right or L / R: tab    Down or A: settings" + close :
-      current == Option::SaveState     ? "L / R: tab    Up / Down: choose    Left / Right: slot    A: save" + close :
-      current == Option::LoadState     ? "L / R: tab    Up / Down: choose    Left / Right: slot    A: load" + close :
-                                         "L / R: tab    Up / Down: choose    Left / Right or A: change" + close;
+      mapping   ? (s_capturing ? std::string("Press the new button or key (Esc, Back or wait: keep the old one)") :
+                                 "Up / Down: choose    Left / Right: column    " + keys.a +
+                                     (map_row < input_count ? ": change    " : ": reset    ") +
+                                     (InputClearable(map_row, map_slot) ? keys.x + ": clear    " : "") +
+                                     keys.b + ": back") :
+      on_tabs   ? "Left / Right or " + keys.l + " / " + keys.r + ": tab    Down or " + keys.a + ": settings" + close :
+      current == Option::SaveState ? tabs + "Up / Down: choose    Left / Right: slot    " + keys.a + ": save" + close :
+      current == Option::LoadState ? tabs + "Up / Down: choose    Left / Right: slot    " + keys.a + ": load" + close :
+      current == Option::Mapping   ? tabs + "Up / Down: choose    " + keys.a + ": open" + close :
+                                     tabs + "Up / Down: choose    Left / Right or " + keys.a + ": change" + close;
 
   // The layout is in units of the picture (a 480-line picture = 1 unit per pixel), times the
   // launchers' text size, shrunk to fit the screen. Every length comes from these constants, not
@@ -1990,9 +2135,67 @@ void Draw(float scale)
                 14.0f * u, 0, std::max(1.0f, 1.5f * u));
 
   float y = PAD;
-  draw->AddText(bold, px(TITLE), at(PAD, y), white, "Settings");
+  draw->AddText(bold, px(TITLE), at(PAD, y), white, mapping ? "Button mapping" : "Settings");
   y += TITLE_H + 6.0f;
   const float footer_y = size.y / u - PAD * 0.6f - FOOTER_H;
+
+  if (mapping)
+  {
+    // Columns: the GameCube input, its controller binding, its keyboard binding; the rows scroll
+    // with the selection
+    constexpr float MAP_BOX_W = 240.0f, MAP_GAP = 10.0f, MAP_ROW_H = 30.0f;
+    const float column_x[2] = {PAD + LABEL_W, PAD + LABEL_W + MAP_BOX_W + MAP_GAP};
+    const float header_y = y;
+    draw->AddText(ui, px(SMALL), at(PAD, header_y), dim, "GameCube");
+    draw->AddText(ui, px(SMALL), at(column_x[0] + 4.0f, header_y), map_column == 0 ? gold : dim, "Controller");
+    draw->AddText(ui, px(SMALL), at(column_x[1] + 4.0f, header_y), map_column == 1 ? gold : dim, "Keyboard");
+    y += 22.0f;
+    const int row_count = input_count + 2;
+    const int visible = std::max(1, static_cast<int>((footer_y - 8.0f - y) / MAP_ROW_H));
+    const int first = std::clamp(map_row - visible / 2, 0, std::max(0, row_count - visible));
+    const ImU32 box = IM_COL32(26, 41, 77, 255), box_selected = IM_COL32(41, 66, 118, 255);
+    for (int i = first; i < std::min(row_count, first + visible); ++i)
+    {
+      const float text_y = y + (BOX_H - TEXT * 1.33f) * 0.5f;
+      const bool row_selected = i == map_row;
+      if (i >= input_count)
+      {
+        // The resets: one box across both columns
+        const char* label = i == input_count ? "Reset controller buttons" : "Reset keyboard keys";
+        const ImVec2 a = at(column_x[0], y), b = at(column_x[1] + MAP_BOX_W, y + BOX_H);
+        draw->AddRectFilled(a, b, row_selected ? box_selected : box, 6.0f * u);
+        if (row_selected)
+          draw->AddRect(a, b, gold, 6.0f * u, 0, std::max(1.0f, 2.0f * u));
+        draw->AddText(ui, px(TEXT), at(column_x[0] + 12.0f, text_y), row_selected ? gold : white, label);
+      }
+      else
+      {
+        draw->AddText(ui, px(TEXT), at(PAD, text_y), row_selected ? gold : white, InputMappingName(i));
+        for (int column = 0; column < 2; ++column)
+        {
+          const bool cell_selected = row_selected && column == map_column;
+          const ImVec2 a = at(column_x[column], y), b = at(column_x[column] + MAP_BOX_W, y + BOX_H);
+          draw->AddRectFilled(a, b, cell_selected ? box_selected : box, 6.0f * u);
+          if (cell_selected)
+            draw->AddRect(a, b, gold, 6.0f * u, 0, std::max(1.0f, 2.0f * u));
+          const bool waiting = cell_selected && s_capturing;
+          const std::string& text = waiting ? std::string(column ? "Press a key..." : "Press a button...") :
+                                              s_map_labels[i][column];
+          draw->AddText(ui, px(TEXT), at(column_x[column] + 12.0f, text_y),
+                        waiting ? gold : text == "-" ? dim : white, text.c_str());
+        }
+      }
+      y += MAP_ROW_H;
+    }
+    // More above / below
+    if (first > 0)
+      draw->AddText(ui, px(SMALL), at(PAD + CONTENT_W - 14.0f, header_y), dim, "^");
+    if (first + visible < row_count)
+      draw->AddText(ui, px(SMALL), at(PAD + CONTENT_W - 14.0f, footer_y - 20.0f), dim, "v");
+    draw->AddRectFilled(at(PAD, footer_y), at(PAD + CONTENT_W, footer_y + 1.0f), IM_COL32(255, 255, 255, 40));
+    draw->AddText(ui, px(SMALL), at(PAD, footer_y + 9.0f), dim, hint.c_str());
+    return;
+  }
 
   // Tabs: the current one blue with a gold line on top
   float x = PAD;
@@ -2028,9 +2231,10 @@ void Draw(float scale)
     draw->AddRectFilled(box_a, box_b, is_selected ? IM_COL32(41, 66, 118, 255) : IM_COL32(26, 41, 77, 255),
                         6.0f * u);
     if (is_selected)
-    {
       draw->AddRect(box_a, box_b, gold, 6.0f * u, 0, std::max(1.0f, 2.0f * u));
-      // Arrows: Left / Right change the value
+    // Arrows where Left / Right change the value
+    if (is_selected && options[i] != Option::Mapping)
+    {
       const float mid = y + BOX_H * 0.5f, s = 5.0f;
       const float lx = PAD + LABEL_W + 10.0f, rx = PAD + LABEL_W + VALUE_W - 10.0f;
       draw->AddTriangleFilled(at(lx, mid), at(lx + s, mid - s), at(lx + s, mid + s), gold);

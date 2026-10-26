@@ -717,10 +717,10 @@ index 24367bf568..7b7f0dc132 100644
      if (!gx_aurora::g_initialized)
          return;
 diff --git a/GXRuntime/backends/aurora/aurora_input.cpp b/GXRuntime/backends/aurora/aurora_input.cpp
-index 09c589a694..390711df8c 100644
+index 09c589a694..aaf8e1059c 100644
 --- a/GXRuntime/backends/aurora/aurora_input.cpp
 +++ b/GXRuntime/backends/aurora/aurora_input.cpp
-@@ -1,5 +1,24 @@
+@@ -1,11 +1,67 @@
  // SPDX-License-Identifier: GPL-3.0-or-later
  #include "aurora_backend_private.h"
 +
@@ -739,39 +739,62 @@ index 09c589a694..390711df8c 100644
 +bool aurora_backend_pad_recalibrate(u32) { return false; }
 +void aurora_backend_pad_control_motor(u32, u32) {}
 +void aurora_backend_pad_set_spec(u32) {}
++void aurora_backend_pad_default_keys(uint32_t) {}
 +}
 +#else
 +#include "aurora_backend_private.h"
  #include <dolphin/pad.h>
  #include <SDL3/SDL_scancode.h>
  #include <cstring>
-@@ -11,36 +30,40 @@ bool aurora_backend_pad_init(void) {
-         return false;
  
-     // Force Aurora to load any persisted keyboard mapping first. Install a
--    // usable port-0 fallback only when the user has not configured one.
-+    // usable port-0 fallback only when the user has not configured one: the
-+    // Skies release layout (the left hand moves with W A S D and holds Z on
-+    // Tab, the right hand has the C-stick on I J K L and the D-pad on the
-+    // arrows; Space / Left Shift are A / B). L / R press the trigger button
-+    // and pull the analog trigger all the way.
-     PADStatus initial[4]{};
+ extern "C" {
+ 
++// The Skies release layout (the left hand moves with W A S D and holds Z on
++// Tab, the right hand has the C-stick on I J K L and the D-pad on the
++// arrows; Space / Left Shift are A / B). L / R press the trigger button and
++// pull the analog trigger all the way.
++void aurora_backend_pad_default_keys(uint32_t port) {
++    PADKeyButtonBinding buttons[PAD_BUTTON_COUNT] = {
++        {SDL_SCANCODE_SPACE,  PAD_BUTTON_A},
++        {SDL_SCANCODE_LSHIFT, PAD_BUTTON_B},
++        {SDL_SCANCODE_F,      PAD_BUTTON_X},
++        {SDL_SCANCODE_R,      PAD_BUTTON_Y},
++        {SDL_SCANCODE_RETURN, PAD_BUTTON_START},
++        {SDL_SCANCODE_TAB,    PAD_TRIGGER_Z},
++        {SDL_SCANCODE_Q,      PAD_TRIGGER_L},
++        {SDL_SCANCODE_E,      PAD_TRIGGER_R},
++        {SDL_SCANCODE_UP,     PAD_BUTTON_UP},
++        {SDL_SCANCODE_DOWN,   PAD_BUTTON_DOWN},
++        {SDL_SCANCODE_LEFT,   PAD_BUTTON_LEFT},
++        {SDL_SCANCODE_RIGHT,  PAD_BUTTON_RIGHT},
++    };
++    PADKeyAxisBinding axes[PAD_AXIS_COUNT] = {
++        {SDL_SCANCODE_D, PAD_AXIS_LEFT_X_POS, 32767},
++        {SDL_SCANCODE_A, PAD_AXIS_LEFT_X_NEG, 32767},
++        {SDL_SCANCODE_W, PAD_AXIS_LEFT_Y_POS, 32767},
++        {SDL_SCANCODE_S, PAD_AXIS_LEFT_Y_NEG, 32767},
++        {SDL_SCANCODE_L, PAD_AXIS_RIGHT_X_POS, 32767},
++        {SDL_SCANCODE_J, PAD_AXIS_RIGHT_X_NEG, 32767},
++        {SDL_SCANCODE_I, PAD_AXIS_RIGHT_Y_POS, 32767},
++        {SDL_SCANCODE_K, PAD_AXIS_RIGHT_Y_NEG, 32767},
++        {SDL_SCANCODE_Q, PAD_AXIS_TRIGGER_L, 32767},
++        {SDL_SCANCODE_E, PAD_AXIS_TRIGGER_R, 32767},
++    };
++    PADSetKeyButtonBindings(port, buttons);
++    PADSetKeyAxisBindings(port, axes);
++    PADSetKeyboardActive(port, TRUE);
++}
++
+ bool aurora_backend_pad_init(void) {
+     if (PADInit() == FALSE)
+         return false;
+@@ -16,35 +72,7 @@ bool aurora_backend_pad_init(void) {
      (void)PADRead(initial);
      u32 count = 0;
      if (PADGetKeyButtonBindings(0, &count) == nullptr) {
-         PADKeyButtonBinding buttons[PAD_BUTTON_COUNT] = {
-+            {SDL_SCANCODE_SPACE,  PAD_BUTTON_A},
-+            {SDL_SCANCODE_LSHIFT, PAD_BUTTON_B},
-+            {SDL_SCANCODE_F,      PAD_BUTTON_X},
-+            {SDL_SCANCODE_R,      PAD_BUTTON_Y},
-+            {SDL_SCANCODE_RETURN, PAD_BUTTON_START},
-+            {SDL_SCANCODE_TAB,    PAD_TRIGGER_Z},
-+            {SDL_SCANCODE_Q,      PAD_TRIGGER_L},
-+            {SDL_SCANCODE_E,      PAD_TRIGGER_R},
-+            {SDL_SCANCODE_UP,     PAD_BUTTON_UP},
-+            {SDL_SCANCODE_DOWN,   PAD_BUTTON_DOWN},
-             {SDL_SCANCODE_LEFT,   PAD_BUTTON_LEFT},
-             {SDL_SCANCODE_RIGHT,  PAD_BUTTON_RIGHT},
+-        PADKeyButtonBinding buttons[PAD_BUTTON_COUNT] = {
+-            {SDL_SCANCODE_LEFT,   PAD_BUTTON_LEFT},
+-            {SDL_SCANCODE_RIGHT,  PAD_BUTTON_RIGHT},
 -            {SDL_SCANCODE_DOWN,   PAD_BUTTON_DOWN},
 -            {SDL_SCANCODE_UP,     PAD_BUTTON_UP},
 -            {SDL_SCANCODE_Q,      PAD_TRIGGER_Z},
@@ -782,28 +805,27 @@ index 09c589a694..390711df8c 100644
 -            {SDL_SCANCODE_U,      PAD_BUTTON_X},
 -            {SDL_SCANCODE_I,      PAD_BUTTON_Y},
 -            {SDL_SCANCODE_RETURN, PAD_BUTTON_START},
-         };
-         PADKeyAxisBinding axes[PAD_AXIS_COUNT] = {
-             {SDL_SCANCODE_D, PAD_AXIS_LEFT_X_POS, 32767},
-             {SDL_SCANCODE_A, PAD_AXIS_LEFT_X_NEG, 32767},
-             {SDL_SCANCODE_W, PAD_AXIS_LEFT_Y_POS, 32767},
-             {SDL_SCANCODE_S, PAD_AXIS_LEFT_Y_NEG, 32767},
+-        };
+-        PADKeyAxisBinding axes[PAD_AXIS_COUNT] = {
+-            {SDL_SCANCODE_D, PAD_AXIS_LEFT_X_POS, 32767},
+-            {SDL_SCANCODE_A, PAD_AXIS_LEFT_X_NEG, 32767},
+-            {SDL_SCANCODE_W, PAD_AXIS_LEFT_Y_POS, 32767},
+-            {SDL_SCANCODE_S, PAD_AXIS_LEFT_Y_NEG, 32767},
 -            {SDL_SCANCODE_H, PAD_AXIS_RIGHT_X_POS, 32767},
 -            {SDL_SCANCODE_F, PAD_AXIS_RIGHT_X_NEG, 32767},
 -            {SDL_SCANCODE_T, PAD_AXIS_RIGHT_Y_POS, 32767},
 -            {SDL_SCANCODE_G, PAD_AXIS_RIGHT_Y_NEG, 32767},
 -            {SDL_SCANCODE_E, PAD_AXIS_TRIGGER_L, 32767},
 -            {SDL_SCANCODE_R, PAD_AXIS_TRIGGER_R, 32767},
-+            {SDL_SCANCODE_L, PAD_AXIS_RIGHT_X_POS, 32767},
-+            {SDL_SCANCODE_J, PAD_AXIS_RIGHT_X_NEG, 32767},
-+            {SDL_SCANCODE_I, PAD_AXIS_RIGHT_Y_POS, 32767},
-+            {SDL_SCANCODE_K, PAD_AXIS_RIGHT_Y_NEG, 32767},
-+            {SDL_SCANCODE_Q, PAD_AXIS_TRIGGER_L, 32767},
-+            {SDL_SCANCODE_E, PAD_AXIS_TRIGGER_R, 32767},
-         };
-         PADSetKeyButtonBindings(0, buttons);
-         PADSetKeyAxisBindings(0, axes);
-@@ -86,3 +109,4 @@ void aurora_backend_pad_set_spec(u32 spec) {
+-        };
+-        PADSetKeyButtonBindings(0, buttons);
+-        PADSetKeyAxisBindings(0, axes);
+-        PADSetKeyboardActive(0, TRUE);
++        aurora_backend_pad_default_keys(0);
+     }
+     return true;
+ }
+@@ -86,3 +114,4 @@ void aurora_backend_pad_set_spec(u32 spec) {
  }
  
  } // extern "C"
@@ -1413,6 +1435,53 @@ index ad36cc446a..46df2d9293 100644
    g_gxState.copyTextures[dest] = handle;
  }
  } // namespace aurora::gx
+diff --git a/GXRuntime/graphics/aurora/lib/dolphin/pad/pad.cpp b/GXRuntime/graphics/aurora/lib/dolphin/pad/pad.cpp
+index 2d7f795689..13d6e5b4dd 100644
+--- a/GXRuntime/graphics/aurora/lib/dolphin/pad/pad.cpp
++++ b/GXRuntime/graphics/aurora/lib/dolphin/pad/pad.cpp
+@@ -609,7 +609,10 @@ static Sint16 _get_axis_value(const aurora::input::GameController* controller, /
+                  SDL_JOYSTICK_AXIS_MAX));
+   }
+ 
+-  assert(iter->nativeButton != -1);
++  // Unbound (cleared): reads as at rest
++  if (iter->nativeButton == -1) {
++    return 0;
++  }
+   if (SDL_GetGamepadButton(controller->m_controller, static_cast<SDL_GamepadButton>(iter->nativeButton))) {
+     return SDL_JOYSTICK_AXIS_MAX;
+   }
+@@ -812,9 +815,16 @@ u32 PADRead(PADStatus* status) {
+       const auto ylPos = _get_axis_value(controller, PAD_AXIS_LEFT_Y_POS);
+       const auto ylNeg = _get_axis_value(controller, PAD_AXIS_LEFT_Y_NEG);
+ 
+-      auto xl = static_cast<Sint16>((xlPos + -xlNeg) / 2);
++      // Each direction counts only its own way (a value against it is the other direction's), so a
++      // direction bound to a button or a different axis still reaches full deflection; the default
++      // mapping (both directions on one axis) reads as before.
++      const auto stick_axis = [](Sint16 pos, Sint16 neg) {
++        return static_cast<Sint16>(std::clamp(std::max(0, static_cast<int>(pos)) - std::max(0, static_cast<int>(neg)),
++                                              -32767, 32767));
++      };
++      auto xl = stick_axis(xlPos, xlNeg);
+       // SDL's gamepad y-axis is inverted from GC's
+-      auto yl = static_cast<Sint16>((-ylPos + ylNeg) / 2);
++      auto yl = static_cast<Sint16>(-stick_axis(ylPos, ylNeg));
+       if (controller->m_deadZones.useDeadzones) {
+         if (std::abs(xl) > controller->m_deadZones.stickDeadZone) {
+           xl /= 256;
+@@ -839,9 +849,9 @@ u32 PADRead(PADStatus* status) {
+       const auto yrPos = _get_axis_value(controller, PAD_AXIS_RIGHT_Y_POS);
+       const auto yrNeg = _get_axis_value(controller, PAD_AXIS_RIGHT_Y_NEG);
+ 
+-      auto xr = static_cast<Sint16>((xrPos + -xrNeg) / 2);
++      auto xr = stick_axis(xrPos, xrNeg);
+       // SDL's gamepad y-axis is inverted from GC's
+-      auto yr = static_cast<Sint16>((-yrPos + yrNeg) / 2);
++      auto yr = static_cast<Sint16>(-stick_axis(yrPos, yrNeg));
+       if (controller->m_deadZones.useDeadzones) {
+         if (std::abs(xr) > controller->m_deadZones.substickDeadZone) {
+           xr /= 256;
 diff --git a/GXRuntime/graphics/aurora/lib/gfx/common.cpp b/GXRuntime/graphics/aurora/lib/gfx/common.cpp
 index 4c672587f0..9cb79fe633 100644
 --- a/GXRuntime/graphics/aurora/lib/gfx/common.cpp
@@ -5757,7 +5826,7 @@ index ca511a7ab6..e5b40abc03 100644
  
  int dolgx_replay_pixels_main(const char* trace_path,
 diff --git a/GXRuntime/include/gxruntime/aurora_backend.h b/GXRuntime/include/gxruntime/aurora_backend.h
-index c9ec4b9a42..473ebd0bf1 100644
+index c9ec4b9a42..3794ad06d9 100644
 --- a/GXRuntime/include/gxruntime/aurora_backend.h
 +++ b/GXRuntime/include/gxruntime/aurora_backend.h
 @@ -3,6 +3,7 @@
@@ -5768,7 +5837,7 @@ index c9ec4b9a42..473ebd0bf1 100644
  
  #include <stdbool.h>
  
-@@ -19,14 +20,54 @@ typedef struct AuroraBackendConfig {
+@@ -19,14 +20,58 @@ typedef struct AuroraBackendConfig {
      bool info_logging;
      bool graphics_logging;
      bool force_untextured;
@@ -5819,6 +5888,10 @@ index c9ec4b9a42..473ebd0bf1 100644
 +                                        void* user);
 +int aurora_backend_copies_restore(const void* ram_base, uint32_t ram_size, const void* data,
 +                                  uint32_t size);
++
++/* The keyboard's default bindings on a port (the layout aurora_backend_pad_init installs when none
++ * were saved), made active; not saved (PADSerializeMappings does). No-op without SDL. */
++void aurora_backend_pad_default_keys(uint32_t port);
 +#ifdef __cplusplus
 +}
 +#endif
