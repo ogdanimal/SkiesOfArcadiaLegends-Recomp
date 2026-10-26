@@ -7,15 +7,16 @@ each one is, where its code lives, what the standalone has, the port steps, how 
 (so the port is checked the same way), and size. Read *HANDOFF-emulator-free.md* first (the standalone's
 architecture: *In-game menu*, *Save states*, *The Android shell*, *Pacing on the Pocket 5*).
 
-**Progress (2026-10-26):** items 0-5 done on desktop (2 including MSAA 2x / 8x through a Dawn patch;
+**Progress (2026-10-26):** items 0-6 done on desktop (6 = 60 fps; its device checks open) (2 including MSAA 2x / 8x through a Dawn patch;
 3 = input: rumble, release keyboard layout, names, Button mapping, controller follow; 4 = Language with the
 restart; 5 = HD textures: import, menu row, files decoded off the render thread), each with its checks and
-leftovers in its section below; the Japanese game's memory card fixed on the way (item 1). **Pick up at item
-6** (60 fps), or first the item 3 hands-on checks if the user has the pads to hand. Standing leftovers: the European / Japanese first field and an APK with their modules on the
+leftovers in its section below; the Japanese game's memory card fixed on the way (item 1). **Pick up at the
+Pocket 5 checks of items 5 and 6** (with the user's go-ahead), else item 7 (Dreamcast). Standing leftovers: the European / Japanese first field and an APK with their modules on the
 Pocket 5 (item 0); a first battle and card save after Continue, Windows and the Pocket 5 (item 1); the
 4x-MSAA specks in the light beam and GPU cost at 4x / 6x resolution (item 2); shipping the patched Dawn and
 the macOS build (item 2); rumble by hand, a capture with a real pad, two pads and the Pocket 5 (item 3); the
-restart on Android (item 4); the Pocket 5 head-to-head with the PNG pack (item 5).
+restart on Android (item 4); the Pocket 5 head-to-head with the PNG pack (item 5); 60 fps on the Pocket 5
+and the Nova, and its scene list (item 6).
 
 ## Ground rules
 
@@ -64,7 +65,7 @@ music, `[Skies] DreamcastIntro`), **Controls** (Button mapping, Stick dead zone,
 | 3 | Input: release keyboard layout, rumble, names, Button mapping, menu-close rule | `recompcore-input`, `controller-names`, `menu-close`, `android-pad-follow`, review D23-D26 | **done** (desktop): rumble, release layout, names, mapping page, follow; fork 0040-0041 | ~2 days |
 | 4 | Language (European disc) | `recompcore-language.patch` | **done** (desktop): SRAM from the key, Language tab, restart | ~1 day |
 | 5 | HD textures (+ import) | `recompcore-hd-textures`, `hd-textures-nested`, review D2 / D22 | **done** (desktop): CLI import, menu row, live; async loads; fork 0042-0043 | ~2-3 days |
-| 6 | 60 fps | `recompcore-frame-interpolation`, `battle-specials`, `field-speed`, review D6 / D25 | none (Aurora's replay context exists) | 3-4 sessions |
+| 6 | 60 fps | `recompcore-frame-interpolation`, `battle-specials`, `field-speed`, review D6 / D25 | **done on desktop**: record, blend, replay, retrace presents, budget, holds, menu; fork 0044; devices open | 3-4 sessions |
 | 7 | Dreamcast: Uncensored, Dreamcast music, DC streams, EU 60 Hz audio | `uncensor`, `skies-dcmusic-eu`, `dcmusic-streams`, `dcmusic-fx`, `pal60`, review D3 / D4 / D16-D21 | none | 1,200-1,800 lines of glue |
 | 8 | Data folder, romhacks, save import / backup | `data-folder`, `romhack`, `state-folders`; `lib/ModernGekko/tools/*` | `--user`, `--dol` | 3-5 days |
 | 9 | Android launcher (disc import, settings, Continue, saves) | `skies-android-app`, `android*`, review D7 / D8 / D11-D15 | adb pushes, args.txt | 1.5-2 weeks |
@@ -462,6 +463,58 @@ back on Android. Then the head-to-head against the Dolphin build's 60 fps on the
 
 Size: ~1,800-2,200 lines (1,400 in `interp60.cpp`); 3-4 sessions (record + blend with dumps; replay +
 presents; menu + holds + states; devices).
+
+**Done on desktop (2026-10-26):** commit e88be2c, fork 0044.
+
+- **Correction to the plan:** dev's `review-d` patch changes `FrameInterpolator.cpp` (D6 / D25: the test
+  switch for a failed second EFB, `ReadEnabled` once, Shutdown deferred), so the vendored copy is not
+  current; none of it touches the blend, and the standalone has no second EFB to fail or GPU thread.
+- **Recording** (`standalone/src/interp60.cpp`, `InterpCommand` from `hw_gpu.cpp` `Apply`, every command,
+  display lists walked): the stream without the `0x40` calls; indexed XF loads (0x20-0x38) become
+  immediate loads of the RAM read then; each draw's key (vat, count, size, texture unit 0's image from
+  `DffBp()[0x94]`), its direct positions, and copies of the array ranges it indexes (the layout decoded
+  from the CP's VCD / VAT as `hw_gpu.cpp` `VertexSize` does; the array base kept to put back).
+- **Blend:** the Dolphin build's `BuildBlendedStream`, `Align`, `Blendable`, `VertexJumps` (trace lines
+  dropped). `SKIES_INTERP_T` moves the blend (0 gives the previous frame: used to prove the replay draws
+  the blend).
+- **Replay** at the frame's XFB copy, before the copy goes to Aurora: `aurora_backend_keep_picture(real)`,
+  then the replay context, the registers the frame started with (`DffSnapshot` at each XFB copy,
+  `DffRegisterCommands` = `DffReloadAurora` without the display copy), the blended stream with each
+  indexed draw's arrays as host pointers (an arena, reset per replay; leaving the context drains), the
+  in-between kept just before the stream's own XFB copy, whose clear then readies the spare EFB.
+- **Presents** (`video.cpp`): with 60 fps on, `VideoRetrace` presents: the first retrace after the copy the
+  in-between, the next the real one. The Dolphin build waits for the VI to show the frame's XFB; here
+  that left about 15 fields in 20 s without a picture (the game flips a field late now and then), so it
+  counts from the copy, as the 30 fps presents do. Slots: real `frame % 4 * 2`, in-between + 1.
+- **Budget** (the Dolphin build's single-core `ReplayFits`): work = wall time less the throttle's sleep
+  (`ThrottleIdle`) and the time in Aurora's present calls (`VideoPresentTime`: they wait for the render
+  worker's scheduled presents; counting them as work turned replays off on a fast PC); off past 95% of
+  the frame, back on after 30 frames under 88%; meanwhile frames present as at 30 fps.
+  `SKIES_INTERP_ADAPTIVE=0` replays always.
+- **Holds** (`menu.cpp` `qol::Write`): off while the game runs fast (field speed, battle speed but for
+  spells / specials: `qol_normal_speed` 0x80002BDC, ws28). **Menu:** Graphics > Frame rate after HUD, the
+  Dolphin build's row and texts, `[Skies] FrameMode`. Not ported: the Dolphin build's "slow for 20 s"
+  note that opens the menu on this row (the budget keeps full speed instead).
+- **Fork 0044:** the replay context's TLUT slots get ids of their own (`0xC0000000 | offset`): the TLUT
+  texture caches are shared and each context counts its own versions, so one context could get the
+  other's palette; `aurora_backend_in_replay_context`; `aurora_backend_synchronize` (frame dumps:
+  without it a readback came from a present still queued, and dumps didn't match their frames).
+- **Test switches:** `SKIES_INTERP=0/1` (overrides the key), `SKIES_INTERP_TRACE=1` (frame ends and
+  retrace presents), `SKIES_INTERP_STATS=1` (counts and ms per frame), dumps write `frame_N-interp.ppm`
+  beside `frame_N.ppm`.
+- **Checked (Windows D3D12, RTX):** six real frames of the opening pixel-identical with 60 fps on and off
+  (`SKIES_RTC`, `AURORA_SYNC_PIPELINES=1`); in-betweens halfway (ship and gull, airship, Aika's map hand,
+  Aika, Fina, the searchlights, the Valuan ship after a state load); 595 of the opening's first 600
+  frames interpolated; the fight route in real time: p50 16.7 ms, 0-2 intervals over 25 ms in most
+  10 s windows (5-12 around loads and the battle transition, where the game itself takes a third
+  field), nothing skipped after the boot logos; uncapped 3.6x with it, 5.0x without. Per frame: keep
+  0.3-1.0 ms, blend 0.1-0.8, feed 0.2-1.7 (Aurora parses the replay on the emulation thread). WSL
+  runs aren't deterministic (off vs off differs), so exact comparisons are Windows'.
+- **Open:** the Pocket 5 (pacing, full speed, the budget there, head-to-head with the Dolphin build's
+  60 fps) and the Nova; the scene list above (title clouds, the game's menu fade, the Valuan ladder,
+  cloud sea, world-map flight, battle at speed with spells for the hold); Android's Home and back.
+  If the Pocket 5 can't fit the replay, the next step is parsing Aurora's FIFO on a thread of its own
+  (the Dolphin build's dual-core shape): the replay's cost today is mostly that parse.
 
 ## 7. Dreamcast features and disc audio
 

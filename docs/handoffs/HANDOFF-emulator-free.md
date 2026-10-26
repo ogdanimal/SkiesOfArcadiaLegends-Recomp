@@ -81,7 +81,7 @@ see *Save states*). Memory card saves are plain GCI files and carry over.
 
 ## What carries over
 
-- The Aurora fork (`~/projects/skies-aurora/GXRuntime`, 43 commits, `patches/` there): Skies renders exactly
+- The Aurora fork (`~/projects/skies-aurora/GXRuntime`, 44 commits, `patches/` there): Skies renders exactly
   like Dolphin on the Retroid Pocket 5, the Nova, Windows and WSL; 60 fps through a second GX context;
   the present rectangle (Picture option); the Dear ImGui overlay (the in-game menu). All of it is in the
   vendored GXRuntime on the local `aurora-backend` branch.
@@ -866,3 +866,14 @@ Commit 2b6be40; fork 0042-0043. Details and checks in *HANDOFF-feature-gaps.md* 
 - **Checked:** both v0.06 packs import byte-identical; the fight route on WSL and Windows with 89-91 files in
   use, the moon and skies replaced, off and on live; Windows speed unchanged. **Open:** the Pocket 5
   head-to-head (PNG pack, BC7 skipped there) and the full 4x pack.
+
+## 60 fps (feature-gap item 6, 2026-10-26)
+
+Commit e88be2c; fork 0044. Details and checks in *HANDOFF-feature-gaps.md* item 6.
+
+- `interp60.cpp` records each frame's GX stream as `hw_gpu.cpp` applies it, blends it with the previous
+  frame's (the Dolphin build's logic) and replays it at the XFB copy into Aurora's replay context; the
+  retraces present the in-between picture, then the real one. `[Skies] FrameMode`, Graphics > Frame rate.
+- Single-threaded: the replay costs the emulation thread a second Aurora parse of the frame, so the
+  Dolphin build's single-core budget decides per scene; on a desktop it always fits (Windows uncapped
+  3.6x with it, 5.0x without). The Pocket 5 is untested; a thread for Aurora's parse is the fallback.
