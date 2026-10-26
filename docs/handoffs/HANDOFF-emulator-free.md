@@ -30,7 +30,8 @@ checked on the Pocket 5 too (fork 0045), Aurora moved to a video thread (fork 00
 Dreamcast features: Uncensored, the Dreamcast music and streams, the European 60 Hz audio) done on desktop
 and the Pocket 5; item 8 mostly done (the runner contract, Dolphin `.sav` states converted at load, the
 launcher patch, controller Device); graphics APIs on Windows: D3D12, then Vulkan and D3D11 (they never
-started before fork 0049), a dialog when none starts; open: the Android shell and packaging (items 9-10,
+started before fork 0049), a dialog when none starts; a GUI program on Windows (no console window, the log in
+`USER/Logs`); the Language restart on Android; open: the Android shell and packaging (items 9-10,
 waiting for dev to be merged in, on hold by the user), and the device checks of items 0-4; phase 5 (Android) started: a test app that plays on the Retroid Pocket 5 (from a
 state; pacing fixed; higher resolutions measured; immersive; Home and back work, with the video thread too;
 the built-in pad and audio on the device untested by hand; no launcher yet).
@@ -869,7 +870,8 @@ Commits d950049, 1caa857, 6b9abe1; fork 0040 (080ec53) and 0041. Details and che
 
 The European disc's language from `[Skies] Language` into the IPL SRAM (`hw_exi.cpp`), a Language tab, and the
 Dolphin build's "A twice restarts" on desktop (the standalone execs itself without `--load-state` /
-`--continue`; Android not yet). Checked on WSL and Windows; details in *HANDOFF-feature-gaps.md* item 4.
+`--continue`; on Android a restarter process ends the game's process and starts it again, fde8bf1). Checked on
+WSL, Windows and the Pocket 5 (European disc); details in *HANDOFF-feature-gaps.md* item 4.
 
 ## HD textures (feature-gap item 5, 2026-10-26)
 

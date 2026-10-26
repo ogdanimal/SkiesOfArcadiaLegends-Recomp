@@ -228,7 +228,8 @@ Item 7 since (2026-10-26): the Dreamcast features (Uncensored, the Dreamcast mus
 European 60 Hz audio) from the Dolphin build's modules copied as they are behind shimmed Dolphin headers;
 every output byte-identical to the Dolphin build's. Item 8 (2026-10-26): the Dolphin build's save states load
 (converted), the launcher patch, controller Device; Windows' Vulkan and D3D11 fallbacks fixed (fork 0049), a
-dialog when no graphics API starts. Open: the Android launcher and packaging (items 9-10, waiting for dev to be
+dialog when no graphics API starts; no console window on Windows; the Language restart on Android (Pocket 5,
+European disc). Open: the Android launcher and packaging (items 9-10, waiting for dev to be
 merged into the branch, on hold by the user); a PC where D3D12 really fails and D3D11's speed on a weak GPU; the EFB
 passes on the tiler; the built-in pad and audio on the device (by hand), size changes on return. The plan for
 the features: [handoffs/HANDOFF-feature-gaps.md](handoffs/HANDOFF-feature-gaps.md).

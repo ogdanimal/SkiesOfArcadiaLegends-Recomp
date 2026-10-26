@@ -25,6 +25,10 @@ following GCPadNew.ini's Device (2d80f3f). **2026-10-26 late:** a window resize 
 (`SKIES_RESIZE_AT`, e5e673d); the WSL texture flicker is Mesa's d3d12 GL driver, not Dawn or Aurora (fork 0048
 `DOL_AURORA_BACKEND`, 6195e00); on Windows the Vulkan and D3D11 fallbacks start now (fork 0049) and a PC with
 no working API gets a "No graphics support" dialog (f3953d2); the manifest says `userLandscape` (039930d).
+Windows Sandbox (3319001): Smart App Control blocks the unsigned exe (backlog), D3D11 draws, D3D12 crashes the
+sandbox's kernel (Windows' GPU-PV), Vulkan's crash fixed in Dawn (`patches/dawn/0002`). No console window on
+Windows, the log to `USER/Logs` (64ea652). The Language restart on Android, checked on the Pocket 5 with the
+European disc (fde8bf1).
 Items 9 and 10 need dev's code merged in first; **the user said hold** (no merge or rebase for now; *Items 9 and
 10 need dev's current code* below). **Pick up at items 8-10**, now one goal: the standalone **replaces** the Dolphin build as a normal update
 (the user, 2026-10-26; *Items 8-10* below has the approach, the runner contract and what doesn't carry over
