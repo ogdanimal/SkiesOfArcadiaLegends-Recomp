@@ -1064,6 +1064,35 @@ index 46ebf40b49..93353b4852 100644
    };
  };
  
+diff --git a/GXRuntime/graphics/aurora/include/aurora/texture.hpp b/GXRuntime/graphics/aurora/include/aurora/texture.hpp
+index cd32c87ae0..b83b10aed9 100644
+--- a/GXRuntime/graphics/aurora/include/aurora/texture.hpp
++++ b/GXRuntime/graphics/aurora/include/aurora/texture.hpp
+@@ -63,6 +63,24 @@ ReplacementGroup load_replacement_directory(const std::filesystem::path& root, R
+ void reload_replacement_directory(const std::filesystem::path& root, ReplacementGroup& group,
+                                   ReplacementOptions options = {});
+ 
++// Files registered (source keys), loaded the first time the game used their texture since the
++// last clear, failed to load (an unsupported format, a damaged file); GPU bytes held; the time the
++// files took to decode (on the loader threads; on the render thread with AURORA_SYNC_REPLACEMENTS=1)
++// and to upload after (on the render thread), in all and the longest.
++struct ReplacementStats {
++  uint32_t registered = 0;
++  uint32_t loaded = 0;
++  uint32_t failed = 0;
++  uint64_t bytes = 0;
++  double loadMsTotal = 0.0;
++  double loadMsMax = 0.0;
++  double uploadMsTotal = 0.0;
++  double uploadMsMax = 0.0;
++};
++ReplacementStats replacement_stats();
++// Whether BC7 (BPTC) DDS replacements can load: the GPU has BC textures and draws BC7 right.
++bool bc7_supported();
++
+ } // namespace aurora::texture
+ 
+ #endif
 diff --git a/GXRuntime/graphics/aurora/lib/aurora.cpp b/GXRuntime/graphics/aurora/lib/aurora.cpp
 index 8843b7b0d8..2c28b816c8 100644
 --- a/GXRuntime/graphics/aurora/lib/aurora.cpp
@@ -2589,10 +2618,21 @@ index d6d9b2fbb0..77b1821e51 100644
                                        std::move(attachmentTextureView), size, wgpuFormat, 1, gxFormat);
  }
 diff --git a/GXRuntime/graphics/aurora/lib/gfx/texture.hpp b/GXRuntime/graphics/aurora/lib/gfx/texture.hpp
-index 45a8ba80e8..e6bfee0b81 100644
+index 45a8ba80e8..4bde5e1b6e 100644
 --- a/GXRuntime/graphics/aurora/lib/gfx/texture.hpp
 +++ b/GXRuntime/graphics/aurora/lib/gfx/texture.hpp
-@@ -81,8 +81,8 @@ struct GXTexObj_ {
+@@ -43,6 +43,10 @@ struct TextureRef {
+   u32 gxFormat;
+   bool hasArbitraryMips = false;
+   bool isReplacement = false;
++  // The game's own texture, drawn while its replacement decodes (texture_replacement.cpp): the
++  // caches ask again once the loads finished count differs from the one it was made at
++  bool replacementPending = false;
++  uint32_t replacementGeneration = 0;
+ 
+   TextureRef(wgpu::Texture texture, wgpu::TextureView sampleTextureView, wgpu::TextureView attachmentTextureView,
+              wgpu::Extent3D size, wgpu::TextureFormat format, uint32_t mipCount, u32 gxFormat)
+@@ -81,8 +85,8 @@ struct GXTexObj_ {
  
    static constexpr u32 get_bits(u32 reg, u32 size, u32 shift) noexcept { return (reg >> shift) & ((1u << size) - 1); }
  
@@ -2603,6 +2643,410 @@ index 45a8ba80e8..e6bfee0b81 100644
    u32 raw_format() const noexcept { return get_bits(image0, 4, 20); }
    u32 format() const noexcept { return mFormat != aurora::gfx::InvalidTextureFormat ? mFormat : raw_format(); }
    GXTexWrapMode wrap_s() const noexcept { return static_cast<GXTexWrapMode>(get_bits(mode0, 2, 0)); }
+diff --git a/GXRuntime/graphics/aurora/lib/gfx/texture_replacement.cpp b/GXRuntime/graphics/aurora/lib/gfx/texture_replacement.cpp
+index 31e04c6a4f..36fed1cc15 100644
+--- a/GXRuntime/graphics/aurora/lib/gfx/texture_replacement.cpp
++++ b/GXRuntime/graphics/aurora/lib/gfx/texture_replacement.cpp
+@@ -18,8 +18,13 @@
+ 
+ #include <algorithm>
+ #include <array>
++#include <atomic>
+ #include <charconv>
++#include <chrono>
++#include <condition_variable>
++#include <cstdlib>
+ #include <cstring>
++#include <deque>
+ #include <filesystem>
+ #include <list>
+ #include <mutex>
+@@ -27,6 +32,7 @@
+ #include <span>
+ #include <string>
+ #include <string_view>
++#include <thread>
+ #include <vector>
+ 
+ using namespace aurora::gx;
+@@ -100,6 +106,34 @@ uint64_t s_replacementCacheBytes = 0;
+ uint64_t s_nextRegistrationId = 1;
+ uint64_t s_nextSequence = 1;
+ uint32_t s_sourceEntryCount = 0;
++uint32_t s_loadedCount = 0;  // replacements loaded since the last clear (replacement_stats)
++
++// File replacements load on loader threads, as Dolphin's custom textures do (CustomAssetLoader):
++// the first lookup queues the file and the game's own texture draws until it is decoded, then the
++// next lookup uploads it. A PNG of the 4x packs takes tens of milliseconds to decode on a desktop
++// and several times that on a phone, a hitch on the render thread. s_loadGeneration counts the
++// decodes finished, so the texture caches know to look again (gx.cpp). AURORA_SYNC_REPLACEMENTS=1
++// loads on the render thread at first use instead (frame-exact runs).
++struct LoadJob {
++  uint64_t id = 0;
++  ReplacementEntry entry;
++};
++std::mutex s_loadMutex;
++std::condition_variable s_loadWake;
++std::deque<LoadJob> s_loadQueue;
++absl::flat_hash_set<uint64_t> s_loadWanted;  // queued or decoding; a clear drops them
++absl::flat_hash_map<uint64_t, std::optional<aurora::gfx::ConvertedTexture>> s_loadDone;
++std::vector<std::thread> s_loaders;
++bool s_loadersStop = false;
++std::atomic<uint32_t> s_loadGeneration{0};
++double s_loadMsTotal = 0.0;  // the time decodes took, all and the longest (s_loadMutex)
++double s_loadMsMax = 0.0;
++double s_uploadMsTotal = 0.0;  // and the uploads after them, on the render thread (s_registryMutex)
++double s_uploadMsMax = 0.0;
++const bool s_syncReplacements = [] {
++  const char* env = std::getenv("AURORA_SYNC_REPLACEMENTS");
++  return env != nullptr && env[0] == '1';
++}();
+ 
+ absl::flat_hash_map<const GXTlutObj*, TlutMetadata> s_pendingTluts;
+ std::array<TlutMetadata, MaxTluts> s_loadedTluts{};
+@@ -411,7 +445,8 @@ std::optional<aurora::texture::TextureSourceKey> parse_replacement_filename(std:
+     return std::nullopt;
+   }
+ 
+-  std::array<std::string_view, 6> parts{};
++  // tex1, WxH, [m], hash, [tlut], format, [arb]: Dolphin's names have up to seven parts
++  std::array<std::string_view, 7> parts{};
+   size_t partCount = 0;
+   size_t offset = 0;
+   bool consumedAll = false;
+@@ -424,7 +459,7 @@ std::optional<aurora::texture::TextureSourceKey> parse_replacement_filename(std:
+     }
+     offset = next + 1;
+   }
+-  if (!consumedAll || partCount < 4 || partCount > 6 || parts[0] != "tex1") {
++  if (!consumedAll || partCount < 4 || partCount > 7 || parts[0] != "tex1") {
+     return std::nullopt;
+   }
+ 
+@@ -438,7 +473,9 @@ std::optional<aurora::texture::TextureSourceKey> parse_replacement_filename(std:
+     ++index;
+   }
+ 
+-  size_t remaining = partCount - index;
++  // "_arb" (the game's texture has arbitrary mipmaps) only marks the name
++  const size_t end = parts[partCount - 1] == "arb" ? partCount - 1 : partCount;
++  const size_t remaining = end - index;
+   if (remaining != 2 && remaining != 3) {
+     return std::nullopt;
+   }
+@@ -454,12 +491,7 @@ std::optional<aurora::texture::TextureSourceKey> parse_replacement_filename(std:
+     textureHash = *parsedTex;
+   }
+ 
+-  auto formatPart = parts[partCount - 1];
+-  if (formatPart == "arb") {
+-    formatPart = parts[partCount - 2];
+-    remaining -= 1;
+-  }
+-  const auto format = parse_u32(formatPart);
++  const auto format = parse_u32(parts[end - 1]);
+   if (!format.has_value()) {
+     return std::nullopt;
+   }
+@@ -527,9 +559,10 @@ constexpr bool is_unsupported_texture_format(wgpu::TextureFormat format) {
+   case wgpu::TextureFormat::BC5RGSnorm:
+   case wgpu::TextureFormat::BC6HRGBUfloat:
+   case wgpu::TextureFormat::BC6HRGBFloat:
++    return !aurora::webgpu::g_bcTexturesSupported;
+   case wgpu::TextureFormat::BC7RGBAUnorm:
+   case wgpu::TextureFormat::BC7RGBAUnormSrgb:
+-    return !aurora::webgpu::g_bcTexturesSupported;
++    return !aurora::webgpu::g_bcTexturesSupported || aurora::webgpu::g_bc7TexturesBroken;
+   case wgpu::TextureFormat::ASTC4x4Unorm:
+   case wgpu::TextureFormat::ASTC4x4UnormSrgb:
+   case wgpu::TextureFormat::ASTC5x4Unorm:
+@@ -808,12 +841,18 @@ aurora::gfx::TextureHandle load_entry_handle(const aurora::texture::ReplacementK
+ 
+   aurora::gfx::TextureHandle handle;
+   if (entry.kind == EntryKind::File) {
++    const auto start = std::chrono::steady_clock::now();
+     const auto replacement = load_file_replacement(entry);
+     if (!replacement.has_value()) {
+       s_failedIds.insert(entry.id);
+       return {};
+     }
+     handle = create_converted_texture_handle(key, entry, *replacement);
++    ++s_loadedCount;
++    const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
++    std::lock_guard loadLock(s_loadMutex);
++    s_loadMsTotal += ms;
++    s_loadMsMax = std::max(s_loadMsMax, ms);
+   } else {
+     handle = create_raw_texture_handle(entry);
+     if (!handle) {
+@@ -824,8 +863,89 @@ aurora::gfx::TextureHandle load_entry_handle(const aurora::texture::ReplacementK
+   return handle;
+ }
+ 
++void loader_thread() noexcept {
++  for (;;) {
++    LoadJob job;
++    {
++      std::unique_lock lk(s_loadMutex);
++      s_loadWake.wait(lk, [] { return s_loadersStop || !s_loadQueue.empty(); });
++      if (s_loadersStop) {
++        return;
++      }
++      job = std::move(s_loadQueue.front());
++      s_loadQueue.pop_front();
++    }
++    const auto start = std::chrono::steady_clock::now();
++    auto result = load_file_replacement(job.entry);
++    const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
++    {
++      std::lock_guard lk(s_loadMutex);
++      // Dropped by a clear or unregister while decoding: nothing waits for it
++      if (s_loadWanted.erase(job.id) != 0) {
++        s_loadDone.emplace(job.id, std::move(result));
++      }
++      s_loadMsTotal += ms;
++      s_loadMsMax = std::max(s_loadMsMax, ms);
++    }
++    s_loadGeneration.fetch_add(1, std::memory_order_release);
++  }
++}
++
++// The decoded file of a file entry, or nullopt while it decodes (queued at the first ask). The
++// outer optional: nullopt = not ready; the inner one: nullopt = the file failed to load.
++std::optional<std::optional<aurora::gfx::ConvertedTexture>> take_loaded_file(const ReplacementEntry& entry) {
++  std::lock_guard lk(s_loadMutex);
++  if (const auto it = s_loadDone.find(entry.id); it != s_loadDone.end()) {
++    auto result = std::move(it->second);
++    s_loadDone.erase(it);
++    return result;
++  }
++  if (s_loadWanted.insert(entry.id).second) {
++    if (s_loaders.empty()) {
++      s_loadersStop = false;
++      const unsigned threads = std::clamp(std::thread::hardware_concurrency() / 4, 1u, 2u);
++      for (unsigned i = 0; i < threads; ++i) {
++        s_loaders.emplace_back(loader_thread);
++      }
++    }
++    s_loadQueue.push_back({.id = entry.id, .entry = entry});
++    s_loadWake.notify_one();
++  }
++  return std::nullopt;
++}
++
++void drop_loads() noexcept {
++  std::lock_guard lk(s_loadMutex);
++  s_loadQueue.clear();
++  s_loadWanted.clear();
++  s_loadDone.clear();
++}
++
++// An entry unregistered: its file no longer wanted, nor kept once decoded
++void drop_load(uint64_t id) noexcept {
++  std::lock_guard lk(s_loadMutex);
++  s_loadWanted.erase(id);
++  s_loadDone.erase(id);
++  std::erase_if(s_loadQueue, [id](const LoadJob& job) { return job.id == id; });
++}
++
++void stop_loaders() noexcept {
++  {
++    std::lock_guard lk(s_loadMutex);
++    s_loadersStop = true;
++    s_loadQueue.clear();
++    s_loadWanted.clear();
++    s_loadDone.clear();
++  }
++  s_loadWake.notify_all();
++  for (auto& thread : s_loaders) {
++    thread.join();
++  }
++  s_loaders.clear();
++}
++
+ std::optional<aurora::gfx::TextureHandle>
+-find_replacement_for_key_locked(const aurora::texture::ReplacementKey& key) noexcept {
++find_replacement_for_key_locked(const aurora::texture::ReplacementKey& key, bool* pending) noexcept {
+   const auto* entry = find_selected_entry_locked(key);
+   if (entry == nullptr) {
+     return std::nullopt;
+@@ -837,7 +957,31 @@ find_replacement_for_key_locked(const aurora::texture::ReplacementKey& key) noex
+   }
+ 
+   erase_cache_locked(key);
+-  auto handle = load_entry_handle(key, *entry);
++  aurora::gfx::TextureHandle handle;
++  if (entry->kind == EntryKind::File && !s_syncReplacements) {
++    if (s_failedIds.contains(entry->id)) {
++      return std::nullopt;
++    }
++    auto loaded = take_loaded_file(*entry);
++    if (!loaded.has_value()) {
++      if (pending != nullptr) {
++        *pending = true;
++      }
++      return std::nullopt;
++    }
++    if (!loaded->has_value()) {
++      s_failedIds.insert(entry->id);
++      return std::nullopt;
++    }
++    const auto start = std::chrono::steady_clock::now();
++    handle = create_converted_texture_handle(key, *entry, **loaded);
++    ++s_loadedCount;
++    const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
++    s_uploadMsTotal += ms;
++    s_uploadMsMax = std::max(s_uploadMsMax, ms);
++  } else {
++    handle = load_entry_handle(key, *entry);
++  }
+   if (!handle) {
+     return std::nullopt;
+   }
+@@ -941,6 +1085,13 @@ void clear_replacement_runtime_state_locked() noexcept {
+   s_replacementLru.clear();
+   s_replacementCacheBytes = 0;
+   s_sourceEntryCount = 0;
++  s_loadedCount = 0;
++  s_uploadMsTotal = 0.0;
++  s_uploadMsMax = 0.0;
++  drop_loads();
++  std::lock_guard loadLock(s_loadMutex);
++  s_loadMsTotal = 0.0;
++  s_loadMsMax = 0.0;
+ }
+ 
+ bool is_source_key(const aurora::texture::ReplacementKey& key) noexcept {
+@@ -1030,6 +1181,7 @@ void unregister_replacement(const ReplacementRegistration& registration) {
+     --s_sourceEntryCount;
+   }
+   s_failedIds.erase(registration.id);
++  drop_load(registration.id);
+   erase_cache_locked(registration.key);
+   if (entries.empty()) {
+     s_entriesByKey.erase(it);
+@@ -1057,6 +1209,7 @@ void unregister_replacements(const ReplacementKey& key) {
+   }
+   for (const auto& entry : it->second) {
+     s_failedIds.erase(entry.id);
++    drop_load(entry.id);
+   }
+   erase_cache_locked(key);
+   s_entriesByKey.erase(it);
+@@ -1137,12 +1290,30 @@ void reload_replacement_directory(const std::filesystem::path& root, Replacement
+   unregister_replacements(group);
+   group = load_replacement_directory(root, options);
+ }
++
++ReplacementStats replacement_stats() {
++  std::lock_guard lk(s_registryMutex);
++  std::lock_guard loadLock(s_loadMutex);
++  return {
++      .registered = s_sourceEntryCount,
++      .loaded = s_loadedCount,
++      .failed = static_cast<uint32_t>(s_failedIds.size()),
++      .bytes = s_replacementCacheBytes,
++      .loadMsTotal = s_loadMsTotal,
++      .loadMsMax = s_loadMsMax,
++      .uploadMsTotal = s_uploadMsTotal,
++      .uploadMsMax = s_uploadMsMax,
++  };
++}
++
++bool bc7_supported() { return webgpu::g_bcTexturesSupported && !webgpu::g_bc7TexturesBroken; }
+ } // namespace aurora::texture
+ 
+ namespace aurora::gfx::texture_replacement {
+ void initialize() noexcept {}
+ 
+ void shutdown() noexcept {
++  stop_loaders();
+   texture::clear_replacements();
+   s_pendingTluts.clear();
+   for (auto& tlut : s_loadedTluts) {
+@@ -1189,7 +1360,8 @@ void load_tlut(const GXTlutObj* obj, uint32_t idx) noexcept {
+ }
+ 
+ std::optional<TextureHandle> find_source_replacement_locked(const GXTexObj_& obj,
+-                                                            const texture::TextureSourceKey& sourceKey) noexcept {
++                                                            const texture::TextureSourceKey& sourceKey,
++                                                            bool* pending) noexcept {
+   const auto replacementKey = find_source_replacement_key_locked(sourceKey);
+   if (!replacementKey.has_value()) {
+     // Enable for debugging
+@@ -1197,10 +1369,12 @@ std::optional<TextureHandle> find_source_replacement_locked(const GXTexObj_& obj
+     return std::nullopt;
+   }
+ 
+-  return find_replacement_for_key_locked(*replacementKey);
++  return find_replacement_for_key_locked(*replacementKey, pending);
+ }
+ 
+-std::optional<TextureHandle> find_replacement(const GXTexObj_& obj) noexcept {
++uint32_t load_generation() noexcept { return s_loadGeneration.load(std::memory_order_acquire); }
++
++std::optional<TextureHandle> find_replacement(const GXTexObj_& obj, bool* pending) noexcept {
+   ZoneScoped;
+ 
+   std::lock_guard lk(s_registryMutex);
+@@ -1211,7 +1385,7 @@ std::optional<TextureHandle> find_replacement(const GXTexObj_& obj) noexcept {
+   if (obj.data != nullptr) {
+     texture::ReplacementKey pointerKey{texture::TexturePointerKey{.data = obj.data}};
+     if (s_entriesByKey.contains(pointerKey)) {
+-      return find_replacement_for_key_locked(pointerKey);
++      return find_replacement_for_key_locked(pointerKey, pending);
+     }
+   }
+ 
+@@ -1220,10 +1394,10 @@ std::optional<TextureHandle> find_replacement(const GXTexObj_& obj) noexcept {
+   }
+ 
+   const auto sourceKey = build_source_key(obj);
+-  return find_source_replacement_locked(obj, sourceKey);
++  return find_source_replacement_locked(obj, sourceKey, pending);
+ }
+ 
+-std::optional<TextureHandle> find_replacement(const GXTexObj_& obj, const GXTlutObj_& tlut) noexcept {
++std::optional<TextureHandle> find_replacement(const GXTexObj_& obj, const GXTlutObj_& tlut, bool* pending) noexcept {
+   ZoneScoped;
+ 
+   std::lock_guard lk(s_registryMutex);
+@@ -1234,7 +1408,7 @@ std::optional<TextureHandle> find_replacement(const GXTexObj_& obj, const GXTlut
+   if (obj.data != nullptr) {
+     texture::ReplacementKey pointerKey{texture::TexturePointerKey{.data = obj.data}};
+     if (s_entriesByKey.contains(pointerKey)) {
+-      return find_replacement_for_key_locked(pointerKey);
++      return find_replacement_for_key_locked(pointerKey, pending);
+     }
+   }
+ 
+@@ -1243,7 +1417,7 @@ std::optional<TextureHandle> find_replacement(const GXTexObj_& obj, const GXTlut
+   }
+ 
+   const auto sourceKey = build_source_key(obj, tlut);
+-  return find_source_replacement_locked(obj, sourceKey);
++  return find_source_replacement_locked(obj, sourceKey, pending);
+ }
+ 
+ std::string build_texture_replacement_name(const GXTexObj_& obj) noexcept {
+diff --git a/GXRuntime/graphics/aurora/lib/gfx/texture_replacement.hpp b/GXRuntime/graphics/aurora/lib/gfx/texture_replacement.hpp
+index a3b02bfc47..7d590ea363 100644
+--- a/GXRuntime/graphics/aurora/lib/gfx/texture_replacement.hpp
++++ b/GXRuntime/graphics/aurora/lib/gfx/texture_replacement.hpp
+@@ -8,7 +8,11 @@ void initialize() noexcept;
+ void shutdown() noexcept;
+ void register_tlut(const GXTlutObj* obj, const void* data, GXTlutFmt format, uint16_t entries) noexcept;
+ void load_tlut(const GXTlutObj* obj, uint32_t idx) noexcept;
+-std::optional<TextureHandle> find_replacement(const GXTexObj_& obj) noexcept;
+-std::optional<TextureHandle> find_replacement(const GXTexObj_& obj, const GXTlutObj_& tlut) noexcept;
++// nullopt with *pending set: the replacement's file is decoding on a loader thread; draw the game's
++// texture meanwhile and ask again once load_generation() has moved on.
++std::optional<TextureHandle> find_replacement(const GXTexObj_& obj, bool* pending = nullptr) noexcept;
++std::optional<TextureHandle> find_replacement(const GXTexObj_& obj, const GXTlutObj_& tlut,
++                                              bool* pending = nullptr) noexcept;
++uint32_t load_generation() noexcept;
+ std::string build_texture_replacement_name(const GXTexObj_& obj) noexcept;
+ } // namespace aurora::gfx::texture_replacement
 diff --git a/GXRuntime/graphics/aurora/lib/gx/command_processor.cpp b/GXRuntime/graphics/aurora/lib/gx/command_processor.cpp
 index 5b176e702c..50c6b1bc29 100644
 --- a/GXRuntime/graphics/aurora/lib/gx/command_processor.cpp
@@ -3992,7 +4436,7 @@ index 5b176e702c..50c6b1bc29 100644
    } else if (subCmd == GX_AURORA_DEBUG_GROUP_PUSH) {
      auto label = read_string(data, pos, size, bigEndian);
 diff --git a/GXRuntime/graphics/aurora/lib/gx/gx.cpp b/GXRuntime/graphics/aurora/lib/gx/gx.cpp
-index 5915c5b5f7..5caf929931 100644
+index 5915c5b5f7..380c03d09e 100644
 --- a/GXRuntime/graphics/aurora/lib/gx/gx.cpp
 +++ b/GXRuntime/graphics/aurora/lib/gx/gx.cpp
 @@ -1,3 +1,9 @@
@@ -4030,7 +4474,7 @@ index 5915c5b5f7..5caf929931 100644
  namespace aurora::gx {
  using webgpu::g_device;
  using webgpu::g_graphicsConfig;
-@@ -85,8 +95,129 @@ absl::flat_hash_map<u32, CachedTextureEntry> s_textureObjectCaches;
+@@ -85,8 +95,146 @@ absl::flat_hash_map<u32, CachedTextureEntry> s_textureObjectCaches;
  absl::flat_hash_map<u32, TlutObjectCache> s_tlutObjectCaches;
  std::atomic_bool s_staticTextureCacheClearPending = false;
  
@@ -4151,7 +4595,24 @@ index 5915c5b5f7..5caf929931 100644
 +  if (s_retailTextureCache.size() >= kRetailTextureCacheMax) {
 +    s_retailTextureCache.clear();
 +  }
-+  s_retailTextureCache.emplace(key, handle);
++  s_retailTextureCache.insert_or_assign(key, handle);
++}
++
++// A cached game texture whose replacement was decoding when it was made, and a decode has finished
++// since: look up the replacement again (it may be this one's)
++bool replacement_may_be_ready(const gfx::TextureHandle& handle) noexcept {
++  return handle && handle->replacementPending &&
++         handle->replacementGeneration != gfx::texture_replacement::load_generation();
++}
++
++// The game's texture while its replacement decodes: the one made at the last look when there is
++// one (no conversion again), marked with the loads count from before the look
++gfx::TextureHandle keep_pending(gfx::TextureHandle handle, uint32_t generation) noexcept {
++  if (handle) {
++    handle->replacementPending = true;
++    handle->replacementGeneration = generation;
++  }
++  return handle;
 +}
 +
  void do_clear_static_texture_cache() noexcept {
@@ -4160,22 +4621,54 @@ index 5915c5b5f7..5caf929931 100644
    for (auto& [_, cache] : s_tlutObjectCaches) {
      cache.staticTextureUsers.clear();
    }
-@@ -173,6 +304,14 @@ gfx::TextureHandle resolve_static_texture(const GXTexObj_& obj) {
+@@ -164,18 +312,37 @@ gfx::TextureHandle resolve_static_texture(const GXTexObj_& obj) {
+     do_clear_static_texture_cache();
+   }
+ 
++  gfx::TextureHandle pendingHandle;
+   if (obj.texObjId != 0) {
+     if (const auto it = s_textureObjectCaches.find(obj.texObjId); it != s_textureObjectCaches.end()) {
+       const auto& entry = it->second;
+       if (entry.handle && entry.texDataVersion == obj.texDataVersion && entry.tlutObjId == 0) {
+-        return entry.handle;
++        if (!replacement_may_be_ready(entry.handle)) {
++          return entry.handle;
++        }
++        pendingHandle = entry.handle;
+       }
      }
    }
  
 +  RetailTextureKey retailKey;
 +  const bool retail = make_retail_key(obj, nullptr, retailKey);
-+  if (retail) {
++  if (retail && !pendingHandle) {
 +    if (const auto it = s_retailTextureCache.find(retailKey); it != s_retailTextureCache.end() && it->second) {
-+      return it->second;
++      if (!replacement_may_be_ready(it->second)) {
++        return it->second;
++      }
++      pendingHandle = it->second;
 +    }
 +  }
 +
    gfx::TextureHandle handle;
-   if (const auto replacement = gfx::texture_replacement::find_replacement(obj); replacement.has_value()) {
+-  if (const auto replacement = gfx::texture_replacement::find_replacement(obj); replacement.has_value()) {
++  const uint32_t generation = gfx::texture_replacement::load_generation();
++  bool pending = false;
++  if (const auto replacement = gfx::texture_replacement::find_replacement(obj, &pending); replacement.has_value()) {
      handle = *replacement;
-@@ -189,6 +328,9 @@ gfx::TextureHandle resolve_static_texture(const GXTexObj_& obj) {
++  } else if (pending && pendingHandle) {
++    handle = keep_pending(pendingHandle, generation);
+   } else {
+ #if DEBUG
+     const auto name = gfx::texture_replacement::build_texture_replacement_name(obj);
+@@ -185,10 +352,16 @@ gfx::TextureHandle resolve_static_texture(const GXTexObj_& obj) {
+ #endif
+     handle = gfx::new_static_texture_2d(obj.width(), obj.height(), obj.mip_count(), obj.format(),
+                                         {static_cast<const uint8_t*>(obj.data), UINT32_MAX}, false, nameStr);
++    if (pending) {
++      keep_pending(handle, generation);
++    }
+   }
    if (!obj.no_cache()) {
      store_cached_texture(obj, handle);
    }
@@ -4185,22 +4678,56 @@ index 5915c5b5f7..5caf929931 100644
    return handle;
  }
  
-@@ -208,6 +350,14 @@ gfx::TextureHandle resolve_static_palette_texture(const GXTexObj_& obj, const GX
-     }
+@@ -198,19 +371,39 @@ gfx::TextureHandle resolve_static_palette_texture(const GXTexObj_& obj, const GX
+     do_clear_static_texture_cache();
    }
  
-+  RetailTextureKey retailKey;
-+  const bool retail = make_retail_key(obj, &tlut, retailKey);
-+  if (retail) {
-+    if (const auto it = s_retailTextureCache.find(retailKey); it != s_retailTextureCache.end() && it->second) {
-+      return it->second;
++  gfx::TextureHandle pendingHandle;
+   if (obj.texObjId != 0) {
+     if (const auto it = s_textureObjectCaches.find(obj.texObjId); it != s_textureObjectCaches.end()) {
+       const auto& entry = it->second;
+       if (entry.handle && entry.texDataVersion == obj.texDataVersion && entry.tlutObjId == tlut.tlutObjId &&
+           entry.tlutDataVersion == tlut.tlutDataVersion) {
+-        return entry.handle;
++        if (!replacement_may_be_ready(entry.handle)) {
++          return entry.handle;
++        }
++        pendingHandle = entry.handle;
++      }
 +    }
 +  }
 +
++  RetailTextureKey retailKey;
++  const bool retail = make_retail_key(obj, &tlut, retailKey);
++  if (retail && !pendingHandle) {
++    if (const auto it = s_retailTextureCache.find(retailKey); it != s_retailTextureCache.end() && it->second) {
++      if (!replacement_may_be_ready(it->second)) {
++        return it->second;
+       }
++      pendingHandle = it->second;
+     }
+   }
+ 
    gfx::TextureHandle handle;
-   if (const auto replacement = gfx::texture_replacement::find_replacement(obj, tlut); replacement.has_value()) {
+-  if (const auto replacement = gfx::texture_replacement::find_replacement(obj, tlut); replacement.has_value()) {
++  const uint32_t generation = gfx::texture_replacement::load_generation();
++  bool pending = false;
++  if (const auto replacement = gfx::texture_replacement::find_replacement(obj, tlut, &pending);
++      replacement.has_value()) {
      handle = *replacement;
-@@ -226,6 +376,9 @@ gfx::TextureHandle resolve_static_palette_texture(const GXTexObj_& obj, const GX
++  } else if (pending && pendingHandle) {
++    handle = keep_pending(pendingHandle, generation);
+   } else {
+     auto converted = gfx::convert_texture_palette(
+         obj.format(), obj.width(), obj.height(), obj.mip_count(), {static_cast<const u8*>(obj.data), UINT32_MAX},
+@@ -222,10 +415,16 @@ gfx::TextureHandle resolve_static_palette_texture(const GXTexObj_& obj, const GX
+         gfx::new_static_texture_2d(obj.width(), obj.height(), obj.mip_count(), GX_TF_RGBA8_PC,
+                                    {converted.data.data(), converted.data.size()}, false, "GX Static Palette Texture");
+     handle->hasArbitraryMips = converted.hasArbitraryMips;
++    if (pending) {
++      keep_pending(handle, generation);
++    }
+   }
    if (!obj.no_cache() && !tlut.no_cache()) {
      store_cached_texture(obj, handle, tlut.tlutObjId, tlut.tlutDataVersion);
    }
@@ -4210,7 +4737,7 @@ index 5915c5b5f7..5caf929931 100644
    return handle;
  }
  
-@@ -391,8 +544,43 @@ void evict_tlut_object(u32 tlutObjId) noexcept {
+@@ -391,8 +590,43 @@ void evict_tlut_object(u32 tlutObjId) noexcept {
    }
  }
  
@@ -4254,7 +4781,7 @@ index 5915c5b5f7..5caf929931 100644
    g_gxState.copyTextureCache.clear();
    for (auto& [_, cache] : s_tlutObjectCaches) {
      cache.dynamicPaletteTextures.clear();
-@@ -401,6 +589,63 @@ void clear_copy_texture_cache() noexcept {
+@@ -401,6 +635,63 @@ void clear_copy_texture_cache() noexcept {
  
  void clear_static_texture_cache() noexcept { s_staticTextureCacheClearPending.store(true, std::memory_order_release); }
  
@@ -4318,7 +4845,7 @@ index 5915c5b5f7..5caf929931 100644
  void evict_copy_texture(const void* dest) noexcept {
    absl::flat_hash_set<const void*> sourceIdentities;
    if (const auto it = g_gxState.copyTextures.find(dest); it != g_gxState.copyTextures.end()) {
-@@ -454,7 +699,13 @@ void resolve_sampled_textures(const ShaderInfo& info) noexcept {
+@@ -454,7 +745,13 @@ void resolve_sampled_textures(const ShaderInfo& info) noexcept {
      }
  
      gfx::TextureHandle handle;
@@ -4333,7 +4860,7 @@ index 5915c5b5f7..5caf929931 100644
      const GXState::CopyTextureRef* copyRef = copyIt != g_gxState.copyTextures.end() ? &copyIt->second : nullptr;
      if (is_palette_format(obj.format())) {
        GXTlutObj_ recompTlut{};
-@@ -475,6 +726,27 @@ void resolve_sampled_textures(const ShaderInfo& info) noexcept {
+@@ -475,6 +772,27 @@ void resolve_sampled_textures(const ShaderInfo& info) noexcept {
            tlut = &recompTlut;
          }
        }
@@ -4361,7 +4888,7 @@ index 5915c5b5f7..5caf929931 100644
        if (tlut != nullptr) {
          if (copyRef != nullptr) {
            handle = resolve_dynamic_palette_texture(obj, *copyRef, *tlut);
-@@ -484,10 +756,19 @@ void resolve_sampled_textures(const ShaderInfo& info) noexcept {
+@@ -484,10 +802,19 @@ void resolve_sampled_textures(const ShaderInfo& info) noexcept {
        }
      } else if (copyRef != nullptr) {
        handle = copyRef->handle;
@@ -4381,7 +4908,7 @@ index 5915c5b5f7..5caf929931 100644
      obj.mFormat = resolved_format_for_handle(handle);
      textureBind = gfx::TextureBind{obj, std::move(handle)};
    }
-@@ -573,7 +854,41 @@ static inline wgpu::BlendState to_blend_state(GXBlendMode mode, GXBlendFactor sr
+@@ -573,7 +900,41 @@ static inline wgpu::BlendState to_blend_state(GXBlendMode mode, GXBlendFactor sr
      break;
    case GX_BM_LOGIC:
      switch (op) {
@@ -4424,7 +4951,7 @@ index 5915c5b5f7..5caf929931 100644
      case GX_LO_CLEAR:
        colorBlendComponent = {
            .operation = wgpu::BlendOperation::Add,
-@@ -666,12 +981,24 @@ wgpu::RenderPipeline build_pipeline(const PipelineConfig& config, ArrayRef<wgpu:
+@@ -666,12 +1027,24 @@ wgpu::RenderPipeline build_pipeline(const PipelineConfig& config, ArrayRef<wgpu:
        .depthBiasSlopeScale = depthBiasSlopeScale,
        .depthBiasClamp = depthBiasClamp,
    };
@@ -4451,7 +4978,7 @@ index 5915c5b5f7..5caf929931 100644
    }};
    const wgpu::FragmentState fragmentState{
        .module = shader,
-@@ -968,6 +1295,18 @@ static std::pair<wgpu::FilterMode, wgpu::MipmapFilterMode> wgpu_filter_mode(GXTe
+@@ -968,6 +1341,18 @@ static std::pair<wgpu::FilterMode, wgpu::MipmapFilterMode> wgpu_filter_mode(GXTe
    }
  }
  
@@ -4470,7 +4997,7 @@ index 5915c5b5f7..5caf929931 100644
  static u16 wgpu_aniso(GXAnisotropy aniso) {
    switch (aniso) {
      DEFAULT_FATAL("invalid aniso {}", static_cast<int>(aniso));
-@@ -987,7 +1326,22 @@ wgpu::SamplerDescriptor aurora::gfx::TextureBind::get_descriptor() const noexcep
+@@ -987,7 +1372,22 @@ wgpu::SamplerDescriptor aurora::gfx::TextureBind::get_descriptor() const noexcep
    const bool mipsEnabled = mipFilter != wgpu::MipmapFilterMode::Undefined;
    float minLod = texObj.min_lod();
    float maxLod = texObj.max_lod();
@@ -4681,7 +5208,7 @@ index 0000000000..d3c1b6870a
 +void render(const wgpu::RenderPassEncoder&, const DrawData&) noexcept {}
 +} // namespace aurora::imgui
 diff --git a/GXRuntime/graphics/aurora/lib/webgpu/gpu.cpp b/GXRuntime/graphics/aurora/lib/webgpu/gpu.cpp
-index 37fb564725..ffcac4b3c5 100644
+index 37fb564725..9c9c301df9 100644
 --- a/GXRuntime/graphics/aurora/lib/webgpu/gpu.cpp
 +++ b/GXRuntime/graphics/aurora/lib/webgpu/gpu.cpp
 @@ -1,3 +1,4 @@
@@ -4689,7 +5216,15 @@ index 37fb564725..ffcac4b3c5 100644
  #include "gpu.hpp"
  
  #include <algorithm>
-@@ -177,11 +178,53 @@ fn sample_area(frag_position: vec4<f32>) -> vec4<f32> {
+@@ -63,6 +64,7 @@ static wgpu::SurfaceCapabilities g_surfaceCapabilities;
+ bool g_hasCoreFeatures = false;
+ bool g_bcTexturesSupported = false;
+ bool g_astcTexturesSupported = false;
++bool g_bc7TexturesBroken = false;
+ bool g_textureComponentSwizzleSupported = false;
+ static std::atomic_bool g_initialized = false;
+ 
+@@ -177,11 +179,53 @@ fn sample_area(frag_position: vec4<f32>) -> vec4<f32> {
  
  // END AREA SAMPLER REGION
  
@@ -4743,7 +5278,7 @@ index 37fb564725..ffcac4b3c5 100644
      }
      return vec4(color.rgb, 1.0);
  }
-@@ -239,6 +282,10 @@ uint32_t sampler_mode(AuroraSampler sampler) noexcept {
+@@ -239,6 +283,10 @@ uint32_t sampler_mode(AuroraSampler sampler) noexcept {
    switch (sampler) {
    case SAMPLER_AREA:
      return 1;
@@ -4754,7 +5289,7 @@ index 37fb564725..ffcac4b3c5 100644
    case SAMPLER_BILINEAR:
    default:
      return 0;
-@@ -315,6 +362,8 @@ void set_resampler(AuroraSampler sampler) noexcept {
+@@ -315,6 +363,8 @@ void set_resampler(AuroraSampler sampler) noexcept {
    switch (sampler) {
    case SAMPLER_AREA:
    case SAMPLER_BILINEAR:
@@ -4763,7 +5298,7 @@ index 37fb564725..ffcac4b3c5 100644
      g_Resampler = sampler;
      return;
    default:
-@@ -325,6 +374,59 @@ void set_resampler(AuroraSampler sampler) noexcept {
+@@ -325,6 +375,59 @@ void set_resampler(AuroraSampler sampler) noexcept {
  
  AuroraSampler get_resampler() noexcept { return g_Resampler; }
  
@@ -4823,7 +5358,7 @@ index 37fb564725..ffcac4b3c5 100644
  Viewport calculate_present_viewport(uint32_t surface_width, uint32_t surface_height, uint32_t content_width,
                                      uint32_t content_height) noexcept {
    if (surface_width == 0 || surface_height == 0 || content_width == 0 || content_height == 0) {
-@@ -636,7 +738,33 @@ wgpu::BindGroup create_copy_bind_group(const TextureWithSampler& source) {
+@@ -636,7 +739,33 @@ wgpu::BindGroup create_copy_bind_group(const TextureWithSampler& source) {
  }
  
  const TextureWithSampler& resample_present_source(const wgpu::CommandEncoder& encoder, const Viewport& viewport) {
@@ -4858,7 +5393,7 @@ index 37fb564725..ffcac4b3c5 100644
    const uint32_t width = viewport_extent(viewport.width);
    const uint32_t height = viewport_extent(viewport.height);
    if (!g_resampledFrameBuffer.view || g_resampledFrameBuffer.size.width != width ||
-@@ -786,9 +914,13 @@ bool initialize(AuroraBackend auroraBackend, bool allowCpu) {
+@@ -786,9 +915,13 @@ bool initialize(AuroraBackend auroraBackend, bool allowCpu) {
      return false;
    }
    {
@@ -4873,7 +5408,25 @@ index 37fb564725..ffcac4b3c5 100644
          .backendType = backend,
          .compatibleSurface = g_surface,
      };
-@@ -915,6 +1047,10 @@ bool initialize(AuroraBackend auroraBackend, bool allowCpu) {
+@@ -847,6 +980,17 @@ bool initialize(AuroraBackend auroraBackend, bool allowCpu) {
+     description = wgpu::StringView("Unknown");
+   }
+   g_backendType = g_adapterInfo.backendType;
++  // Qualcomm's own Android Vulkan driver (Adreno 650, the Retroid Pocket 5) reports BC textures
++  // but draws BC7 as noise; Mesa's Turnip draws it. The Dolphin build skips BPTC there too
++  // (DriverDetails BUG_BROKEN_BPTC); a texture pack's PNG download works on it.
++#ifdef __ANDROID__
++  {
++    const std::string_view driver = description;
++    g_bc7TexturesBroken = g_backendType == wgpu::BackendType::Vulkan && g_adapterInfo.vendorID == 0x5143 &&
++                          driver.find("Mesa") == std::string_view::npos &&
++                          driver.find("turnip") == std::string_view::npos;
++  }
++#endif
+   const auto backendName = magic_enum::enum_name(g_backendType);
+   Log.info("Graphics adapter information\n  API: {}\n  Device: {} ({})\n  Driver: {}", backendName, adapterName,
+            magic_enum::enum_name(g_adapterInfo.adapterType), description);
+@@ -915,6 +1059,10 @@ bool initialize(AuroraBackend auroraBackend, bool allowCpu) {
        if (feature == wgpu::FeatureName::TimestampQuery) {
          requiredFeatures.push_back(feature);
        }
@@ -4884,7 +5437,7 @@ index 37fb564725..ffcac4b3c5 100644
  #endif
      }
      std::string featureList;
-@@ -1038,6 +1174,8 @@ bool initialize(AuroraBackend auroraBackend, bool allowCpu) {
+@@ -1038,6 +1186,8 @@ bool initialize(AuroraBackend auroraBackend, bool allowCpu) {
        .msaaSamples = g_config.msaa,
        .textureAnisotropy = g_config.maxTextureAnisotropy,
    };
@@ -4893,7 +5446,7 @@ index 37fb564725..ffcac4b3c5 100644
    create_copy_pipeline();
    create_resample_pipeline();
    gpu_prof::initialize();
-@@ -1061,6 +1199,9 @@ void shutdown() {
+@@ -1061,6 +1211,9 @@ void shutdown() {
    g_frameBuffer = {};
    g_frameBufferResolved = {};
    g_depthBuffer = {};
@@ -4903,7 +5456,7 @@ index 37fb564725..ffcac4b3c5 100644
    g_queue = {};
    g_surface = {};
    g_device = {};
-@@ -1082,7 +1223,14 @@ static void resize_swapchain_internal(uint32_t width, uint32_t height, uint32_t
+@@ -1082,7 +1235,14 @@ static void resize_swapchain_internal(uint32_t width, uint32_t height, uint32_t
    if (!g_surface || !g_device || width == 0 || height == 0 || nativeHeight == 0 || nativeWidth == 0) {
      return;
    }
@@ -4919,7 +5472,7 @@ index 37fb564725..ffcac4b3c5 100644
                             g_graphicsConfig.surfaceConfiguration.height != nativeHeight ||
                             g_frameBuffer.size.width != width || g_frameBuffer.size.height != height;
    if (!force && !sizeChanged) {
-@@ -1103,6 +1251,9 @@ static void resize_swapchain_internal(uint32_t width, uint32_t height, uint32_t
+@@ -1103,6 +1263,9 @@ static void resize_swapchain_internal(uint32_t width, uint32_t height, uint32_t
    g_frameBuffer = create_render_texture(width, height, true);
    g_frameBufferResolved = create_render_texture(width, height, false);
    g_depthBuffer = create_depth_texture(width, height);
@@ -4930,7 +5483,7 @@ index 37fb564725..ffcac4b3c5 100644
  }
  
 diff --git a/GXRuntime/graphics/aurora/lib/webgpu/gpu.hpp b/GXRuntime/graphics/aurora/lib/webgpu/gpu.hpp
-index 3943da0943..2fc73dd7ef 100644
+index 3943da0943..4a7ea0ac7f 100644
 --- a/GXRuntime/graphics/aurora/lib/webgpu/gpu.hpp
 +++ b/GXRuntime/graphics/aurora/lib/webgpu/gpu.hpp
 @@ -7,6 +7,7 @@
@@ -4941,7 +5494,15 @@ index 3943da0943..2fc73dd7ef 100644
  
  struct SDL_Window;
  
-@@ -66,10 +67,21 @@ TextureWithSampler create_render_texture(uint32_t width, uint32_t height, bool m
+@@ -55,6 +56,7 @@ extern wgpu::AdapterInfo g_adapterInfo;
+ extern bool g_hasCoreFeatures;
+ extern bool g_bcTexturesSupported;
+ extern bool g_astcTexturesSupported;
++extern bool g_bc7TexturesBroken;
+ extern bool g_textureComponentSwizzleSupported;
+ 
+ bool initialize(AuroraBackend backend, bool allowCpu);
+@@ -66,10 +68,21 @@ TextureWithSampler create_render_texture(uint32_t width, uint32_t height, bool m
  const TextureWithSampler& present_source() noexcept;
  wgpu::BindGroup create_copy_bind_group(const TextureWithSampler& source);
  void set_resampler(AuroraSampler sampler) noexcept;
@@ -5555,6 +6116,19 @@ index 0000000000..1c1fd1c6ae
 +}
 +
 +} // namespace aurora::window
+diff --git a/GXRuntime/graphics/aurora/tests/gx_test_stubs.cpp b/GXRuntime/graphics/aurora/tests/gx_test_stubs.cpp
+index 40ed23abbc..a2219dcba0 100644
+--- a/GXRuntime/graphics/aurora/tests/gx_test_stubs.cpp
++++ b/GXRuntime/graphics/aurora/tests/gx_test_stubs.cpp
+@@ -246,7 +246,7 @@ namespace aurora::gfx::texture_replacement {
+ u32 compute_texture_upload_size(const GXTexObj_& obj) noexcept { return 0; }
+ void register_tlut(const GXTlutObj*, const void*, GXTlutFmt, u16) noexcept {}
+ void load_tlut(const GXTlutObj*, u32) noexcept {}
+-std::optional<TextureHandle> find_replacement(const GXTexObj_&) noexcept { return std::nullopt; }
++std::optional<TextureHandle> find_replacement(const GXTexObj_&, bool*) noexcept { return std::nullopt; }
+ } // namespace aurora::gfx::texture_replacement
+ 
+ // --- Window stub ---
 diff --git a/GXRuntime/graphics/frontend/CMakeLists.txt b/GXRuntime/graphics/frontend/CMakeLists.txt
 index a20a1ada32..0ec6bde81b 100644
 --- a/GXRuntime/graphics/frontend/CMakeLists.txt

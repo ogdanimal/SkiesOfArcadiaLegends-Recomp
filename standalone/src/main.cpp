@@ -9,6 +9,9 @@
 // --load-state starts from a save state (state.cpp); --seconds then counts the state's guest clock.
 // --continue boots straight into card save file N (1-99) or the newest one ("card"), as the launchers'
 // Continue ([Skies] AutoLoadCard; needs a ws20+ game patch).
+//   skies-standalone --user USERDIR --import-texture-pack PACK | --remove-texture-packs
+// imports an HD texture pack (a .7z, .zip or folder, texture_pack.cpp) into USERDIR/Load/Textures/GEA,
+// adding to the ones before, or removes them all, and exits.
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "host.h"
 
@@ -442,7 +445,8 @@ int main(int argc, char** argv)
   AndroidSetup(argc, argv);
 #endif
   setvbuf(stderr, nullptr, _IONBF, 0);
-  std::string game, module, dol, user, load_state;
+  std::string game, module, dol, user, load_state, import_pack;
+  bool remove_packs = false;
   std::string dsp_coef = SKIES_DSP_COEF_DEFAULT;
   bool headless = false;
   u32 idle_pc = ~0u;
@@ -486,14 +490,34 @@ int main(int argc, char** argv)
       const std::string v = next();
       continue_file = v == "card" ? CONTINUE_NEWEST : std::atoi(v.c_str());
     }
+    else if (a == "--import-texture-pack")
+      import_pack = next();
+    else if (a == "--remove-texture-packs")
+      remove_packs = true;
     else
     {
       Log("usage: %s --game DIR [--module FILE] [--headless] [--unthrottled] [--seconds N] "
           "[--mmio-log] [--idle-pc ADDR] [--dsp-coef FILE] [--user USERDIR] [--dol FILE] "
-          "[--load-state FILE] [--continue N|card]\n",
-          argv[0]);
+          "[--load-state FILE] [--continue N|card]\n"
+          "       %s --user USERDIR --import-texture-pack PACK | --remove-texture-packs\n",
+          argv[0], argv[0]);
       return 2;
     }
+  }
+  if (!import_pack.empty() || remove_packs)
+  {
+    if (user.empty())
+    {
+      Log("--user is required\n");
+      return 2;
+    }
+    SettingsInit(user);
+#ifdef SKIES_STANDALONE_AURORA
+    return TexturePackCommand(import_pack, remove_packs);
+#else
+    Log("This build has no HD textures (built without Aurora)\n");
+    return 2;
+#endif
   }
   if (game.empty())
   {

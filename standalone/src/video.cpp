@@ -377,6 +377,8 @@ void VideoFrameEnd()
 #ifdef SKIES_STANDALONE_AURORA
   if (!s_active)
     return;
+  if ((s_frames % 600) == 1)
+    HdTexturesLog();
   MenuApplyGame();
   ApplyPresentRect();
   MenuFrame();

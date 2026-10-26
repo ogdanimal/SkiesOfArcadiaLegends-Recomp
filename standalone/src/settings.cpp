@@ -148,6 +148,7 @@ struct IniFile
 
 IniFile s_files[2];  // SettingFile::Main, SettingFile::Gfx
 std::string s_config_dir;
+std::string s_user_dir;
 }  // namespace
 
 void SettingsInit(const std::string& user_dir)
@@ -155,6 +156,7 @@ void SettingsInit(const std::string& user_dir)
   for (IniFile& f : s_files)
     f = {};
   s_config_dir.clear();
+  s_user_dir = user_dir;
   if (user_dir.empty())
     return;
   const std::filesystem::path config = std::filesystem::path(user_dir) / "Config";
@@ -168,6 +170,11 @@ void SettingsInit(const std::string& user_dir)
 const std::string& SettingsConfigDir()
 {
   return s_config_dir;
+}
+
+const std::string& SettingsUserDir()
+{
+  return s_user_dir;
 }
 
 int SettingGet(SettingFile file, const char* section, const char* key, int fallback)

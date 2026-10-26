@@ -81,6 +81,7 @@ enum class Option
   TextureFilter,
   Anisotropy,
   Scaling,
+  HdTextures,
   VSync,
   ShowFps,
   Camera,
@@ -102,7 +103,8 @@ enum class Option
 constexpr std::array SAVES_ROWS{Option::SaveState, Option::LoadState, Option::AutoSave};
 constexpr std::array GRAPHICS_ROWS{Option::Picture,      Option::Hud,           Option::Resolution,
                                    Option::Antialiasing, Option::TextureFilter, Option::Anisotropy,
-                                   Option::Scaling,      Option::VSync,         Option::ShowFps};
+                                   Option::Scaling,      Option::HdTextures,    Option::VSync,
+                                   Option::ShowFps};
 constexpr std::array GAMEPLAY_ROWS{Option::Camera,     Option::BattleSpeed, Option::FieldSpeed,
                                    Option::Encounters, Option::HoldB,       Option::Exp,
                                    Option::Gold,       Option::MagicExp,    Option::Invincible};
@@ -183,6 +185,8 @@ constexpr Key ANISOTROPY{SettingFile::Gfx, "Enhancements", "MaxAnisotropy", -1};
 constexpr Key SCALING{SettingFile::Gfx, "Enhancements", "OutputResampling", 0};
 constexpr Key SHOW_FPS{SettingFile::Gfx, "Settings", "ShowFPS", 0, true};
 constexpr Key VSYNC{SettingFile::Gfx, "Hardware", "VSync", 0, true};
+// Dolphin's Load Custom Textures: the imported texture pack (hd_textures.cpp)
+constexpr Key HD_TEXTURES{SettingFile::Gfx, "Settings", "HiresTextures", 0, true};
 
 int Get(const Key& key)
 {
@@ -203,6 +207,9 @@ struct Values
   int texture_filter = 0;  // 0 the game's, 1 nearest (Sharp), 2 linear (Smooth)
   int anisotropy = -1;     // -1 the game's, 0-4 = 1x-16x
   int scaling = 0;         // OutputResamplingMode
+  bool texture_pack = false;  // a texture pack is imported (texture_pack.h), read with the rest
+  int texture_pack_bc7 = 0;   // its BC7 textures, when this GPU can't draw them
+  int hd_textures = 0;
   bool vsync = false;
   bool show_fps = false;
   int camera = 1;
@@ -294,6 +301,8 @@ int s_applied_scaling = -1;
 int s_volume = 100;
 int s_dead_zone = 0;
 bool s_rumble = true;
+// Whether a texture pack is imported: at the first frame, then whenever the menu opens
+bool s_texture_pack = false;
 
 // The hotkeys outside the GameCube's buttons: the menu (Esc, a controller's Back / Select) and
 // Invincible (L3 / R3), from SDL directly.
@@ -415,6 +424,12 @@ Values ReadValues()
   values.texture_filter = std::clamp(Get(TEXTURE_FILTER), 0, 2);
   values.anisotropy = std::clamp(Get(ANISOTROPY), -1, 4);
   values.scaling = Get(SCALING);
+#ifdef SKIES_STANDALONE_AURORA
+  values.texture_pack = TexturePackImported();
+  values.texture_pack_bc7 = values.texture_pack ? TexturePackBc7Skipped() : 0;
+  s_texture_pack = values.texture_pack;
+#endif
+  values.hd_textures = Get(HD_TEXTURES) != 0 ? 1 : 0;
   values.vsync = Get(VSYNC) != 0;
   values.show_fps = Get(SHOW_FPS) != 0;
   values.camera = Get(CAMERA_CONTROL) != 0 ? 1 : 0;
@@ -453,6 +468,7 @@ void Apply(const Values& values, const Values& before)
   set(TEXTURE_FILTER, values.texture_filter, before.texture_filter);
   set(ANISOTROPY, values.anisotropy, before.anisotropy);
   set(SCALING, values.scaling, before.scaling);
+  set(HD_TEXTURES, values.hd_textures, before.hd_textures);
   set(VSYNC, values.vsync, before.vsync);
   set(SHOW_FPS, values.show_fps, before.show_fps);
   set(CAMERA_CONTROL, values.camera, before.camera);
@@ -665,6 +681,10 @@ void Change(Option option, int direction, bool wrap)
     break;
   case Option::Scaling:
     v.scaling = Step(SCALINGS, v.scaling, direction, wrap);
+    break;
+  case Option::HdTextures:
+    if (v.texture_pack)
+      v.hd_textures = v.hd_textures ? 0 : 1;
     break;
   case Option::VSync:
     v.vsync = !v.vsync;
@@ -1786,6 +1806,13 @@ void MenuApplyGame()
                          scaling == 2 || scaling == 3 || scaling == 4 || scaling == 8 ? SAMPLER_BICUBIC :
                                                                                          SAMPLER_BILINEAR);
   }
+  // HD textures: the imported pack, live (hd_textures.cpp)
+  static const bool s_pack_read = [] {
+    s_texture_pack = TexturePackImported();
+    return true;
+  }();
+  (void)s_pack_read;
+  VideoHdTextures(s_texture_pack && Get(HD_TEXTURES) != 0);
   static const bool s_env_vsync = std::getenv("SKIES_VSYNC") != nullptr;
   const int vsync = s_env_vsync || Get(VSYNC) != 0 ? 1 : 0;
   if (vsync != s_applied_vsync)
@@ -2066,6 +2093,24 @@ void Draw(float scale)
               v.scaling == 5 ? "Sharp" : v.scaling == 6 ? "Smooth" : v.scaling == 4 ? "Bicubic" :
                                                                           "Default",
               "How the picture fits the screen. Sharp keeps a low Resolution crisp."};
+    case Option::HdTextures:
+      if (!v.texture_pack)
+      {
+        return {"HD textures", "Off",
+                "Needs a texture pack you downloaded: import it in the launcher's Settings, "
+                "Graphics tab."};
+      }
+      if (v.texture_pack_bc7 > 0)
+      {
+        static std::string s_bc7_note;
+        s_bc7_note = "Replaces the game's textures with the imported pack's. This graphics chip "
+                     "can't draw its " +
+                     std::to_string(v.texture_pack_bc7) +
+                     " BC7 DDS textures: import the pack's PNG download instead.";
+        return {"HD textures", OnOff(v.hd_textures != 0), s_bc7_note.c_str()};
+      }
+      return {"HD textures", OnOff(v.hd_textures != 0),
+              "Replaces the game's textures with the imported pack's."};
     case Option::VSync:
       return {"V-Sync", OnOff(v.vsync), "Stops screen tearing. Can add a little input delay."};
     case Option::ShowFps:

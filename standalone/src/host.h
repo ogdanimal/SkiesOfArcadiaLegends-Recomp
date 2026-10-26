@@ -220,6 +220,15 @@ bool VideoQuitRequested();
 void VideoPadRead(u16 buttons[4], s8 sticks[4][4], u8 triggers[4][2], bool connected[4]);
 // A controller's motor: 0 stop, 1 rumble, 2 hard stop (the SDK's PAD_MOTOR_*)
 void VideoPadMotor(u32 channel, u32 command);
+// HD textures (video.cpp): USER/Load/Textures/ with its separator ("" without --user), where the
+// imported packs are (texture_pack.h); turning them on or off, live (Aurora's texture replacement).
+std::string TexturesDir();
+bool TexturePackImported();  // something to load in TexturesDir (TexturePackImport::Describe)
+int TexturePackBc7Skipped();  // the pack's BC7 textures when this GPU can't draw them, else 0
+void VideoHdTextures(bool on);
+void HdTexturesLog();  // video.cpp, every 600 frames: how many are in use
+// --import-texture-pack / --remove-texture-packs: the exit code
+int TexturePackCommand(const std::string& pack, bool remove);
 // The window's surface in pixels (false: no window; either pointer may be null)
 bool VideoSurfaceSize(unsigned* width, unsigned* height);
 
@@ -234,6 +243,8 @@ enum class SettingFile
 void SettingsInit(const std::string& user_dir);
 // USER/Config (empty without --user)
 const std::string& SettingsConfigDir();
+// USER itself (empty without --user)
+const std::string& SettingsUserDir();
 int SettingGet(SettingFile file, const char* section, const char* key, int fallback);
 void SettingSet(SettingFile file, const char* section, const char* key, int value, bool boolean = false);
 void SettingsSave();
