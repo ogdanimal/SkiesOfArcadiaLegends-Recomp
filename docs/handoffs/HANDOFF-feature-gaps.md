@@ -50,7 +50,7 @@ music, `[Skies] DreamcastIntro`), **Controls** (Button mapping, Stick dead zone,
 |---|---|---|---|---|
 | 0 | European / Japanese discs run right | `release/GEAP8P.ini`, `GEAJ8P.ini`; `ConfigManager` hunk in `skies-dcmusic-eu` | **done** (desktop): idle PC per disc, EU as NTSC, module by disc ID | hours |
 | 1 | Continue (card save at boot) | `patches/game/autoload.c`; `autoload` in `SkiesMenu.cpp` | **done** (desktop): `--continue`, `AutoLoadCard`; JP card mount fixed | ~0.5 day |
-| 2 | Graphics options (MSAA, texture filter, anisotropy, scaling) | `recompcore-gfx-options.patch`, `skies-settings` | none | ~1 day |
+| 2 | Graphics options (MSAA, texture filter, anisotropy, scaling) | `recompcore-gfx-options.patch`, `skies-settings` | **done** (WSL): four rows, live; fork 0038 | ~1 day |
 | 3 | Input: release keyboard layout, rumble, names, Button mapping, menu-close rule | `recompcore-input`, `controller-names`, `menu-close`, `android-pad-follow`, review D23-D26 | Aurora's own layout, dead zone only, rumble ignored | ~2 days |
 | 4 | Language (European disc) | `recompcore-language.patch` | SRAM fixed to English | ~1 day |
 | 5 | HD textures (+ import) | `recompcore-hd-textures`, `hd-textures-nested`, review D2 / D22 | Aurora has a loader, not wired | ~2-3 days |
@@ -123,22 +123,36 @@ its checks and a commit; device-heavy ones end with a head-to-head.
 - **Not checked yet:** RAM against a load from the game's own menu (needs scripted input), a first battle
   and a card save after Continue, Windows, the Pocket 5.
 
-## 2. Graphics options
+## 2. Graphics options (done 2026-10-25, WSL; Windows / Pocket 5 checks open)
 
-- **Antialiasing (MSAA)** and **Anisotropy:** Aurora takes them at init only (`AuroraConfig.msaa`,
-  `maxTextureAnisotropy` in `graphics/aurora/include/aurora/aurora.h`); `AuroraBackendConfig`
-  (`GXRuntime/include/gxruntime/aurora_backend.h`) doesn't pass them. Fork change: add the two fields (and
-  ideally a live setter). Keys as the Dolphin build (`GFX.ini [Settings] MSAA`, `[Enhancements]
-  MaxAnisotropy` with -1 = the game's own; read `recompcore-gfx-options.patch` for the exact keys and
-  `MsaaModes()`). MSAA touches every EFB copy path (resolve target): run the frame-dump route
-  (`capture/route-win.sh`) at 1x and 4x MSAA and compare.
-- **Scaling:** `[Enhancements] OutputResampling` -> `aurora_set_resampler` (bilinear / area). Since fork
-  0037 bilinear presents without a resample pass; area keeps it.
-- **Texture filter** (`[Enhancements] ForceTextureFiltering`: the game's / nearest / linear): no Aurora hook;
-  fork change in sampler creation (override min/mag filter when forced).
+- **Done:** Graphics tab rows Anti-aliasing, Texture filtering, Anisotropic filtering, Scaling (between
+  Resolution and V-Sync, as the Dolphin build), on the Dolphin build's keys and values: `GFX.ini [Settings]
+  MSAA` (Dolphin writes it as `0x00000004`; `settings.cpp` now parses base 0 like Dolphin's `TryParse`),
+  `[Enhancements] ForceTextureFiltering` (0 / 2 Smooth / 1 Sharp), `MaxAnisotropy` (-1 Off = the game's
+  own, 1-4 = 2x-16x), `OutputResampling` (0 Default, 5 Sharp, 6 Smooth, 4 Bicubic). All four apply live
+  from `MenuApplyGame` when the setting changes.
+- **Fork 0038** (`~/projects/skies-aurora/GXRuntime` a3a6939, `patches/0038-*`; in `recompcore-aurora.patch`):
+  `aurora_set_texture_filtering` / `aurora_set_max_anisotropy` apply Dolphin's
+  `TextureCacheBase::GetSamplerState` rules in `TextureBind::get_descriptor` (samplers are built from it
+  every draw, so live): forced filter on min / mag / mip; a forced anisotropy only where the game doesn't
+  filter nearest both ways; "Off" = the game's GX 2x / 4x (before, Aurora's default `maxTextureAnisotropy`
+  16 turned the game's 4x into 16x). `aurora_set_msaa(1|4)` is taken by the next frame buffer resize
+  (both window builds let a pending change past their unchanged-size check). The present resampler gained
+  `SAMPLER_SHARP_BILINEAR` and `SAMPLER_BICUBIC` (Catmull-Rom), Dolphin's maths in gamma space like the
+  area sampler; the cubic family (2, 3, 4, 8) maps to Bicubic, nearest (7) to bilinear.
+- **MSAA counts:** WebGPU allows 1 or 4 samples only, so the row is Off / 4x; a 2x or 8x from the Dolphin
+  build shows and runs as 4x until changed here.
+- **Checked (WSL, Dawn on llvmpipe, field after a Continue, EFB 1x):** each option changes the picture
+  (pixels off the baseline: MSAA 4,340, Sharp 35,492, Smooth 16,575, 16x anisotropy 14,793; two baseline
+  runs differ by 442); by eye: MSAA smooths geometry edges, Sharp shows texels, Smooth / 16x soften. The
+  three resampled outputs viewed through a local readback hack (not kept): area crisp, sharp bilinear =
+  bilinear at a 1.5x stretch (Dolphin's formula: prescale floor 1), bicubic softest. No WebGPU errors in
+  any mode. Android compiles.
+- **Open:** under 4x MSAA a few isolated bright pixels inside the light beam's transparent cone (llvmpipe or
+  an EFB-copy path under MSAA): run the frame-dump route (`capture/route-win.sh`) at 1x and 4x MSAA on
+  Windows and the Pocket 5 and look. GPU cost at 4x / 6x with `AURORA_GPU_PROF=300`. Menu changes by
+  hand on Windows / the Pocket 5 (only the ini path was driven here).
 - **Frame rate** belongs to item 6, **HD textures** to item 5.
-- **Check:** each option live in the menu on Windows and the Pocket 5; GPU cost at 4x / 6x with
-  `AURORA_GPU_PROF=300` (on Android the lines go to logcat, tag `aurora`).
 
 ## 3. Input: keyboard layout, rumble, names, Button mapping
 

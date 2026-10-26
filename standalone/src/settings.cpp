@@ -172,7 +172,8 @@ int SettingGet(SettingFile file, const char* section, const char* key, int fallb
   if (value == "False" || value == "false")
     return 0;
   char* end = nullptr;
-  const long v = std::strtol(value.c_str(), &end, 10);
+  // Base 0 as Dolphin's TryParse: it writes u32 settings (MSAA) as 0x hex
+  const long v = std::strtol(value.c_str(), &end, 0);
   return end && end != value.c_str() ? static_cast<int>(v) : fallback;
 }
 

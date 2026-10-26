@@ -892,10 +892,19 @@ index b887894fb5..c195194645 100644
    aurora_find_package_global(SQLite3)
    if (TARGET SQLite3::SQLite3)
 diff --git a/GXRuntime/graphics/aurora/include/aurora/aurora.h b/GXRuntime/graphics/aurora/include/aurora/aurora.h
-index 9d22cc6012..9157ed7635 100644
+index 9d22cc6012..c05b1e8eae 100644
 --- a/GXRuntime/graphics/aurora/include/aurora/aurora.h
 +++ b/GXRuntime/graphics/aurora/include/aurora/aurora.h
-@@ -116,6 +116,16 @@ typedef struct {
+@@ -15,6 +15,8 @@ extern "C" {
+ typedef enum {
+   SAMPLER_BILINEAR,
+   SAMPLER_AREA,
++  SAMPLER_SHARP_BILINEAR, /* Dolphin's Sharp Bilinear: a bilinear stretch after an Nx nearest prescale */
++  SAMPLER_BICUBIC,        /* Dolphin's Bicubic: Catmull-Rom */
+ } AuroraSampler;
+ 
+ typedef enum {
+@@ -116,6 +118,16 @@ typedef struct {
     * This can be set to 0 to disable allocating this region.
     */
    uint32_t mem2Size;
@@ -912,8 +921,21 @@ index 9d22cc6012..9157ed7635 100644
  } AuroraConfig;
  
  typedef struct {
-@@ -138,6 +148,13 @@ void aurora_set_background_input(bool value);
+@@ -136,8 +148,26 @@ void aurora_set_log_level(AuroraLogLevel level);
+ void aurora_set_pause_on_focus_lost(bool value);
+ void aurora_set_background_input(bool value);
  void aurora_set_resampler(AuroraSampler sampler);
++/*
++ * Live texture sampling overrides with Dolphin's meanings (its Enhancements and
++ * TextureCacheBase::GetSamplerState). Filtering: 0 the game's, 1 nearest, 2 linear. Anisotropy: -1 the
++ * game's own (GX 2x / 4x), 0-4 = 1x-16x on textures that don't filter nearest both ways. Until a host
++ * sets anisotropy, AuroraConfig.maxTextureAnisotropy scales the game's as before.
++ */
++void aurora_set_texture_filtering(int mode);
++void aurora_set_max_anisotropy(int log2);
++/* Live MSAA: 1 or 4 samples (WebGPU's counts; others round to them), applied by the next frame
++ * buffer resize (requested here), which rebuilds the frame buffers. */
++void aurora_set_msaa(uint32_t samples);
  
  AuroraBackend aurora_get_backend();
 +
@@ -959,10 +981,10 @@ index 46ebf40b49..93353b4852 100644
  };
  
 diff --git a/GXRuntime/graphics/aurora/lib/aurora.cpp b/GXRuntime/graphics/aurora/lib/aurora.cpp
-index 8843b7b0d8..570d849b34 100644
+index 8843b7b0d8..31f17731ba 100644
 --- a/GXRuntime/graphics/aurora/lib/aurora.cpp
 +++ b/GXRuntime/graphics/aurora/lib/aurora.cpp
-@@ -1,7 +1,13 @@
+@@ -1,9 +1,16 @@
 +#include <cstdlib>
 +#include <cstdio>
 +#include <chrono>
@@ -975,8 +997,11 @@ index 8843b7b0d8..570d849b34 100644
 +#include "gfx/efb_readback.hpp"
  #include "gfx/render_worker.hpp"
  #include "gx/fifo.hpp"
++#include "gx/gx.hpp"
  #include "imgui.hpp"
-@@ -14,11 +20,19 @@
+ #include "webgpu/gpu.hpp"
+ #include "webgpu/gpu_prof.hpp"
+@@ -14,11 +21,19 @@
  #include "rmlui.hpp"
  #endif
  
@@ -996,7 +1021,7 @@ index 8843b7b0d8..570d849b34 100644
  #include <magic_enum.hpp>
  
  #include "system_info.hpp"
-@@ -98,18 +112,26 @@ AuroraInfo initialize(int argc, char* argv[], const AuroraConfig& config) noexce
+@@ -98,18 +113,26 @@ AuroraInfo initialize(int argc, char* argv[], const AuroraConfig& config) noexce
    } else {
      g_config.appName = strdup(g_config.appName);
    }
@@ -1026,7 +1051,7 @@ index 8843b7b0d8..570d849b34 100644
    } else {
      g_config.resourcesPath = strdup(g_config.resourcesPath);
    }
-@@ -121,9 +143,11 @@ AuroraInfo initialize(int argc, char* argv[], const AuroraConfig& config) noexce
+@@ -121,9 +144,11 @@ AuroraInfo initialize(int argc, char* argv[], const AuroraConfig& config) noexce
    }
    ASSERT(window::initialize(), "Error initializing window");
  
@@ -1038,7 +1063,7 @@ index 8843b7b0d8..570d849b34 100644
  
  #ifdef AURORA_ENABLE_GX
    /* Attempt to create a window using the calling application's desired backend */
-@@ -152,16 +176,18 @@ AuroraInfo initialize(int argc, char* argv[], const AuroraConfig& config) noexce
+@@ -152,16 +177,18 @@ AuroraInfo initialize(int argc, char* argv[], const AuroraConfig& config) noexce
      }
    }
  
@@ -1060,7 +1085,7 @@ index 8843b7b0d8..570d849b34 100644
  #endif
  
    window::show_window();
-@@ -202,10 +228,13 @@ void shutdown() noexcept {
+@@ -202,10 +229,13 @@ void shutdown() noexcept {
    rmlui::shutdown();
  #endif
    imgui::shutdown();
@@ -1074,7 +1099,7 @@ index 8843b7b0d8..570d849b34 100644
    window::shutdown();
  }
  
-@@ -213,7 +242,9 @@ const AuroraEvent* update() noexcept {
+@@ -213,7 +243,9 @@ const AuroraEvent* update() noexcept {
    ZoneScoped;
    if (g_initialFrame) {
      g_initialFrame = false;
@@ -1084,7 +1109,7 @@ index 8843b7b0d8..570d849b34 100644
    }
    return window::poll_events();
  }
-@@ -245,17 +276,54 @@ bool begin_frame() noexcept {
+@@ -245,17 +277,54 @@ bool begin_frame() noexcept {
    return true;
  }
  
@@ -1144,7 +1169,7 @@ index 8843b7b0d8..570d849b34 100644
  
    wgpu::BindGroup rmlBindGroup;
    bool rmlOverlay = false;
-@@ -267,8 +335,21 @@ void end_frame() noexcept {
+@@ -267,8 +336,21 @@ void end_frame() noexcept {
    }
  #endif
  
@@ -1167,7 +1192,7 @@ index 8843b7b0d8..570d849b34 100644
      wgpu::Texture currentTexture;
      wgpu::TextureView currentView;
      auto surfaceStatus = wgpu::SurfaceGetCurrentTextureStatus::Error;
-@@ -286,13 +367,23 @@ void end_frame() noexcept {
+@@ -286,13 +368,23 @@ void end_frame() noexcept {
        }
      }
  
@@ -1192,7 +1217,7 @@ index 8843b7b0d8..570d849b34 100644
          presentBindGroup = webgpu::create_copy_bind_group(resampledSource);
        }
        {
-@@ -322,6 +413,8 @@ void end_frame() noexcept {
+@@ -322,6 +414,8 @@ void end_frame() noexcept {
            pass.SetBindGroup(0, rmlBindGroup, 0, nullptr);
            pass.Draw(3);
          }
@@ -1201,7 +1226,7 @@ index 8843b7b0d8..570d849b34 100644
          pass.End();
        }
        {
-@@ -365,6 +458,9 @@ void end_frame() noexcept {
+@@ -365,6 +459,9 @@ void end_frame() noexcept {
          }
        }
        if (status) {
@@ -1211,7 +1236,7 @@ index 8843b7b0d8..570d849b34 100644
          gfx::after_present();
        } else {
          Log.warn("Surface present failed");
-@@ -430,6 +526,9 @@ const AuroraEvent* aurora_update() { return aurora::update(); }
+@@ -430,6 +527,9 @@ const AuroraEvent* aurora_update() { return aurora::update(); }
  bool aurora_begin_frame() { return aurora::begin_frame(); }
  void aurora_end_frame() { aurora::end_frame(); }
  AuroraBackend aurora_get_backend() { return aurora::g_config.desiredBackend; }
@@ -1221,6 +1246,33 @@ index 8843b7b0d8..570d849b34 100644
  const AuroraBackend* aurora_get_available_backends(size_t* count) {
    if (count != nullptr) {
      *count = aurora::PreferredBackendOrder.size();
+@@ -449,3 +549,26 @@ void aurora_set_resampler(AuroraSampler sampler) {
+   (void)sampler;
+ #endif
+ }
++void aurora_set_texture_filtering(int mode) {
++#ifdef AURORA_ENABLE_GX
++  aurora::gx::set_texture_filtering(mode);
++#else
++  (void)mode;
++#endif
++}
++void aurora_set_max_anisotropy(int log2) {
++#ifdef AURORA_ENABLE_GX
++  aurora::gx::set_max_anisotropy(log2);
++#else
++  (void)log2;
++#endif
++}
++void aurora_set_msaa(uint32_t samples) {
++#ifdef AURORA_ENABLE_GX
++  if (aurora::webgpu::set_msaa(samples)) {
++    aurora::window::request_frame_buffer_resize();
++  }
++#else
++  (void)samples;
++#endif
++}
 diff --git a/GXRuntime/graphics/aurora/lib/dawn/BackendBinding.cpp b/GXRuntime/graphics/aurora/lib/dawn/BackendBinding.cpp
 index bb8fba407f..788db08e7e 100644
 --- a/GXRuntime/graphics/aurora/lib/dawn/BackendBinding.cpp
@@ -3795,10 +3847,12 @@ index 5b176e702c..50c6b1bc29 100644
    } else if (subCmd == GX_AURORA_DEBUG_GROUP_PUSH) {
      auto label = read_string(data, pos, size, bigEndian);
 diff --git a/GXRuntime/graphics/aurora/lib/gx/gx.cpp b/GXRuntime/graphics/aurora/lib/gx/gx.cpp
-index 5915c5b5f7..2e2677e8d1 100644
+index 5915c5b5f7..5caf929931 100644
 --- a/GXRuntime/graphics/aurora/lib/gx/gx.cpp
 +++ b/GXRuntime/graphics/aurora/lib/gx/gx.cpp
-@@ -1,3 +1,7 @@
+@@ -1,3 +1,9 @@
++#include <algorithm>
++#include <atomic>
 +#include <cstdio>
 +#include <cstdlib>
 +#include <cstring>
@@ -3806,7 +3860,7 @@ index 5915c5b5f7..2e2677e8d1 100644
  #include "gx.hpp"
  
  #include "pipeline.hpp"
-@@ -5,6 +9,7 @@
+@@ -5,6 +11,7 @@
  #include "../webgpu/gpu.hpp"
  #include "../internal.hpp"
  #include "../gfx/common.hpp"
@@ -3814,7 +3868,7 @@ index 5915c5b5f7..2e2677e8d1 100644
  #include "../gfx/tex_palette_conv.hpp"
  #include "../gfx/texture.hpp"
  #include "../gfx/texture_convert.hpp"
-@@ -14,6 +19,7 @@
+@@ -14,6 +21,7 @@
  
  #include <absl/container/flat_hash_map.h>
  #include <absl/container/flat_hash_set.h>
@@ -3822,7 +3876,7 @@ index 5915c5b5f7..2e2677e8d1 100644
  #include <tracy/Tracy.hpp>
  
  #include <atomic>
-@@ -26,6 +32,8 @@
+@@ -26,6 +34,8 @@
  
  static aurora::Module Log("aurora::gx");
  
@@ -3831,7 +3885,7 @@ index 5915c5b5f7..2e2677e8d1 100644
  namespace aurora::gx {
  using webgpu::g_device;
  using webgpu::g_graphicsConfig;
-@@ -85,8 +93,129 @@ absl::flat_hash_map<u32, CachedTextureEntry> s_textureObjectCaches;
+@@ -85,8 +95,129 @@ absl::flat_hash_map<u32, CachedTextureEntry> s_textureObjectCaches;
  absl::flat_hash_map<u32, TlutObjectCache> s_tlutObjectCaches;
  std::atomic_bool s_staticTextureCacheClearPending = false;
  
@@ -3961,7 +4015,7 @@ index 5915c5b5f7..2e2677e8d1 100644
    for (auto& [_, cache] : s_tlutObjectCaches) {
      cache.staticTextureUsers.clear();
    }
-@@ -173,6 +302,14 @@ gfx::TextureHandle resolve_static_texture(const GXTexObj_& obj) {
+@@ -173,6 +304,14 @@ gfx::TextureHandle resolve_static_texture(const GXTexObj_& obj) {
      }
    }
  
@@ -3976,7 +4030,7 @@ index 5915c5b5f7..2e2677e8d1 100644
    gfx::TextureHandle handle;
    if (const auto replacement = gfx::texture_replacement::find_replacement(obj); replacement.has_value()) {
      handle = *replacement;
-@@ -189,6 +326,9 @@ gfx::TextureHandle resolve_static_texture(const GXTexObj_& obj) {
+@@ -189,6 +328,9 @@ gfx::TextureHandle resolve_static_texture(const GXTexObj_& obj) {
    if (!obj.no_cache()) {
      store_cached_texture(obj, handle);
    }
@@ -3986,7 +4040,7 @@ index 5915c5b5f7..2e2677e8d1 100644
    return handle;
  }
  
-@@ -208,6 +348,14 @@ gfx::TextureHandle resolve_static_palette_texture(const GXTexObj_& obj, const GX
+@@ -208,6 +350,14 @@ gfx::TextureHandle resolve_static_palette_texture(const GXTexObj_& obj, const GX
      }
    }
  
@@ -4001,7 +4055,7 @@ index 5915c5b5f7..2e2677e8d1 100644
    gfx::TextureHandle handle;
    if (const auto replacement = gfx::texture_replacement::find_replacement(obj, tlut); replacement.has_value()) {
      handle = *replacement;
-@@ -226,6 +374,9 @@ gfx::TextureHandle resolve_static_palette_texture(const GXTexObj_& obj, const GX
+@@ -226,6 +376,9 @@ gfx::TextureHandle resolve_static_palette_texture(const GXTexObj_& obj, const GX
    if (!obj.no_cache() && !tlut.no_cache()) {
      store_cached_texture(obj, handle, tlut.tlutObjId, tlut.tlutDataVersion);
    }
@@ -4011,7 +4065,7 @@ index 5915c5b5f7..2e2677e8d1 100644
    return handle;
  }
  
-@@ -391,8 +542,43 @@ void evict_tlut_object(u32 tlutObjId) noexcept {
+@@ -391,8 +544,43 @@ void evict_tlut_object(u32 tlutObjId) noexcept {
    }
  }
  
@@ -4055,7 +4109,7 @@ index 5915c5b5f7..2e2677e8d1 100644
    g_gxState.copyTextureCache.clear();
    for (auto& [_, cache] : s_tlutObjectCaches) {
      cache.dynamicPaletteTextures.clear();
-@@ -401,6 +587,63 @@ void clear_copy_texture_cache() noexcept {
+@@ -401,6 +589,63 @@ void clear_copy_texture_cache() noexcept {
  
  void clear_static_texture_cache() noexcept { s_staticTextureCacheClearPending.store(true, std::memory_order_release); }
  
@@ -4119,7 +4173,7 @@ index 5915c5b5f7..2e2677e8d1 100644
  void evict_copy_texture(const void* dest) noexcept {
    absl::flat_hash_set<const void*> sourceIdentities;
    if (const auto it = g_gxState.copyTextures.find(dest); it != g_gxState.copyTextures.end()) {
-@@ -454,7 +697,13 @@ void resolve_sampled_textures(const ShaderInfo& info) noexcept {
+@@ -454,7 +699,13 @@ void resolve_sampled_textures(const ShaderInfo& info) noexcept {
      }
  
      gfx::TextureHandle handle;
@@ -4134,7 +4188,7 @@ index 5915c5b5f7..2e2677e8d1 100644
      const GXState::CopyTextureRef* copyRef = copyIt != g_gxState.copyTextures.end() ? &copyIt->second : nullptr;
      if (is_palette_format(obj.format())) {
        GXTlutObj_ recompTlut{};
-@@ -475,6 +724,27 @@ void resolve_sampled_textures(const ShaderInfo& info) noexcept {
+@@ -475,6 +726,27 @@ void resolve_sampled_textures(const ShaderInfo& info) noexcept {
            tlut = &recompTlut;
          }
        }
@@ -4162,7 +4216,7 @@ index 5915c5b5f7..2e2677e8d1 100644
        if (tlut != nullptr) {
          if (copyRef != nullptr) {
            handle = resolve_dynamic_palette_texture(obj, *copyRef, *tlut);
-@@ -484,10 +754,19 @@ void resolve_sampled_textures(const ShaderInfo& info) noexcept {
+@@ -484,10 +756,19 @@ void resolve_sampled_textures(const ShaderInfo& info) noexcept {
        }
      } else if (copyRef != nullptr) {
        handle = copyRef->handle;
@@ -4182,7 +4236,7 @@ index 5915c5b5f7..2e2677e8d1 100644
      obj.mFormat = resolved_format_for_handle(handle);
      textureBind = gfx::TextureBind{obj, std::move(handle)};
    }
-@@ -573,7 +852,41 @@ static inline wgpu::BlendState to_blend_state(GXBlendMode mode, GXBlendFactor sr
+@@ -573,7 +854,41 @@ static inline wgpu::BlendState to_blend_state(GXBlendMode mode, GXBlendFactor sr
      break;
    case GX_BM_LOGIC:
      switch (op) {
@@ -4225,7 +4279,7 @@ index 5915c5b5f7..2e2677e8d1 100644
      case GX_LO_CLEAR:
        colorBlendComponent = {
            .operation = wgpu::BlendOperation::Add,
-@@ -666,12 +979,24 @@ wgpu::RenderPipeline build_pipeline(const PipelineConfig& config, ArrayRef<wgpu:
+@@ -666,12 +981,24 @@ wgpu::RenderPipeline build_pipeline(const PipelineConfig& config, ArrayRef<wgpu:
        .depthBiasSlopeScale = depthBiasSlopeScale,
        .depthBiasClamp = depthBiasClamp,
    };
@@ -4252,8 +4306,51 @@ index 5915c5b5f7..2e2677e8d1 100644
    }};
    const wgpu::FragmentState fragmentState{
        .module = shader,
+@@ -968,6 +1295,18 @@ static std::pair<wgpu::FilterMode, wgpu::MipmapFilterMode> wgpu_filter_mode(GXTe
+   }
+ }
+ 
++// The host's sampling overrides (aurora_set_texture_filtering, aurora_set_max_anisotropy)
++constexpr int AnisotropyAurora = -2; // not set: AuroraConfig.maxTextureAnisotropy scales the game's
++static std::atomic_int sTextureFiltering{0};
++static std::atomic_int sMaxAnisotropy{AnisotropyAurora};
++
++void aurora::gx::set_texture_filtering(int mode) noexcept { sTextureFiltering.store(std::clamp(mode, 0, 2)); }
++void aurora::gx::set_max_anisotropy(int log2) noexcept { sMaxAnisotropy.store(std::clamp(log2, -1, 4)); }
++
++static u16 game_aniso(GXAnisotropy aniso) {
++  return aniso == GX_ANISO_2 ? 2 : aniso == GX_ANISO_4 ? 4 : 1;
++}
++
+ static u16 wgpu_aniso(GXAnisotropy aniso) {
+   switch (aniso) {
+     DEFAULT_FATAL("invalid aniso {}", static_cast<int>(aniso));
+@@ -987,7 +1326,22 @@ wgpu::SamplerDescriptor aurora::gfx::TextureBind::get_descriptor() const noexcep
+   const bool mipsEnabled = mipFilter != wgpu::MipmapFilterMode::Undefined;
+   float minLod = texObj.min_lod();
+   float maxLod = texObj.max_lod();
+-  u16 maxAnisotropy = wgpu_aniso(texObj.max_aniso());
++  // Dolphin's forced filtering and anisotropy (TextureCacheBase::GetSamplerState): the anisotropy
++  // option only touches textures the game doesn't filter nearest both ways
++  const bool gameNearest = minFilter == wgpu::FilterMode::Nearest && magFilter == wgpu::FilterMode::Nearest;
++  const int filtering = sTextureFiltering.load(std::memory_order_relaxed);
++  if (filtering != 0) {
++    const wgpu::FilterMode forced = filtering == 1 ? wgpu::FilterMode::Nearest : wgpu::FilterMode::Linear;
++    minFilter = forced;
++    magFilter = forced;
++    if (mipsEnabled) {
++      mipFilter = filtering == 1 ? wgpu::MipmapFilterMode::Nearest : wgpu::MipmapFilterMode::Linear;
++    }
++  }
++  const int anisotropy = sMaxAnisotropy.load(std::memory_order_relaxed);
++  u16 maxAnisotropy = anisotropy == AnisotropyAurora           ? wgpu_aniso(texObj.max_aniso())
++                      : anisotropy >= 0 && !gameNearest ? static_cast<u16>(1 << anisotropy)
++                                                        : game_aniso(texObj.max_aniso());
+   if (ref && ref->isReplacement) {
+     minLod = 0.f;
+     maxLod = 1000.f;
 diff --git a/GXRuntime/graphics/aurora/lib/gx/gx.hpp b/GXRuntime/graphics/aurora/lib/gx/gx.hpp
-index 5e5d45868b..3dd2d095e2 100644
+index 5e5d45868b..5f5b4db1d9 100644
 --- a/GXRuntime/graphics/aurora/lib/gx/gx.hpp
 +++ b/GXRuntime/graphics/aurora/lib/gx/gx.hpp
 @@ -287,6 +287,16 @@ struct GXState {
@@ -4285,10 +4382,13 @@ index 5e5d45868b..3dd2d095e2 100644
    std::array<VtxFmt, MaxVtxFmt> vtxFmts;
    std::array<TevSwap, MaxTevSwap> tevSwapTable{
        TevSwap{},
-@@ -404,7 +419,18 @@ void initialize() noexcept;
+@@ -404,7 +419,21 @@ void initialize() noexcept;
  void shutdown() noexcept;
  void clear_static_texture_cache() noexcept;
  void clear_copy_texture_cache() noexcept;
++// aurora_set_texture_filtering / aurora_set_max_anisotropy
++void set_texture_filtering(int mode) noexcept;
++void set_max_anisotropy(int log2) noexcept;
 +// Host frame interpolation: a second, complete GX state (registers, matrices, texture binds, TLUTs,
 +// copy textures) drawing on webgpu's spare EFB. swap_replay_context(true) enters it (the caller
 +// swaps the EFB first and has drained the FIFO), false returns to the game's; both keep their
@@ -4304,7 +4404,7 @@ index 5e5d45868b..3dd2d095e2 100644
  void evict_texture_object(u32 texObjId) noexcept;
  void evict_tlut_object(u32 tlutObjId) noexcept;
  Vec2<uint32_t> logical_fb_size() noexcept;
-@@ -452,6 +478,12 @@ struct AttrConfig {
+@@ -452,6 +481,12 @@ struct AttrConfig {
    bool le = true;
    bool nbt3 = false;     // GX_NRM_NBT3
  };
@@ -4436,10 +4536,111 @@ index 0000000000..d3c1b6870a
 +void render(const wgpu::RenderPassEncoder&, const DrawData&) noexcept {}
 +} // namespace aurora::imgui
 diff --git a/GXRuntime/graphics/aurora/lib/webgpu/gpu.cpp b/GXRuntime/graphics/aurora/lib/webgpu/gpu.cpp
-index 37fb564725..50fa20d5d8 100644
+index 37fb564725..167f713cdf 100644
 --- a/GXRuntime/graphics/aurora/lib/webgpu/gpu.cpp
 +++ b/GXRuntime/graphics/aurora/lib/webgpu/gpu.cpp
-@@ -636,7 +636,33 @@ wgpu::BindGroup create_copy_bind_group(const TextureWithSampler& source) {
+@@ -1,3 +1,4 @@
++#include <atomic>
+ #include "gpu.hpp"
+ 
+ #include <algorithm>
+@@ -177,11 +178,53 @@ fn sample_area(frag_position: vec4<f32>) -> vec4<f32> {
+ 
+ // END AREA SAMPLER REGION
+ 
++// Dolphin's default_pre_post_process.glsl (SharpBilinearSample, BicubicSample with Catmull-Rom's B = 0,
++// C = 0.5), in gamma space like the samplers above
++
++fn sample_sharp_bilinear(uv: vec2<f32>) -> vec4<f32> {
++    let source_size = vec2<f32>(textureDimensions(t));
++    let target_size = max(vec2<f32>(uniforms.frame_width, uniforms.frame_height), vec2<f32>(1.0, 1.0));
++    let texel = uv * source_size;
++    let scale = max(floor(max(target_size.x / source_size.x, target_size.y / source_size.y)), 1.0);
++    let region_range = 0.5 - 0.5 / scale;
++    let center_dist = fract(texel) - vec2<f32>(0.5, 0.5);
++    let f = (center_dist - clamp(center_dist, vec2<f32>(-region_range), vec2<f32>(region_range))) * scale +
++            vec2<f32>(0.5, 0.5);
++    return textureSampleLevel(t, s, (floor(texel) + f) / source_size, 0.0);
++}
++
++fn catmull_rom(x: f32) -> vec4<f32> {
++    let x2 = x * x;
++    let x3 = x2 * x;
++    return vec4<f32>(-0.5 * x3 + x2 - 0.5 * x, 1.5 * x3 - 2.5 * x2 + 1.0, -1.5 * x3 + 2.0 * x2 + 0.5 * x,
++                     0.5 * x3 - 0.5 * x2);
++}
++
++fn sample_bicubic(uv: vec2<f32>) -> vec4<f32> {
++    let pixel = uv * vec2<f32>(textureDimensions(t)) - vec2<f32>(0.5, 0.5);
++    let base = vec2<i32>(floor(pixel));
++    let wx = catmull_rom(fract(pixel.x));
++    let wy = catmull_rom(fract(pixel.y));
++    var color = vec4<f32>(0.0, 0.0, 0.0, 0.0);
++    for (var j: i32 = 0; j < 4; j = j + 1) {
++        var row = vec4<f32>(0.0, 0.0, 0.0, 0.0);
++        for (var i: i32 = 0; i < 4; i = i + 1) {
++            row += wx[i] * sample_by_pixel(base + vec2<i32>(i - 1, j - 1));
++        }
++        color += wy[j] * row;
++    }
++    return color;
++}
++
+ @fragment
+ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+     var color = textureSample(t, s, in.uv);
+     if (uniforms.sampler_mode == 1u) {
+         color = sample_area(in.position);
++    } else if (uniforms.sampler_mode == 2u) {
++        color = sample_sharp_bilinear(in.uv);
++    } else if (uniforms.sampler_mode == 3u) {
++        color = clamp(sample_bicubic(in.uv), vec4<f32>(0.0), vec4<f32>(1.0));
+     }
+     return vec4(color.rgb, 1.0);
+ }
+@@ -239,6 +282,10 @@ uint32_t sampler_mode(AuroraSampler sampler) noexcept {
+   switch (sampler) {
+   case SAMPLER_AREA:
+     return 1;
++  case SAMPLER_SHARP_BILINEAR:
++    return 2;
++  case SAMPLER_BICUBIC:
++    return 3;
+   case SAMPLER_BILINEAR:
+   default:
+     return 0;
+@@ -315,6 +362,8 @@ void set_resampler(AuroraSampler sampler) noexcept {
+   switch (sampler) {
+   case SAMPLER_AREA:
+   case SAMPLER_BILINEAR:
++  case SAMPLER_SHARP_BILINEAR:
++  case SAMPLER_BICUBIC:
+     g_Resampler = sampler;
+     return;
+   default:
+@@ -325,6 +374,21 @@ void set_resampler(AuroraSampler sampler) noexcept {
+ 
+ AuroraSampler get_resampler() noexcept { return g_Resampler; }
+ 
++// aurora_set_msaa's count, taken by the next resize_swapchain_internal (0 = no change asked)
++static std::atomic_uint32_t g_pendingMsaa{0};
++
++bool set_msaa(uint32_t samples) noexcept {
++  samples = samples > 1 ? 4 : 1;
++  const uint32_t pending = g_pendingMsaa.load();
++  if (samples == (pending != 0 ? pending : g_graphicsConfig.msaaSamples)) {
++    return false;
++  }
++  g_pendingMsaa.store(samples);
++  return true;
++}
++
++bool msaa_pending() noexcept { return g_pendingMsaa.load() != 0; }
++
+ Viewport calculate_present_viewport(uint32_t surface_width, uint32_t surface_height, uint32_t content_width,
+                                     uint32_t content_height) noexcept {
+   if (surface_width == 0 || surface_height == 0 || content_width == 0 || content_height == 0) {
+@@ -636,7 +700,33 @@ wgpu::BindGroup create_copy_bind_group(const TextureWithSampler& source) {
  }
  
  const TextureWithSampler& resample_present_source(const wgpu::CommandEncoder& encoder, const Viewport& viewport) {
@@ -4474,7 +4675,7 @@ index 37fb564725..50fa20d5d8 100644
    const uint32_t width = viewport_extent(viewport.width);
    const uint32_t height = viewport_extent(viewport.height);
    if (!g_resampledFrameBuffer.view || g_resampledFrameBuffer.size.width != width ||
-@@ -786,9 +812,13 @@ bool initialize(AuroraBackend auroraBackend, bool allowCpu) {
+@@ -786,9 +876,13 @@ bool initialize(AuroraBackend auroraBackend, bool allowCpu) {
      return false;
    }
    {
@@ -4489,7 +4690,7 @@ index 37fb564725..50fa20d5d8 100644
          .backendType = backend,
          .compatibleSurface = g_surface,
      };
-@@ -915,6 +945,10 @@ bool initialize(AuroraBackend auroraBackend, bool allowCpu) {
+@@ -915,6 +1009,10 @@ bool initialize(AuroraBackend auroraBackend, bool allowCpu) {
        if (feature == wgpu::FeatureName::TimestampQuery) {
          requiredFeatures.push_back(feature);
        }
@@ -4500,7 +4701,7 @@ index 37fb564725..50fa20d5d8 100644
  #endif
      }
      std::string featureList;
-@@ -1061,6 +1095,9 @@ void shutdown() {
+@@ -1061,6 +1159,9 @@ void shutdown() {
    g_frameBuffer = {};
    g_frameBufferResolved = {};
    g_depthBuffer = {};
@@ -4510,7 +4711,23 @@ index 37fb564725..50fa20d5d8 100644
    g_queue = {};
    g_surface = {};
    g_device = {};
-@@ -1103,6 +1140,9 @@ static void resize_swapchain_internal(uint32_t width, uint32_t height, uint32_t
+@@ -1082,7 +1183,14 @@ static void resize_swapchain_internal(uint32_t width, uint32_t height, uint32_t
+   if (!g_surface || !g_device || width == 0 || height == 0 || nativeHeight == 0 || nativeWidth == 0) {
+     return;
+   }
+-  const bool sizeChanged = g_graphicsConfig.surfaceConfiguration.width != nativeWidth ||
++  // A new MSAA count (aurora_set_msaa) rebuilds the frame buffers like a new size
++  const uint32_t msaa = g_pendingMsaa.exchange(0);
++  const bool msaaChanged = msaa != 0 && msaa != g_graphicsConfig.msaaSamples;
++  if (msaaChanged) {
++    Log.info("MSAA {}x -> {}x", g_graphicsConfig.msaaSamples, msaa);
++    g_graphicsConfig.msaaSamples = msaa;
++  }
++  const bool sizeChanged = msaaChanged || g_graphicsConfig.surfaceConfiguration.width != nativeWidth ||
+                            g_graphicsConfig.surfaceConfiguration.height != nativeHeight ||
+                            g_frameBuffer.size.width != width || g_frameBuffer.size.height != height;
+   if (!force && !sizeChanged) {
+@@ -1103,6 +1211,9 @@ static void resize_swapchain_internal(uint32_t width, uint32_t height, uint32_t
    g_frameBuffer = create_render_texture(width, height, true);
    g_frameBufferResolved = create_render_texture(width, height, false);
    g_depthBuffer = create_depth_texture(width, height);
@@ -4521,10 +4738,17 @@ index 37fb564725..50fa20d5d8 100644
  }
  
 diff --git a/GXRuntime/graphics/aurora/lib/webgpu/gpu.hpp b/GXRuntime/graphics/aurora/lib/webgpu/gpu.hpp
-index 3943da0943..0236ba6be2 100644
+index 3943da0943..cdd3c12fbb 100644
 --- a/GXRuntime/graphics/aurora/lib/webgpu/gpu.hpp
 +++ b/GXRuntime/graphics/aurora/lib/webgpu/gpu.hpp
-@@ -70,6 +70,12 @@ AuroraSampler get_resampler() noexcept;
+@@ -66,10 +66,19 @@ TextureWithSampler create_render_texture(uint32_t width, uint32_t height, bool m
+ const TextureWithSampler& present_source() noexcept;
+ wgpu::BindGroup create_copy_bind_group(const TextureWithSampler& source);
+ void set_resampler(AuroraSampler sampler) noexcept;
++// aurora_set_msaa: true when the count changes (the caller then asks for a frame buffer resize)
++bool set_msaa(uint32_t samples) noexcept;
++bool msaa_pending() noexcept;
+ AuroraSampler get_resampler() noexcept;
  Viewport calculate_present_viewport(uint32_t surface_width, uint32_t surface_height, uint32_t content_width,
                                      uint32_t content_height) noexcept;
  const TextureWithSampler& resample_present_source(const wgpu::CommandEncoder& encoder, const Viewport& viewport);
@@ -4766,7 +4990,7 @@ index 7861201f8b..b2e0cd5cdd 100644
  void shutdown();
  
 diff --git a/GXRuntime/graphics/aurora/lib/window.cpp b/GXRuntime/graphics/aurora/lib/window.cpp
-index 38412052c3..f93b851c64 100644
+index 38412052c3..b8ba9828f4 100644
 --- a/GXRuntime/graphics/aurora/lib/window.cpp
 +++ b/GXRuntime/graphics/aurora/lib/window.cpp
 @@ -1,3 +1,4 @@
@@ -4774,7 +4998,19 @@ index 38412052c3..f93b851c64 100644
  #include "window.hpp"
  
  #ifdef AURORA_ENABLE_GX
-@@ -342,6 +343,11 @@ void destroy_window() {
+@@ -83,7 +84,11 @@ Vec2<int> fit_frame_buffer_to_aspect(int width, int height, float aspect) {
+ 
+ void resize_swapchain() noexcept {
+   const auto size = get_window_size();
++#ifdef AURORA_ENABLE_GX
++  if (size == g_windowSize && !webgpu::msaa_pending()) {
++#else
+   if (size == g_windowSize) {
++#endif
+     return;
+   }
+   if (size.scale != g_windowSize.scale) {
+@@ -342,6 +347,11 @@ void destroy_window() {
  void show_window() {
    if (g_window != nullptr) {
      TRY_WARN(SDL_ShowWindow(g_window), "Failed to show window: {}", SDL_GetError());
@@ -4786,7 +5022,7 @@ index 38412052c3..f93b851c64 100644
    }
  }
  
-@@ -378,7 +384,12 @@ void shutdown() {
+@@ -378,7 +388,12 @@ void shutdown() {
    SDL_RemoveEventWatch(lifecycle_event_watch, nullptr);
    destroy_window();
    TRY_WARN(SDL_EnableScreenSaver(), "Error enabling screensaver: {}", SDL_GetError());
@@ -4800,7 +5036,7 @@ index 38412052c3..f93b851c64 100644
  }
  
  AuroraWindowSize get_window_size() {
-@@ -524,6 +535,12 @@ void set_frame_buffer_aspect_fit(bool fit) {
+@@ -524,6 +539,12 @@ void set_frame_buffer_aspect_fit(bool fit) {
  
  void set_background_input(bool value) { SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, value ? "1" : "0"); }
  
@@ -4846,10 +5082,10 @@ index 51257eadd3..adc729258e 100644
  }; // namespace aurora::window
 diff --git a/GXRuntime/graphics/aurora/lib/window_external.cpp b/GXRuntime/graphics/aurora/lib/window_external.cpp
 new file mode 100644
-index 0000000000..2522855319
+index 0000000000..1c1fd1c6ae
 --- /dev/null
 +++ b/GXRuntime/graphics/aurora/lib/window_external.cpp
-@@ -0,0 +1,263 @@
+@@ -0,0 +1,267 @@
 +// Window backend for builds without SDL (AURORA_ENABLE_SDL=OFF): the host owns the native
 +// window (ANativeWindow on Android, HWND on Windows), gives it to Aurora in
 +// AuroraConfig::nativeWindow and swaps it with aurora_set_native_window(). There are no
@@ -4920,7 +5156,11 @@ index 0000000000..2522855319
 +
 +void resize_swapchain() noexcept {
 +  const auto size = get_window_size();
++#ifdef AURORA_ENABLE_GX
++  if (size == g_windowSize && !webgpu::msaa_pending()) {
++#else
 +  if (size == g_windowSize) {
++#endif
 +    return;
 +  }
 +  g_windowSize = size;

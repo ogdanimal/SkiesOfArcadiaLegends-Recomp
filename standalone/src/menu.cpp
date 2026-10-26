@@ -27,6 +27,7 @@
 #include <SDL3/SDL.h>
 #include <imgui.h>
 
+#include <aurora/aurora.h>
 #include <dolphin/vi.h>
 
 #include "gxruntime/aurora_backend.h"
@@ -76,6 +77,10 @@ enum class Option
   Picture,
   Hud,
   Resolution,
+  Antialiasing,
+  TextureFilter,
+  Anisotropy,
+  Scaling,
   VSync,
   ShowFps,
   Camera,
@@ -92,8 +97,9 @@ enum class Option
 };
 
 constexpr std::array SAVES_ROWS{Option::SaveState, Option::LoadState, Option::AutoSave};
-constexpr std::array GRAPHICS_ROWS{Option::Picture, Option::Hud, Option::Resolution, Option::VSync,
-                                   Option::ShowFps};
+constexpr std::array GRAPHICS_ROWS{Option::Picture,      Option::Hud,           Option::Resolution,
+                                   Option::Antialiasing, Option::TextureFilter, Option::Anisotropy,
+                                   Option::Scaling,      Option::VSync,         Option::ShowFps};
 constexpr std::array GAMEPLAY_ROWS{Option::Camera,     Option::BattleSpeed, Option::FieldSpeed,
                                    Option::Encounters, Option::HoldB,       Option::Exp,
                                    Option::Gold,       Option::MagicExp,    Option::Invincible};
@@ -125,6 +131,14 @@ constexpr std::array FIELD_SPEEDS{100, 150, 200, 300};
 constexpr std::array DEAD_ZONES{0, 5, 10, 15, 20, 25, 30};
 // Internal resolution: 0 = the window's own (Aurora sizes the EFB to it), then the launchers' scales
 constexpr std::array EFB_SCALES{0, 1, 2, 3, 4, 6};
+// Anti-aliasing: WebGPU's sample counts (the Dolphin build offers what its backend has; a value from
+// there other than these shows and runs as the nearest)
+constexpr std::array MSAA_MODES{1, 4};
+// The Dolphin build's choices (Dolphin's enum values: TextureFilteringMode, AnisotropicFilteringMode,
+// OutputResamplingMode)
+constexpr std::array TEXTURE_FILTERS{0, 2, 1};
+constexpr std::array ANISOTROPIES{-1, 1, 2, 3, 4};
+constexpr std::array SCALINGS{0, 5, 6, 4};
 // [Skies] Widescreen in menu order: 16:9, Match screen, the original 4:3.
 constexpr std::array PICTURES{1, 2, 0};
 // [Skies] Hud in menu order: the screen's edges, a 21:9 area, a 16:9 area, the original 4:3.
@@ -157,6 +171,10 @@ constexpr Key AUTO_SAVE{SettingFile::Main, "Skies", "AutoSave", 10};
 constexpr Key DEAD_ZONE{SettingFile::Main, "Skies", "StandaloneDeadZone", 0};
 constexpr Key VOLUME{SettingFile::Main, "DSP", "Volume", 100};
 constexpr Key EFB_SCALE{SettingFile::Gfx, "Settings", "InternalResolution", 0};
+constexpr Key MSAA{SettingFile::Gfx, "Settings", "MSAA", 1};
+constexpr Key TEXTURE_FILTER{SettingFile::Gfx, "Enhancements", "ForceTextureFiltering", 0};
+constexpr Key ANISOTROPY{SettingFile::Gfx, "Enhancements", "MaxAnisotropy", -1};
+constexpr Key SCALING{SettingFile::Gfx, "Enhancements", "OutputResampling", 0};
 constexpr Key SHOW_FPS{SettingFile::Gfx, "Settings", "ShowFPS", 0, true};
 constexpr Key VSYNC{SettingFile::Gfx, "Hardware", "VSync", 0, true};
 
@@ -175,6 +193,10 @@ struct Values
   int widescreen = 1;
   int hud = 2;
   int efb_scale = 0;
+  int msaa = 1;
+  int texture_filter = 0;  // 0 the game's, 1 nearest (Sharp), 2 linear (Smooth)
+  int anisotropy = -1;     // -1 the game's, 0-4 = 1x-16x
+  int scaling = 0;         // OutputResamplingMode
   bool vsync = false;
   bool show_fps = false;
   int camera = 1;
@@ -231,6 +253,10 @@ Clock::time_point s_repeat_next;
 // every frame and poll); -1 = not applied yet.
 int s_applied_efb_scale = -1;
 int s_applied_vsync = -1;
+int s_applied_msaa = -1;
+int s_applied_texture_filter = -2;
+int s_applied_anisotropy = -2;
+int s_applied_scaling = -1;
 // Cached for the audio path and the pad filter (read once per change, not per sample block)
 int s_volume = 100;
 int s_dead_zone = 0;
@@ -305,6 +331,10 @@ Values ReadValues()
   const int hud = Get(HUD);
   values.hud = hud < 0 ? 2 : hud;
   values.efb_scale = Get(EFB_SCALE);
+  values.msaa = Get(MSAA) > 1 ? MSAA_MODES.back() : 1;
+  values.texture_filter = std::clamp(Get(TEXTURE_FILTER), 0, 2);
+  values.anisotropy = std::clamp(Get(ANISOTROPY), -1, 4);
+  values.scaling = Get(SCALING);
   values.vsync = Get(VSYNC) != 0;
   values.show_fps = Get(SHOW_FPS) != 0;
   values.camera = Get(CAMERA_CONTROL) != 0 ? 1 : 0;
@@ -337,6 +367,10 @@ void Apply(const Values& values, const Values& before)
   set(WIDESCREEN, values.widescreen, before.widescreen);
   set(HUD, values.hud, before.hud);
   set(EFB_SCALE, values.efb_scale, before.efb_scale);
+  set(MSAA, values.msaa, before.msaa);
+  set(TEXTURE_FILTER, values.texture_filter, before.texture_filter);
+  set(ANISOTROPY, values.anisotropy, before.anisotropy);
+  set(SCALING, values.scaling, before.scaling);
   set(VSYNC, values.vsync, before.vsync);
   set(SHOW_FPS, values.show_fps, before.show_fps);
   set(CAMERA_CONTROL, values.camera, before.camera);
@@ -534,6 +568,18 @@ void Change(Option option, int direction, bool wrap)
     break;
   case Option::Resolution:
     v.efb_scale = Step(EFB_SCALES, v.efb_scale, direction, wrap);
+    break;
+  case Option::Antialiasing:
+    v.msaa = Step(MSAA_MODES, v.msaa, direction, wrap);
+    break;
+  case Option::TextureFilter:
+    v.texture_filter = Step(TEXTURE_FILTERS, v.texture_filter, direction, wrap);
+    break;
+  case Option::Anisotropy:
+    v.anisotropy = Step(ANISOTROPIES, v.anisotropy, direction, wrap);
+    break;
+  case Option::Scaling:
+    v.scaling = Step(SCALINGS, v.scaling, direction, wrap);
     break;
   case Option::VSync:
     v.vsync = !v.vsync;
@@ -1487,6 +1533,36 @@ void MenuApplyGame()
     s_applied_efb_scale = scale;
     VISetFrameBufferScale(static_cast<float>(scale));
   }
+  // Anti-aliasing, texture filtering, anisotropy and scaling: live in Aurora (fork 0038)
+  const int msaa = Get(MSAA) > 1 ? MSAA_MODES.back() : 1;
+  if (msaa != s_applied_msaa)
+  {
+    s_applied_msaa = msaa;
+    aurora_set_msaa(static_cast<u32>(msaa));
+  }
+  const int texture_filter = std::clamp(Get(TEXTURE_FILTER), 0, 2);
+  if (texture_filter != s_applied_texture_filter)
+  {
+    s_applied_texture_filter = texture_filter;
+    aurora_set_texture_filtering(texture_filter);
+  }
+  const int anisotropy = std::clamp(Get(ANISOTROPY), -1, 4);
+  if (anisotropy != s_applied_anisotropy)
+  {
+    s_applied_anisotropy = anisotropy;
+    aurora_set_max_anisotropy(anisotropy);
+  }
+  const int scaling = Get(SCALING);
+  if (scaling != s_applied_scaling)
+  {
+    s_applied_scaling = scaling;
+    // Dolphin's OutputResamplingMode on Aurora's samplers: the cubic family as Catmull-Rom, nearest
+    // and default as bilinear
+    aurora_set_resampler(scaling == 5 ? SAMPLER_SHARP_BILINEAR :
+                         scaling == 6 ? SAMPLER_AREA :
+                         scaling == 2 || scaling == 3 || scaling == 4 || scaling == 8 ? SAMPLER_BICUBIC :
+                                                                                         SAMPLER_BILINEAR);
+  }
   static const bool s_env_vsync = std::getenv("SKIES_VSYNC") != nullptr;
   const int vsync = s_env_vsync || Get(VSYNC) != 0 ? 1 : 0;
   if (vsync != s_applied_vsync)
@@ -1742,6 +1818,22 @@ void Draw(float scale)
       return {"Resolution", ResolutionText(v.efb_scale),
               "Higher is sharper but needs a faster graphics chip. Match window draws at the "
               "window's own size."};
+    case Option::Antialiasing:
+      return {"Anti-aliasing", v.msaa > 1 ? std::to_string(v.msaa) + "x MSAA" : "Off",
+              "Smooths jagged edges. Higher settings need a faster graphics chip."};
+    case Option::TextureFilter:
+      return {"Texture filtering",
+              v.texture_filter == 2 ? "Smooth" : v.texture_filter == 1 ? "Sharp" : "Original",
+              "Smooth blends textures' pixels; Sharp shows them as crisp pixels."};
+    case Option::Anisotropy:
+      return {"Anisotropic filtering",
+              v.anisotropy < 1 ? std::string("Off") : std::to_string(1 << v.anisotropy) + "x",
+              "Keeps textures seen at a slant sharp."};
+    case Option::Scaling:
+      return {"Scaling",
+              v.scaling == 5 ? "Sharp" : v.scaling == 6 ? "Smooth" : v.scaling == 4 ? "Bicubic" :
+                                                                          "Default",
+              "How the picture fits the screen. Sharp keeps a low Resolution crisp."};
     case Option::VSync:
       return {"V-Sync", OnOff(v.vsync), "Stops screen tearing. Can add a little input delay."};
     case Option::ShowFps:

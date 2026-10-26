@@ -776,6 +776,9 @@ less); smoother and less power overall anyway, from the CPU side.
 4.16 (2), present resample 0.69 + blit 0.22, staging 0.15; span 27.7 ms. Battle 4x at 305 MHz: EFB 11.8 (1),
 present resample 0.96 + blit 0.51, staging 0.17; span 13.4.
 
+**Fork 0038 (graphics options, item 2 of HANDOFF-feature-gaps.md):** live texture filtering / anisotropy / MSAA
+overrides and the sharp bilinear and bicubic output samplers.
+
 **Fork 0037: no resample pass with the bilinear output sampler.** The present blit samples the source over the
 viewport itself instead of copying a viewport-sized intermediate the resample pass wrote (same bilinear
 sample; the old path quantized to 8 bits once more in between). Save point 6x: 27.7 -> 26.8 ms, 1.20-1.21x ->
