@@ -2956,7 +2956,10 @@ done (discs, Continue, graphics options, input, Language, HD textures, 60 fps;
 beside the game (handoff, *The video thread*): the game waits for it only at the frame's tokens, and only for
 commands that read guest RAM (Skies rebuilds its display lists after them); on phones it polls while the game
 has no time to spare, or the governor leaves its cores at half clock. With it 60 fps costs 4-5% of the
-uncapped speed (25% before) and the Pocket 5 is ahead of the Dolphin build at 30 and 60 fps. Profiling on the
+uncapped speed (25% before) and the Pocket 5 is ahead of the Dolphin build at 30 and 60 fps. Item 7 (the
+Dreamcast features) is done too: the Dolphin build's modules copied as they are (`standalone/src/dreamcast/`)
+over shims of the Dolphin headers they include (`standalone/src/dolphin_shim/`), the pattern for the
+remaining Dolphin-hosted features; their outputs byte-identical to the Dolphin build's. Profiling on the
 device: the test app is `profileable`, so `simpleperf record --app com.skiesofarcadia.standalone` works.
 
 ## Aurora renderer (desktop; 2026-10-21, committed as patches 2026-10-22: see *Aurora renderer* under Android for the status)

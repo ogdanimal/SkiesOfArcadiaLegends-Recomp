@@ -207,7 +207,10 @@ a video thread beside the game (fork 0046, `HANDOFF-emulator-free.md`, *The vide
 1.77x / 1.70x at the save point at 30 / 60 fps (Dolphin 1.38x / 1.41x), 2.15x / 2.05x in battle (1.63x /
 1.69x); 60 fps at full speed p99 ~17.7 ms against Dolphin's 24.5-25.9, at less power. Ahead as an engine, not
 yet a replacement (features 7-10 missing, not played through; `HANDOFF-emulator-free.md`, *Where it stands*).
-Open: the Dreamcast features (next), data folder / romhacks / saves, the Android launcher, packaging; the EFB
+Item 7 since (2026-10-26): the Dreamcast features (Uncensored, the Dreamcast music and streams, the
+European 60 Hz audio) from the Dolphin build's modules copied as they are behind shimmed Dolphin headers;
+every output byte-identical to the Dolphin build's. Open: data folder / romhacks / saves, the Android
+launcher, packaging (items 8-10); the EFB
 passes on the tiler; the built-in pad and audio on the device (by hand), size changes on return. The plan for
 the features: [handoffs/HANDOFF-feature-gaps.md](handoffs/HANDOFF-feature-gaps.md).
 
