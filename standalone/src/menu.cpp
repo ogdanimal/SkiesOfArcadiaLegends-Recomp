@@ -94,6 +94,7 @@ enum class Option
   Invincible,
   Volume,
   DeadZone,
+  Rumble,
 };
 
 constexpr std::array SAVES_ROWS{Option::SaveState, Option::LoadState, Option::AutoSave};
@@ -104,7 +105,7 @@ constexpr std::array GAMEPLAY_ROWS{Option::Camera,     Option::BattleSpeed, Opti
                                    Option::Encounters, Option::HoldB,       Option::Exp,
                                    Option::Gold,       Option::MagicExp,    Option::Invincible};
 constexpr std::array SOUND_ROWS{Option::Volume};
-constexpr std::array CONTROLS_ROWS{Option::DeadZone};
+constexpr std::array CONTROLS_ROWS{Option::DeadZone, Option::Rumble};
 struct Tab
 {
   const char* name;
@@ -166,6 +167,8 @@ constexpr Key AUTO_SAVE{SettingFile::Main, "Skies", "AutoSave", 10};
 // The standalone's own: controller 1's stick dead zone (the Dolphin build keeps it in its
 // controller profile, GCPadNew.ini, which this host doesn't read)
 constexpr Key DEAD_ZONE{SettingFile::Main, "Skies", "StandaloneDeadZone", 0};
+// Controller vibration on / off (the Dolphin build's is the profile's Rumble/Motor binding)
+constexpr Key RUMBLE{SettingFile::Main, "Skies", "StandaloneRumble", 1};
 constexpr Key VOLUME{SettingFile::Main, "DSP", "Volume", 100};
 constexpr Key EFB_SCALE{SettingFile::Gfx, "Settings", "InternalResolution", 0};
 constexpr Key MSAA{SettingFile::Gfx, "Settings", "MSAA", 1};
@@ -207,6 +210,7 @@ struct Values
   int invincible = 0;
   int volume = 100;
   int dead_zone = 0;
+  int rumble = 1;
   int auto_save = 10;
 };
 
@@ -257,6 +261,7 @@ int s_applied_scaling = -1;
 // Cached for the audio path and the pad filter (read once per change, not per sample block)
 int s_volume = 100;
 int s_dead_zone = 0;
+bool s_rumble = true;
 
 // The hotkeys outside the GameCube's buttons: the menu (Esc, a controller's Back / Select) and
 // Invincible (L3 / R3), from SDL directly.
@@ -375,6 +380,7 @@ Values ReadValues()
   values.invincible = Get(INVINCIBLE) != 0 ? 1 : 0;
   values.volume = std::clamp(Get(VOLUME), 0, 100);
   values.dead_zone = std::clamp(Get(DEAD_ZONE), 0, DEAD_ZONES.back());
+  values.rumble = Get(RUMBLE) != 0 ? 1 : 0;
   values.auto_save = std::max(0, Get(AUTO_SAVE));
   return values;
 }
@@ -411,9 +417,11 @@ void Apply(const Values& values, const Values& before)
   set(INVINCIBLE, values.invincible, before.invincible);
   set(VOLUME, values.volume, before.volume);
   set(DEAD_ZONE, values.dead_zone, before.dead_zone);
+  set(RUMBLE, values.rumble, before.rumble);
   set(AUTO_SAVE, values.auto_save, before.auto_save);
   s_volume = values.volume;
   s_dead_zone = values.dead_zone;
+  s_rumble = values.rumble != 0;
   if (changed)
     SettingsSave();
 }
@@ -619,6 +627,9 @@ void Change(Option option, int direction, bool wrap)
     break;
   case Option::DeadZone:
     v.dead_zone = Step(DEAD_ZONES, v.dead_zone, direction, wrap);
+    break;
+  case Option::Rumble:
+    v.rumble = v.rumble ? 0 : 1;
     break;
   case Option::Encounters:
     v.encounters = Step(ENCOUNTER_RATES, v.encounters, direction, wrap);
@@ -1519,6 +1530,11 @@ int MenuVolume()
   return s_volume;
 }
 
+bool MenuRumbleAllowed()
+{
+  return s_rumble && s_mode != Mode::Open;
+}
+
 void MenuApplyGame()
 {
   static bool s_first = true;
@@ -1527,6 +1543,7 @@ void MenuApplyGame()
     s_first = false;
     s_volume = std::clamp(Get(VOLUME), 0, 100);
     s_dead_zone = std::clamp(Get(DEAD_ZONE), 0, DEAD_ZONES.back());
+    s_rumble = Get(RUMBLE) != 0;
   }
   autosave::Poll();
   if (Read32(WS_CONFIG_ADDRESS) == WS_CONFIG_MAGIC)
@@ -1897,6 +1914,8 @@ void Draw(float scale)
     case Option::DeadZone:
       return {"Stick dead zone", v.dead_zone <= 0 ? std::string("Off") : std::to_string(v.dead_zone) + "%",
               "Ignores small stick movements. Raise it if a stick drifts."};
+    case Option::Rumble:
+      return {"Rumble", v.rumble ? "On" : "Off", "Controller vibration."};
     }
     return {"", "", ""};
   };

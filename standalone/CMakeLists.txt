@@ -69,6 +69,7 @@ set(SKIES_STANDALONE_SOURCES
   src/video.cpp
   src/settings.cpp
   src/menu.cpp
+  src/input.cpp
   src/state.cpp
   src/dsphle/dsp_hle.cpp
   src/dsphle/mail_handler.cpp

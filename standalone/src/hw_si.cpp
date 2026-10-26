@@ -1,6 +1,7 @@
 // Serial interface with GameCube controllers on its four channels (SI.cpp, SI_DeviceGCController.cpp):
 // polling into the channel input buffers each field, and the command transfers PADInit sends
-// (status, origin, recalibrate). Controller state comes from video.cpp (Aurora's SDL pads).
+// (status, origin, recalibrate). Controller state comes from video.cpp (Aurora's SDL pads), and the
+// poll command's motor bits go back to them as rumble.
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "host.h"
 #include "state.h"
@@ -19,6 +20,11 @@ struct Channel
 Channel s_ch[4];
 u32 s_poll = 0, s_comcsr = 0, s_status = 0, s_exilk = 0;
 u8 s_buffer[128];
+// The motor command each channel's game last latched (0 stop, 1 rumble, 2 hard stop) and the one
+// the controller has now (the game's, or stop while the menu is open or Rumble is off). Not in
+// save states: a loaded state starts still and the game's next command sets it.
+u8 s_motor[4];
+u8 s_motor_sent[4];
 
 constexpr u32 COMCSR_TSTART = 1u;
 constexpr u32 COMCSR_RDSTINTMSK = 1u << 27;
@@ -182,6 +188,8 @@ void SiInit()
   s_poll = s_comcsr = s_status = s_exilk = 0;
   s_polled = false;
   std::memset(s_buffer, 0, sizeof(s_buffer));
+  std::memset(s_motor, 0, sizeof(s_motor));
+  std::memset(s_motor_sent, 0, sizeof(s_motor_sent));
   SchedRegister(EV_SI, TransferDone);
 }
 
@@ -197,11 +205,29 @@ void SiDoState(StateIO& p)
   p.DoArray(s_buffer, sizeof(s_buffer));
   p.DoArray(s_pads, 4);
   p.Do(s_polled);
+  if (p.Reading())
+    std::memset(s_motor, 0, sizeof(s_motor));
 }
 
 void SiPollDevices()
 {
   Snapshot();
+  const bool rumble = MenuRumbleAllowed();
+  for (u32 i = 0; i < 4; ++i)
+  {
+    const u8 motor = rumble ? s_motor[i] : 0;
+    if (motor != s_motor_sent[i])
+    {
+      s_motor_sent[i] = motor;
+      static bool s_logged = false;
+      if (motor == 1 && !s_logged)
+      {
+        s_logged = true;
+        Log("[si] controller %u: the game's first rumble\n", i + 1);
+      }
+      VideoPadMotor(i, motor);
+    }
+  }
   for (u32 i = 0; i < 4; ++i)
   {
     const u32 errlatch = s_ch[i].in_hi & 0x40000000u;
@@ -311,13 +337,17 @@ void SiWrite32(u32 offset, u32 value)
   }
   case 0x38:
     // error bits clear on 1; WR (bit 31) latches the output buffers: the poll command's mode
+    // and motor (SI_DeviceGCController::SendCommand)
     s_status &= ~(value & 0x0F0F0F0Fu);
     if (value & 0x80000000u)
     {
       for (u32 i = 0; i < 4; ++i)
       {
         if (((s_ch[i].out >> 16) & 0xFF) == 0x40)
+        {
           s_ch[i].mode = static_cast<u8>((s_ch[i].out >> 8) & 7);
+          s_motor[i] = static_cast<u8>(s_ch[i].out & 3);
+        }
       }
     }
     UpdateInterrupts();

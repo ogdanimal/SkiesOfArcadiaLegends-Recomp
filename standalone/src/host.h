@@ -12,6 +12,7 @@
 #include <chrono>
 #include <cstdio>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace host
@@ -217,6 +218,8 @@ void VideoFrameEnd();                         // the game's display copy (EFB to
 void VideoRetrace();                          // a VI field
 bool VideoQuitRequested();
 void VideoPadRead(u16 buttons[4], s8 sticks[4][4], u8 triggers[4][2], bool connected[4]);
+// A controller's motor: 0 stop, 1 rumble, 2 hard stop (the SDK's PAD_MOTOR_*)
+void VideoPadMotor(u32 channel, u32 command);
 // The window's surface in pixels (false: no window; either pointer may be null)
 bool VideoSurfaceSize(unsigned* width, unsigned* height);
 
@@ -229,6 +232,8 @@ enum class SettingFile
   Gfx,
 };
 void SettingsInit(const std::string& user_dir);
+// USER/Config (empty without --user)
+const std::string& SettingsConfigDir();
 int SettingGet(SettingFile file, const char* section, const char* key, int fallback);
 void SettingSet(SettingFile file, const char* section, const char* key, int value, bool boolean = false);
 void SettingsSave();
@@ -247,9 +252,16 @@ void MenuApplyGame();
 // Controller 1 at each SI poll: the menu (Z+Start, Esc, a controller's Back) takes the input while
 // it's open; the camera, speed and QOL options read it while it's closed.
 void MenuFilterPad(PadStatus& pad);
+// The game's rumble reaches the controllers: Rumble is on and the menu isn't open.
+bool MenuRumbleAllowed();
 // Before each present: the menu, messages and the FPS counter through Aurora's overlay.
 void MenuFrame();
 void MenuMessage(const std::string& text, int milliseconds);
+
+// ---- controllers through Aurora's PAD layer (input.cpp) ---------------------------------------------
+// At each controller read with a window: the "Controller: <name>" message when port 1 changes hands.
+void InputPoll();
+std::string InputDeviceLabel(std::string_view name);
 // Continue from a card save ([Skies] AutoLoadCard, one shot, as the launchers set it): file 1..99, or
 // CONTINUE_NEWEST for the game's newest save on card A; 0 leaves the key's value. The game patch
 // (autoload.c, ws20+) loads it at boot, straight into the field. Before the first frame.

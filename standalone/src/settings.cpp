@@ -147,19 +147,27 @@ struct IniFile
 };
 
 IniFile s_files[2];  // SettingFile::Main, SettingFile::Gfx
+std::string s_config_dir;
 }  // namespace
 
 void SettingsInit(const std::string& user_dir)
 {
   for (IniFile& f : s_files)
     f = {};
+  s_config_dir.clear();
   if (user_dir.empty())
     return;
   const std::filesystem::path config = std::filesystem::path(user_dir) / "Config";
+  s_config_dir = config.string();
   s_files[0].path = config / "Dolphin.ini";
   s_files[1].path = config / "GFX.ini";
   for (IniFile& f : s_files)
     f.Load();
+}
+
+const std::string& SettingsConfigDir()
+{
+  return s_config_dir;
 }
 
 int SettingGet(SettingFile file, const char* section, const char* key, int fallback)

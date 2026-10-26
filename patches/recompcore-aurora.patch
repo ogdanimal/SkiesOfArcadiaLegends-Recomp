@@ -717,7 +717,7 @@ index 24367bf568..7b7f0dc132 100644
      if (!gx_aurora::g_initialized)
          return;
 diff --git a/GXRuntime/backends/aurora/aurora_input.cpp b/GXRuntime/backends/aurora/aurora_input.cpp
-index 09c589a694..8db7f79af7 100644
+index 09c589a694..390711df8c 100644
 --- a/GXRuntime/backends/aurora/aurora_input.cpp
 +++ b/GXRuntime/backends/aurora/aurora_input.cpp
 @@ -1,5 +1,24 @@
@@ -745,7 +745,65 @@ index 09c589a694..8db7f79af7 100644
  #include <dolphin/pad.h>
  #include <SDL3/SDL_scancode.h>
  #include <cstring>
-@@ -86,3 +105,4 @@ void aurora_backend_pad_set_spec(u32 spec) {
+@@ -11,36 +30,40 @@ bool aurora_backend_pad_init(void) {
+         return false;
+ 
+     // Force Aurora to load any persisted keyboard mapping first. Install a
+-    // usable port-0 fallback only when the user has not configured one.
++    // usable port-0 fallback only when the user has not configured one: the
++    // Skies release layout (the left hand moves with W A S D and holds Z on
++    // Tab, the right hand has the C-stick on I J K L and the D-pad on the
++    // arrows; Space / Left Shift are A / B). L / R press the trigger button
++    // and pull the analog trigger all the way.
+     PADStatus initial[4]{};
+     (void)PADRead(initial);
+     u32 count = 0;
+     if (PADGetKeyButtonBindings(0, &count) == nullptr) {
+         PADKeyButtonBinding buttons[PAD_BUTTON_COUNT] = {
++            {SDL_SCANCODE_SPACE,  PAD_BUTTON_A},
++            {SDL_SCANCODE_LSHIFT, PAD_BUTTON_B},
++            {SDL_SCANCODE_F,      PAD_BUTTON_X},
++            {SDL_SCANCODE_R,      PAD_BUTTON_Y},
++            {SDL_SCANCODE_RETURN, PAD_BUTTON_START},
++            {SDL_SCANCODE_TAB,    PAD_TRIGGER_Z},
++            {SDL_SCANCODE_Q,      PAD_TRIGGER_L},
++            {SDL_SCANCODE_E,      PAD_TRIGGER_R},
++            {SDL_SCANCODE_UP,     PAD_BUTTON_UP},
++            {SDL_SCANCODE_DOWN,   PAD_BUTTON_DOWN},
+             {SDL_SCANCODE_LEFT,   PAD_BUTTON_LEFT},
+             {SDL_SCANCODE_RIGHT,  PAD_BUTTON_RIGHT},
+-            {SDL_SCANCODE_DOWN,   PAD_BUTTON_DOWN},
+-            {SDL_SCANCODE_UP,     PAD_BUTTON_UP},
+-            {SDL_SCANCODE_Q,      PAD_TRIGGER_Z},
+-            {SDL_SCANCODE_R,      PAD_TRIGGER_R},
+-            {SDL_SCANCODE_E,      PAD_TRIGGER_L},
+-            {SDL_SCANCODE_J,      PAD_BUTTON_A},
+-            {SDL_SCANCODE_K,      PAD_BUTTON_B},
+-            {SDL_SCANCODE_U,      PAD_BUTTON_X},
+-            {SDL_SCANCODE_I,      PAD_BUTTON_Y},
+-            {SDL_SCANCODE_RETURN, PAD_BUTTON_START},
+         };
+         PADKeyAxisBinding axes[PAD_AXIS_COUNT] = {
+             {SDL_SCANCODE_D, PAD_AXIS_LEFT_X_POS, 32767},
+             {SDL_SCANCODE_A, PAD_AXIS_LEFT_X_NEG, 32767},
+             {SDL_SCANCODE_W, PAD_AXIS_LEFT_Y_POS, 32767},
+             {SDL_SCANCODE_S, PAD_AXIS_LEFT_Y_NEG, 32767},
+-            {SDL_SCANCODE_H, PAD_AXIS_RIGHT_X_POS, 32767},
+-            {SDL_SCANCODE_F, PAD_AXIS_RIGHT_X_NEG, 32767},
+-            {SDL_SCANCODE_T, PAD_AXIS_RIGHT_Y_POS, 32767},
+-            {SDL_SCANCODE_G, PAD_AXIS_RIGHT_Y_NEG, 32767},
+-            {SDL_SCANCODE_E, PAD_AXIS_TRIGGER_L, 32767},
+-            {SDL_SCANCODE_R, PAD_AXIS_TRIGGER_R, 32767},
++            {SDL_SCANCODE_L, PAD_AXIS_RIGHT_X_POS, 32767},
++            {SDL_SCANCODE_J, PAD_AXIS_RIGHT_X_NEG, 32767},
++            {SDL_SCANCODE_I, PAD_AXIS_RIGHT_Y_POS, 32767},
++            {SDL_SCANCODE_K, PAD_AXIS_RIGHT_Y_NEG, 32767},
++            {SDL_SCANCODE_Q, PAD_AXIS_TRIGGER_L, 32767},
++            {SDL_SCANCODE_E, PAD_AXIS_TRIGGER_R, 32767},
+         };
+         PADSetKeyButtonBindings(0, buttons);
+         PADSetKeyAxisBindings(0, axes);
+@@ -86,3 +109,4 @@ void aurora_backend_pad_set_spec(u32 spec) {
  }
  
  } // extern "C"

@@ -11,6 +11,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <string>
 #include <thread>
 #include <vector>
@@ -229,6 +230,16 @@ bool VideoInit(bool headless)
 #ifdef SKIES_STANDALONE_AURORA
   if (headless)
     return true;
+  // Aurora's controller and keyboard bindings (keyboard_bindings.dat and the controller
+  // mappings) in USER/Config/Aurora beside the Dolphin build's GCPadNew.ini; its shader caches stay
+  // in the system's per-user app folder.
+  static std::string s_aurora_user;
+  if (!SettingsConfigDir().empty())
+  {
+    s_aurora_user = (std::filesystem::path(SettingsConfigDir()) / "Aurora").string();
+    std::error_code ec;
+    std::filesystem::create_directories(s_aurora_user, ec);
+  }
   const char* w = std::getenv("SKIES_WIDTH");
   const char* h = std::getenv("SKIES_HEIGHT");
   // The DOL is in memory by now, so the window can open at the picture's shape (960 lines high).
@@ -247,7 +258,7 @@ bool VideoInit(bool headless)
       .native_window_width = 0,
       .native_window_height = 0,
       .native_window_scale = 0.f,
-      .user_path = nullptr,
+      .user_path = s_aurora_user.empty() ? nullptr : s_aurora_user.c_str(),
       .cache_path = nullptr,
   };
   char arg0[] = "skies-standalone";
@@ -577,6 +588,7 @@ void VideoPadRead(u16 buttons[4], s8 sticks[4][4], u8 triggers[4][2], bool conne
     return;
   DolPadState state[4];
   dol_platform_pad_read(state);
+  InputPoll();
   for (int i = 0; i < 4; ++i)
   {
     if (state[i].error != 0)
@@ -593,6 +605,17 @@ void VideoPadRead(u16 buttons[4], s8 sticks[4][4], u8 triggers[4][2], bool conne
     triggers[i][0] = std::max(triggers[i][0], state[i].trigger_left);
     triggers[i][1] = std::max(triggers[i][1], state[i].trigger_right);
   }
+#endif
+}
+
+void VideoPadMotor(u32 channel, u32 command)
+{
+#ifdef SKIES_STANDALONE_AURORA
+  if (s_active)
+    dol_platform_pad_control_motor(channel, command);
+#else
+  (void)channel;
+  (void)command;
 #endif
 }
 
