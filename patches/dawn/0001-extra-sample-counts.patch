@@ -1,0 +1,350 @@
+From 562804a4c897d3bcef217207f3efb8c7713e6d3d Mon Sep 17 00:00:00 2001
+From: ogdanimal <306057786+ogdanimal@users.noreply.github.com>
+Date: Sun, 25 Oct 2026 21:16:28 -0400
+Subject: [PATCH] Sample counts 2 and 8 where the adapter supports them
+
+IsSupportedSampleCount adds 2 and 8 to WebGPU's 1 and 4 for textures, render pipelines and render
+bundles when PhysicalDeviceBase::SupportsExtraSampleCount says the adapter renders and resolves them
+on its colour and depth formats: Vulkan's framebuffer colour and depth sample counts, D3D12's
+multisample quality levels, Metal's supportsTextureSampleCount, GL's texture sample limits. Others
+keep 1 and 4.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01RjydsaTAV42JRd8fVw2QCA
+---
+ include/dawn/native/DawnNative.h              |  6 ++++++
+ src/dawn/native/DawnNative.cpp                |  4 ++++
+ src/dawn/native/PhysicalDevice.cpp            |  4 ++++
+ src/dawn/native/PhysicalDevice.h              |  4 ++++
+ src/dawn/native/RenderBundleEncoder.cpp       |  2 +-
+ src/dawn/native/RenderPipeline.cpp            |  2 +-
+ src/dawn/native/Texture.cpp                   | 15 ++++++++++++---
+ src/dawn/native/Texture.h                     |  4 ++++
+ src/dawn/native/d3d12/PhysicalDeviceD3D12.cpp | 16 ++++++++++++++++
+ src/dawn/native/d3d12/PhysicalDeviceD3D12.h   |  1 +
+ src/dawn/native/metal/PhysicalDeviceMTL.h     |  1 +
+ src/dawn/native/metal/PhysicalDeviceMTL.mm    |  4 ++++
+ src/dawn/native/opengl/PhysicalDeviceGL.cpp   | 12 ++++++++++++
+ src/dawn/native/opengl/PhysicalDeviceGL.h     |  3 +++
+ src/dawn/native/vulkan/PhysicalDeviceVk.cpp   | 14 ++++++++++++++
+ src/dawn/native/vulkan/PhysicalDeviceVk.h     |  1 +
+ src/dawn/native/vulkan/TextureVk.cpp          |  4 ++++
+ 17 files changed, 92 insertions(+), 5 deletions(-)
+
+diff --git a/include/dawn/native/DawnNative.h b/include/dawn/native/DawnNative.h
+index c0f2bf1a8..e4d5925ac 100644
+--- a/include/dawn/native/DawnNative.h
++++ b/include/dawn/native/DawnNative.h
+@@ -234,6 +234,12 @@ DAWN_NATIVE_EXPORT std::vector<std::string_view> GetProcMapNamesForTesting();
+ 
+ DAWN_NATIVE_EXPORT bool DeviceTick(WGPUDevice device);
+ 
++// Extra MSAA sample counts: whether the device's adapter renders and resolves `sampleCount` on its
++// colour and depth formats (1 and 4 always, as WebGPU; 2 and 8 where the backend reports them).
++// Textures, pipelines and render bundles with such a count are valid. Hosts check the macro.
++#define DAWN_NATIVE_EXTRA_SAMPLE_COUNTS 1
++DAWN_NATIVE_EXPORT bool SupportsSampleCount(WGPUDevice device, uint32_t sampleCount);
++
+ DAWN_NATIVE_EXPORT bool InstanceProcessEvents(WGPUInstance instance);
+ 
+ // ErrorInjector functions used for testing only. Defined in dawn_native/ErrorInjector.cpp
+diff --git a/src/dawn/native/DawnNative.cpp b/src/dawn/native/DawnNative.cpp
+index 1fa591774..5e703ef20 100644
+--- a/src/dawn/native/DawnNative.cpp
++++ b/src/dawn/native/DawnNative.cpp
+@@ -204,6 +204,10 @@ void Instance::SetPlatformForTesting(dawn::platform::Platform* platform) {
+     mImpl->SetPlatformForTesting(platform);
+ }
+ 
++bool SupportsSampleCount(WGPUDevice device, uint32_t sampleCount) {
++    return IsSupportedSampleCount(FromAPI(device), sampleCount);
++}
++
+ size_t GetLazyClearCountForTesting(WGPUDevice device) {
+     return FromAPI(device)->GetLazyClearCountForTesting();
+ }
+diff --git a/src/dawn/native/PhysicalDevice.cpp b/src/dawn/native/PhysicalDevice.cpp
+index b2e0f8c12..15cf7f1f5 100644
+--- a/src/dawn/native/PhysicalDevice.cpp
++++ b/src/dawn/native/PhysicalDevice.cpp
+@@ -221,4 +221,8 @@ void PhysicalDeviceBase::PopulateBackendFormatCapabilities(
+     wgpu::TextureFormat format,
+     UnpackedPtr<DawnFormatCapabilities>& capabilities) const {}
+ 
++bool PhysicalDeviceBase::SupportsExtraSampleCount(uint32_t sampleCount) const {
++    return false;
++}
++
+ }  // namespace dawn::native
+diff --git a/src/dawn/native/PhysicalDevice.h b/src/dawn/native/PhysicalDevice.h
+index 908f7747b..4b31444f6 100644
+--- a/src/dawn/native/PhysicalDevice.h
++++ b/src/dawn/native/PhysicalDevice.h
+@@ -103,6 +103,10 @@ class PhysicalDeviceBase : public RefCounted {
+ 
+     virtual bool SupportsExternalImages() const = 0;
+ 
++    // Sample counts beyond 1 and 4 (2, 8) the adapter renders and resolves on the colour and depth
++    // formats (IsSupportedSampleCount); none by default.
++    virtual bool SupportsExtraSampleCount(uint32_t sampleCount) const;
++
+     // `instance` is an optional parameter used to log warnings but may be null.
+     virtual bool SupportsFeatureLevel(wgpu::FeatureLevel featureLevel,
+                                       InstanceBase* instance) const = 0;
+diff --git a/src/dawn/native/RenderBundleEncoder.cpp b/src/dawn/native/RenderBundleEncoder.cpp
+index 29dc43bb3..d05850b04 100644
+--- a/src/dawn/native/RenderBundleEncoder.cpp
++++ b/src/dawn/native/RenderBundleEncoder.cpp
+@@ -68,7 +68,7 @@ MaybeError ValidateDepthStencilAttachmentFormat(const DeviceBase* device,
+ 
+ MaybeError ValidateRenderBundleEncoderDescriptor(DeviceBase* device,
+                                                  const RenderBundleEncoderDescriptor* descriptor) {
+-    DAWN_INVALID_IF(!IsValidSampleCount(descriptor->sampleCount),
++    DAWN_INVALID_IF(!IsSupportedSampleCount(device, descriptor->sampleCount),
+                     "Sample count (%u) is not supported.", descriptor->sampleCount);
+ 
+     uint32_t maxColorAttachments = device->GetLimits().v1.maxColorAttachments;
+diff --git a/src/dawn/native/RenderPipeline.cpp b/src/dawn/native/RenderPipeline.cpp
+index 4cc9b47aa..87ab958ea 100644
+--- a/src/dawn/native/RenderPipeline.cpp
++++ b/src/dawn/native/RenderPipeline.cpp
+@@ -410,7 +410,7 @@ MaybeError ValidateDepthStencilState(const DeviceBase* device,
+ }
+ 
+ MaybeError ValidateMultisampleState(const DeviceBase* device, const MultisampleState* descriptor) {
+-    DAWN_INVALID_IF(!IsValidSampleCount(descriptor->count),
++    DAWN_INVALID_IF(!IsSupportedSampleCount(device, descriptor->count),
+                     "Multisample count (%u) is not supported.", descriptor->count);
+ 
+     DAWN_INVALID_IF(descriptor->alphaToCoverageEnabled && descriptor->count <= 1,
+diff --git a/src/dawn/native/Texture.cpp b/src/dawn/native/Texture.cpp
+index 25dbdbff1..fd67e7db5 100644
+--- a/src/dawn/native/Texture.cpp
++++ b/src/dawn/native/Texture.cpp
+@@ -189,10 +189,11 @@ bool IsArrayLayerValidForTextureViewDimension(wgpu::TextureViewDimension texture
+     DAWN_UNREACHABLE();
+ }
+ 
+-MaybeError ValidateSampleCount(const TextureDescriptor* descriptor,
++MaybeError ValidateSampleCount(const DeviceBase* device,
++                               const TextureDescriptor* descriptor,
+                                wgpu::TextureUsage usage,
+                                const Format* format) {
+-    DAWN_INVALID_IF(!IsValidSampleCount(descriptor->sampleCount),
++    DAWN_INVALID_IF(!IsSupportedSampleCount(device, descriptor->sampleCount),
+                     "The sample count (%u) of the texture is not supported.",
+                     descriptor->sampleCount);
+ 
+@@ -836,7 +837,7 @@ MaybeError ValidateTextureDescriptor(
+         DAWN_TRY(ValidateDepthOrArrayLayersIsCompatibleWithTextureBindingViewDimension(
+             textureBindingViewDimension, descriptor->size.depthOrArrayLayers));
+     }
+-    DAWN_TRY(ValidateSampleCount(*descriptor, usage, format));
++    DAWN_TRY(ValidateSampleCount(device, *descriptor, usage, format));
+ 
+     DAWN_INVALID_IF(descriptor->size.width == 0 || descriptor->size.height == 0 ||
+                         descriptor->size.depthOrArrayLayers == 0 || descriptor->mipLevelCount == 0,
+@@ -1045,6 +1046,14 @@ bool IsValidSampleCount(uint32_t sampleCount) {
+     }
+ }
+ 
++bool IsSupportedSampleCount(const DeviceBase* device, uint32_t sampleCount) {
++    if (IsValidSampleCount(sampleCount)) {
++        return true;
++    }
++    return (sampleCount == 2 || sampleCount == 8) &&
++           device->GetPhysicalDevice()->SupportsExtraSampleCount(sampleCount);
++}
++
+ wgpu::TextureComponentSwizzle ComposeSwizzle(wgpu::TextureComponentSwizzle firstSwizzle,
+                                              wgpu::TextureComponentSwizzle secondSwizzle) {
+     return {
+diff --git a/src/dawn/native/Texture.h b/src/dawn/native/Texture.h
+index 84a263c54..b9f3a6adb 100644
+--- a/src/dawn/native/Texture.h
++++ b/src/dawn/native/Texture.h
+@@ -75,6 +75,10 @@ ResultOrError<TextureViewDescriptor> GetTextureViewDescriptorWithDefaults(
+     const TextureViewDescriptor* descriptor);
+ 
+ bool IsValidSampleCount(uint32_t sampleCount);
++// IsValidSampleCount plus the counts beyond WebGPU's 1 and 4 (2 and 8) the adapter can render and
++// resolve on its colour and depth formats (PhysicalDeviceBase::SupportsExtraSampleCount): a native
++// extension for hosts that offer the same MSAA choices as a native renderer.
++bool IsSupportedSampleCount(const DeviceBase* device, uint32_t sampleCount);
+ 
+ // Computes a swizzle which, when applied, is equivalent to applying `firstSwizzle`
+ // then `secondSwizzle`, like the order of WGSL swizzles (`value.rgba.rgba`).
+diff --git a/src/dawn/native/d3d12/PhysicalDeviceD3D12.cpp b/src/dawn/native/d3d12/PhysicalDeviceD3D12.cpp
+index 42a9c88ad..b7df9fc1f 100644
+--- a/src/dawn/native/d3d12/PhysicalDeviceD3D12.cpp
++++ b/src/dawn/native/d3d12/PhysicalDeviceD3D12.cpp
+@@ -92,6 +92,22 @@ Backend* PhysicalDevice::GetBackend() const {
+     return static_cast<Backend*>(Base::GetBackend());
+ }
+ 
++bool PhysicalDevice::SupportsExtraSampleCount(uint32_t sampleCount) const {
++    // The 8-bit colour formats (render targets, surfaces) and the depth formats all take it
++    for (DXGI_FORMAT format : {DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_B8G8R8A8_UNORM,
++                               DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_D24_UNORM_S8_UINT}) {
++        D3D12_FEATURE_DATA_MULTISAMPLE_QUALITY_LEVELS levels = {};
++        levels.Format = format;
++        levels.SampleCount = sampleCount;
++        if (FAILED(mD3d12Device->CheckFeatureSupport(D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS,
++                                                      &levels, sizeof(levels))) ||
++            levels.NumQualityLevels == 0) {
++            return false;
++        }
++    }
++    return true;
++}
++
+ ComPtr<ID3D12Device> PhysicalDevice::GetDevice() const {
+     return mD3d12Device;
+ }
+diff --git a/src/dawn/native/d3d12/PhysicalDeviceD3D12.h b/src/dawn/native/d3d12/PhysicalDeviceD3D12.h
+index bd92e1eb3..1be7867fe 100644
+--- a/src/dawn/native/d3d12/PhysicalDeviceD3D12.h
++++ b/src/dawn/native/d3d12/PhysicalDeviceD3D12.h
+@@ -46,6 +46,7 @@ class PhysicalDevice : public d3d::PhysicalDevice {
+     bool SupportsExternalImages() const override;
+     bool SupportsFeatureLevel(wgpu::FeatureLevel featureLevel,
+                               InstanceBase* instance) const override;
++    bool SupportsExtraSampleCount(uint32_t sampleCount) const override;
+ 
+     // Get the applied shader model version under the given adapter or device toggle state, which
+     // may be lower than the shader model reported in mDeviceInfo.
+diff --git a/src/dawn/native/metal/PhysicalDeviceMTL.h b/src/dawn/native/metal/PhysicalDeviceMTL.h
+index abffc3a7b..44e20ff91 100644
+--- a/src/dawn/native/metal/PhysicalDeviceMTL.h
++++ b/src/dawn/native/metal/PhysicalDeviceMTL.h
+@@ -46,6 +46,7 @@ class PhysicalDevice : public PhysicalDeviceBase {
+     // PhysicalDeviceBase Implementation
+     bool SupportsExternalImages() const override;
+     bool SupportsFeatureLevel(wgpu::FeatureLevel, InstanceBase* instance) const override;
++    bool SupportsExtraSampleCount(uint32_t sampleCount) const override;
+     ResultOrError<PhysicalDeviceSurfaceCapabilities> GetSurfaceCapabilities(
+         InstanceBase* instance,
+         const Surface*) const override;
+diff --git a/src/dawn/native/metal/PhysicalDeviceMTL.mm b/src/dawn/native/metal/PhysicalDeviceMTL.mm
+index e4bde3557..9d6227510 100644
+--- a/src/dawn/native/metal/PhysicalDeviceMTL.mm
++++ b/src/dawn/native/metal/PhysicalDeviceMTL.mm
+@@ -335,6 +335,10 @@ bool PhysicalDevice::IsMetalValidationEnabled() const {
+ }
+ 
+ // PhysicalDeviceBase Implementation
++bool PhysicalDevice::SupportsExtraSampleCount(uint32_t sampleCount) const {
++    return [*mDevice supportsTextureSampleCount:sampleCount];
++}
++
+ bool PhysicalDevice::SupportsExternalImages() const {
+     // SharedTextureMemory is the supported means of importing IOSurfaces.
+     return false;
+diff --git a/src/dawn/native/opengl/PhysicalDeviceGL.cpp b/src/dawn/native/opengl/PhysicalDeviceGL.cpp
+index b6a4f5504..7034204c8 100644
+--- a/src/dawn/native/opengl/PhysicalDeviceGL.cpp
++++ b/src/dawn/native/opengl/PhysicalDeviceGL.cpp
+@@ -145,6 +145,10 @@ DisplayEGL* PhysicalDevice::GetDisplay() const {
+     return mDisplay.Get();
+ }
+ 
++bool PhysicalDevice::SupportsExtraSampleCount(uint32_t sampleCount) const {
++    return static_cast<GLint>(sampleCount) <= mMaxTextureSamples;
++}
++
+ bool PhysicalDevice::SupportsExternalImages() const {
+     // Via dawn::native::opengl::WrapExternalEGLImage
+     return GetBackendType() == wgpu::BackendType::OpenGLES;
+@@ -346,6 +350,14 @@ MaybeError PhysicalDevice::InitializeSupportedLimitsImpl(CombinedLimits* limits)
+         std::min(maxTextureImageUnits, maxVertexTextureImageUnits);
+ 
+     DAWN_TRY_ASSIGN(limits->v1.maxSamplersPerShaderStage, Get(gl, GL_MAX_TEXTURE_IMAGE_UNITS));
++    {
++        // Multisampled textures (glTexStorage2DMultisample): GL 3.2 / GLES 3.1 limits
++        GLint colorSamples = 4, depthSamples = 4, samples = 4;
++        DAWN_TRY_ASSIGN(colorSamples, Get(gl, GL_MAX_COLOR_TEXTURE_SAMPLES));
++        DAWN_TRY_ASSIGN(depthSamples, Get(gl, GL_MAX_DEPTH_TEXTURE_SAMPLES));
++        DAWN_TRY_ASSIGN(samples, Get(gl, GL_MAX_SAMPLES));
++        mMaxTextureSamples = std::min({colorSamples, depthSamples, samples});
++    }
+     DAWN_TRY_ASSIGN(limits->v1.maxStorageBuffersPerShaderStage,
+                     Get(gl, GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS));
+     // TODO(crbug.com/dawn/1834): Note that OpenGLES allows an implementation to have zero vertex
+diff --git a/src/dawn/native/opengl/PhysicalDeviceGL.h b/src/dawn/native/opengl/PhysicalDeviceGL.h
+index a96b5e3bf..e5dd4ff27 100644
+--- a/src/dawn/native/opengl/PhysicalDeviceGL.h
++++ b/src/dawn/native/opengl/PhysicalDeviceGL.h
+@@ -54,6 +54,7 @@ class PhysicalDevice : public PhysicalDeviceBase {
+     bool SupportsExternalImages() const override;
+     bool SupportsFeatureLevel(wgpu::FeatureLevel featureLevel,
+                               InstanceBase* instance) const override;
++    bool SupportsExtraSampleCount(uint32_t sampleCount) const override;
+     ResultOrError<PhysicalDeviceSurfaceCapabilities> GetSurfaceCapabilities(
+         InstanceBase* instance,
+         const Surface* surface) const override;
+@@ -87,6 +88,8 @@ class PhysicalDevice : public PhysicalDeviceBase {
+                                    const TogglesState& adapterToggles) const override;
+ 
+     OpenGLFunctions mFunctions;
++    // The most samples a colour and a depth multisampled texture both take (InitializeSupportedLimitsImpl)
++    GLint mMaxTextureSamples = 4;
+     Ref<DisplayEGL> mDisplay;
+     EGLint mAngleVirtualizationGroup;
+ };
+diff --git a/src/dawn/native/vulkan/PhysicalDeviceVk.cpp b/src/dawn/native/vulkan/PhysicalDeviceVk.cpp
+index b3fa6a424..2265b6441 100644
+--- a/src/dawn/native/vulkan/PhysicalDeviceVk.cpp
++++ b/src/dawn/native/vulkan/PhysicalDeviceVk.cpp
+@@ -125,6 +125,20 @@ PhysicalDevice::PhysicalDevice(VulkanInstance* vulkanInstance, VkPhysicalDevice
+ 
+ PhysicalDevice::~PhysicalDevice() = default;
+ 
++bool PhysicalDevice::SupportsExtraSampleCount(uint32_t sampleCount) const {
++    // As Dolphin's VulkanContext: the counts both the colour and the depth attachments take
++    const VkSampleCountFlags counts = mDeviceInfo.properties.limits.framebufferColorSampleCounts &
++                                      mDeviceInfo.properties.limits.framebufferDepthSampleCounts;
++    switch (sampleCount) {
++        case 2:
++            return (counts & VK_SAMPLE_COUNT_2_BIT) != 0;
++        case 8:
++            return (counts & VK_SAMPLE_COUNT_8_BIT) != 0;
++        default:
++            return false;
++    }
++}
++
+ const VulkanDeviceInfo& PhysicalDevice::GetDeviceInfo() const {
+     return mDeviceInfo;
+ }
+diff --git a/src/dawn/native/vulkan/PhysicalDeviceVk.h b/src/dawn/native/vulkan/PhysicalDeviceVk.h
+index 56b3332ca..2bb84812a 100644
+--- a/src/dawn/native/vulkan/PhysicalDeviceVk.h
++++ b/src/dawn/native/vulkan/PhysicalDeviceVk.h
+@@ -53,6 +53,7 @@ class PhysicalDevice : public PhysicalDeviceBase {
+     bool SupportsExternalImages() const override;
+     bool SupportsFeatureLevel(wgpu::FeatureLevel featureLevel,
+                               InstanceBase* instance) const override;
++    bool SupportsExtraSampleCount(uint32_t sampleCount) const override;
+ 
+     const VulkanDeviceInfo& GetDeviceInfo() const;
+     VkPhysicalDevice GetVkPhysicalDevice() const;
+diff --git a/src/dawn/native/vulkan/TextureVk.cpp b/src/dawn/native/vulkan/TextureVk.cpp
+index 83a12e601..9ccfad742 100644
+--- a/src/dawn/native/vulkan/TextureVk.cpp
++++ b/src/dawn/native/vulkan/TextureVk.cpp
+@@ -839,8 +839,12 @@ VkSampleCountFlagBits VulkanSampleCount(uint32_t sampleCount) {
+     switch (sampleCount) {
+         case 1:
+             return VK_SAMPLE_COUNT_1_BIT;
++        case 2:
++            return VK_SAMPLE_COUNT_2_BIT;
+         case 4:
+             return VK_SAMPLE_COUNT_4_BIT;
++        case 8:
++            return VK_SAMPLE_COUNT_8_BIT;
+     }
+     DAWN_UNREACHABLE();
+ }
+-- 
+2.53.0
+

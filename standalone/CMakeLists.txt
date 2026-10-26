@@ -30,7 +30,10 @@ if(SKIES_STANDALONE_AURORA)
   # Static on Android too: Aurora takes SDL's activity mutex (Android_LockActivityMutex), which libSDL3.so
   # doesn't export; SDLActivity then loads libmain.so alone (android/)
   set(AURORA_SDL3_LINKAGE "static" CACHE STRING "" FORCE)
-  set(AURORA_DAWN_PROVIDER "package" CACHE STRING "" FORCE)
+  # Dawn: the prebuilt package, or "vendor" to build it from FETCHCONTENT_SOURCE_DIR_DAWN (a Dawn with
+  # the extra MSAA sample counts patch, ~/projects/skies-aurora/dawn-src)
+  set(SKIES_DAWN_PROVIDER "package" CACHE STRING "Aurora's Dawn provider (package or vendor)")
+  set(AURORA_DAWN_PROVIDER "${SKIES_DAWN_PROVIDER}" CACHE STRING "" FORCE)
 else()
   set(GXRUNTIME_ENABLE_AURORA OFF CACHE BOOL "" FORCE)
   set(GXRUNTIME_ENABLE_AURORA_RECOMP OFF CACHE BOOL "" FORCE)

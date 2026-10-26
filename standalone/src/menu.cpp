@@ -131,9 +131,6 @@ constexpr std::array FIELD_SPEEDS{100, 150, 200, 300};
 constexpr std::array DEAD_ZONES{0, 5, 10, 15, 20, 25, 30};
 // Internal resolution: 0 = the window's own (Aurora sizes the EFB to it), then the launchers' scales
 constexpr std::array EFB_SCALES{0, 1, 2, 3, 4, 6};
-// Anti-aliasing: WebGPU's sample counts (the Dolphin build offers what its backend has; a value from
-// there other than these shows and runs as the nearest)
-constexpr std::array MSAA_MODES{1, 4};
 // The Dolphin build's choices (Dolphin's enum values: TextureFilteringMode, AnisotropicFilteringMode,
 // OutputResamplingMode)
 constexpr std::array TEXTURE_FILTERS{0, 2, 1};
@@ -322,6 +319,36 @@ float ScreenAspect()
                     MAX_SCREEN_ASPECT);
 }
 
+// Anti-aliasing: the MSAA counts the device renders (Aurora probes them: WebGPU's 1 and 4, plus 2 and
+// 8 where its Dawn and the GPU allow, as the Dolphin build's backends list them)
+// (asked once the window is open; fixed for the run)
+const std::vector<int>& MsaaModes()
+{
+  static const std::vector<int> s_modes = [] {
+    std::vector<int> modes;
+#ifdef SKIES_STANDALONE_AURORA
+    std::array<u32, 8> counts{};
+    const u32 n = std::min<u32>(aurora_get_msaa_modes(counts.data(), counts.size()), counts.size());
+    modes.assign(counts.begin(), counts.begin() + n);
+#endif
+    if (modes.empty())
+      modes.push_back(1);
+    return modes;
+  }();
+  return s_modes;
+}
+
+// A setting's count as it runs: the largest mode not above it (a count from the Dolphin build this
+// device doesn't have)
+int MsaaRunning(int samples)
+{
+  int running = 1;
+  for (const int mode : MsaaModes())
+    if (mode <= samples)
+      running = mode;
+  return running;
+}
+
 // ---- options read from the settings ----------------------------------------------------------------
 Values ReadValues()
 {
@@ -331,7 +358,7 @@ Values ReadValues()
   const int hud = Get(HUD);
   values.hud = hud < 0 ? 2 : hud;
   values.efb_scale = Get(EFB_SCALE);
-  values.msaa = Get(MSAA) > 1 ? MSAA_MODES.back() : 1;
+  values.msaa = MsaaRunning(Get(MSAA));
   values.texture_filter = std::clamp(Get(TEXTURE_FILTER), 0, 2);
   values.anisotropy = std::clamp(Get(ANISOTROPY), -1, 4);
   values.scaling = Get(SCALING);
@@ -570,7 +597,7 @@ void Change(Option option, int direction, bool wrap)
     v.efb_scale = Step(EFB_SCALES, v.efb_scale, direction, wrap);
     break;
   case Option::Antialiasing:
-    v.msaa = Step(MSAA_MODES, v.msaa, direction, wrap);
+    v.msaa = Step(MsaaModes(), v.msaa, direction, wrap);
     break;
   case Option::TextureFilter:
     v.texture_filter = Step(TEXTURE_FILTERS, v.texture_filter, direction, wrap);
@@ -1534,7 +1561,7 @@ void MenuApplyGame()
     VISetFrameBufferScale(static_cast<float>(scale));
   }
   // Anti-aliasing, texture filtering, anisotropy and scaling: live in Aurora (fork 0038)
-  const int msaa = Get(MSAA) > 1 ? MSAA_MODES.back() : 1;
+  const int msaa = MsaaRunning(Get(MSAA));
   if (msaa != s_applied_msaa)
   {
     s_applied_msaa = msaa;

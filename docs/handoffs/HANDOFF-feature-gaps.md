@@ -140,8 +140,27 @@ its checks and a commit; device-heavy ones end with a head-to-head.
   (both window builds let a pending change past their unchanged-size check). The present resampler gained
   `SAMPLER_SHARP_BILINEAR` and `SAMPLER_BICUBIC` (Catmull-Rom), Dolphin's maths in gamma space like the
   area sampler; the cubic family (2, 3, 4, 8) maps to Bicubic, nearest (7) to bilinear.
-- **MSAA counts:** WebGPU allows 1 or 4 samples only, so the row is Off / 4x; a 2x or 8x from the Dolphin
-  build shows and runs as 4x until changed here.
+- **MSAA counts (2x / 8x, the Dolphin build's Off / 2x / 4x / 8x):** WebGPU allows 1 and 4 only and the
+  prebuilt Dawn enforces it (its Vulkan backend maps only 1 and 4; Aurora runs Dawn with
+  `skip_validation`, so nothing would stop an unsupported count before the driver). **Dawn patch**
+  `patches/dawn/0001-extra-sample-counts.patch` (on `encounter/dawn` 266c1cf, Aurora's pinned ref; tree with
+  local git at `~/projects/skies-aurora/dawn-src/dawn-266c1cf…`): 2 and 8 are valid where the adapter
+  renders and resolves them on its colour and depth formats (Vulkan: framebuffer colour & depth sample
+  counts, as Dolphin's `VulkanContext`; D3D12: multisample quality levels of RGBA8 / BGRA8 / D32 / D24S8;
+  Metal: `supportsTextureSampleCount`; GL: colour / depth texture and `GL_MAX_SAMPLES` limits), plus
+  `VulkanSampleCount` 2 / 8, and a native query `dawn::native::SupportsSampleCount(device, n)` with the
+  macro `DAWN_NATIVE_EXTRA_SAMPLE_COUNTS`. **Fork 0039:** Aurora lists the device's counts at init
+  (`aurora_get_msaa_modes`; 1 and 4 only without the macro, so the prebuilt is unchanged) and
+  `aurora_set_msaa` rounds down to one; the menu row steps through that list, and a count from the Dolphin
+  build the device lacks shows and runs as the next lower one (the key keeps its value until changed here).
+  **Build:** `-DSKIES_DAWN_PROVIDER=vendor -DFETCHCONTENT_SOURCE_DIR_DAWN=<patched tree>` (default
+  `package`, the prebuilt); on WSL also `-DDAWN_USE_X11=OFF` (no `libx11-xcb-dev`), which leaves Dawn's GL
+  backend without a surface under Wayland, so test there with `DOL_AURORA_VULKAN_CPU=1` (lavapipe).
+  Linux build dir `build/standalone-dawnsrc`. **Checked (WSL):** GL ES (Mesa) reports 1x / 2x / 4x / 8x,
+  lavapipe Vulkan 1x / 4x / 8x; on lavapipe 8x switches live and renders (field, beam edge smoother than
+  4x, 1,176 pixels differ, all on edges), 2x falls back to Off there. **Open:** Dawn from source for Android
+  (the Pocket 5, where 2x matters) and Windows (MSVC, D3D12 with its shader compiler), macOS (Metal);
+  shipping a patched Dawn (CI builds it, or our own prebuilt packages).
 - **Checked (WSL, Dawn on llvmpipe, field after a Continue, EFB 1x):** each option changes the picture
   (pixels off the baseline: MSAA 4,340, Sharp 35,492, Smooth 16,575, 16x anisotropy 14,793; two baseline
   runs differ by 442); by eye: MSAA smooths geometry edges, Sharp shows texels, Smooth / 16x soften. The
