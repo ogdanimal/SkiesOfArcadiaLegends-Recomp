@@ -12,15 +12,15 @@ architecture: *In-game menu*, *Save states*, *The Android shell*, *Pacing on the
 restart; 5 = HD textures: import, menu row, files decoded off the render thread; 6 = 60 fps), each with its
 checks and leftovers in its section below; the Japanese game's memory card fixed on the way (item 1). The
 Pocket 5 checks of items 5 and 6 are done too: HD textures as fast as without the pack after a loader-thread
-fix (fork 0045); 60 fps smoother than the Dolphin build's at full speed and at less power, but with less
-uncapped headroom at the save point (1.25x against 1.41x: item 6, *Pocket 5*). **Pick up at item 7**
-(Dreamcast), or first the 60 fps parse thread if the user wants the uncapped lead back. Standing leftovers:
+fix (fork 0045); 60 fps smoother than the Dolphin build's at full speed and at less power, and since the
+video thread (Aurora off the game's thread, a4f4014, fork 0046) ahead uncapped too (save point 1.70x
+against 1.41x; item 6, *The video thread*). **Pick up at item 7** (Dreamcast). Standing leftovers:
 the European / Japanese first field and an APK with their modules on the Pocket 5 (item 0); a first battle
 and card save after Continue, Windows and the Pocket 5 (item 1); the 4x-MSAA specks in the light beam and GPU
 cost at 4x / 6x resolution (item 2); shipping the patched Dawn and the macOS build (item 2); rumble by hand,
 a capture with a real pad, two pads and the Pocket 5 (item 3); the restart on Android (item 4); the
-cloud-sea edges and the full 4x pack (item 5); 60 fps on the Nova, its scene list, Home and back, the
-uncapped headroom and the present delay on the Pocket 5 (item 6).
+cloud-sea edges and the full 4x pack (item 5); 60 fps on the Nova and its scene list (item 6); the
+video thread on the Nova, macOS and with a pad by hand.
 
 ## Ground rules
 
@@ -54,6 +54,20 @@ uncapped headroom and the present delay on the Pocket 5 (item 6).
   `pkill -f` a pattern from your own command line.
 
 ## Testing practice (learned in items 3-6)
+
+- **Profile the Pocket 5 with simpleperf** (the test app is `profileable`): `adb.exe shell simpleperf record
+  --app com.skiesofarcadia.standalone --duration 10 -e cpu-clock -f 4000 -o /data/local/tmp/perf.data`
+  during a bench run, pull it, report on WSL with the NDK's host
+  `simpleperf report --symfs DIR --tids TID --sort dso,symbol --raw-period` (`DIR` + the device's
+  `/data/app/.../lib/arm64/` path holding the unstripped `build/standalone-android-dawnsrc/libmain.so`).
+  Divide by the game frames in the 10 s for ms per frame. `capture/android-thread-sample.sh` shows the
+  threads' cores and the clusters' clocks. Android reads `env.txt` in main: environment switches must be
+  read at first use, not in static initialisers.
+- **Threads:** Aurora runs on the video thread (*HANDOFF-emulator-free.md*, *The video thread*);
+  `SKIES_VIDEO_THREAD=0` keeps one thread (same pictures), `SKIES_VIDEO_STATS=1` logs the game's waits and
+  the video thread's work. Windows benches from the bench states without writing on C:: copy
+  `user-bench-sa` into WSL and pass `--user`/`RUNLOG` as `\\wsl.localhost` paths (the old `bench-sa.sh`
+  copies into `C:\dev\SkiesStandalone\user-bench-run`).
 
 - **Exact comparisons on Windows only.** WSL runs aren't repeatable (two runs with the same settings
   differ in some frames); Windows D3D12 runs with `SKIES_RTC=847000789` and `AURORA_SYNC_PIPELINES=1` are
@@ -91,7 +105,7 @@ the Dolphin build's tabs and rows but the Dreamcast tab (Rumble on its own key `
 | 3 | Input: release keyboard layout, rumble, names, Button mapping, menu-close rule | `recompcore-input`, `controller-names`, `menu-close`, `android-pad-follow`, review D23-D26 | **done** (desktop): rumble, release layout, names, mapping page, follow; fork 0040-0041 | ~2 days |
 | 4 | Language (European disc) | `recompcore-language.patch` | **done** (desktop): SRAM from the key, Language tab, restart | ~1 day |
 | 5 | HD textures (+ import) | `recompcore-hd-textures`, `hd-textures-nested`, review D2 / D22 | **done** (desktop + Pocket 5): CLI import, menu row, live; async loads; fork 0042-0043, 0045 | ~2-3 days |
-| 6 | 60 fps | `recompcore-frame-interpolation`, `battle-specials`, `field-speed`, review D6 / D25 | **done** (desktop + Pocket 5): record, blend, replay, retrace presents, budget, holds, menu; fork 0044; uncapped headroom open | 3-4 sessions |
+| 6 | 60 fps | `recompcore-frame-interpolation`, `battle-specials`, `field-speed`, review D6 / D25 | **done** (desktop + Pocket 5): record, blend, replay, retrace presents, budget, holds, menu; fork 0044; video thread (fork 0046) | 3-4 sessions |
 | 7 | Dreamcast: Uncensored, Dreamcast music, DC streams, EU 60 Hz audio | `uncensor`, `skies-dcmusic-eu`, `dcmusic-streams`, `dcmusic-fx`, `pal60`, review D3 / D4 / D16-D21 | none | 1,200-1,800 lines of glue |
 | 8 | Data folder, romhacks, save import / backup | `data-folder`, `romhack`, `state-folders`; `lib/ModernGekko/tools/*` | `--user`, `--dol` | 3-5 days |
 | 9 | Android launcher (disc import, settings, Continue, saves) | `skies-android-app`, `android*`, review D7 / D8 / D11-D15 | adb pushes, args.txt | 1.5-2 weeks |
@@ -567,8 +581,7 @@ presents; menu + holds + states; devices).
   0.3-1.0 ms, blend 0.1-0.8, feed 0.2-1.7 (Aurora parses the replay on the emulation thread). WSL
   runs aren't deterministic (off vs off differs), so exact comparisons are Windows'.
 - **Open:** the Nova; the scene list above (title clouds, the game's menu fade, the Valuan ladder,
-  cloud sea, world-map flight, battle at speed with spells for the hold); Android's Home and back; the
-  uncapped headroom and the present delay on the Pocket 5 (below).
+  cloud sea, world-map flight, battle at speed with spells for the hold).
 
 **Pocket 5 (2026-10-26):** the APK of e88be2c (+ fork 0045) installed over the test app; IR 1, muted,
 lowest performance mode, `[Skies] FrameMode = 1` in both apps (`capture/android-ir-bench.sh`). The 30 fps
@@ -597,6 +610,25 @@ baseline on this build is unchanged (battle p99 34.4, max 35.0).
 - **Present delay:** with 60 fps the auto delay settles at 27.5-30 ms (the 30 ms cap) instead of 14-19: it
   is now set from each retrace's lateness, and the retrace inside the heavy drawing field is late. Pacing
   holds anyway (nothing over 20 ms), so the cost is latency; worth a look with the parse thread.
+
+**The video thread (2026-10-26, a4f4014, fork 0046):** Aurora (the parse, the replay, the presents) on the
+main thread, the game on its own; details in *HANDOFF-emulator-free.md*, *The video thread*. The game waits
+at the frame's tokens only for commands that read guest RAM; the replay goes after the tokens; on Android
+the video thread polls while the game has no time to spare (its cluster's clock). Same Pocket 5 runs:
+
+| | Before | Video thread | Dolphin bench app (60 fps) |
+|---|---|---|---|
+| Uncapped save point, 30 / 60 fps | 1.65x / 1.25x | **1.77x / 1.70x** | 1.38x / 1.41x |
+| Uncapped battle, 30 / 60 fps | ~2.0x / 1.66x | **2.15x / 2.05x** | 1.63x / 1.69x |
+| 60 fps full speed, battle p99 / max | 17.7 / 18.5 | 17.6-17.8 / 18.0-18.7 | 24.5 / 25.5 |
+| 60 fps full speed, save point p99 / max | 17.7-18.0 / 19.4-20.0 | 17.7-17.9 / 18.3-18.7 | 25.9 / 26.7 |
+| 60 fps present delay | 27.5-30 ms | 17.6-22.9 ms | |
+| Power at 60 fps, battle / save point | ~2.45 / ~3.1 W | ~2.54 / ~2.87 W | ~2.9 / ~3.8 W |
+
+Ahead of the Dolphin build again in every column, 60 fps costing 4-5% of the uncapped speed (25% before).
+Home and back on Android checked with it (one 5.8 s interval, then normal). Windows uncapped: save point
+60 fps 2.07x -> 2.95x, battle 2.81x -> 3.84x; the fight route's 24 dumped pictures byte-identical to
+e88be2c's in both modes and after a state save + load.
 
 ## 7. Dreamcast features and disc audio
 

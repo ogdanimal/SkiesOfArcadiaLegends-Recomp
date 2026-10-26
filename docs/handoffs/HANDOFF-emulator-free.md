@@ -880,9 +880,88 @@ Commit e88be2c; fork 0044. Details and checks in *HANDOFF-feature-gaps.md* item 
 - `interp60.cpp` records each frame's GX stream as `hw_gpu.cpp` applies it, blends it with the previous
   frame's (the Dolphin build's logic) and replays it at the XFB copy into Aurora's replay context; the
   retraces present the in-between picture, then the real one. `[Skies] FrameMode`, Graphics > Frame rate.
-- Single-threaded: the replay costs the emulation thread a second Aurora parse of the frame, so the
-  Dolphin build's single-core budget decides per scene; on a desktop it always fits (Windows uncapped
-  3.6x with it, 5.0x without). **Pocket 5:** full speed at 60 fps in both bench scenes, p99 17.7-18.0 ms
-  and nothing over 20 (the Dolphin build's 60 fps: p99 24.5-25.9, 13-42% over 20), 0.45-0.7 W less; but
-  uncapped the save point drops to 1.25x (Dolphin 1.41x, its interpolation on the GPU thread), and the
-  present delay sits at 27.5-30 ms. A thread for Aurora's parse is the next step for the headroom.
+- First single-threaded: the replay cost the emulation thread a second Aurora parse of the frame, so
+  the Dolphin build's single-core budget decided per scene (Windows uncapped 3.6x with it, 5.0x without).
+  **Pocket 5:** full speed at 60 fps in both bench scenes, p99 17.7-18.0 ms and nothing over 20 (the
+  Dolphin build's 60 fps: p99 24.5-25.9, 13-42% over 20), 0.45-0.7 W less; but uncapped the save point
+  dropped to 1.25x (Dolphin 1.41x, its interpolation on the GPU thread), and the present delay sat at
+  27.5-30 ms. Now on the video thread (*The video thread* below): 1.70x at the save point and 2.05x in
+  battle at 60 fps, present delay 17.6-22.9 ms; the budget measures the video thread's work.
+
+## The video thread (2026-10-26)
+
+Commit a4f4014; fork 0046 (`aurora_backend_set_event_poller`). Why: at 60 fps the Pocket 5 had lost the
+uncapped lead (save point 1.25x against the Dolphin build's 1.41x), because the replay ran on the one
+emulation thread while the Dolphin build interpolates on its GPU thread. A simpleperf profile of the
+emulation thread (the test app is now `profileable`; `simpleperf record --app com.skiesofarcadia.standalone
+-e cpu-clock`, report on WSL with the NDK's host `simpleperf` and `--symfs` holding the unstripped
+`libmain.so`) gave per game frame at the uncapped save point, 30 -> 60 fps: game module 15.3 -> 15.95 ms,
+Aurora's parse 1.8 -> 3.4, interp60 0.1 -> 1.7 (blend 0.96, recording 0.36), libc copies 0.7 -> 1.7, waits
+0 -> 1.5.
+
+**The shape** (`standalone/src/video.cpp`, top): the game (CPU, hardware models, throttle) runs on a
+thread of its own (`VideoRun`, 16 MB stack: recompiled guest calls nest on the host stack); the main
+thread is the video thread and owns the window and every Aurora call. The game's thread stages GX
+commands (16 KB chunks) and posts host work between them in order (`VideoPost`: frame ends, retrace
+presents, the menu's overlay and settings, HD texture registration). Everything the game's side reads from
+Aurora is cached (surface size, quit, MSAA modes) or waited for (`VideoSync`: save states read the EFB
+copies back, loads restore them).
+
+**The one real dependency: tokens.** A first version without waits aborted in Aurora
+(`draw vertex data overrun`, a 480-byte display list): Skies sets two `GXSetDrawSync` tokens (0x48 then
+0x47, twice) right after each frame's copy and retrace, and rebuilds its display lists once they are
+passed; Aurora, a frame behind, parsed a list already rebuilt. The game reads the token only in its PE
+interrupt handler (no polling loop, `--mmio-log`), and Dolphin's dual core raises it from the GPU thread
+when it gets there. Here the interrupt keeps its guest time (runs stay deterministic) and the game's
+thread waits at it (`VideoFence`, from `hw_gpu.cpp`'s `Effect::Sync`, display lists included) until the
+video thread has parsed every command before it **that reads guest RAM** (`ReadsRam`: draws, display lists,
+indexed XF loads, TLUT / TMEM loads); host work queued in between isn't waited for. That distinction is
+the whole win at 60 fps: the retrace that presents frame N's in-between comes between its copy and its
+tokens, so waiting for everything waited for the replay and the present (4 ms a frame on Windows).
+
+**The 60 fps replay** is split: the frame end keeps the real picture (`InterpFrameEndVideo`); the blend and
+replay (`InterpReplayVideo`) are deferred (`VideoPostDeferred`) until the game has staged 16 KB past the
+fence (the four tokens come in a row, and a replay posted at the first was waited for at the next three),
+or the next retrace / frame end / sync. Recording stays on the game's thread (it reads the CPU-side
+shadow registers and copies RAM at command time); recordings move through a pool. The budget measures the
+video thread's work (`VideoBusy`, without present waits).
+
+**Phones: the clock.** Pinning wasn't the issue (the video thread was on a gold core already; it is now
+pinned to the next fastest tier, `SKIES_PIN_VIDEO`), the governor was: a thread busy a quarter of the time
+left the gold cluster at 1.29 of 2.42 GHz, the parse took 5.4 ms a frame instead of ~2.5, and the game's
+end-of-frame burst of draws left ~2 ms to wait for at the tokens. With the video thread polling for work
+instead of sleeping the cluster runs at 2.42 GHz, the parse takes 2.6 ms and the waits 0.7-0.85 ms. It polls
+only while the game has no time to spare (`SKIES_VIDEO_SPIN=auto`, Android's default: uncapped, or the
+throttle slept under 15% of the last 30 frames; at most 50 ms with nothing to do); at full speed it sleeps
+(gold cluster at 1.29 GHz in the battle). Desktop: off (`SKIES_VIDEO_SPIN=1` forces it).
+
+**Input:** Aurora's controller list changes while events are handled, so the present calls the host's
+poller (fork 0046) and the standalone polls under its input lock (`VideoInputLock`), which the game's
+side holds for the pad read with the menu's filter (`hw_si.cpp` `Snapshot`), the frame end's menu work
+and rumble. On Android, Home pauses the main thread in the event poll holding the lock, and the game stops
+at its next pad read; Home and back checked (one 5.8 s interval, then normal, picture right).
+
+**Checks.** Windows D3D12, the fight route with `SKIES_RTC`, `AURORA_SYNC_PIPELINES=1`, 60 fps, 12 dumped
+frames: all 24 pictures (real and in-between) byte-identical to e88be2c's, with `SKIES_VIDEO_THREAD=0` and
+with the video thread; the same with a state saved at 60 s and loaded at 100 s; 30 fps real frames equal
+the 60 fps ones. Guest counts (frames, tokens, disc reads) identical in every mode. Menu overlay drawn
+(screenshot). WSL: the fight route completes in both modes.
+
+| Uncapped | Before | Video thread | Dolphin build |
+|---|---|---|---|
+| Pocket 5, save point 30 / 60 fps | 1.65x / 1.25x | **1.77x / 1.70x** | 1.38x / 1.41x |
+| Pocket 5, battle 30 / 60 fps | ~2.0x / 1.66x | **2.15x / 2.05x** | 1.63x / 1.69x |
+| Windows RTX, save point 30 / 60 fps | 2.89x / 2.07x | 3.15x / 2.95x | |
+| Windows RTX, battle 30 / 60 fps | 3.75x / 2.81x | 4.07x / 3.84x | |
+
+Pocket 5 at full speed: 30 fps unchanged (battle p99 34.1, save point 34.1-34.2); 60 fps battle p99
+17.6-17.8, save point 17.7-17.9, nothing over 20 ms (the Dolphin build: 24.5 / 25.9, 13-42% over 20);
+the 60 fps present delay settles at 17.6-22.9 ms instead of 27.5-30; power ~2.54 W battle, ~2.87 W save
+point at 60 fps (Dolphin ~2.9 / 3.8).
+
+**Switches:** `SKIES_VIDEO_THREAD=0` (one thread, the same order and pictures), `SKIES_VIDEO_STATS=1`
+(every 600 frames: the game's waits at tokens / frame ends / a full queue, the video thread's work and
+present waits; Android reads it lazily, after `env.txt`), `SKIES_VIDEO_SPIN=auto|1|0`,
+`SKIES_PIN_VIDEO=fast|none|N`, `SKIES_DRAIN` (the video thread parses each chunk at once by default).
+**Open:** the Nova; a pad by hand on Windows and the Pocket 5 (the input lock); macOS (main-thread SDL is
+kept, so it should hold).
