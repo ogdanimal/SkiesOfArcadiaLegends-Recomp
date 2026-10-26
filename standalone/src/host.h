@@ -138,6 +138,7 @@ const u8* DiscHeader();  // boot.bin (0x440 bytes)
 // and only NTSC gives it the 60 Hz mode the port is built for. Its card lives in GC/USA there too.
 bool DiscRunsAsNtsc();
 const std::vector<u8>& DiscDol();  // sys/main.dol
+void DiscAdoptGuestFst();  // after a load: the files at the offsets of the game's own FST in RAM
 
 // ---- MMIO (mmio.cpp) ---------------------------------------------------------------------------
 u64 MmioRead(u32 address, u8 size);

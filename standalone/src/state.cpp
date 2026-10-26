@@ -229,6 +229,7 @@ void Loaded(const std::string& path, double guest_seconds, std::chrono::steady_c
             const char* what)
 {
   CpuRestoreBootDol();
+  DiscAdoptGuestFst();
   VideoStateLoaded();
 #ifdef SKIES_STANDALONE_AURORA
   DreamcastStateLoaded();

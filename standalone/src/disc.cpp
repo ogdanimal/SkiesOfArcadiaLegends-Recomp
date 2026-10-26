@@ -193,6 +193,85 @@ bool DiscOpen(const std::string& game_dir, const std::string& dol_path)
   return true;
 }
 
+// After a state load: the file table the game has in RAM (OSBootInfo's FST, 0x80000038 / 0x8000003C)
+// is the one its reads use. The Dolphin build lays an extracted game out anew (DiscIO's
+// DirectoryBlob: other file offsets than sys/fst.bin's), so a state it made reads files at those
+// offsets: the files are served at the RAM table's offsets, matched by path. The system files the
+// game reads only at boot (main.dol, fst.bin) go when the layout changes, so they can't shadow a
+// file. A table the same as the disc's (this host's own states) changes nothing.
+void DiscAdoptGuestFst()
+{
+  namespace fs = std::filesystem;
+  const u32 start = Read32(0x80000038), max = Read32(0x8000003C);
+  const u8* fst = RamPtr(start, 12);
+  if (!fst || max < 12 || max > 0x400000 || !RamPtr(start, max))
+    return;
+  fst = RamPtr(start, max);
+  const u32 count = BE32(fst + 8);
+  if (count < 1 || u64{count} * 12 > max)
+    return;
+  const char* names = reinterpret_cast<const char*>(fst + count * 12);
+  const u32 names_size = max - count * 12;
+  // The disc's own files by path (the extents built from sys/fst.bin)
+  std::vector<std::pair<std::string, size_t>> by_path;
+  for (size_t i = 0; i < s_extents.size(); ++i)
+  {
+    if (s_extents[i].data.empty())
+      by_path.emplace_back(s_extents[i].path, i);
+  }
+  std::sort(by_path.begin(), by_path.end());
+  const fs::path files = by_path.empty() ? fs::path() : [&] {
+    // the files/ folder: the first file's path above its FST directories doesn't matter, any
+    // file's prefix up to "files" does
+    fs::path p = s_extents[by_path.front().second].path;
+    while (!p.empty() && p.filename() != "files")
+      p = p.parent_path();
+    return p;
+  }();
+  if (files.empty())
+    return;
+  std::vector<Extent> adopted;
+  std::vector<std::pair<u32, fs::path>> dirs{{count, files}};
+  u32 moved = 0;
+  for (u32 i = 1; i < count; ++i)
+  {
+    while (dirs.size() > 1 && i >= dirs.back().first)
+      dirs.pop_back();
+    const u8* entry = fst + i * 12;
+    const u32 name_offset = BE32(entry) & 0x00FFFFFF;
+    if (name_offset >= names_size || !std::memchr(names + name_offset, 0, names_size - name_offset))
+      return;
+    const fs::path path = dirs.back().second / (names + name_offset);
+    if (entry[0] & 1)
+    {
+      dirs.push_back({BE32(entry + 8), path});
+      continue;
+    }
+    const std::string key = path.string();
+    const auto it = std::lower_bound(by_path.begin(), by_path.end(), std::make_pair(key, size_t{0}));
+    if (it == by_path.end() || it->first != key)
+      return;  // a file the disc doesn't have: not a table of this game
+    Extent e;
+    e.offset = BE32(entry + 4);
+    e.size = BE32(entry + 8);
+    e.path = key;
+    if (e.offset != s_extents[it->second].offset)
+      ++moved;
+    adopted.push_back(std::move(e));
+  }
+  if (moved == 0)
+    return;
+  for (Extent& e : s_extents)
+  {
+    if (!e.data.empty() && e.path != "main.dol" && e.path != "fst.bin")
+      adopted.push_back(std::move(e));
+  }
+  std::sort(adopted.begin(), adopted.end(), [](const Extent& a, const Extent& b) { return a.offset < b.offset; });
+  s_extents = std::move(adopted);
+  Log("[disc] the state's file table: %u of its files are at other offsets (another layout), served there\n",
+      moved);
+}
+
 const u8* DiscHeader()
 {
   return s_boot.data();

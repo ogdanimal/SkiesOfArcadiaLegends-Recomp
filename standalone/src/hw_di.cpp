@@ -6,6 +6,8 @@
 #include "host.h"
 #include "state.h"
 
+#include <cstdlib>
+
 namespace host
 {
 namespace
@@ -99,6 +101,10 @@ void Execute()
       const u32 length = s_dilength < s_cmd[2] ? s_dilength : s_cmd[2];
       latency += static_cast<u64>(length) * (CPU_HZ / 1000000) / 16;  // about 16 MB/s
       error = !DmaRead(static_cast<u64>(s_cmd[1]) << 2, s_cmd[2]);
+      static const bool s_trace = std::getenv("SKIES_DI_TRACE") != nullptr;
+      if (s_trace)
+        Log("[di] read %llx +%x to %08x (%.3f s)\n", static_cast<unsigned long long>(s_cmd[1]) << 2, length,
+            s_dimar, static_cast<double>(Now()) / CPU_HZ);
       s_drive_ready = true;
     }
     break;
