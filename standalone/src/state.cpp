@@ -228,6 +228,7 @@ bool Save(const std::string& path, std::string* error)
 void Loaded(const std::string& path, double guest_seconds, std::chrono::steady_clock::time_point start,
             const char* what)
 {
+  CpuRestoreBootDol();
   VideoStateLoaded();
 #ifdef SKIES_STANDALONE_AURORA
   DreamcastStateLoaded();

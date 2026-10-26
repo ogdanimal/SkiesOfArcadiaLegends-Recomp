@@ -452,6 +452,51 @@ bool VerifyModule()
   return true;
 }
 
+// After a state load (the Dolphin build's RestoreBootDolCode): a state carries the guest code of the
+// DOL it was made with, and an update patches the game's DOL anew (the module is built from the new
+// one), so an older state brings old code back. Where the DOL's text sections differ from RAM they are
+// put back, with its sections below the usual DOL start (0x80003100), where the game patch keeps
+// code and data of its own. Nothing changes when RAM already matches.
+void CpuRestoreBootDol()
+{
+  const std::vector<u8>& dol = DiscDol();
+  if (dol.size() < 0x100)
+    return;
+  const auto be32 = [&](u32 at) { return BE32(dol.data() + at); };
+  struct Section
+  {
+    u32 offset, address, size;
+  };
+  const auto fits = [&](const Section& sec) {
+    return sec.size != 0 && sec.address >= 0x80000000u && sec.address - 0x80000000u <= RAM_SIZE &&
+           sec.size <= RAM_SIZE - (sec.address - 0x80000000u) && u64{sec.offset} + sec.size <= dol.size();
+  };
+  u32 restored = 0;
+  for (u32 i = 0; i < 7; ++i)
+  {
+    const Section sec{be32(i * 4), be32(0x48 + i * 4), be32(0x90 + i * 4)};
+    if (!fits(sec))
+      continue;
+    u8* dst = g_ram + (sec.address - 0x80000000u);
+    if (std::memcmp(dst, dol.data() + sec.offset, sec.size) != 0)
+    {
+      std::memcpy(dst, dol.data() + sec.offset, sec.size);
+      ++restored;
+    }
+  }
+  if (restored == 0)
+    return;
+  for (u32 i = 0; i < 11; ++i)
+  {
+    const Section sec{be32(0x1C + i * 4), be32(0x64 + i * 4), be32(0xAC + i * 4)};
+    if (sec.address < 0x80003100u && fits(sec))
+      std::memcpy(g_ram + (sec.address - 0x80000000u), dol.data() + sec.offset, sec.size);
+  }
+  Log("[cpu] state load: restored %u code section(s) of the boot DOL (the state was made with "
+      "different code)\n",
+      restored);
+}
+
 const char* ModuleGameId()
 {
   return s_module ? s_module->game_id : "";
