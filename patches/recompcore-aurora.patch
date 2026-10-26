@@ -288,7 +288,7 @@ index 47c60b1038..82efa7082b 100644
  
  bool aurora_backend_pad_init(void);
 diff --git a/GXRuntime/backends/aurora/aurora_graphics.cpp b/GXRuntime/backends/aurora/aurora_graphics.cpp
-index 24367bf568..ac6f45a3e9 100644
+index 24367bf568..af6e7d6883 100644
 --- a/GXRuntime/backends/aurora/aurora_graphics.cpp
 +++ b/GXRuntime/backends/aurora/aurora_graphics.cpp
 @@ -8,11 +8,22 @@
@@ -314,24 +314,45 @@ index 24367bf568..ac6f45a3e9 100644
  
  #if GXRUNTIME_HAS_AURORA_RECOMP
  // gxcore substrate submission lives in the Aurora fork (lib/gfx/gxcore_draw.cpp),
-@@ -586,6 +597,8 @@ void shadow_transform_observer(
+@@ -586,6 +597,22 @@ void shadow_transform_observer(
  
  extern "C" {
  
 +static void apply_replay_context();
 +
++// A host that runs its game on another thread polls the window's events itself, at the point the
++// present would, under its own lock (the controllers Aurora keeps change while events are handled,
++// and the game's thread reads them): aurora_backend_set_event_poller(poller), the poller calling
++// aurora_backend_poll_events().
++static void (*s_event_poller)(void) = nullptr;
++
++void aurora_backend_set_event_poller(void (*poller)(void)) {
++    s_event_poller = poller;
++}
++
++void aurora_backend_poll_events(void) {
++    gx_aurora::poll_events();
++}
++
  void aurora_backend_present(void) {
      if (!gx_aurora::g_initialized)
          return;
-@@ -816,6 +829,7 @@ void aurora_backend_present(void) {
-     gx_aurora::poll_events();
+@@ -813,9 +840,13 @@ void aurora_backend_present(void) {
+     }
+     const unsigned long long present_fifo = gx_aurora::g_fifo_bytes;
+     gx_aurora::g_fifo_bytes = 0;
+-    gx_aurora::poll_events();
++    if (s_event_poller != nullptr)
++        s_event_poller();
++    else
++        gx_aurora::poll_events();
      if (!gx_aurora::g_should_quit) {
          gx_aurora::g_frame_open = aurora_begin_frame();
 +        apply_replay_context();
  #if GXRUNTIME_HAS_AURORA_RECOMP
          gx_aurora::g_shadow_transform_next_draw_index = 0;
  #endif
-@@ -852,6 +866,396 @@ void aurora_backend_call_display_list(const void* data, u32 size) {
+@@ -852,6 +883,396 @@ void aurora_backend_call_display_list(const void* data, u32 size) {
      gx_aurora::g_fifo_bytes += size;
  }
  

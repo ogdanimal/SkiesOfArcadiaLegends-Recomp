@@ -10,10 +10,12 @@
 #include <cctype>
 #include <cmath>
 #include <chrono>
+#include <condition_variable>
 #include <cstdlib>
 #include <cstring>
 #include <deque>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <thread>
 #include <vector>
@@ -22,6 +24,7 @@
 #include "gxruntime/aurora_backend.h"
 #include "gxruntime/platform.h"
 
+#include <SDL3/SDL_thread.h>
 #include <aurora/aurora.h>
 #include <aurora/gfx.h>
 #include <dolphin/gx.h>
@@ -43,6 +46,8 @@ void aurora_backend_set_present_callback(void (*callback)(void));
 void aurora_backend_set_frame_buffer_aspect_fit(int fit);
 void aurora_backend_present_kept(int slot);
 void aurora_backend_synchronize(void);
+void aurora_backend_set_event_poller(void (*poller)(void));
+void aurora_backend_poll_events(void);
 }
 #endif
 
@@ -58,6 +63,253 @@ u64 s_dump_from = 0;  // SKIES_DUMP_FROM: first frame dumped
 std::vector<u64> s_dump_frames;  // SKIES_DUMP_FRAMES=N,N,...: just these
 std::vector<s16> s_audio;
 double s_drain_ms = 0;  // SKIES_PRESENT_PACING: time this frame in aurora_backend_drain_if_over
+
+// ---- the video thread ----------------------------------------------------------------------------
+// The game (the CPU, the hardware models, the throttle) runs on a thread of its own (VideoRun); this
+// one, the main thread, owns the window and every Aurora call, as Dolphin's dual core has its GPU
+// thread: Aurora parses the GX stream here, the frame ends replay the 60 fps blend (interp60.cpp)
+// and the presents wait here, beside the game instead of in its time. The game's thread hands over
+// the stream in order with the host work that belongs between its commands (VideoPost: the frame
+// ends, the retrace presents, the menu's overlay and settings), staged and passed on in chunks.
+//
+// It waits where the game would wait for the GPU: at a token or a draw done, until the video thread
+// has parsed every command before it that reads guest RAM (VideoFence). Skies sets two tokens at the
+// start of each frame and rebuilds its display lists once they are passed; without the wait Aurora
+// read a display list the game had already rebuilt. Host work queued in between (presents) isn't
+// waited for, and work that may run behind the game (the 60 fps replay) is held back until the game
+// has moved on by a chunk of commands (VideoPostDeferred): the frame's four tokens come in a row, and
+// a replay posted at the first would be waited for at the next three. It also waits for what needs
+// Aurora caught up (VideoSync: save states), and to stay at most a frame ahead.
+//
+// The guest sees none of it: its GPU interrupts happen at the same guest time as before (hw_gpu.cpp),
+// so runs stay the same. SKIES_VIDEO_THREAD=0: everything on the game's thread at once, in the same
+// order (frame-exact comparisons: the pictures match either way).
+bool s_threaded = false;
+struct VideoItem
+{
+  std::vector<u8> bytes;       // GX commands
+  std::function<void()> work;  // or host work
+  bool stop = false;           // or the end: the game's thread is done
+};
+std::mutex s_queue_mutex;
+std::condition_variable s_queue_items;  // the video thread waits for items
+std::condition_variable s_queue_done;   // the game's thread waits for them done
+std::deque<VideoItem> s_queue;
+u64 s_posted = 0;                  // items posted (the game's thread)
+u64 s_done = 0;                    // items done (the video thread; under the mutex)
+size_t s_queued_bytes = 0;         // command bytes waiting
+std::vector<std::vector<u8>> s_spare_buffers;  // command buffers to use again
+std::vector<u8> s_stage;           // the game's thread: commands not yet posted
+bool s_stage_reads_ram = false;    // some of them read guest RAM
+u64 s_reads_ram_item = 0;          // the last item posted with such commands
+std::vector<std::function<void()>> s_deferred;  // the game's thread: work for after the next wait
+bool s_release_deferred = false;  // a wait passed: the deferred work goes after STAGE_BYTES more
+size_t s_since_fence = 0;         // command bytes since
+u64 s_previous_frame_end = 0;      // the item of the previous frame end
+constexpr size_t STAGE_BYTES = 16 * 1024;
+constexpr size_t MAX_QUEUED_BYTES = 8u << 20;  // a long load without frame ends
+std::atomic<s64> s_busy_ns{0};  // the video thread's work so far (VideoBusy)
+std::atomic<bool> s_quit{false};             // the window asked to close (from the video thread)
+std::atomic<u32> s_surface_width{0}, s_surface_height{0};
+std::recursive_mutex s_input_mutex;
+
+// Phones clock a cluster by its cores' load, and the video thread alone, busy a quarter of the time, left
+// the Pocket 5's gold cores at 1.3 of 2.4 GHz: it parsed at half the game thread's speed and the game
+// waited ~2 ms a frame for it at the tokens (uncapped save point 1.64x; 1.77x with its cores at full
+// clock). So while the game has no time to spare (its throttle slept under 15% of the last 30 frames,
+// or it runs uncapped), the video thread polls for work instead of sleeping, which keeps its cores'
+// clock up; with time to spare it sleeps (the power the full-speed game is played at).
+// SKIES_VIDEO_SPIN=auto (Android's default) | 1 | 0 (the desktop's: its cores clock up on their own).
+std::atomic<bool> s_spin_now{false};
+std::atomic<u64> s_posted_count{0};  // s_posted, for the video thread's polling
+u64 s_taken = 0;                     // the video thread: items taken
+
+bool VideoStats();
+
+void UpdateSpin()
+{
+  static const int mode = [] {
+    const char* v = std::getenv("SKIES_VIDEO_SPIN");
+    const std::string m = v ? v : "";
+#if defined(__ANDROID__)
+    const int platform = -1;
+#else
+    const int platform = 0;
+#endif
+    return m == "auto" ? -1 : m.empty() ? platform : std::atoi(m.c_str()) != 0 ? 1 : 0;
+  }();
+  if (mode >= 0)
+  {
+    s_spin_now.store(mode == 1, std::memory_order_relaxed);
+    return;
+  }
+  static u32 frames = 0;
+  static std::chrono::steady_clock::time_point since = std::chrono::steady_clock::now();
+  static std::chrono::steady_clock::duration idle_since = ThrottleIdle();
+  if (++frames < 30)
+    return;
+  const auto now = std::chrono::steady_clock::now();
+  const double wall = std::chrono::duration<double>(now - since).count();
+  const double idle = std::chrono::duration<double>(ThrottleIdle() - idle_since).count();
+  frames = 0;
+  since = now;
+  idle_since = ThrottleIdle();
+  const bool busy = !Throttled() || (wall > 0 && idle < 0.15 * wall);
+  if (busy != s_spin_now.load(std::memory_order_relaxed))
+  {
+    s_spin_now.store(busy, std::memory_order_relaxed);
+    if (VideoStats())
+      Log("[video] video thread %s (the game slept %.0f%% of the last 30 frames)\n",
+          busy ? "polls" : "sleeps", wall > 0 ? 100.0 * idle / wall : 0.0);
+  }
+}
+
+u64 Push(VideoItem&& item)
+{
+  std::lock_guard lock(s_queue_mutex);
+  s_queued_bytes += item.bytes.size();
+  s_queue.push_back(std::move(item));
+  s_queue_items.notify_one();
+  s_posted_count.store(s_posted + 1, std::memory_order_release);
+  return ++s_posted;
+}
+
+// SKIES_VIDEO_STATS=1: every 600 frames, the game's thread's waits and the video thread's work (read
+// at first use: Android sets the environment in main, after static initialisation)
+bool VideoStats()
+{
+  static const bool on = std::getenv("SKIES_VIDEO_STATS") != nullptr;
+  return on;
+}
+std::chrono::steady_clock::duration s_waited[3]{};  // fences, frame ends, full queue (the game's thread)
+
+void WaitDone(u64 item, int why)
+{
+  std::unique_lock lock(s_queue_mutex);
+  if (s_done >= item)
+    return;
+  const auto start = std::chrono::steady_clock::now();
+  s_queue_done.wait(lock, [item] { return s_done >= item; });
+  s_waited[why] += std::chrono::steady_clock::now() - start;
+}
+
+// The staged commands to the video thread
+void FlushStage()
+{
+  if (s_stage.empty())
+    return;
+  VideoItem item;
+  item.bytes.swap(s_stage);
+  const u64 posted = Push(std::move(item));
+  if (s_stage_reads_ram)
+    s_reads_ram_item = posted;
+  s_stage_reads_ram = false;
+  std::unique_lock lock(s_queue_mutex);
+  if (!s_spare_buffers.empty())
+  {
+    s_stage.swap(s_spare_buffers.back());
+    s_spare_buffers.pop_back();
+  }
+  if (s_queued_bytes > MAX_QUEUED_BYTES)
+  {
+    const auto start = std::chrono::steady_clock::now();
+    s_queue_done.wait(lock, [] { return s_queued_bytes <= MAX_QUEUED_BYTES; });
+    s_waited[2] += std::chrono::steady_clock::now() - start;
+  }
+}
+
+#ifdef SKIES_STANDALONE_AURORA
+void UpdateSurfaceSize()
+{
+  unsigned w = 0, h = 0;
+  if (!aurora_backend_surface_size(&w, &h))
+    w = h = 0;
+  s_surface_width.store(w, std::memory_order_relaxed);
+  s_surface_height.store(h, std::memory_order_relaxed);
+}
+
+// The window's events, polled by the present where it would (fork 0046), under the input lock
+void PollEvents()
+{
+  std::lock_guard lock(s_input_mutex);
+  aurora_backend_poll_events();
+  s_quit.store(aurora_backend_should_quit(), std::memory_order_relaxed);
+}
+#endif
+
+// SKIES_DRAIN=N: let Aurora's parsing fall at most N bytes behind (debug). The game's thread lets it
+// gather 64 KB at a time; the video thread parses each chunk as it comes, so the waits at the tokens
+// find little left to parse.
+u32 DrainBytes()
+{
+  static const u32 drain = [] {
+    const char* v = std::getenv("SKIES_DRAIN");
+    return v ? static_cast<u32>(std::strtoul(v, nullptr, 0)) : s_threaded ? 0u : 64u * 1024;
+  }();
+  return drain;
+}
+
+// The deferred work to the queue (or done, without a video thread)
+void PostDeferred()
+{
+  s_release_deferred = false;
+  std::vector<std::function<void()>> work;
+  work.swap(s_deferred);
+  for (auto& w : work)
+    VideoPost(std::move(w));
+}
+
+void ParseCommands(const u8* data, u32 size);
+
+// The video thread until the game's thread is done
+void VideoLoop()
+{
+  for (;;)
+  {
+    VideoItem item;
+    if (s_spin_now.load(std::memory_order_relaxed))
+    {
+      // Polling for the next item, at most a while (the game may be loading or quitting)
+      const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(50);
+      while (s_posted_count.load(std::memory_order_acquire) == s_taken &&
+             std::chrono::steady_clock::now() < until)
+        std::this_thread::yield();
+    }
+    {
+      std::unique_lock lock(s_queue_mutex);
+      s_queue_items.wait(lock, [] { return !s_queue.empty(); });
+      item = std::move(s_queue.front());
+      s_queue.pop_front();
+      s_queued_bytes -= item.bytes.size();
+      ++s_taken;
+    }
+    if (!item.stop)
+    {
+      const auto start = std::chrono::steady_clock::now();
+      const auto presenting = VideoPresentTime();
+      if (!item.bytes.empty())
+        ParseCommands(item.bytes.data(), static_cast<u32>(item.bytes.size()));
+      else if (item.work)
+        item.work();
+      s_busy_ns.fetch_add(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                              std::chrono::steady_clock::now() - start - (VideoPresentTime() - presenting))
+                              .count(),
+                          std::memory_order_relaxed);
+    }
+    {
+      std::lock_guard lock(s_queue_mutex);
+      if (item.bytes.capacity() != 0)
+      {
+        item.bytes.clear();
+        s_spare_buffers.push_back(std::move(item.bytes));
+      }
+      ++s_done;
+    }
+    s_queue_done.notify_all();
+    if (item.stop)
+      return;
+  }
+}
 
 #ifdef SKIES_STANDALONE_AURORA
 // The picture's aspect: the widescreen game patch keeps its target in ws_config at the start of its
@@ -108,18 +360,23 @@ struct Shown
   u32 retraces = 0;
 };
 std::deque<Shown> s_shown;
-std::atomic<bool> s_retrace_presents{false};
-// SKIES_INTERP_TRACE=1: each frame end and retrace present in the log
-const bool s_interp_trace = std::getenv("SKIES_INTERP_TRACE") != nullptr;
+std::atomic<bool> s_retrace_presents{false};  // the video thread's (and the render worker's)
+bool s_retrace_presents_wanted = false;  // the game's thread: 60 fps on at the last frame end
+// SKIES_INTERP_TRACE=1: each frame end and retrace present in the log (read at first use, as above)
+bool InterpTrace()
+{
+  static const bool on = std::getenv("SKIES_INTERP_TRACE") != nullptr;
+  return on;
+}
 
 int RealSlot(u64 frame)
 {
   return static_cast<int>(frame % 4) * 2;
 }
 
-// The time the emulation thread spent in Aurora's present calls, which wait for the render worker
+// The time the video thread spent in Aurora's present calls, which wait for the render worker
 // when it holds the previous picture until its scheduled time: not work (interp60.cpp's budget)
-std::chrono::steady_clock::duration s_present_time{};
+std::atomic<s64> s_present_ns{0};
 
 void Present(int slot)
 {
@@ -128,7 +385,10 @@ void Present(int slot)
     aurora_backend_present();
   else
     aurora_backend_present_kept(slot);
-  s_present_time += std::chrono::steady_clock::now() - start;
+  s_present_ns.fetch_add(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count(),
+      std::memory_order_relaxed);
+  UpdateSurfaceSize();
 }
 
 // On the render worker after each present: the interval between presents, as the Dolphin build's
@@ -148,19 +408,19 @@ void PresentDone()
 
 // Presents on the throttle's clock: the render worker presents each frame at its copy's guest time plus a
 // delay instead of when the emulation thread got there, so the intervals keep the game's rhythm while the
-// thread's own timing wobbles (on the Pocket 5 the copy comes 6-11 ms after its guest time, p99 up to 18:
+// threads' own timing wobbles (on the Pocket 5 the copy comes 6-11 ms after its guest time, p99 up to 18:
 // the drawing field runs slower than real time and the next one catches up; Windows 0.7-1.5 ms, p99 6-8).
 // SKIES_PRESENT_DELAY_MS=auto (the default) keeps the delay at the last 300 copies' 99th percentile lateness
 // + 1.5 ms (at most 30), N fixes it, off presents at once. Hitches over 50 ms (state loads) are left out;
-// unthrottled runs present at once.
-void SchedulePresent()
+// unthrottled runs present at once. `wall` is the copy's (or the retrace's) guest time on the throttle's
+// clock (WallForGuest, from the game's thread); how late it is, is how late the video thread got here.
+void SchedulePresent(std::chrono::steady_clock::time_point wall)
 {
   static const double s_mode = [] {  // -2 auto, -1 off, else fixed ms
     const char* v = std::getenv("SKIES_PRESENT_DELAY_MS");
     const std::string mode = v ? v : "auto";
     return mode == "auto" ? -2.0 : mode == "off" ? -1.0 : std::atof(mode.c_str());
   }();
-  const auto wall = WallForGuest(Now());
   if (wall.time_since_epoch().count() == 0)
     return;
   const double late = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - wall).count();
@@ -198,11 +458,12 @@ void SchedulePresent()
           .count());
 }
 
-// The picture centred in the window at PictureAspect (Dolphin's aspect ratio letterbox).
+// The picture centred in the window at PictureAspect (Dolphin's aspect ratio letterbox), from the
+// game's thread when it changes.
 void ApplyPresentRect()
 {
   unsigned width = 0, height = 0;
-  if (!aurora_backend_surface_size(&width, &height))
+  if (!VideoSurfaceSize(&width, &height) || width == 0 || height == 0)
     return;
   const double aspect = PictureAspect();
   int w = static_cast<int>(width), h = static_cast<int>(height);
@@ -210,8 +471,15 @@ void ApplyPresentRect()
     w = static_cast<int>(height * aspect + 0.5);
   else
     h = static_cast<int>(width / aspect + 0.5);
-  aurora_backend_set_present_rect((static_cast<int>(width) - w) / 2,
-                                  (static_cast<int>(height) - h) / 2, w, h);
+  const int left = (static_cast<int>(width) - w) / 2, top = (static_cast<int>(height) - h) / 2;
+  static int s_applied[4] = {-1, -1, -1, -1};
+  if (s_applied[0] == left && s_applied[1] == top && s_applied[2] == w && s_applied[3] == h)
+    return;
+  s_applied[0] = left;
+  s_applied[1] = top;
+  s_applied[2] = w;
+  s_applied[3] = h;
+  VideoPost([=] { aurora_backend_set_present_rect(left, top, w, h); });
 }
 
 bool DumpWanted(u64 frame)
@@ -332,6 +600,12 @@ bool VideoInit(bool headless)
   dol_platform_pad_init();
   dol_platform_audio_set_sample_rate(32000);
   s_active = true;
+  const char* threaded = std::getenv("SKIES_VIDEO_THREAD");
+  s_threaded = !threaded || std::atoi(threaded) != 0;
+  if (s_threaded)
+    aurora_backend_set_event_poller(PollEvents);
+  Log("[video] Aurora on %s\n", s_threaded ? "the video thread" : "the game's thread");
+  UpdateSurfaceSize();
   MenuApplyGame();
   return true;
 #else
@@ -352,17 +626,14 @@ void VideoShutdown()
   s_active = false;
 }
 
-void VideoCommands(const u8* data, u32 size)
+namespace
+{
+// Commands into Aurora, parsed as they come (at most DrainBytes behind)
+void ParseCommands(const u8* data, u32 size)
 {
 #ifdef SKIES_STANDALONE_AURORA
-  if (!s_active)
-    return;
-  // SKIES_DRAIN=N: let Aurora's worker fall at most N bytes behind (default 64 KB; debug)
-  static const u32 drain = [] {
-    const char* v = std::getenv("SKIES_DRAIN");
-    return v ? static_cast<u32>(std::strtoul(v, nullptr, 0)) : 64u * 1024;
-  }();
   aurora_backend_write_raw(data, size);
+  const u32 drain = DrainBytes();
   // Timed only when it drains: a clock read per command chunk cost the Pocket 5 15% of its speed
   if (PacingOn() && aurora_backend_fifo_over(drain))
   {
@@ -376,6 +647,124 @@ void VideoCommands(const u8* data, u32 size)
   (void)data;
   (void)size;
 #endif
+}
+}  // namespace
+
+void VideoCommands(const u8* data, u32 size, bool reads_ram)
+{
+  if (!s_active)
+    return;
+  if (!s_threaded)
+    ParseCommands(data, size);
+  else
+  {
+    s_stage.insert(s_stage.end(), data, data + size);
+    s_stage_reads_ram |= reads_ram;
+    if (s_stage.size() >= STAGE_BYTES)
+      FlushStage();
+  }
+  s_since_fence += size;
+  if (s_release_deferred && s_since_fence >= STAGE_BYTES)
+    PostDeferred();
+}
+
+void VideoPostDeferred(std::function<void()> work)
+{
+  s_deferred.push_back(std::move(work));
+}
+
+void VideoFence()
+{
+  if (s_threaded)
+  {
+    if (s_stage_reads_ram)
+      FlushStage();
+    WaitDone(s_reads_ram_item, 0);
+  }
+  s_release_deferred = !s_deferred.empty();
+  s_since_fence = 0;
+}
+
+void VideoPost(std::function<void()> work)
+{
+  if (!s_threaded)
+  {
+    work();
+    return;
+  }
+  FlushStage();
+  VideoItem item;
+  item.work = std::move(work);
+  Push(std::move(item));
+}
+
+void VideoSync(const std::function<void()>& work)
+{
+  PostDeferred();
+  if (!s_threaded)
+  {
+    work();
+    return;
+  }
+  FlushStage();
+  VideoItem item;
+  item.work = work;
+  WaitDone(Push(std::move(item)), 1);
+}
+
+std::unique_lock<std::recursive_mutex> VideoInputLock()
+{
+  return std::unique_lock(s_input_mutex);
+}
+
+bool VideoThreaded()
+{
+  return s_threaded;
+}
+
+std::chrono::steady_clock::duration VideoBusy()
+{
+  return std::chrono::nanoseconds(s_busy_ns.load(std::memory_order_relaxed));
+}
+
+void VideoRun(const std::function<void()>& game)
+{
+#ifdef SKIES_STANDALONE_AURORA
+  if (s_threaded)
+  {
+    // The game's thread: recompiled guest calls nest on the host stack, so a large one
+    struct Run
+    {
+      const std::function<void()>* game;
+    } run{&game};
+    const SDL_PropertiesID props = SDL_CreateProperties();
+    SDL_SetPointerProperty(props, SDL_PROP_THREAD_CREATE_ENTRY_FUNCTION_POINTER,
+                           reinterpret_cast<void*>(+[](void* data) -> int {
+                             (*static_cast<Run*>(data)->game)();
+                             FlushStage();
+                             VideoItem stop;
+                             stop.stop = true;
+                             Push(std::move(stop));
+                             return 0;
+                           }));
+    SDL_SetStringProperty(props, SDL_PROP_THREAD_CREATE_NAME_STRING, "Skies game");
+    SDL_SetPointerProperty(props, SDL_PROP_THREAD_CREATE_USERDATA_POINTER, &run);
+    SDL_SetNumberProperty(props, SDL_PROP_THREAD_CREATE_STACKSIZE_NUMBER, 16 << 20);
+    SDL_Thread* thread = SDL_CreateThreadWithProperties(props);
+    SDL_DestroyProperties(props);
+    if (thread)
+    {
+      PinVideoThread();
+      VideoLoop();
+      SDL_WaitThread(thread, nullptr);
+      return;
+    }
+    Log("[video] no game thread (%s): everything on this one\n", SDL_GetError());
+    s_threaded = false;
+    aurora_backend_set_event_poller(nullptr);
+  }
+#endif
+  game();
 }
 
 // SKIES_POKE=ADDR=WORDS[;ADDR=WORDS...] (hex; WORDS: 8 hex digits each, big-endian guest words)
@@ -413,47 +802,43 @@ void ApplyPokes()
 }
 
 #ifdef SKIES_STANDALONE_AURORA
-static void ArmDrawLog();
-#endif
+static void ArmDrawLog(u64 frame);
 
-void VideoFrameEnd()
+namespace
 {
-  ++s_frames;
-  ApplyPokes();
-  MenuVideoFrame();
-  if ((s_frames % 600) == 1)
-    Log("[video] frame %llu at %.2f s guest\n", static_cast<unsigned long long>(s_frames),
-        static_cast<double>(Now()) / CPU_HZ);
-#ifdef SKIES_STANDALONE_AURORA
-  if (!s_active)
-    return;
-  if ((s_frames % 600) == 1)
+// The frame end on the video thread: the 60 fps replay, the present
+struct FrameEnd
+{
+  u64 frame;
+  std::chrono::steady_clock::time_point wall;  // the copy's guest time on the throttle's clock
+  InterpHandoff interp;
+  u32 xfb, vi_xfb;  // for SKIES_INTERP_TRACE
+};
+
+void FrameEndVideo(const FrameEnd& end)
+{
+  if ((end.frame % 600) == 1)
     HdTexturesLog();
-  MenuApplyGame();
-  ApplyPresentRect();
-  MenuFrame();
-  ArmDrawLog();
-  // 60 fps: the pictures kept here, presented from the retraces
-  const int kept = InterpFrameEnd(RealSlot(s_frames));
-  if (kept >= 0)
+  ArmDrawLog(end.frame);
+  // 60 fps: the real picture kept here, the in-between one by the replay after the frame's tokens
+  // (ReplayVideo), both presented from the retraces
+  if (InterpFrameEndVideo(end.interp, RealSlot(end.frame)) >= 0)
   {
-    s_shown.push_back(Shown{GpuXfbCopyAddress(), s_frames, kept == 1});
-    if (s_interp_trace)
-      Log("[interp-trace] frame %llu end: xfb %08x, %s; VI shows %08x\n", static_cast<unsigned long long>(s_frames),
-          GpuXfbCopyAddress(), kept == 1 ? "real + in-between" : "real", ViXfbAddress() & 0x01FFFFFF);
+    s_shown.push_back(Shown{end.xfb, end.frame, false});
+    if (InterpTrace())
+      Log("[interp-trace] frame %llu end: xfb %08x; VI shows %08x\n", static_cast<unsigned long long>(end.frame),
+          end.xfb, end.vi_xfb);
     while (s_shown.size() > 3)
       s_shown.pop_front();
     s_retrace_presents = true;
-    if (aurora_backend_should_quit())
-      RequestQuit();
     return;
   }
   s_retrace_presents = false;
   s_shown.clear();
-  const bool dump = DumpWanted(s_frames);
+  const bool dump = DumpWanted(end.frame);
   if (dump)
     aurora_request_framebuffer_readback();
-  SchedulePresent();
+  SchedulePresent(end.wall);
   if (PacingOn())
   {
     const auto now = std::chrono::steady_clock::now();
@@ -468,8 +853,73 @@ void VideoFrameEnd()
   else
     Present(-1);
   if (dump)
-    DumpFrame(s_frames, "");
-  if (aurora_backend_should_quit())
+    DumpFrame(end.frame, "");
+}
+
+// The frame's 60 fps replay (interp60.cpp), after the copy and the next frame's tokens
+void ReplayVideo()
+{
+  const int kept = InterpReplayVideo();
+  if (kept == 1 && !s_shown.empty())
+    s_shown.back().interp = true;
+  if (InterpTrace() && kept >= 0 && !s_shown.empty())
+    Log("[interp-trace] frame %llu replayed: %s\n", static_cast<unsigned long long>(s_shown.back().frame),
+        kept == 1 ? "in-between kept" : "no in-between");
+}
+}  // namespace
+#endif
+
+void VideoFrameEnd()
+{
+  ++s_frames;
+  ApplyPokes();
+  MenuVideoFrame();
+  if ((s_frames % 600) == 1)
+    Log("[video] frame %llu at %.2f s guest\n", static_cast<unsigned long long>(s_frames),
+        static_cast<double>(Now()) / CPU_HZ);
+#ifdef SKIES_STANDALONE_AURORA
+  if (!s_active)
+    return;
+  {
+    const auto input = VideoInputLock();
+    MenuApplyGame();
+    MenuFrame();
+  }
+  ApplyPresentRect();
+  // The previous frame's replay first, if no token or retrace came since
+  PostDeferred();
+  FrameEnd end{s_frames, WallForGuest(Now()), InterpFrameEndGame(), GpuXfbCopyAddress(),
+               ViXfbAddress() & 0x01FFFFFF};
+  s_retrace_presents_wanted = end.interp.wanted;
+  VideoPost([end] { FrameEndVideo(end); });
+  if (end.interp.wanted)
+    VideoPostDeferred([] { ReplayVideo(); });
+  // At most a frame ahead of the video thread: this frame end posted, the previous one done
+  if (s_threaded)
+  {
+    UpdateSpin();
+    WaitDone(s_previous_frame_end, 1);
+    std::lock_guard lock(s_queue_mutex);
+    s_previous_frame_end = s_posted;
+  }
+  if (VideoStats() && (s_frames % 600) == 0)
+  {
+    static std::chrono::steady_clock::time_point s_last_wall = std::chrono::steady_clock::now();
+    static std::chrono::steady_clock::duration s_last_busy{}, s_last_present{};
+    const auto now = std::chrono::steady_clock::now();
+    const auto ms = [](std::chrono::steady_clock::duration d) {
+      return std::chrono::duration<double, std::milli>(d).count() / 600;
+    };
+    Log("[video-stats] ms per frame: wall %.2f; the game's thread waited %.2f at tokens, %.2f at frame "
+        "ends, %.2f on a full queue; the video thread worked %.2f (%.2f in present calls)\n",
+        ms(now - s_last_wall), ms(s_waited[0]), ms(s_waited[1]), ms(s_waited[2]), ms(VideoBusy() - s_last_busy),
+        ms(VideoPresentTime() - s_last_present));
+    s_last_wall = now;
+    s_last_busy = VideoBusy();
+    s_last_present = VideoPresentTime();
+    s_waited[0] = s_waited[1] = s_waited[2] = {};
+  }
+  if (VideoQuitRequested())
     RequestQuit();
 #endif
 }
@@ -482,7 +932,7 @@ static std::vector<u8> s_loaded_copies;
 #ifdef SKIES_STANDALONE_AURORA
 // SKIES_DRAW_LOG_FRAME=N: Aurora's draw log for frame N only (run with SKIES_DRAIN=0 so the
 // frame's commands are parsed before the switch). Set at each frame end, and after a state load.
-static void ArmDrawLog()
+static void ArmDrawLog(u64 frame)
 {
   static const u64 log_frame = [] {
     const char* v = std::getenv("SKIES_DRAW_LOG_FRAME");
@@ -491,7 +941,7 @@ static void ArmDrawLog()
   if (log_frame != 0)
   {
     aurora_backend_drain_if_over(0);
-    aurora_debug_draw_log = s_frames + 1 == log_frame;
+    aurora_debug_draw_log = frame + 1 == log_frame;
   }
 }
 #endif
@@ -503,14 +953,17 @@ void VideoDoState(StateIO& p)
 #ifdef SKIES_STANDALONE_AURORA
   if (!p.Reading() && p.with_gpu && s_active)
   {
-    const u32 count = aurora_backend_copies_snapshot(
-        g_ram, RAM_SIZE,
-        [](const void* data, u32 size, void* user) {
-          const u8* bytes = static_cast<const u8*>(data);
-          static_cast<std::vector<u8>*>(user)->assign(bytes, bytes + size);
-        },
-        &copies);
-    Log("[video] state: %u EFB copies (%.1f MB)\n", count, copies.size() / 1048576.0);
+    // Aurora caught up with the stream, then the copies read back there
+    VideoSync([&copies] {
+      const u32 count = aurora_backend_copies_snapshot(
+          g_ram, RAM_SIZE,
+          [](const void* data, u32 size, void* user) {
+            const u8* bytes = static_cast<const u8*>(data);
+            static_cast<std::vector<u8>*>(user)->assign(bytes, bytes + size);
+          },
+          &copies);
+      Log("[video] state: %u EFB copies (%.1f MB)\n", count, copies.size() / 1048576.0);
+    });
   }
 #endif
   p.Do(copies);
@@ -522,23 +975,32 @@ void VideoStateLoaded()
 {
   InterpReset();
 #ifdef SKIES_STANDALONE_AURORA
-  s_shown.clear();
-  if (s_active && !s_loaded_copies.empty())
-  {
-    const int count = aurora_backend_copies_restore(g_ram, RAM_SIZE, s_loaded_copies.data(),
-                                                    static_cast<u32>(s_loaded_copies.size()));
-    Log("[video] state: %d EFB copies restored\n", count);
-  }
   if (s_active)
-    ArmDrawLog();
+  {
+    const u64 frame = s_frames;
+    VideoSync([frame] {
+      InterpResetVideo();
+      s_shown.clear();
+      if (!s_loaded_copies.empty())
+      {
+        const int count = aurora_backend_copies_restore(g_ram, RAM_SIZE, s_loaded_copies.data(),
+                                                        static_cast<u32>(s_loaded_copies.size()));
+        Log("[video] state: %d EFB copies restored\n", count);
+      }
+      ArmDrawLog(frame);
+    });
+  }
 #endif
   s_loaded_copies = {};
 }
 
-void VideoRetrace()
-{
 #ifdef SKIES_STANDALONE_AURORA
-  if (!s_active || !s_retrace_presents)
+namespace
+{
+// A VI field on the video thread, with 60 fps on: the in-between picture, then the real one
+void RetraceVideo(std::chrono::steady_clock::time_point wall)
+{
+  if (!s_retrace_presents)
     return;
   // The newest frame (a frame done in less than two fields gives up its real picture to the next)
   if (s_shown.empty())
@@ -552,7 +1014,7 @@ void VideoRetrace()
     interp = false;
   else
     return;  // the real picture shows already
-  if (s_interp_trace)
+  if (InterpTrace())
     Log("[interp-trace] retrace %u of frame %llu: %s (slot %d)\n", current->retraces,
         static_cast<unsigned long long>(current->frame), interp ? "in-between" : "real",
         RealSlot(current->frame) + (interp ? 1 : 0));
@@ -563,17 +1025,30 @@ void VideoRetrace()
     aurora_backend_synchronize();
     aurora_request_framebuffer_readback();
   }
-  SchedulePresent();
+  SchedulePresent(wall);
   Present(RealSlot(current->frame) + (interp ? 1 : 0));
   if (dump)
     DumpFrame(current->frame, interp ? "-interp" : "");
+}
+}  // namespace
+#endif
+
+void VideoRetrace()
+{
+#ifdef SKIES_STANDALONE_AURORA
+  // Only while the last frame end had 60 fps on (the video thread knows whether it presents)
+  if (!s_active || !s_retrace_presents_wanted)
+    return;
+  PostDeferred();  // the replay before the presents
+  const auto wall = WallForGuest(Now());
+  VideoPost([wall] { RetraceVideo(wall); });
 #endif
 }
 
 std::chrono::steady_clock::duration VideoPresentTime()
 {
 #ifdef SKIES_STANDALONE_AURORA
-  return s_present_time;
+  return std::chrono::nanoseconds(s_present_ns.load(std::memory_order_relaxed));
 #else
   return {};
 #endif
@@ -582,8 +1057,10 @@ std::chrono::steady_clock::duration VideoPresentTime()
 bool VideoSurfaceSize(unsigned* width, unsigned* height)
 {
 #ifdef SKIES_STANDALONE_AURORA
-  unsigned w = 0, h = 0;
-  if (!s_active || !aurora_backend_surface_size(&w, &h))
+  // As of the last present (the video thread's)
+  const unsigned w = s_surface_width.load(std::memory_order_relaxed);
+  const unsigned h = s_surface_height.load(std::memory_order_relaxed);
+  if (!s_active || w == 0 || h == 0)
     return false;
   if (width)
     *width = w;
@@ -600,7 +1077,7 @@ bool VideoSurfaceSize(unsigned* width, unsigned* height)
 bool VideoQuitRequested()
 {
 #ifdef SKIES_STANDALONE_AURORA
-  return s_active && aurora_backend_should_quit();
+  return s_active && (s_threaded ? s_quit.load(std::memory_order_relaxed) : aurora_backend_should_quit());
 #else
   return false;
 #endif
@@ -695,6 +1172,7 @@ void VideoPadRead(u16 buttons[4], s8 sticks[4][4], u8 triggers[4][2], bool conne
 #ifdef SKIES_STANDALONE_AURORA
   if (!s_active)
     return;
+  const auto input = VideoInputLock();
   DolPadState state[4];
   dol_platform_pad_read(state);
   InputPoll();
@@ -721,7 +1199,10 @@ void VideoPadMotor(u32 channel, u32 command)
 {
 #ifdef SKIES_STANDALONE_AURORA
   if (s_active)
+  {
+    const auto input = VideoInputLock();
     dol_platform_pad_control_motor(channel, command);
+  }
 #else
   (void)channel;
   (void)command;

@@ -6,7 +6,9 @@
 // The GPU runs synchronously: every 32-byte burst into the FIFO is consumed at once. Commands are
 // split here (vertex sizes from the VCD/VAT registers) so that side effects the CPU waits on
 // happen in stream order; Aurora gets the bytes unchanged and resolves display lists, arrays
-// and textures from guest RAM itself.
+// and textures from guest RAM itself. With Aurora on the video thread (video.cpp), a token or a
+// draw done waits for it to have parsed everything before (VideoFence) before the CPU sees it:
+// the game rebuilds display lists and vertex data once the GPU has passed its frame's tokens.
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "host.h"
 #include "state.h"
@@ -216,6 +218,7 @@ enum class Effect
 {
   None,
   XfbCopy,
+  Sync,  // a token or a draw done: the GPU's progress, as the CPU sees it
 };
 
 // The EFB copy registers (source 0x49, size 0x4A, destination 0x4B, stride 0x4D).
@@ -293,18 +296,19 @@ Effect BpWrite(u8 reg, u32 value)
       s_pe_finish_int = true;
       ++s_draw_dones;
       PeUpdateInterrupts();
+      return Effect::Sync;
     }
     break;
   case 0x47:  // token
     s_pe_token = static_cast<u16>(value);
     ++s_tokens;
-    break;
+    return Effect::Sync;
   case 0x48:  // token with interrupt
     s_pe_token = static_cast<u16>(value);
     s_pe_token_int = true;
     ++s_tokens;
     PeUpdateInterrupts();
-    break;
+    return Effect::Sync;
   case 0x52:  // EFB copy; bit 14: to the XFB (the frame's display copy)
     if (value & 0x4000)
       return Effect::XfbCopy;
@@ -316,7 +320,7 @@ Effect BpWrite(u8 reg, u32 value)
   return Effect::None;
 }
 
-void ParseDisplayList(u32 address, u32 size, int depth);
+bool ParseDisplayList(u32 address, u32 size, int depth);
 
 // Debug: SKIES_GX_TRACE=N logs frame N's register loads and draws (top level and display lists).
 u64 TraceFrame()
@@ -370,40 +374,51 @@ Effect Apply(const u8* p, u32 len, int depth)
   case 0x61:
     return BpWrite(p[1], (u32(p[2]) << 16) | (u32(p[3]) << 8) | p[4]);
   case 0x40:
-    ParseDisplayList(BE32(p + 1), BE32(p + 5), depth + 1);
-    return Effect::None;
+    return ParseDisplayList(BE32(p + 1), BE32(p + 5), depth + 1) ? Effect::Sync : Effect::None;
   default:
     return Effect::None;
   }
 }
 
-void ParseDisplayList(u32 address, u32 size, int depth)
+// The display list's side effects; true when it holds a token or a draw done
+bool ParseDisplayList(u32 address, u32 size, int depth)
 {
   if (depth > 8)
-    return;
+    return false;
   const u8* p = RamPtr(address, size);
   if (!p)
   {
     Log("[gpu] display list %08x (%u bytes) outside RAM\n", address, size);
-    return;
+    return false;
   }
+  bool sync = false;
   u32 pos = 0;
   while (pos < size)
   {
     const u32 len = CommandLength(s_vtx, p + pos, size - pos);
     if (len == 0)
       break;
-    Apply(p + pos, len, depth);
+    sync |= Apply(p + pos, len, depth) == Effect::Sync;
     pos += len;
   }
+  return sync;
 }
 
 // FIFO bytes not yet forming a whole command
 std::vector<u8> s_pending;
 
+// Whether Aurora reads guest RAM for the command: draws (indexed arrays, textures), display lists,
+// indexed XF loads, TLUT loads and TMEM preloads (BP 0x60-0x67)
+bool ReadsRam(const u8* p)
+{
+  return (p[0] & 0x80) || p[0] == 0x40 || (p[0] >= 0x20 && p[0] <= 0x38) ||
+         (p[0] == 0x61 && p[1] >= 0x60 && p[1] <= 0x67);
+}
+
 void ProcessCommands()
 {
   u32 pos = 0, sent = 0;
+  bool reads_ram = false;  // in data[sent, pos)
   const u32 size = static_cast<u32>(s_pending.size());
   const u8* data = s_pending.data();
   while (pos < size)
@@ -411,13 +426,25 @@ void ProcessCommands()
     const u32 len = CommandLength(s_vtx, data + pos, size - pos);
     if (len == 0)
       break;
-    if (Apply(data + pos, len, 0) == Effect::XfbCopy)
+    const Effect effect = Apply(data + pos, len, 0);
+    reads_ram |= ReadsRam(data + pos);
+    if (effect == Effect::Sync)
+    {
+      // What reads RAM up to here parsed before the CPU goes on (its interrupt is only taken after
+      // this burst)
+      VideoCommands(data + sent, pos + len - sent, reads_ram);
+      sent = pos + len;
+      reads_ram = false;
+      VideoFence();
+    }
+    else if (effect == Effect::XfbCopy)
     {
       // The picture is presented before the copy command goes in (Aurora applies the copy's
       // EFB clear), as the Dolphin-side backend does.
       if (pos > sent)
-        VideoCommands(data + sent, pos - sent);
+        VideoCommands(data + sent, pos - sent, reads_ram);
       sent = pos;
+      reads_ram = false;
       ++s_frames;
       DffFrameEnd(s_frames);
       VideoFrameEnd();
@@ -426,7 +453,7 @@ void ProcessCommands()
     pos += len;
   }
   if (pos > sent)
-    VideoCommands(data + sent, pos - sent);
+    VideoCommands(data + sent, pos - sent, reads_ram);
   s_pending.erase(s_pending.begin(), s_pending.begin() + pos);
 }
 

@@ -19,6 +19,7 @@
 #include <ctime>
 #include <filesystem>
 #include <initializer_list>
+#include <memory>
 #include <span>
 #include <string>
 #include <vector>
@@ -1794,7 +1795,7 @@ void MenuApplyGame()
   if (scale != s_applied_efb_scale)
   {
     s_applied_efb_scale = scale;
-    VISetFrameBufferScale(static_cast<float>(scale));
+    VideoPost([scale] { VISetFrameBufferScale(static_cast<float>(scale)); });
   }
   // Anti-aliasing, texture filtering, anisotropy and scaling: live in Aurora (fork 0038)
   const int msaa = MsaaRunning(Get(MSAA));
@@ -1802,19 +1803,19 @@ void MenuApplyGame()
   {
     s_applied_msaa = msaa;
     Log("[menu] anti-aliasing %s\n", msaa > 1 ? (std::to_string(msaa) + "x MSAA").c_str() : "off");
-    aurora_set_msaa(static_cast<u32>(msaa));
+    VideoPost([msaa] { aurora_set_msaa(static_cast<u32>(msaa)); });
   }
   const int texture_filter = std::clamp(Get(TEXTURE_FILTER), 0, 2);
   if (texture_filter != s_applied_texture_filter)
   {
     s_applied_texture_filter = texture_filter;
-    aurora_set_texture_filtering(texture_filter);
+    VideoPost([texture_filter] { aurora_set_texture_filtering(texture_filter); });
   }
   const int anisotropy = std::clamp(Get(ANISOTROPY), -1, 4);
   if (anisotropy != s_applied_anisotropy)
   {
     s_applied_anisotropy = anisotropy;
-    aurora_set_max_anisotropy(anisotropy);
+    VideoPost([anisotropy] { aurora_set_max_anisotropy(anisotropy); });
   }
   const int scaling = Get(SCALING);
   if (scaling != s_applied_scaling)
@@ -1822,10 +1823,11 @@ void MenuApplyGame()
     s_applied_scaling = scaling;
     // Dolphin's OutputResamplingMode on Aurora's samplers: the cubic family as Catmull-Rom, nearest
     // and default as bilinear
-    aurora_set_resampler(scaling == 5 ? SAMPLER_SHARP_BILINEAR :
+    const auto sampler = scaling == 5 ? SAMPLER_SHARP_BILINEAR :
                          scaling == 6 ? SAMPLER_AREA :
                          scaling == 2 || scaling == 3 || scaling == 4 || scaling == 8 ? SAMPLER_BICUBIC :
-                                                                                         SAMPLER_BILINEAR);
+                                                                                         SAMPLER_BILINEAR;
+    VideoPost([sampler] { aurora_set_resampler(sampler); });
   }
   // HD textures: the imported pack, live (hd_textures.cpp)
   static const bool s_pack_read = [] {
@@ -1840,7 +1842,7 @@ void MenuApplyGame()
   {
     // The window opened with the setting; later changes go to the swap chain
     if (s_applied_vsync >= 0)
-      aurora_enable_vsync(vsync != 0);
+      VideoPost([vsync] { aurora_enable_vsync(vsync != 0); });
     s_applied_vsync = vsync;
   }
 #endif
@@ -1953,9 +1955,14 @@ void Sink(ImDrawData* draw_data)
       {
         if (tex->Status == ImTextureStatus_WantCreate)
           tex->SetTexID(static_cast<ImTextureID>(s_next_texture++));
-        aurora_backend_set_overlay_texture(static_cast<u32>(tex->GetTexID()),
-                                           static_cast<u32>(tex->Width), static_cast<u32>(tex->Height),
-                                           static_cast<const uint8_t*>(tex->GetPixels()));
+        // A copy for the video thread (ImGui changes the atlas in place)
+        const auto* pixels = static_cast<const uint8_t*>(tex->GetPixels());
+        auto rgba = std::make_shared<std::vector<uint8_t>>(
+            pixels, pixels + static_cast<size_t>(tex->Width) * tex->Height * 4);
+        VideoPost([id = static_cast<u32>(tex->GetTexID()), width = static_cast<u32>(tex->Width),
+                   height = static_cast<u32>(tex->Height), rgba] {
+          aurora_backend_set_overlay_texture(id, width, height, rgba->data());
+        });
         tex->SetStatus(ImTextureStatus_OK);
       }
       else if (tex->Status == ImTextureStatus_WantDestroy && tex->UnusedFrames > 0)
@@ -1965,12 +1972,17 @@ void Sink(ImDrawData* draw_data)
       }
     }
   }
-  static std::vector<u8> vertices;
-  static std::vector<u16> indices;
-  static std::vector<AuroraOverlayCmd> cmds;
-  vertices.clear();
-  indices.clear();
-  cmds.clear();
+  // Handed to the video thread with the frame
+  struct Overlay
+  {
+    std::vector<u8> vertices;
+    std::vector<u16> indices;
+    std::vector<AuroraOverlayCmd> cmds;
+  };
+  auto overlay = std::make_shared<Overlay>();
+  std::vector<u8>& vertices = overlay->vertices;
+  std::vector<u16>& indices = overlay->indices;
+  std::vector<AuroraOverlayCmd>& cmds = overlay->cmds;
   static_assert(sizeof(ImDrawVert) == 20, "the overlay expects ImGui's default vertex layout");
   static_assert(sizeof(ImDrawIdx) == 2, "the overlay expects 16-bit ImGui indices");
   const ImVec2 pos = draw_data->DisplayPos;
@@ -1995,10 +2007,12 @@ void Sink(ImDrawData* draw_data)
       });
     }
   }
-  aurora_backend_set_overlay(vertices.data(), static_cast<u32>(vertices.size() / sizeof(ImDrawVert)),
-                             indices.data(), static_cast<u32>(indices.size()), cmds.data(),
-                             static_cast<u32>(cmds.size()), draw_data->DisplaySize.x,
-                             draw_data->DisplaySize.y);
+  VideoPost([overlay, width = draw_data->DisplaySize.x, height = draw_data->DisplaySize.y] {
+    aurora_backend_set_overlay(overlay->vertices.data(),
+                               static_cast<u32>(overlay->vertices.size() / sizeof(ImDrawVert)),
+                               overlay->indices.data(), static_cast<u32>(overlay->indices.size()),
+                               overlay->cmds.data(), static_cast<u32>(overlay->cmds.size()), width, height);
+  });
 }
 
 const char* OnOff(bool value)
@@ -2427,8 +2441,10 @@ void MenuFrame()
   {
     if (s_overlay_shown)
     {
-      aurora_backend_set_overlay(nullptr, 0, nullptr, 0, nullptr, 0, static_cast<float>(width),
-                                 static_cast<float>(height));
+      VideoPost([width, height] {
+        aurora_backend_set_overlay(nullptr, 0, nullptr, 0, nullptr, 0, static_cast<float>(width),
+                                   static_cast<float>(height));
+      });
       s_overlay_shown = false;
     }
     return;

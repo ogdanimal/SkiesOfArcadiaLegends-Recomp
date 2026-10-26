@@ -16,6 +16,8 @@
         android:extractNativeLibs="true"
         android:hardwareAccelerated="true"
         android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
+        <!-- simpleperf from adb on a release build (Android 10+): docs/handoffs/HANDOFF-emulator-free.md -->
+        <profileable android:shell="true" />
         <activity android:name=".SkiesActivity"
             android:label="Skies standalone (test)"
             android:alwaysRetainTaskState="true"

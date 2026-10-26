@@ -52,6 +52,8 @@ bool s_polled = false;
 
 void Snapshot()
 {
+  // The menu's filter reads controllers through Aurora and SDL too
+  const auto input = VideoInputLock();
   u16 buttons[4];
   s8 sticks[4][4];
   u8 triggers[4][2];

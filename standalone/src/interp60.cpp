@@ -11,13 +11,15 @@
 // interpolated. Skies transforms vertices on the CPU (Ninja), so positions matter as much as
 // matrices. The blend, Align, Blendable and VertexJumps are the Dolphin build's.
 //
-// The replay is simpler than the Dolphin build's: the standalone has no GPU thread, so it runs at
-// once, at the frame's XFB copy, in Aurora's replay context (fork 0019: its own GX state on a spare
-// EFB): the registers the frame started with, then the blended stream with each indexed draw's
-// arrays handed over as host pointers (Aurora's command 0x50, sub 0x0010 + array), Aurora keeping
-// the in-between picture just before the replay's own XFB copy. The real picture is kept too, and
-// video.cpp presents the in-between one at the first retrace that shows the frame's XFB, the real
-// one at the next (the Dolphin build's single-core order).
+// The game's thread records (InterpCommand, from hw_gpu.cpp); at the frame's XFB copy the recording
+// goes to the video thread (video.cpp) with the frame end, which keeps the real picture there
+// (InterpFrameEndVideo) and blends and replays once the next frame's tokens are passed
+// (InterpReplayVideo), beside the game, as the Dolphin build's GPU thread does. The replay runs in
+// Aurora's replay context (fork 0019: its own GX state on a spare EFB): the registers the frame
+// started with, then the blended stream with each indexed draw's arrays handed over as host pointers
+// (Aurora's command 0x50, sub 0x0010 + array), Aurora keeping the in-between picture just before the
+// replay's own XFB copy. The real picture is kept too, and video.cpp presents the in-between one at
+// the first retrace after the copy, the real one at the next (the Dolphin build's order).
 //
 // [Skies] FrameMode (-1 the default and 0: 30 fps, 1: 60 fps; SKIES_INTERP=0/1 overrides it), held
 // off while the game runs fast (menu.cpp qol::Write).
@@ -28,12 +30,14 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <bit>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <mutex>
 #include <tuple>
 #include <vector>
 
@@ -132,9 +136,37 @@ struct Frame
   }
 };
 
-Frame s_current, s_previous;
+// The game's thread records into s_current; the video thread keeps the last complete recording in
+// s_previous to blend the next with. Recordings come from a pool, so their buffers are used again.
+Frame* s_current = nullptr;   // the game's thread
+Frame* s_previous = nullptr;  // the video thread
+std::mutex s_pool_mutex;
+std::vector<Frame*> s_pool;
+
+Frame* TakeFrame()
+{
+  {
+    std::lock_guard lock(s_pool_mutex);
+    if (!s_pool.empty())
+    {
+      Frame* frame = s_pool.back();
+      s_pool.pop_back();
+      return frame;
+    }
+  }
+  return new Frame;
+}
+
+void GiveBack(Frame* frame)
+{
+  if (!frame)
+    return;
+  frame->Clear();
+  std::lock_guard lock(s_pool_mutex);
+  s_pool.push_back(frame);
+}
 // Statistics (SKIES_INTERP_STATS) every 600 frames: loads and draws, blended, and changed
-// Time on the emulation thread per frame end, ms: keeping the real picture, the blend, the replay's
+// Time on the video thread per frame end, ms: keeping the real picture, the blend, the replay's
 // context switch in, its feed, keeping the in-between picture and the switch back out
 double s_ms[6] = {};
 using Clock = std::chrono::steady_clock;
@@ -144,10 +176,15 @@ double Ms(Clock::time_point since)
 }
 u64 s_stat_loads = 0, s_stat_prims = 0, s_stat_loads_blended = 0, s_stat_prims_blended = 0,
     s_stat_words_changed = 0, s_stat_draws = 0, s_stat_prims_changed = 0;
+// The game's thread
 std::vector<size_t> s_unkeyed;  // loads in s_current still waiting for the draw that uses them
-bool s_on = false;              // recording and replaying
+bool s_on_game = false;         // recording
 bool s_recording = false;       // this frame's stream is complete so far (not over the cap)
+// The video thread
+bool s_on = false;  // replaying
 u64 s_frames = 0, s_interpolated = 0;
+// Whether the next frames are worth recording (the budget's, on the video thread, for the game's)
+std::atomic<bool> s_record_wanted{true};
 
 // A frame's recording beyond this (no XFB copy ending it: a long load) is dropped.
 constexpr size_t MAX_RECORDED_BYTES = 64u << 20;
@@ -616,15 +653,15 @@ void NoteXF(u16 address, u8 count)
     relevant = IsMatrixOrProjection(address + i);
   if (!relevant)
     return;
-  s_unkeyed.push_back(s_current.loads.size());
-  s_current.loads.push_back(Load{static_cast<u32>(s_current.stream.size() + 5), address, count, 0, 0});
+  s_unkeyed.push_back(s_current->loads.size());
+  s_current->loads.push_back(Load{static_cast<u32>(s_current->stream.size() + 5), address, count, 0, 0});
 }
 
 // A draw: its key, its direct positions, and the arrays it reads by index (copied: the replay
 // would otherwise read RAM the game changed, as the Dolphin build's RecordArrays).
 void NoteDraw(const u8* p, u32 len)
 {
-  Frame& frame = s_current;
+  Frame& frame = *s_current;
   const u32* cp = DffCp();
   const u32 vat = p[0] & 7;
   const u16 num_vertices = BE16(p + 1);
@@ -738,18 +775,20 @@ void NoteDraw(const u8* p, u32 len)
   s_unkeyed.clear();
 }
 
-// Interpolation only where it fits (the Dolphin build's single-core ReplayFits): the replay runs on
-// the emulation thread, so a scene whose game work plus replay doesn't fit its real-time budget
-// would slow the game down. Each frame measures the thread's work (wall time minus the throttle's
-// sleep and the waits in Aurora's present calls, without the replay) and the replay's cost; replays stop while the two together don't fit
-// (95% of the budget, averaged over about ten frames) and come back after a second that would have
-// fit with room (88%). The frames in between show at the game's own rate, at full speed.
+// Interpolation only where it fits (the Dolphin build's ReplayFits): a scene whose work plus replay
+// doesn't fit its real-time budget would slow the game down. The work is the video thread's: its
+// time on the stream and the host's work, without the waits in Aurora's present calls (VideoBusy);
+// with SKIES_VIDEO_THREAD=0, the one thread's wall time less the throttle's sleep and those waits
+// (the single-core budget). Each frame measures that work (without the replay) and the replay's
+// cost; replays stop while the two together don't fit (95% of the budget, averaged over about ten
+// frames) and come back after a second that would have fit with room (88%). The frames in between
+// show at the game's own rate, at full speed.
 // SKIES_INTERP_ADAPTIVE=0: always (to measure the full cost).
 struct Budget
 {
   bool have_last = false;
   Clock::time_point last_time;
-  Clock::duration last_idle{};  // the throttle's sleeps and Aurora's present waits, so far
+  Clock::duration last_idle{};  // the throttle's sleeps and Aurora's present waits, so far (one thread)
   u64 last_cycles = 0;
   double last_replay = 0.0;  // seconds the previous frame's replay took
   double replay = 0.0;       // recent replay cost
@@ -760,29 +799,30 @@ struct Budget
 Budget s_budget;
 u64 s_skipped = 0;
 
-bool ReplayFits()
+bool ReplayFits(u64 cycles)
 {
   static const bool adaptive = [] {
     const char* env = std::getenv("SKIES_INTERP_ADAPTIVE");
     return !env || env[0] != '0';
   }();
   Budget& b = s_budget;
-  const Clock::time_point now = Clock::now();
-  const Clock::duration idle = ThrottleIdle() + VideoPresentTime();
+  const bool threaded = VideoThreaded();
+  const Clock::time_point now = threaded ? Clock::time_point(VideoBusy()) : Clock::now();
+  const Clock::duration idle = threaded ? Clock::duration{} : ThrottleIdle() + VideoPresentTime();
   const Budget previous = b;
   b.have_last = true;
   b.last_time = now;
   b.last_idle = idle;
-  b.last_cycles = g_cycles;
+  b.last_cycles = cycles;
   b.last_replay = 0.0;
   if (!adaptive || !Throttled())
     return true;  // no frame limit: any frame rate is full speed
-  if (!previous.have_last || g_cycles <= previous.last_cycles)
+  if (!previous.have_last || cycles <= previous.last_cycles)
     return b.on;
   const double wall = std::chrono::duration<double>(now - previous.last_time).count();
   const double slept = std::chrono::duration<double>(idle - previous.last_idle).count();
   const double work = std::max(wall - slept - previous.last_replay, 0.0);
-  const double budget = static_cast<double>(g_cycles - previous.last_cycles) / CPU_HZ;
+  const double budget = static_cast<double>(cycles - previous.last_cycles) / CPU_HZ;
   if (budget > 0.25)
     return b.on;  // a long gap (loading, a pause): says nothing about the scene
   // Averaged over about ten frames: the throttle catches up after a single slow frame
@@ -938,7 +978,7 @@ void InterpCommand(const u8* p, u32 len)
 {
   if (!s_recording)
     return;
-  Frame& frame = s_current;
+  Frame& frame = *s_current;
   switch (p[0])
   {
   case 0x40:
@@ -985,100 +1025,180 @@ void InterpCommand(const u8* p, u32 len)
   }
 }
 
-int InterpFrameEnd(int real_slot)
+InterpHandoff InterpFrameEndGame()
 {
-  const bool wanted = Wanted();
-  if (wanted != s_on)
+  InterpHandoff handoff;
+  handoff.wanted = Wanted();
+  handoff.cycles = g_cycles;
+  if (handoff.wanted != s_on_game)
   {
-    s_on = wanted;
+    s_on_game = handoff.wanted;
     InterpReset();
-    Log("[interp] frame interpolation %s\n", wanted ? "on" : "off");
   }
-  if (!s_on)
-    return -1;
-  ++s_frames;
+  if (!s_on_game)
+    return handoff;
+  if (!s_current)
+    s_current = TakeFrame();
   // Number the loads and draws now that every key is known.
   {
     std::map<std::tuple<u16, u8, u64>, u32> seen;
-    for (Load& load : s_current.loads)
+    for (Load& load : s_current->loads)
       load.occurrence = seen[std::make_tuple(load.address, load.count, load.key)]++;
     std::map<u64, u32> seen_prims;
-    for (Prim& prim : s_current.prims)
+    for (Prim& prim : s_current->prims)
       prim.occurrence = seen_prims[prim.key]++;
   }
   s_unkeyed.clear();
+  handoff.complete = s_recording && s_current->has_start && !s_current->stream.empty();
+  handoff.frame = s_current;
+  // The next frame starts with the registers as they are now (this XFB copy done)
+  s_current = TakeFrame();
+  DffSnapshot(s_current->start);
+  s_current->has_start = true;
+  // Recorded while replays run, and from two frames before they would come back (a replay needs two)
+  s_recording = s_record_wanted.load(std::memory_order_relaxed);
+  return handoff;
+}
+
+namespace
+{
+// The frame between its end and its replay (the video thread)
+struct Pending
+{
+  Frame* frame = nullptr;
+  bool complete = false;
+  bool replay = false;  // the real picture kept: replay into real_slot + 1
+  int real_slot = 0;
+  double keep_seconds = 0.0;
+};
+Pending s_pending;
+
+// The frame becomes the next one's previous (a recording cut short can't be blended with)
+void Rotate(Frame* frame, bool complete)
+{
+  GiveBack(s_previous);
+  s_previous = nullptr;
+  if (complete)
+    s_previous = frame;
+  else
+    GiveBack(frame);
+  s_record_wanted.store(s_budget.on || s_budget.fitting >= 28, std::memory_order_relaxed);
+}
+
+void LogStats()
+{
+  if ((s_frames % 600) != 0)
+    return;
+  static const bool s_stats = std::getenv("SKIES_INTERP_STATS") != nullptr;
+  Log("[interp] %llu of %llu frames interpolated (%llu skipped to keep full speed)\n",
+      static_cast<unsigned long long>(s_interpolated), static_cast<unsigned long long>(s_frames),
+      static_cast<unsigned long long>(s_skipped));
+  if (s_stats)
+  {
+    Log("[interp] per blend %.1f draws, %.1f matrix loads (%.1f blended, %.1f changed), %.1f with "
+        "positions (%.1f blended, %.1f changed); ms per frame: keep real %.2f, blend %.2f, enter "
+        "%.2f, feed %.2f, keep in-between %.2f, leave %.2f\n",
+        s_stat_draws / 600.0, s_stat_loads / 600.0, s_stat_loads_blended / 600.0,
+        s_stat_words_changed / 600.0, s_stat_prims / 600.0, s_stat_prims_blended / 600.0,
+        s_stat_prims_changed / 600.0, s_ms[0] / 600, s_ms[1] / 600, s_ms[2] / 600, s_ms[3] / 600,
+        s_ms[4] / 600, s_ms[5] / 600);
+  }
+  s_stat_loads = s_stat_prims = s_stat_loads_blended = s_stat_prims_blended = s_stat_words_changed =
+      s_stat_draws = s_stat_prims_changed = 0;
+  std::fill(std::begin(s_ms), std::end(s_ms), 0.0);
+}
+}  // namespace
+
+int InterpFrameEndVideo(const InterpHandoff& handoff, int real_slot)
+{
+  Frame* const frame = static_cast<Frame*>(handoff.frame);
+  // A replay that never came (no frame end can pass the next one's without it, but a state load)
+  if (s_pending.frame)
+    InterpReplayVideo();
+  if (handoff.wanted != s_on)
+  {
+    s_on = handoff.wanted;
+    InterpResetVideo();
+    Log("[interp] frame interpolation %s\n", s_on ? "on" : "off");
+  }
+  if (!s_on)
+  {
+    GiveBack(frame);
+    return -1;
+  }
+  ++s_frames;
   // While replays don't fit, the frame is presented as at 30 fps (-1)
-  int result = -1;
-  const bool fits = ReplayFits();
+  const bool fits = ReplayFits(handoff.cycles);
   if (!fits)
     ++s_skipped;
+  s_pending = Pending{frame, handoff.complete, false, real_slot, 0.0};
 #ifdef SKIES_STANDALONE_AURORA
   if (fits)
   {
-    const auto start = Clock::now();
-    auto t0 = start;
-    const bool kept_real = aurora_backend_keep_picture(real_slot) != 0;
-    s_ms[0] += Ms(t0);
-    if (kept_real)
-    {
-      result = 0;
-      const bool complete = s_recording && s_current.has_start && !s_current.stream.empty();
-      if (complete && s_previous.has_start && !s_previous.stream.empty())
-      {
-        Sort(s_previous);
-        Sort(s_current);
-        static std::vector<u8> blended;
-        t0 = Clock::now();
-        const bool blend = BuildBlendedStream(s_current, s_previous, &blended);
-        s_ms[1] += Ms(t0);
-        if (blend && Replay(s_current, blended, real_slot + 1))
-        {
-          result = 1;
-          ++s_interpolated;
-        }
-      }
-    }
-    CountReplay(std::chrono::duration<double>(Clock::now() - start).count());
+    const auto t0 = Clock::now();
+    s_pending.replay = aurora_backend_keep_picture(real_slot) != 0;
+    s_pending.keep_seconds = std::chrono::duration<double>(Clock::now() - t0).count();
+    s_ms[0] += s_pending.keep_seconds * 1e3;
   }
 #else
   (void)real_slot;
 #endif
-  if ((s_frames % 600) == 0)
+  if (!s_pending.replay)
   {
-    static const bool s_stats = std::getenv("SKIES_INTERP_STATS") != nullptr;
-    Log("[interp] %llu of %llu frames interpolated (%llu skipped to keep full speed)\n",
-        static_cast<unsigned long long>(s_interpolated), static_cast<unsigned long long>(s_frames),
-        static_cast<unsigned long long>(s_skipped));
-    if (s_stats)
-    {
-      Log("[interp] per blend %.1f draws, %.1f matrix loads (%.1f blended, %.1f changed), %.1f with "
-          "positions (%.1f blended, %.1f changed); ms per frame: keep real %.2f, blend %.2f, enter "
-          "%.2f, feed %.2f, keep in-between %.2f, leave %.2f\n",
-          s_stat_draws / 600.0, s_stat_loads / 600.0, s_stat_loads_blended / 600.0,
-          s_stat_words_changed / 600.0, s_stat_prims / 600.0, s_stat_prims_blended / 600.0,
-          s_stat_prims_changed / 600.0, s_ms[0] / 600, s_ms[1] / 600, s_ms[2] / 600, s_ms[3] / 600,
-          s_ms[4] / 600, s_ms[5] / 600);
-    }
-    s_stat_loads = s_stat_prims = s_stat_loads_blended = s_stat_prims_blended = s_stat_words_changed =
-        s_stat_draws = s_stat_prims_changed = 0;
-    std::fill(std::begin(s_ms), std::end(s_ms), 0.0);
+    // Nothing to replay: the frame is only the next one's previous
+    if (fits)
+      CountReplay(s_pending.keep_seconds);
+    LogStats();
+    Rotate(frame, handoff.complete);
+    s_pending = {};
+    return -1;
   }
-  // The current frame becomes the previous one; the next starts with the registers as they are now
-  // (this XFB copy done).
-  std::swap(s_previous, s_current);
-  s_current.Clear();
-  DffSnapshot(s_current.start);
-  s_current.has_start = true;
-  // Recorded while replays run, and from two frames before they would come back (a replay needs two)
-  s_recording = s_budget.on || s_budget.fitting >= 28;
+  return 0;
+}
+
+int InterpReplayVideo()
+{
+  if (!s_pending.frame)
+    return -1;
+  const Pending pending = s_pending;
+  s_pending = {};
+  int result = 0;
+#ifdef SKIES_STANDALONE_AURORA
+  const auto start = Clock::now();
+  if (pending.complete && s_previous)
+  {
+    Sort(*s_previous);
+    Sort(*pending.frame);
+    static std::vector<u8> blended;
+    auto t0 = Clock::now();
+    const bool blend = BuildBlendedStream(*pending.frame, *s_previous, &blended);
+    s_ms[1] += Ms(t0);
+    if (blend && Replay(*pending.frame, blended, pending.real_slot + 1))
+    {
+      result = 1;
+      ++s_interpolated;
+    }
+  }
+  CountReplay(pending.keep_seconds + std::chrono::duration<double>(Clock::now() - start).count());
+#endif
+  LogStats();
+  Rotate(pending.frame, pending.complete);
   return result;
 }
 
 void InterpReset()
 {
-  s_current.Clear();
-  s_previous.Clear();
+  if (s_current)
+    s_current->Clear();
   s_unkeyed.clear();
   s_recording = false;  // until the next frame end gives a start
+}
+
+void InterpResetVideo()
+{
+  GiveBack(s_pending.frame);
+  s_pending = {};
+  GiveBack(s_previous);
+  s_previous = nullptr;
 }
 }  // namespace host

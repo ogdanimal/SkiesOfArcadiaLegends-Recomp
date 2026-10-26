@@ -387,7 +387,7 @@ void DffReloadAurora()
     for (int shift = 24; shift >= 0; shift -= 8)
       fifo.push_back(static_cast<u8>(value >> shift));
   }
-  VideoCommands(fifo.data(), static_cast<u32>(fifo.size()));
+  VideoCommands(fifo.data(), static_cast<u32>(fifo.size()), false);
 }
 
 void DffInit()

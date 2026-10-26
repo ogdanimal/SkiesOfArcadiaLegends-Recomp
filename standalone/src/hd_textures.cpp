@@ -19,28 +19,10 @@ namespace host
 namespace
 {
 aurora::texture::ReplacementGroup s_group;
-bool s_on = false;
-}  // namespace
+bool s_on = false;      // the video thread's
+bool s_wanted = false;  // the game's thread's (asked every frame, posted when it changes)
 
-std::string TexturesDir()
-{
-  if (SettingsUserDir().empty())
-    return {};
-  return SettingsUserDir() + DIR_SEP "Load" DIR_SEP "Textures" DIR_SEP;
-}
-
-bool TexturePackImported()
-{
-  const std::string dir = TexturesDir();
-  return !dir.empty() && !TexturePackImport::Describe(dir).empty();
-}
-
-int TexturePackBc7Skipped()
-{
-  return aurora::texture::bc7_supported() ? 0 : TexturePackImport::Bc7Count(TexturesDir());
-}
-
-void VideoHdTextures(bool on)
+void Apply(bool on)
 {
   if (on == s_on)
     return;
@@ -71,6 +53,33 @@ void VideoHdTextures(bool on)
       TexturePackImport::Bc7Count(dir) > 0 && !aurora::texture::bc7_supported() ?
           ", BC7 skipped on this GPU" :
           "");
+}
+}  // namespace
+
+std::string TexturesDir()
+{
+  if (SettingsUserDir().empty())
+    return {};
+  return SettingsUserDir() + DIR_SEP "Load" DIR_SEP "Textures" DIR_SEP;
+}
+
+bool TexturePackImported()
+{
+  const std::string dir = TexturesDir();
+  return !dir.empty() && !TexturePackImport::Describe(dir).empty();
+}
+
+int TexturePackBc7Skipped()
+{
+  return aurora::texture::bc7_supported() ? 0 : TexturePackImport::Bc7Count(TexturesDir());
+}
+
+void VideoHdTextures(bool on)
+{
+  if (on == s_wanted)
+    return;
+  s_wanted = on;
+  VideoPost([on] { Apply(on); });
 }
 
 // Every 600 frames while on: how many of the pack's textures have loaded (the game used them) so far

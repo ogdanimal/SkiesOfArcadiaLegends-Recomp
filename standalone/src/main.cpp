@@ -177,42 +177,61 @@ constexpr const char* DEFAULT_PIN = "none";
 constexpr double DEFAULT_SPIN_MS = 0;
 #endif
 
-void PinEmulationThread()
+#if defined(__linux__)
+// The cores by top clock (cpuinfo_max_freq), fastest first
+std::vector<cpu_set_t> CoreTiers()
+{
+  std::vector<std::pair<long, int>> cores;
+  for (int cpu = 0; cpu < CPU_SETSIZE; ++cpu)
+  {
+    char path[96];
+    std::snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_max_freq", cpu);
+    FILE* f = std::fopen(path, "r");
+    if (!f)
+    {
+      if (cpu >= 64)
+        break;
+      continue;
+    }
+    long khz = 0;
+    if (std::fscanf(f, "%ld", &khz) == 1 && khz > 0)
+      cores.emplace_back(khz, cpu);
+    std::fclose(f);
+  }
+  std::sort(cores.begin(), cores.end(), std::greater<>());
+  std::vector<cpu_set_t> tiers;
+  long tier_khz = -1;
+  for (const auto& [khz, cpu] : cores)
+  {
+    if (khz != tier_khz)
+    {
+      tiers.emplace_back();
+      CPU_ZERO(&tiers.back());
+      tier_khz = khz;
+    }
+    CPU_SET(cpu, &tiers.back());
+  }
+  return tiers;
+}
+#endif
+
+// Keeps the calling thread on some cores: ENV=fast|none|N (fast: the cores of the given clock tier, 0
+// the fastest; a device with one tier has only that), else the platform's default.
+void PinThread(const char* env, const char* default_pin, size_t tier, const char* name)
 {
 #if defined(__linux__)
-  const char* pin = std::getenv("SKIES_PIN_CPU");
-  const std::string want = pin ? pin : DEFAULT_PIN;
+  const char* pin = std::getenv(env);
+  const std::string want = pin ? pin : default_pin;
   if (want == "none")
     return;
   cpu_set_t set;
   CPU_ZERO(&set);
   if (want == "fast")
   {
-    // The cores with the highest top clock (the Pocket 5's prime core 7)
-    long best = 0;
-    for (int cpu = 0; cpu < CPU_SETSIZE; ++cpu)
-    {
-      char path[96];
-      std::snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_max_freq", cpu);
-      FILE* f = std::fopen(path, "r");
-      if (!f)
-      {
-        if (cpu >= 64)
-          break;
-        continue;
-      }
-      long khz = 0;
-      if (std::fscanf(f, "%ld", &khz) == 1 && khz >= best)
-      {
-        if (khz > best)
-          CPU_ZERO(&set);
-        best = khz;
-        CPU_SET(cpu, &set);
-      }
-      std::fclose(f);
-    }
-    if (best == 0)
+    const std::vector<cpu_set_t> tiers = CoreTiers();
+    if (tiers.empty())
       return;
+    set = tiers[std::min(tier, tiers.size() - 1)];
   }
   else
     CPU_SET(std::atoi(want.c_str()), &set);
@@ -221,8 +240,27 @@ void PinEmulationThread()
     if (CPU_ISSET(cpu, &set))
       cpus += (cpus.empty() ? "" : ",") + std::to_string(cpu);
   const int rc = sched_setaffinity(0, sizeof(set), &set);
-  Log("[host] emulation thread on cpu %s: %s\n", cpus.c_str(), rc == 0 ? "ok" : "failed");
+  Log("[host] %s on cpu %s: %s\n", name, cpus.c_str(), rc == 0 ? "ok" : "failed");
+#else
+  (void)env;
+  (void)default_pin;
+  (void)tier;
+  (void)name;
 #endif
+}
+
+void PinEmulationThread()
+{
+  // The fastest cores (the Pocket 5's prime core 7)
+  PinThread("SKIES_PIN_CPU", DEFAULT_PIN, 0, "emulation thread");
+}
+
+// The video thread (video.cpp): on phones the next fastest cores, apart from the game's (the Pocket 5's
+// gold cores 4-6), so it never shares the game's core nor lands on a little one. (Its clock is the
+// other half: video.cpp's polling, SKIES_VIDEO_SPIN.) SKIES_PIN_VIDEO=fast|none|N.
+void PinVideoThread()
+{
+  PinThread("SKIES_PIN_VIDEO", DEFAULT_PIN, 1, "video thread");
 }
 
 // Called by the VI at every field: pace guest time to the wall clock, stop at --seconds.
@@ -574,12 +612,15 @@ int main(int argc, char** argv)
   if (seconds > 0)
     s_stop_cycles = static_cast<u64>(seconds * CPU_HZ);
 
-  s_wall_start = s_last_report_wall = std::chrono::steady_clock::now();
-  // A state replaces a Continue (and clears one the key still holds, as the launchers do)
-  MenuContinue(load_state.empty() ? continue_file : CONTINUE_OFF);
-  if (!load_state.empty())
-    StateLoadAtStart(load_state);
-  RunCpu();
+  // The game on its own thread, this one the video thread (video.cpp)
+  VideoRun([&] {
+    s_wall_start = s_last_report_wall = std::chrono::steady_clock::now();
+    // A state replaces a Continue (and clears one the key still holds, as the launchers do)
+    MenuContinue(load_state.empty() ? continue_file : CONTINUE_OFF);
+    if (!load_state.empty())
+      StateLoadAtStart(load_state);
+    RunCpu();
+  });
   Report();
   ExiShutdown();
   VideoShutdown();

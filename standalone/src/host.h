@@ -11,6 +11,8 @@
 #include <cstdint>
 #include <chrono>
 #include <cstdio>
+#include <functional>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -93,7 +95,10 @@ u64 Now();
 std::chrono::steady_clock::time_point WallForGuest(u64 cycles);  // {} unthrottled
 std::chrono::steady_clock::duration ThrottleIdle();  // main.cpp: the throttle's sleeps so far
 std::chrono::steady_clock::duration VideoPresentTime();  // video.cpp: time in Aurora's present calls so far
+std::chrono::steady_clock::duration VideoBusy();  // video.cpp: the video thread's work so far, less those
+bool VideoThreaded();  // video.cpp: Aurora on the video thread (not SKIES_VIDEO_THREAD=0, not headless)
 bool Throttled();
+void PinVideoThread();  // main.cpp: the video thread's cores (SKIES_PIN_VIDEO)
 // The run loop's clock: Advance() moves time by dispatched cycles; RunDue() fires due events.
 extern u64 g_cycles;
 extern u64 g_next_event;
@@ -196,12 +201,24 @@ void DffRegisterCommands(const GpRegisters& regs, std::vector<u8>& fifo);
 // interp60.cpp: 60 fps, the Dolphin build's frame interpolation (VideoCommon/FrameInterpolator).
 // Every command of a game frame, top level and inside display lists (hw_gpu.cpp Apply).
 void InterpCommand(const u8* p, u32 len);
-// The frame's XFB copy (recorded; not yet sent to Aurora): with interpolation on, keeps the real
-// picture in Aurora slot real_slot and, when the frame pairs with the previous one, replays the
-// in-between picture into real_slot + 1. -1: off (present as usual); 0: the real picture kept; 1:
-// both.
-int InterpFrameEnd(int real_slot);
-void InterpReset();  // a state load: the recorded frames go
+// The frame's XFB copy on the game's thread: the frame's recording, for the video thread.
+struct InterpHandoff
+{
+  void* frame = nullptr;  // the recording (interp60.cpp's), the video thread's from here on
+  bool wanted = false;    // 60 fps on
+  bool complete = false;  // the whole frame recorded
+  u64 cycles = 0;         // the guest time of the copy
+};
+InterpHandoff InterpFrameEndGame();
+// The same frame end on the video thread (not yet sent to Aurora): with interpolation on, keeps the
+// real picture in Aurora slot real_slot (0; -1: off or not fitting, present as usual); the replay
+// then keeps the in-between picture in real_slot + 1 when the frame pairs with the previous one.
+int InterpFrameEndVideo(const InterpHandoff& handoff, int real_slot);
+// The frame's replay, later on the video thread (after the copy and the next frame's tokens):
+// 1 the in-between picture kept, 0 not, -1 nothing to replay (InterpFrameEndVideo gave -1).
+int InterpReplayVideo();
+void InterpReset();       // a state load, on the game's thread: this frame's recording goes
+void InterpResetVideo();  // and on the video thread: the previous frame's
 u16 CpRead16(u32 offset);
 void CpWrite16(u32 offset, u16 value);
 u16 PeRead16(u32 offset);
@@ -242,7 +259,22 @@ u32 AiDspSampleRate();
 // ---- video (video.cpp) ---------------------------------------------------------------------------
 bool VideoInit(bool headless);
 void VideoShutdown();
-void VideoCommands(const u8* data, u32 size);  // whole GP commands, top level
+// Whole GP commands, top level; reads_ram: some make Aurora read guest RAM (hw_gpu.cpp ReadsRam)
+void VideoCommands(const u8* data, u32 size, bool reads_ram = true);
+// The game's run on its own thread, this one (the main thread) the video thread until it ends
+// (main.cpp); at once on this thread with SKIES_VIDEO_THREAD=0 or headless.
+void VideoRun(const std::function<void()>& game);
+// Host work for the video thread, in order with the GX stream (at once without one); VideoSync
+// waits until it is done.
+void VideoPost(std::function<void()> work);
+void VideoSync(const std::function<void()>& work);
+// Host work that may run behind the game: posted after the next VideoFence, retrace or frame end
+void VideoPostDeferred(std::function<void()> work);
+// The game's thread waits until the video thread has parsed everything posted (a token, a draw done)
+void VideoFence();
+// Held while the game's side reads controllers and the keyboard through Aurora and SDL (the video
+// thread holds it while it handles the window's events, which change them)
+std::unique_lock<std::recursive_mutex> VideoInputLock();
 void VideoFrameEnd();                         // the game's display copy (EFB to XFB)
 void VideoRetrace();                          // a VI field
 bool VideoQuitRequested();
