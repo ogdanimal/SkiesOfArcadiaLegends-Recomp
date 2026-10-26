@@ -148,3 +148,8 @@ exports `dawn::native::SupportsSampleCount` with the macro `DAWN_NATIVE_EXTRA_SA
 fork 0039 checks. Use it by building Dawn from a patched tree: the standalone's
 `-DSKIES_DAWN_PROVIDER=vendor -DFETCHCONTENT_SOURCE_DIR_DAWN=DIR` (see `docs/handoffs/HANDOFF-feature-gaps.md`,
 item 2, for the per-platform flags). A patched tree with local git: `~/projects/skies-aurora/dawn-src/`.
+`0002-Vulkan-a-device-without-VK_KHR_swapchain-reports-sur.patch`: a Vulkan device without `VK_KHR_swapchain`
+fails `GetSurfaceCapabilities` (Dawn queried the surface with instance-level calls only, so such a device
+passed and its swap chain called the null `vkCreateSwapchainKHR`); Aurora then moves on to the next API.
+Found in Windows Sandbox (the GPU-PV Intel adapter); checked there and on WSL / Windows devices that present.
+The Windows source tree `C:\dev\dawn-src\dawn-266c1cf` has both patches.

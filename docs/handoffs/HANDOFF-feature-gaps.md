@@ -879,6 +879,20 @@ started as players do, on an existing data folder.
   `DOL_AURORA_BACKEND=vulkan|d3d11`: the same picture as D3D12 (over 100 dB). If only Null starts, the standalone
   says so in a dialog ("No graphics support") and exits instead of running behind a black window
   (`DOL_AURORA_BACKEND=null` shows it). Not checked: a PC where D3D12 really fails, D3D11's speed on a weak GPU.
+- **Windows Sandbox (2026-10-26; `C:\dev\SkiesStandalone\sandbox`, `skies-sandbox-sa.wsb` + `in\test.ps1`; GPU-PV
+  shares the RTX 5080 and the UHD 770).** Smart App Control is on there and blocks the unsigned exe (the script
+  turns it off; backlog). D3D11 forced: Pirate Isle drawn right, 0.84x. D3D12: the sandbox's kernel crashes
+  (bug check 0x3B) while Dawn enumerates D3D12 adapters, before any device: a Windows GPU-PV bug, nothing to
+  change here. Vulkan: Dawn took the Intel adapter, whose driver there lacks `VK_KHR_swapchain`, and its swap chain
+  called the null `vkCreateSwapchainKHR` (minidump: execute at 0 from `webgpu_dawn.dll`, the call named by
+  Dawn's "CreateSwapChain" string); `patches/dawn/0002` makes the surface query fail instead, checked in the
+  sandbox (Aurora logs "Failed to get surface capabilities" and moves on). Only in a source-built Dawn: the
+  Windows build still takes the prebuilt package (shipping the patched Dawn is item 2's leftover). Logs: stdout
+  is unbuffered now (main.cpp), so a crash keeps Aurora's last lines. No debugger is installed on Windows:
+  `build/sa-runs/tools/mdump.py DUMP` reads a minidump's exception (module + offset) and scans the stack.
+- **Packaging (item 10): the standalone is a console program** (a console window opens beside the game, seen in
+  the sandbox); the release runner was made a GUI program on 2026-10-13 for the same reason. Build it with the
+  Windows subsystem (`WIN32_EXECUTABLE`) for the release, logging to a file instead.
 - **WSL only: textures flicker in some runs under GL ES (Mesa's d3d12 driver), not a player issue.** On WSL
   Dawn skips the llvmpipe Vulkan adapter (a CPU one) and runs OpenGL ES on Mesa's d3d12 gallium driver
   (GL translated to D3D12 on the RTX 5080; llvmpipe GL itself crashes compiling Aurora's first pipeline).

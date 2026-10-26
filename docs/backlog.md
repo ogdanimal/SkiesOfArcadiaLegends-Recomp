@@ -100,9 +100,10 @@ for good. The fix is code signing (a certificate with reputation, e.g. Azure Tru
 (cost). Meanwhile the release README could say what the message means.
 
 Standalone sandbox test (`C:\dev\SkiesStandalone\sandbox`, `skies-sandbox-sa.wsb` + `in\test.ps1`, which turns
-Smart App Control off with `CiTool --refresh` first): the game boots to its memory card, then the whole sandbox
-closed within 20 s, about where Aurora opens the GPU (the sandbox's virtual GPU, GPU-PV). Not repeated (it opens
-a window on the user's desktop each time); open whether the sandbox's vGPU or the window being closed ended it.
+Smart App Control off with `CiTool --refresh` first): D3D11 draws the game; D3D12 crashes the sandbox's kernel
+while Dawn enumerates adapters (a Windows GPU-PV bug); Vulkan's crash was Dawn calling a missing
+`vkCreateSwapchainKHR`, fixed by `patches/dawn/0002` (a source-built Dawn only). Details in
+`HANDOFF-feature-gaps.md`, *Items 8-10*.
 
 ## macOS release: signing, notarization — 2026-10-18
 

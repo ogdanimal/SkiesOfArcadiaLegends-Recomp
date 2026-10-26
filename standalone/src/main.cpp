@@ -508,6 +508,8 @@ int main(int argc, char** argv)
   AndroidSetup(argc, argv);
 #endif
   setvbuf(stderr, nullptr, _IONBF, 0);
+  // Aurora's info lines go to stdout: unbuffered too, so a crash doesn't lose the last of them
+  setvbuf(stdout, nullptr, _IONBF, 0);
   std::string game, module, dol, user, load_state, import_pack, import_dc, sys_dir, dsp_coef;
   bool remove_packs = false;
   bool runner_form = false;  // --user-dir: the launchers' command line
