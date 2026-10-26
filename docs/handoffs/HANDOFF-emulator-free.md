@@ -81,7 +81,7 @@ see *Save states*). Memory card saves are plain GCI files and carry over.
 
 ## What carries over
 
-- The Aurora fork (`~/projects/skies-aurora/GXRuntime`, 39 commits, `patches/` there): Skies renders exactly
+- The Aurora fork (`~/projects/skies-aurora/GXRuntime`, 41 commits, `patches/` there): Skies renders exactly
   like Dolphin on the Retroid Pocket 5, the Nova, Windows and WSL; 60 fps through a second GX context;
   the present rectangle (Picture option); the Dear ImGui overlay (the in-game menu). All of it is in the
   vendored GXRuntime on the local `aurora-backend` branch.
@@ -318,9 +318,9 @@ changes, Invincible, the speed step-down) are drawn top left for their time.
 
 Not offered yet, as the standalone can't do them (save states came after, see the next section):
 60 fps, Language, the Dreamcast tab,
-HD textures, Button mapping, Rumble, auto-load of a card save (Continue). Aurora's keyboard layout is
-its own default (arrows = D-pad, WASD = stick, J / K = A / B, U / I = X / Y, Q = Z, E / R = L / R,
-Enter = Start), not the release's.
+HD textures, Button mapping, Rumble, auto-load of a card save (Continue). (Since 2026-10-25 Continue,
+Rumble, Button mapping and the release keyboard layout are in: *Input* at the end and
+HANDOFF-feature-gaps.md items 1 and 3.)
 
 Checked (2026-10-25): WSL window (X11 screenshots): the menu over the intro, Picture switched live
 to 4:3 and saved; Esc and the arrow keys through real XTEST key events; Resolution to Native live;
@@ -825,3 +825,22 @@ a87e9be + af20d20 + 2d565dc (MSAA 2x / 8x).
   as they were (env.txt LF, GFX.ini CRLF; back them up with `adb exec-out cat`, not `adb shell cat`).
 - **Next:** item 3 (input: release keyboard layout, rumble, names, Button mapping); before shipping any of
   this, a way to ship the patched Dawn (CI or our own prebuilt packages) and the macOS build.
+
+## Input (feature-gap item 3, 2026-10-25 late night)
+
+Commits d950049, 1caa857, 6b9abe1; fork 0040 (080ec53) and 0041. Details and checks in
+*HANDOFF-feature-gaps.md* item 3.
+
+- **Keyboard:** the release layout (W A S D, I J K L, arrows, Space / Left Shift, F / R, Tab, Q / E, Enter;
+  Esc the menu) is Aurora's fallback (fork 0040, `aurora_backend_pad_default_keys`), still only when no
+  bindings were saved. Aurora's input files (`keyboard_bindings.dat`, `<pad>_<vid>_<pid>.controller`,
+  `controller_ports.dat`) are in `USER/Config/Aurora` with `--user`; its shader caches stay in the app folder.
+- **Rumble:** the SI's poll command motor bits (latched by an SISR write with WR) go to
+  `PADControlMotor`; stopped while the menu is open and with Controls -> Rumble Off (`[Skies]
+  StandaloneRumble`). The game rumbles from the battle encounter on (the fight route: 32 changes).
+- **Button mapping page** (`input.cpp` + `menu.cpp`), the Dolphin build's, on Aurora's mapping store.
+  Menu and Invincible hotkeys stay fixed (Esc / Back, L3 / R3).
+- **Aurora's hidden dead zone** (8000 / 32767 per axis, a hard cut) is off; the Controls row is the only one.
+- **Controller 1 follows** the pad last pressed (750 ms idle rule), as the Dolphin build; without it a second
+  pad was GameCube port 2.
+- **Not checked yet:** rumble felt by hand, capture with a real pad, two pads, the Pocket 5.

@@ -7,12 +7,14 @@ each one is, where its code lives, what the standalone has, the port steps, how 
 (so the port is checked the same way), and size. Read *HANDOFF-emulator-free.md* first (the standalone's
 architecture: *In-game menu*, *Save states*, *The Android shell*, *Pacing on the Pocket 5*).
 
-**Progress (2026-10-25, late night):** items 0, 1 and 2 done (2 including MSAA 2x / 8x through a Dawn patch),
-each with its checks and leftovers in its section below; the Japanese game's memory card fixed on the way
-(item 1). **Pick up at item 3.** Standing leftovers: the European / Japanese first field and an APK with
-their modules on the Pocket 5 (item 0); a first battle and card save after Continue, Windows and the Pocket
-5 (item 1); the 4x-MSAA specks in the light beam and GPU cost at 4x / 6x resolution (item 2); shipping the
-patched Dawn and the macOS build (item 2).
+**Progress (2026-10-25, late night):** items 0, 1, 2 and 3 done on desktop (2 including MSAA 2x / 8x through a
+Dawn patch; 3 = input: rumble, release keyboard layout, names, Button mapping, controller follow), each with its
+checks and leftovers in its section below; the Japanese game's memory card fixed on the way (item 1). **Pick up
+at item 4** (Language), or first the item 3 hands-on checks if the user has the pads to hand. Standing
+leftovers: the European / Japanese first field and an APK with their modules on the Pocket 5 (item 0); a first
+battle and card save after Continue, Windows and the Pocket 5 (item 1); the 4x-MSAA specks in the light beam
+and GPU cost at 4x / 6x resolution (item 2); shipping the patched Dawn and the macOS build (item 2); rumble by
+hand, a capture with a real pad, two pads and the Pocket 5 (item 3).
 
 ## Ground rules
 
@@ -58,7 +60,7 @@ music, `[Skies] DreamcastIntro`), **Controls** (Button mapping, Stick dead zone,
 | 0 | European / Japanese discs run right | `release/GEAP8P.ini`, `GEAJ8P.ini`; `ConfigManager` hunk in `skies-dcmusic-eu` | **done** (desktop): idle PC per disc, EU as NTSC, module by disc ID | hours |
 | 1 | Continue (card save at boot) | `patches/game/autoload.c`; `autoload` in `SkiesMenu.cpp` | **done** (desktop): `--continue`, `AutoLoadCard`; JP card mount fixed | ~0.5 day |
 | 2 | Graphics options (MSAA, texture filter, anisotropy, scaling) | `recompcore-gfx-options.patch`, `skies-settings` | **done** (WSL): four rows, live; fork 0038 | ~1 day |
-| 3 | Input: release keyboard layout, rumble, names, Button mapping, menu-close rule | `recompcore-input`, `controller-names`, `menu-close`, `android-pad-follow`, review D23-D26 | Aurora's own layout, dead zone only, rumble ignored | ~2 days |
+| 3 | Input: release keyboard layout, rumble, names, Button mapping, menu-close rule | `recompcore-input`, `controller-names`, `menu-close`, `android-pad-follow`, review D23-D26 | **done** (desktop): rumble, release layout, names, mapping page, follow; fork 0040-0041 | ~2 days |
 | 4 | Language (European disc) | `recompcore-language.patch` | SRAM fixed to English | ~1 day |
 | 5 | HD textures (+ import) | `recompcore-hd-textures`, `hd-textures-nested`, review D2 / D22 | Aurora has a loader, not wired | ~2-3 days |
 | 6 | 60 fps | `recompcore-frame-interpolation`, `battle-specials`, `field-speed`, review D6 / D25 | none (Aurora's replay context exists) | 3-4 sessions |
@@ -227,6 +229,66 @@ Dolphin build; decide whether to translate `GCPadNew.ini` once on first run.
 - **Check (as the Dolphin build):** WSL real XTEST key presses (D walks Vyse, Esc opens the menu, rebinding
   writes the store); Windows `SendInput` scan codes; the Pocket 5's built-in pad (needs the user: press the
   buttons), a Bluetooth pad, rumble felt by hand.
+
+**Done (2026-10-25, late night; d950049, 1caa857, 6b9abe1; fork 0040 080ec53, 0041):**
+
+- **Keyboard (step 1):** the release layout is Aurora's fallback (fork 0040; since 0041 the call
+  `aurora_backend_pad_default_keys(port)`, which the keyboard reset uses too), still only when nothing was
+  saved. Q / E are bound twice in Aurora's store on purpose: the trigger button and the full analog pull.
+  Aurora's `user_path` is now `USER/Config/Aurora` (with `--user`): `keyboard_bindings.dat`,
+  `<pad name>_<vid>_<pid>.controller`, `controller_ports.dat`. Its shader caches (`cache_path`) stay in SDL's
+  per-user app folder. Profiles are **not** translated from `GCPadNew.ini` (decided against: two
+  expression languages, and the Dolphin build's keyboard terms name devices the standalone doesn't have).
+- **Rumble (step 2):** `hw_si.cpp` latches the motor bits (`out & 3`) with the mode at an SISR write with WR
+  (as `SI_DeviceGCController::SendCommand`), and `SiPollDevices` sends a change to `VideoPadMotor` ->
+  `dol_platform_pad_control_motor` -> `PADControlMotor` (Aurora: SDL rumble, or the phone's vibrator on port
+  1 when the pad has none). Stop while the menu is open and with Controls -> Rumble Off (`[Skies]
+  StandaloneRumble`, default 1; the Dolphin build's is the profile's `Rumble/Motor`, not shared). Not in save
+  states: a loaded state starts still. The first rumble of a run is logged (`[si] controller 1: the game's
+  first rumble`).
+- **Names (step 3):** `input.cpp` `InputDeviceLabel` (= `DeviceLabel`); "Controller: <name>" when a pad takes
+  port 1, at start too. **Follow:** Aurora puts pads on ports in connection order, so a second pad was
+  GameCube port 2 (ignored by the game). Ported `Follow`: no pad on port 1 -> the first (or the pressed one);
+  a button on another pad with controller 1 idle 750 ms -> `PADSetPortForIndex(i, 0)` (kept in
+  `controller_ports.dat`); buttons only for the others, not during a capture. The pad list is logged when it
+  changes.
+- **Button mapping (step 4):** Controls -> Button mapping (first row), the Dolphin build's page and hints
+  (`menu.cpp` `FilterMapping`, drawn in `Draw`), backed by `input.cpp` on Aurora's store: rows A, B, X, Y, Z,
+  Start, L, R, Stick / C-stick up-down-left-right, D-pad; controller and keyboard columns; "Reset
+  controller buttons", "Reset keyboard keys". A capture takes the next press of an input that was let go
+  since it started (6 s timeout); Esc / Back / Guide cancel instead of binding (they're the menu keys), and the
+  menu hotkey doesn't close the menu during a capture. Button rows take pad buttons only (Aurora's button
+  mapping is button-to-button); stick rows an axis direction or a button; L / R an axis (the click comes from
+  Aurora's emulated trigger) or a button (click and full pull). X clears (not the controller's A / B); no
+  device -> "No controller connected" / "No keyboard connected" and nothing changes (D23). Saved at once
+  (`PADSerializeMappings`). Labels: the face buttons as printed (SDL's button labels: Cross / Circle /
+  Square / Triangle, or A / B / X / Y), PlayStation pads L1 / R1 / L2 / R2 / L3 / Options / Create, others LB /
+  RB / LT / RT / LS / Start / Back; keys by SDL's names (Return shown as Enter). The hints name the keyboard's
+  keys while the keyboard was used last. **Not done:** the Menu and Invincible hotkeys stay fixed (Esc / Back,
+  L3 / R3); the Dolphin build lets them be rebound (`[SkiesHotkeys]`), Aurora's store has no slot for them.
+  **Fork 0041:** Aurora averaged a stick's two directions (`(pos - neg) / 2`), so a direction bound to a button
+  gave half deflection; now `max(0, pos) - max(0, neg)` (the default mapping reads the same); a cleared axis
+  reads 0 instead of asserting.
+- **Menu-close (step 5):** the rule was already the Dolphin build's (only the menu's own buttons and the
+  triggers past 0xA0 wait for release); added its "closed 2 s ago, still waiting for release" log.
+- **Dead zone (step 6), changed from the plan:** Aurora applies its own stick dead zone by default (8000 of
+  32767, about 24%, a hard cut on each axis without rescaling), so "Stick dead zone: Off" wasn't off.
+  `InputPoll` turns `useDeadzones` off on every pad (each read: a saved mapping loads it back), and the
+  Controls row (radial and rescaled, as Dolphin's) stays the only dead zone, on its own key
+  `StandaloneDeadZone` (the Dolphin build's is in its profile). Aurora's trigger activation zone (emulated
+  L / R clicks) is unchanged.
+- **Checked:** WSL real XTEST keys: D walks Vyse; Esc / arrows / Space work the menu; Rumble Off saved; the page
+  draws with the keyboard column chosen and keyboard hints; A rebound to G (saved to `keyboard_bindings.dat`),
+  B cleared, Esc cancels a capture without closing the menu, "Reset controller buttons" says no controller,
+  "Reset keyboard keys" restores the layout, Stick right on G walks Vyse right, the binding survives a
+  restart. Headless fight route: 32 motor changes from the encounter (~121 s) on, none with Rumble Off; the
+  run is otherwise the same (frame 3601 at 121.45 s). Windows (DualSense Edge over USB): named on port 1, the
+  only pad listed (the "XBOX Synthetic Gamepad Bus" device adds none); the page (opened by `SKIES_PRESS`)
+  shows Cross / Circle / Square / Triangle / R1 / Options / L2 / R2 / Left stick up... Android arm64 builds
+  (`build/standalone-apk-dawnsrc`, not installed).
+- **Open (needs hands):** rumble felt on the DualSense and the Pocket 5 (the vibrator path), a capture with the
+  pad (a button, a trigger, a stick direction), two pads switching, the Pocket 5's built-in pad and a
+  Bluetooth pad with the page, the dead-zone change felt (no drift at rest with Off?).
 
 ## 4. Language (European disc)
 
