@@ -88,6 +88,22 @@ a wanted romhack needs it:
 - **The runtime:** check every chunk against the loaded DOL at boot and send calls into changed ones
   through the dispatcher (needs DolRecomp's direct calls to check a per-chunk flag); unknown cost.
 
+## Windows: Smart App Control blocks the unsigned exes — found 2026-10-26
+
+A fresh Windows 11 with Smart App Control on (state 1 under `HKLM\SYSTEM\CurrentControlSet\Control\CI\Policy`
+`VerifiedAndReputablePolicyState`) refuses to start the unsigned game exe: "An Application Control policy has
+blocked this file", from a mapped folder or a local copy alike. Seen in Windows Sandbox (build 26100.9711), whose
+image now has it on; the 2026-10-13 sandbox test of the release zip didn't hit it. It applies to the released
+Dolphin build's exes as much as the standalone's. Smart App Control is on only for some clean installs (it can't
+be turned back on once off), so most players won't see it, but those who do get no way past it but turning it off
+for good. The fix is code signing (a certificate with reputation, e.g. Azure Trusted Signing); the user's call
+(cost). Meanwhile the release README could say what the message means.
+
+Standalone sandbox test (`C:\dev\SkiesStandalone\sandbox`, `skies-sandbox-sa.wsb` + `in\test.ps1`, which turns
+Smart App Control off with `CiTool --refresh` first): the game boots to its memory card, then the whole sandbox
+closed within 20 s, about where Aurora opens the GPU (the sandbox's virtual GPU, GPU-PV). Not repeated (it opens
+a window on the user's desktop each time); open whether the sandbox's vGPU or the window being closed ended it.
+
 ## macOS release: signing, notarization — 2026-10-18
 
 The macOS build (HANDOFF-macos) is built by CI (validate.yml `macos`, since 2026-10-19) and signed ad
