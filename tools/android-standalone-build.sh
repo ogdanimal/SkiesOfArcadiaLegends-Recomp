@@ -6,6 +6,9 @@
 # MODULE= the arm64 recomp module(s) to bundle, space-separated (default: build/android/jniLibs-sa26's, made from the
 # ws26 DOL with NAME=sa26 MODULE_ONLY=1 tools/android-ws-build.sh; each must match the DOL pushed to the device).
 # The app loads the disc's own (libg<disc ID>_recomp.so) unless args.txt gives --module.
+# DAWN_SRC= a Dawn source tree to build instead of the prebuilt (the extra MSAA sample counts patch,
+# patches/dawn/; its third_party fetched), into B= / O= (default build/standalone-android-dawnsrc,
+# build/standalone-apk-dawnsrc) so the prebuilt build stays as it is.
 # AURORA_DEPS= Dawn's Android prebuilt and the abseil / sqlite3 / tracy / png sources (as android-ws-build.sh);
 # SDL, fmt, xxhash and zstd come from the desktop build's FetchContent sources (build/standalone/_deps).
 # No game files go into the APK: the game folder is pushed to the app's external files folder (see the handoff).
@@ -15,8 +18,15 @@ SDK=${ANDROID_HOME:-$HOME/Android/Sdk}
 NDK=${NDK:-$SDK/ndk/29.0.14206865}
 BT=$SDK/build-tools/36.0.0
 JAR=$SDK/platforms/android-36/android.jar
-B=build/standalone-android
-O=build/standalone-apk
+if [ -n "${DAWN_SRC:-}" ]; then
+  B=${B:-build/standalone-android-dawnsrc}
+  O=${O:-build/standalone-apk-dawnsrc}
+  DAWN_ARGS="-DSKIES_DAWN_PROVIDER=vendor -DFETCHCONTENT_SOURCE_DIR_DAWN=$DAWN_SRC -DDAWN_BUILD_PROTOBUF=OFF"
+else
+  B=${B:-build/standalone-android}
+  O=${O:-build/standalone-apk}
+  DAWN_ARGS=""
+fi
 D=$PWD/build/standalone/_deps
 AD=${AURORA_DEPS:-$HOME/projects/skies-aurora/android-deps}
 MODULE=${MODULE:-build/android/jniLibs-sa26/arm64-v8a/libgGEAE8P_recomp.so}
@@ -27,7 +37,7 @@ for m in $MODULE; do [ -f "$m" ] || { echo "no module at $m"; exit 1; }; done
 if [ ! -f $B/build.ninja ]; then
   cmake -S standalone -B $B -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
     -DCMAKE_TOOLCHAIN_FILE=$NDK/build/cmake/android.toolchain.cmake -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28 \
-    -DFETCHCONTENT_FULLY_DISCONNECTED=ON -DFETCHCONTENT_SOURCE_DIR_DAWN_PREBUILT=$AD/dawn-android-aarch64 \
+    -DFETCHCONTENT_FULLY_DISCONNECTED=ON -DFETCHCONTENT_SOURCE_DIR_DAWN_PREBUILT=$AD/dawn-android-aarch64 $DAWN_ARGS \
     -DFETCHCONTENT_SOURCE_DIR_ABSEIL-CPP=$AD/src/abseil-cpp -DFETCHCONTENT_SOURCE_DIR_SQLITE3=$AD/src/sqlite3 \
     -DFETCHCONTENT_SOURCE_DIR_TRACY=$AD/src/tracy -DFETCHCONTENT_SOURCE_DIR_PNG=$AD/src/png \
     -DFETCHCONTENT_SOURCE_DIR_SDL=$D/sdl-src -DFETCHCONTENT_SOURCE_DIR_XXHASH=$D/xxhash-src \

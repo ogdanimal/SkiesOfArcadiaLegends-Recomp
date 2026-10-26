@@ -158,9 +158,15 @@ its checks and a commit; device-heavy ones end with a head-to-head.
   backend without a surface under Wayland, so test there with `DOL_AURORA_VULKAN_CPU=1` (lavapipe).
   Linux build dir `build/standalone-dawnsrc`. **Checked (WSL):** GL ES (Mesa) reports 1x / 2x / 4x / 8x,
   lavapipe Vulkan 1x / 4x / 8x; on lavapipe 8x switches live and renders (field, beam edge smoother than
-  4x, 1,176 pixels differ, all on edges), 2x falls back to Off there. **Open:** Dawn from source for Android
-  (the Pocket 5, where 2x matters) and Windows (MSVC, D3D12 with its shader compiler), macOS (Metal);
-  shipping a patched Dawn (CI builds it, or our own prebuilt packages).
+  4x, 1,176 pixels differ, all on edges), 2x falls back to Off there. **Pocket 5 (2026-10-25):**
+  `DAWN_SRC=<patched tree> tools/android-standalone-build.sh` (Dawn from source, `-DDAWN_BUILD_PROTOBUF=OFF`,
+  into `build/standalone-android-dawnsrc` / `build/standalone-apk-dawnsrc`); the Adreno 650 reports **1x,
+  2x, 4x** (no 8x in its hardware). Battle state (`bench-battle2.sst`, Native resolution, throttled), GPU
+  per frame from `AURORA_GPU_PROF`: Off 4.31-4.33 ms, **2x 4.54-4.62 ms (+5%)**, 4x 5.60-5.68 ms (+30%);
+  pictures differ from Off only on geometry edges (2,665 pixels at 2x, 3,635 at 4x), edges visibly
+  smoother, no artefacts. The patched APK is left installed as the standalone test app (device config
+  restored). **Open:** Windows (Dawn with MSVC, D3D12 with its shader compiler; NVIDIA has 2x and 8x),
+  macOS (Metal); shipping a patched Dawn (CI builds it, or our own prebuilt packages).
 - **Checked (WSL, Dawn on llvmpipe, field after a Continue, EFB 1x):** each option changes the picture
   (pixels off the baseline: MSAA 4,340, Sharp 35,492, Smooth 16,575, 16x anisotropy 14,793; two baseline
   runs differ by 442); by eye: MSAA smooths geometry edges, Sharp shows texels, Smooth / 16x soften. The
