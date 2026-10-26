@@ -16,7 +16,9 @@ fix (fork 0045); 60 fps smoother than the Dolphin build's at full speed and at l
 video thread (Aurora off the game's thread, a4f4014, fork 0046) ahead uncapped too (save point 1.70x
 against 1.41x; item 6, *The video thread*). Item 7 (Dreamcast) done too (9862a64): every output
 byte-identical to the Dolphin build's, the music level with it at the save point and ahead in battle.
-**Pick up at items 8-10**, now one goal: the standalone **replaces** the Dolphin build as a normal update
+**2026-10-26 later (items 8-10 started):** the desktop runner contract is in (6e06979: `frontend.cpp`,
+states under the Dolphin build's names, GCPadNew.ini bindings) and the Dolphin `.sav` converter works
+(f0c2131, 0a762c3, c27b402, fork 0047); see *Items 8-10* below, *Done so far*. **Pick up at items 8-10**, now one goal: the standalone **replaces** the Dolphin build as a normal update
 (the user, 2026-10-26; *Items 8-10* below has the approach, the runner contract and what doesn't carry over
 yet). Standing leftovers:
 the European / Japanese first field and an APK with their modules on the Pocket 5 (item 0); a first battle
@@ -790,12 +792,59 @@ started as players do, on an existing data folder.
 - **Dolphin save states** (`state-skies-*.sav`, `recovery-skies-*.sav`): the standalone can't load them.
   The launcher's Continue, state list, Import a save and Back up saves know only those; they must learn the
   standalone's `.sst` (and Continue fall back to the newest card save when the newest state is Dolphin's),
-  or the old states be converted (RAM, ARAM and hardware registers are in Dolphin's state; its GPU-side EFB
-  copies are not in the standalone's form: a real project; ask the user).
+  or the old states be converted. **Decided (the user, 2026-10-26): "Converter before release".** The
+  release that swaps the runtime waits for a `.sav` -> `.sst` converter, checked against the Dolphin
+  build's own load of the same state. Dolphin's state has RAM, ARAM, the hardware registers and the EFB
+  copies too (`TextureCacheBase::DoState` stores them as textures), so nothing is missing in principle.
 - **Controller bindings:** Dolphin's `Config/GCPadNew.ini` (the launcher's Controls page writes it); the
   standalone uses Aurora's bindings in `Config/Aurora`. Convert on first start, or have both read the same.
 - Card saves, `Dolphin.ini` / `GFX.ini` settings, the imported game and module, HD packs and the Dreamcast
   imports carry over as they are (shared formats and folders).
+
+**Done so far (2026-10-26, all local commits):**
+- **Runner contract (6e06979).** `standalone/src/frontend.cpp` does skies-run's pre-launch part with the
+  runner's own std-only code (`lib/ModernGekko/tools/{user_directory,dol_patch,frontend_config}.cpp`,
+  `release_games.hpp`): the launchers' command line (`--game G --user-dir U [--load-state F] [-X11|--wayland]
+  [--title T]`, or no arguments), data folder, `default-game.txt`, config.ini (resolution every start and
+  written back by the menu, full screen, FPS in the title "T | 29.9 FPS", first-start 60 fps), DOL patch +
+  pin (CMake `SKIES_RELEASE_DISC_IDS` + `SKIES_RELEASE_DOL_PATCHES`; the pin is each patch's output-sha256),
+  romhack / other-version state folders, module beside the program or in StaticRecompModules, `Sys/`
+  (dsp_coef, Dreamcast manifests), the runner's boxes and exit codes. The test form (`--game G [--user U]`)
+  skips it. Checked on WSL and on Windows in a copy of the v0.83.0-perftest1 package with skies-run.exe
+  swapped (`build/sa-runs/pkg-win`, portable, `skies-run-dolphin.exe` kept for A/B).
+- **States under the Dolphin build's names and folders:** `StateSaves[/GEAP8P|/GEAJ8P|/romhack-*]/
+  state-skies-slotN.sav`, `recovery-skies-<date>-<time>.sav`, header v2 starting with the game ID (the
+  launcher's MoveDiscStates reads it; an old Dolphin build refuses the file on its cookie). So the
+  launcher's list, Continue and Android's Back up saves need no change. A state of another DOL / module
+  build now loads (as the Dolphin build).
+- **Controller bindings:** GCPadNew.ini is the source of truth (dev's `Core/SkiesBindings.cpp` verbatim in
+  `standalone/src/skies_bindings/`): keyboard applied at the first poll, a controller's when it takes port 1,
+  the mapping page writes back. Keyboard checked on WSL; **controller side untested (needs a pad).**
+- **Converter (f0c2131, fork 0047).** `dolphin_state/dolphin_state_reader.cpp` walks the Dolphin stream
+  (state 191; every marker checked, must end on the last byte; all 10 test states pass), `dolphin_state.cpp`
+  applies it, each part has a `*FromDolphin`. Results: Windows room state matches the Dolphin build's frames
+  at ~45 dB; audio bit-exact for 11.7 s after loading a battle state; battle, ship deck, Antonio intro/fight,
+  JP cabin, EU and US intro states all play. Fork 0047 `aurora_backend_copy_restore_rgba` rebuilds the
+  Dolphin build's EFB copies.
+- **Two fixes found by it:** (1) 0a762c3: after every load the DOL's code goes back over a state's older code
+  (the Dolphin build's restore-boot-dol): older-patch Retroid states were black. (2) c27b402: the Dolphin
+  build lays extracted games out with DirectoryBlob (other file offsets than sys/fst.bin); after every load
+  files are served at the offsets of the game's FST in RAM. Without it any disc read after a converted load
+  read the wrong file (intro states wrote through garbage pointers ~10 s in).
+- **Pitfall:** a cold first run skips draws while pipelines compile (the shadow pass: picture 3x too bright
+  for a second): compare with `AURORA_SYNC_PIPELINES=1`.
+- Tools: `build/sa-runs/sa-win.sh` (Windows run from a state, guest time read from the state),
+  `SKIES_GP_DUMP=FRAME:PATH`, `SKIES_DI_TRACE=1`; the Dolphin build saves states on request through
+  `--automation-dir D` (`D/commands/001.txt`: `command=save_state` / `path=x.sav`; `D/status.txt` has
+  frame_count) and dumps frames / audio with `[Movie] DumpFrames`, `[Settings] DumpFramesAsImages`,
+  `[DSP] DumpAudio` in the user dir's ini files.
+
+**Next for items 8-10:** a 10+ minute play from a converted state (card save after it, Continue in the
+launcher by hand: the launcher's Continue passes the newest `.sav`); converted states on WSL/Linux and the
+Pocket 5; the launcher-side leftovers (its Controls page still writes GCPadNew.ini for Dolphin device names;
+its graphics backend row means nothing to Aurora; its Import a save validates `.sav` with Dolphin's
+StateFile); macOS frontend check; then item 9 (Android shell) and 10 (packaging: the standalone in
+build-release-win.bat etc. with `SKIES_RELEASE_*`, Dawn DLLs, Sys).
 
 **Android (item 9):** the same goal: dev's app (Kotlin launcher screens + JNI in Dolphin's native library)
 must start the standalone's game activity (`libmain.so`, SDL) instead of Dolphin's emulation, with its
