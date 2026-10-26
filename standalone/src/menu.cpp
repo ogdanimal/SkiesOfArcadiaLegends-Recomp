@@ -1244,6 +1244,117 @@ void Poll()
 }
 }  // namespace autosave
 
+// Continue from a card save (the Dolphin build's SkiesMenu.cpp autoload): the game patch's
+// autoload.c loads file N at boot when the request block holds 'LOAD'; the host writes it once the
+// DOL is in RAM and follows its status.
+namespace autoload
+{
+constexpr Key AUTO_LOAD_CARD{SettingFile::Main, "Skies", "AutoLoadCard", 0};
+constexpr u32 REQUEST = 0x80002EF0;        // autoload.c's load_request: magic, file, status, error
+constexpr u32 REQUEST_MAGIC = 0x4C4F4144;  // 'LOAD'
+const RegionAddress HOOK_SITE{0x801DC350, 0x801DDFDC, 0x801DC170};  // the title's call, redirected to dl_title
+const RegionAddress HOOK_ORIGINAL{0x4804C6D1, 0x4804DC89, 0x4804C625};  // bl fn_80228A20
+const RegionAddress GAME_MODE{0x803475CC, 0x8034ACEC, 0x80347048};
+const RegionAddress TITLE_STATE{0x80311AE0, 0x80315170, 0x80311560};  // lbl_80311AD4[3]
+enum : u32
+{
+  PENDING = 0,
+  RUNNING = 1,
+  DONE = 2,
+  FAILED = 3,
+};
+
+int s_requested = 0;    // MenuContinue's file (0 = the key's)
+bool s_checked = false;  // the request was considered (one shot per boot)
+int s_file = 0;         // 1..99: the file asked for (0 = nothing running)
+Clock::time_point s_deadline;
+
+void Stop(const char* message)
+{
+  s_file = 0;
+  if (message)
+    MenuMessage(message, 6000);
+  else
+    Log("[menu] auto-load: done at %.2f s guest\n", static_cast<double>(Now()) / CPU_HZ);
+}
+
+void Start()
+{
+  // Not before the DOL is in memory (its data section would overwrite the request)
+  const u32 site = Read32(HOOK_SITE);
+  if (site >> 26 != 18)  // not a bl yet
+    return;
+  s_checked = true;
+  int file = s_requested != 0 ? s_requested : Get(AUTO_LOAD_CARD);
+  if (Get(AUTO_LOAD_CARD) != 0)
+  {
+    Set(AUTO_LOAD_CARD, 0);
+    SettingsSave();
+  }
+  if (file == CONTINUE_NEWEST)
+  {
+    file = CardNewestSaveFile();
+    if (file == 0)
+    {
+      MenuMessage("No memory card save to continue from", 6000);
+      return;
+    }
+  }
+  if (file < 1 || file > 99)
+    return;
+  if (site == HOOK_ORIGINAL)
+  {
+    Stop("This game patch can't load a save directly: load it on the title screen");
+    return;
+  }
+  // The game reads the magic, then the file: the magic goes in last
+  Write32(REQUEST + 8, 0);
+  Write32(REQUEST + 12, 0);
+  Write32(REQUEST + 4, static_cast<u32>(file));
+  Write32(REQUEST, REQUEST_MAGIC);
+  s_file = file;
+  s_deadline = Clock::now() + std::chrono::seconds(30);
+  MenuMessage("Loading your memory card save (file " + std::to_string(file) + ")...", 3000);
+}
+
+void Poll()
+{
+  if (s_file == 0)
+  {
+    if (!s_checked)
+      Start();
+    return;
+  }
+  const u32 status = Read32(REQUEST + 8);
+  if (status == DONE)
+  {
+    Write32(REQUEST, 0);
+    Stop(nullptr);
+  }
+  else if (status == FAILED)
+  {
+    const u32 error = Read32(REQUEST + 12);
+    Write32(REQUEST, 0);
+    Stop(error == 1 ? "Your memory card save wasn't found on card A" :
+         error == 2 ? "The memory card couldn't be read" :
+                      "That memory card save is damaged");
+  }
+  else if (status == PENDING &&
+           ((Read32(GAME_MODE) == 3 && Read32(TITLE_STATE) > 1) || Read32(GAME_MODE) == 6))
+  {
+    // The title went on (to the title proper, or the intro's field scenes) before the request
+    // arrived
+    Write32(REQUEST, 0);
+    Stop("Couldn't load your save directly: load it on the title screen");
+  }
+  else if (Clock::now() > s_deadline)
+  {
+    Write32(REQUEST, 0);
+    Stop("Loading your save took too long");
+  }
+}
+}  // namespace autoload
+
 // Controller 1's sticks with the dead zone: inside it centred, outside it scaled to the full range.
 void ApplyDeadZone(u8& x, u8& y, int percent)
 {
@@ -1311,6 +1422,16 @@ double s_fps = 0.0;
 }  // namespace
 
 float g_overclock = 1.0f;
+
+void MenuContinue(int file)
+{
+  autoload::s_requested = file;
+}
+
+void MenuVideoFrame()
+{
+  autoload::Poll();
+}
 
 void MenuMessage(const std::string& text, int milliseconds)
 {
@@ -1392,6 +1513,9 @@ void MenuFilterPad(PadStatus& pad)
   switch (s_mode)
   {
   case Mode::Closed:
+    // While a Continue loads, the game gets the controller as it is and the menu stays shut
+    if (autoload::s_file > 0)
+      break;
     if (menu_key)
     {
       Open();

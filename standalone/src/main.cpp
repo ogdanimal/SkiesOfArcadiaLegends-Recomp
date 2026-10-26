@@ -1,12 +1,14 @@
 // skies-standalone: the recompiled game on this host, no emulator core.
 //   skies-standalone --game DIR [--module FILE] [--headless] [--unthrottled] [--seconds N]
 //                    [--mmio-log] [--idle-pc ADDR] [--dsp-coef FILE] [--user USERDIR] [--dol FILE]
-//                    [--load-state FILE]
+//                    [--load-state FILE] [--continue N|card]
 // DIR is an extracted disc (sys/ + files/); FILE the g<GAMEID>_recomp module built for its DOL (by
 // default the disc ID's, from the library path: Android's app libraries, or beside the executable).
 // USERDIR holds the memory card saves as the Dolphin build keeps them (GC/<region>/Card A/*.gci);
 // without it no card is inserted. --dol boots that DOL (a game-patched main.dol) instead of sys/main.dol.
 // --load-state starts from a save state (state.cpp); --seconds then counts the state's guest clock.
+// --continue boots straight into card save file N (1-99) or the newest one ("card"), as the launchers'
+// Continue ([Skies] AutoLoadCard; needs a ws20+ game patch).
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "host.h"
 
@@ -350,6 +352,7 @@ int main(int argc, char** argv)
   std::string dsp_coef = SKIES_DSP_COEF_DEFAULT;
   bool headless = false;
   u32 idle_pc = ~0u;
+  int continue_file = 0;
   double seconds = 0;
   for (int i = 1; i < argc; ++i)
   {
@@ -384,11 +387,16 @@ int main(int argc, char** argv)
       user = next();
     else if (a == "--load-state")
       load_state = next();
+    else if (a == "--continue")
+    {
+      const std::string v = next();
+      continue_file = v == "card" ? CONTINUE_NEWEST : std::atoi(v.c_str());
+    }
     else
     {
       Log("usage: %s --game DIR [--module FILE] [--headless] [--unthrottled] [--seconds N] "
           "[--mmio-log] [--idle-pc ADDR] [--dsp-coef FILE] [--user USERDIR] [--dol FILE] "
-          "[--load-state FILE]\n",
+          "[--load-state FILE] [--continue N|card]\n",
           argv[0]);
       return 2;
     }
@@ -436,6 +444,8 @@ int main(int argc, char** argv)
     s_stop_cycles = static_cast<u64>(seconds * CPU_HZ);
 
   s_wall_start = s_last_report_wall = std::chrono::steady_clock::now();
+  // A state replaces a Continue (and clears one the key still holds, as the launchers do)
+  MenuContinue(load_state.empty() ? continue_file : CONTINUE_OFF);
   if (!load_state.empty())
     StateLoadAtStart(load_state);
   RunCpu();

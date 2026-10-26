@@ -517,6 +517,40 @@ void CardDoState(StateIO& p)
   }
 }
 
+int CardNewestSaveFile()
+{
+  const std::string code(reinterpret_cast<const char*>(DiscHeader()), 4);
+  std::error_code ec;
+  fs::path newest;
+  fs::file_time_type newest_time;
+  for (const fs::directory_entry& entry : fs::directory_iterator(s_folder, ec))
+  {
+    const std::string name = entry.path().filename().string();
+    if (entry.path().extension() != ".gci" || name.find(code) == std::string::npos)
+      continue;
+    std::error_code time_ec;
+    const fs::file_time_type written = entry.last_write_time(time_ec);
+    if (!time_ec && (newest.empty() || written > newest_time))
+    {
+      newest = entry.path();
+      newest_time = written;
+    }
+  }
+  // The launcher's CardSaveFile: the stem's last 3 digits plus one
+  const std::string stem = newest.stem().string();
+  const std::size_t dot = stem.rfind('.');
+  if (newest.empty() || dot == std::string::npos || stem.size() - dot != 4)
+    return 0;
+  int number = 0;
+  for (char c : stem.substr(dot + 1))
+  {
+    if (c < '0' || c > '9')
+      return 0;
+    number = number * 10 + (c - '0');
+  }
+  return number <= 98 ? number + 1 : 0;
+}
+
 double CardSecondsSinceLastAccess()
 {
   return static_cast<double>(Now() - s_last_access) / CPU_HZ;

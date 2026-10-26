@@ -49,7 +49,7 @@ music, `[Skies] DreamcastIntro`), **Controls** (Button mapping, Stick dead zone,
 | # | Gap | Dolphin source (dev) | Standalone today | Size |
 |---|---|---|---|---|
 | 0 | European / Japanese discs run right | `release/GEAP8P.ini`, `GEAJ8P.ini`; `ConfigManager` hunk in `skies-dcmusic-eu` | **done** (desktop): idle PC per disc, EU as NTSC, module by disc ID | hours |
-| 1 | Continue (card save at boot) | `patches/game/autoload.c`; `autoload` in `SkiesMenu.cpp` | none | ~0.5 day |
+| 1 | Continue (card save at boot) | `patches/game/autoload.c`; `autoload` in `SkiesMenu.cpp` | **done** (desktop): `--continue`, `AutoLoadCard`; JP card mount fixed | ~0.5 day |
 | 2 | Graphics options (MSAA, texture filter, anisotropy, scaling) | `recompcore-gfx-options.patch`, `skies-settings` | none | ~1 day |
 | 3 | Input: release keyboard layout, rumble, names, Button mapping, menu-close rule | `recompcore-input`, `controller-names`, `menu-close`, `android-pad-follow`, review D23-D26 | Aurora's own layout, dead zone only, rumble ignored | ~2 days |
 | 4 | Language (European disc) | `recompcore-language.patch` | SRAM fixed to English | ~1 day |
@@ -89,7 +89,7 @@ its checks and a commit; device-heavy ones end with a head-to-head.
   against m01 (item 7), an APK with the EU / JP arm64 modules on the Pocket 5 (`skies-pal60/build/android/
   module-ws34-GEA{P,J}8P` match the ws34 DOLs).
 
-## 1. Continue (auto-load of a card save)
+## 1. Continue (auto-load of a card save) (done 2026-10-25, desktop)
 
 - **What:** the launchers' Continue picks the newer of a save state and a card save; for a card save it
   sets `[Skies] AutoLoadCard = N` (1-99, one shot) and the game boots straight into the field in ~6 s (no
@@ -101,12 +101,27 @@ its checks and a commit; device-heavy ones end with a head-to-head.
   `0x801DC350` is no longer the original `bl` (`0x4804C6D1`); then polls status (2 done, 3 failed; error 1
   no file, 2 read, 3 bad data), gives up when the title moves on (mode 3 with title state > 1, or mode 6) or
   after 30 s, with the same messages. Japanese: work size 0x274, file `EA_LEGEND.%03d` (ws34 handles it).
-- **Port:** `--continue N` and the `AutoLoadCard` key; write the block at the first display copy once the
-  DOL is in RAM (the moment `--load-state` loads); poll per field; messages as the Dolphin build; a Saves
-  tab "Continue" row that picks the newest `.gci`. Needs a ws20+ DOL (ws23+ for the first-battle fix,
-  `qol_resident`).
-- **Check (as the Dolphin build):** ~6 s from launch to the field; RAM identical to a load from the game's
-  own menu apart from the uptime counter; then a first battle and a card save. Repeat on EU and JP.
+- **Done** (`menu.cpp` `namespace autoload`, as the Dolphin build's): `--continue N` (1-99) or
+  `--continue card` (the newest save of this disc on card A by write time, `CardNewestSaveFile`, the
+  launcher's `CardSaveFile` numbering), else `[Skies] AutoLoadCard` (one shot: set to 0 and saved as soon as
+  it's read). The request goes in at the first display copy after the hook word is a `bl`
+  (`MenuVideoFrame`, from `VideoFrameEnd`, headless too); same status polling, 30 s wall-clock limit and
+  messages as the Dolphin build. While it runs the menu stays shut and the pad passes untouched.
+  `--load-state` wins over a Continue and clears the key (as the launchers do). No in-game "Continue" row:
+  Continue is a boot choice, the launcher's job (item 9).
+- **Found on the way: the Japanese game couldn't mount its card at all.** The standalone's VI DTV status
+  (0x6E) was always 0; the SDK's `OSGetFontEncode` reads its NTSC-J bit, so the game expected an ANSI card
+  while the card header (`FormatHeader`, Japanese) says Shift-JIS, and every `CARDMount` failed. Bit 1 is
+  now set for a 'J' disc, as Dolphin's `VideoInterface::Preset`.
+- **Checked (WSL):** USA ws34 (`skies-pal60/build/game/GEAE8P-ws34`, Linux module
+  `skies-perf/build/perf/base/module`): load done at 3.55 s guest, the field (the ship's save point) on
+  screen at ~9 s; EU ws30 file 3 and JP ws34 file 3 (cards from `SkiesOfArcadiaLegends-Recomp/build/user-eu`,
+  `skies-pal60/build/user10`) both at the hideout save point. Failure paths: empty card ("No memory card
+  save to continue from"), missing file 5 ("wasn't found on card A"), the unpatched DOL ("can't load a save
+  directly"). Key one shot (1 -> 0 after use); a state saved after a Continue loads with the key set and
+  no Continue starts, key cleared.
+- **Not checked yet:** RAM against a load from the game's own menu (needs scripted input), a first battle
+  and a card save after Continue, Windows, the Pocket 5.
 
 ## 2. Graphics options
 

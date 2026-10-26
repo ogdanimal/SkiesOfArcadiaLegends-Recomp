@@ -124,7 +124,7 @@ the Dolphin-side backend does; presentation at the game's display copy.
 - Build: `cmake -S standalone -B build/standalone -G Ninja -DCMAKE_BUILD_TYPE=Release`
   (`-DSKIES_STANDALONE_AURORA=OFF` for headless). Env: `SKIES_DUMP_DIR`/`SKIES_DUMP_EVERY` (PPM frames),
   `SKIES_PRESS="38:START,..."` (scripted pad, guest seconds), `SKIES_MUTE`, `SKIES_MMIO_RANGE` with
-  `--mmio-log`. Flags: `--headless --unthrottled --seconds N --idle-pc --dsp-coef`.
+  `--mmio-log`. Flags: `--headless --unthrottled --seconds N --idle-pc --dsp-coef --continue N|card`.
 - Boot: the apploader is not run (no interpreter for it); `boot.cpp` does its work (DOL sections, bi2 +
   FST at the top of MEM1, low-memory pointers) plus Dolphin's BS2 state. Don't clear the DOL header's BSS
   range: it spans `.sdata`.

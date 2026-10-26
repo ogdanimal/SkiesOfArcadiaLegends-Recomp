@@ -250,6 +250,14 @@ void MenuFilterPad(PadStatus& pad);
 // Before each present: the menu, messages and the FPS counter through Aurora's overlay.
 void MenuFrame();
 void MenuMessage(const std::string& text, int milliseconds);
+// Continue from a card save ([Skies] AutoLoadCard, one shot, as the launchers set it): file 1..99, or
+// CONTINUE_NEWEST for the game's newest save on card A; 0 leaves the key's value. The game patch
+// (autoload.c, ws20+) loads it at boot, straight into the field. Before the first frame.
+constexpr int CONTINUE_NEWEST = -1;
+constexpr int CONTINUE_OFF = -2;  // none this boot (a state loads), and the key cleared
+void MenuContinue(int file);
+// At each display copy: the Continue request and its progress (headless too)
+void MenuVideoFrame();
 int MenuVolume();  // percent
 // The emulated CPU's clock factor for the speed options (1 = the Gekko's; cpu.cpp divides the
 // cycles it charges by it)
@@ -292,4 +300,7 @@ void VideoDoState(StateIO& p);  // and Aurora's EFB copies
 void VideoStateLoaded();        // after a load: the state's EFB copies to Aurora
 u64 ModuleFingerprint();  // the recompiled module's chunk hashes (a state needs the same module)
 double CardSecondsSinceLastAccess();  // guest seconds; auto-saves wait for a quiet card
+// The game's file number (1..99) of its newest save on card A by write time, as the launchers' Continue
+// picks it ("8P-GEAE-SA_LEGENDS.000.gci" is file 1); 0 when there's none
+int CardNewestSaveFile();
 }  // namespace host
