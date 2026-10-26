@@ -165,8 +165,19 @@ its checks and a commit; device-heavy ones end with a head-to-head.
   per frame from `AURORA_GPU_PROF`: Off 4.31-4.33 ms, **2x 4.54-4.62 ms (+5%)**, 4x 5.60-5.68 ms (+30%);
   pictures differ from Off only on geometry edges (2,665 pixels at 2x, 3,635 at 4x), edges visibly
   smoother, no artefacts. The patched APK is left installed as the standalone test app (device config
-  restored). **Open:** Windows (Dawn with MSVC, D3D12 with its shader compiler; NVIDIA has 2x and 8x),
-  macOS (Metal); shipping a patched Dawn (CI builds it, or our own prebuilt packages).
+  restored). **Windows (2026-10-25):** `C:\dev\SkiesStandalone\build-dawnsrc.bat configure|build` (MSVC,
+  into `build-dawnsrc\`, the prebuilt `build\` untouched; Dawn tree copied to `C:\dev\dawn-src\dawn-266c1cf`
+  with the dependencies' shallow `.git` folders so Dawn's fetch script skips them). Two traps: (1) without
+  `DAWN_USE_BUILT_DXC` Dawn forces FXC and fails to open a bare `d3dcompiler_47.dll` (its
+  `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR` needs an absolute path, Windows error 87) and every backend falls to
+  Null; the prebuilt builds DXC. Fix without building DXC: define `DAWN_USE_BUILT_DXC=1` in `CMAKE_CXX_FLAGS`
+  (Dawn only loads `dxil.dll` / `dxcompiler.dll` at run time; `dxcapi.h` comes from the Windows SDK) and copy
+  the prebuilt's DXC DLLs (same Dawn ref) beside the exe; (2) `webgpu_dawn.dll` lands in
+  `_deps\dawn-build\` (the bat copies it). RTX 5080 D3D12 reports **1x / 2x / 4x / 8x**; battle state at 3x
+  (1920x1440): each applies (`MSAA 1x -> Nx`), pixels changed from Off 8,062 / 11,284 / 11,839, edges
+  visibly smoother at each step; GPU work in passes (span minus not-in-a-zone, one 300-frame window,
+  throttled, rough) Off 0.25 ms, 2x 0.34, 4x 0.96, 8x 2.24. **Open:** macOS (Metal); shipping a patched Dawn
+  (CI builds it, or our own prebuilt packages); D3D11 has no `SupportsExtraSampleCount` (stays 1 / 4).
 - **Checked (WSL, Dawn on llvmpipe, field after a Continue, EFB 1x):** each option changes the picture
   (pixels off the baseline: MSAA 4,340, Sharp 35,492, Smooth 16,575, 16x anisotropy 14,793; two baseline
   runs differ by 442); by eye: MSAA smooths geometry edges, Sharp shows texels, Smooth / 16x soften. The

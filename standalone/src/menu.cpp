@@ -1565,6 +1565,7 @@ void MenuApplyGame()
   if (msaa != s_applied_msaa)
   {
     s_applied_msaa = msaa;
+    Log("[menu] anti-aliasing %s\n", msaa > 1 ? (std::to_string(msaa) + "x MSAA").c_str() : "off");
     aurora_set_msaa(static_cast<u32>(msaa));
   }
   const int texture_filter = std::clamp(Get(TEXTURE_FILTER), 0, 2);
