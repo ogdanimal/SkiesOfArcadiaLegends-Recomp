@@ -38,6 +38,10 @@ the built-in pad and audio on the device untested by hand; no launcher yet). **m
 unchanged and plays on Metal, ahead of the Dolphin build on the same M4, plus PGO and QoS fixes (*macOS* at
 the end).
 
+**2026-10-27:** a scene not run before found something again: on a fast emulated drive the USA intro
+never reached the title screen; disc reads now follow Dolphin's drive model (62fe140, feature-gaps item 7).
+The Mac session's sweep found a save-state bug at internal resolutions other than 2x (*macOS*, *Sweep*).
+
 **Where it stands (2026-10-26):** as an engine it is ahead of the Dolphin build on every number measured
 (speed at 30 and 60 fps, pacing, power, memory, GPU time at high resolutions; pictures matched to Dolphin's
 exact frames) and deterministic, which makes regressions easy to catch. It is not yet the better *port*:
@@ -222,7 +226,9 @@ saves as with the plain DOL. About 10% slower than the plain DOL's PGO module on
   `SKIES_WIDTH`/`SKIES_HEIGHT` override). Frame dumps are the EFB (anamorphic for ws; stretch them to
   16:9 to view). The window itself hasn't been looked at, only the dumps.
 - Debug switches added while finding it: `SKIES_GX_TRACE=N` logs frame N's BP/CP/XF loads, draws and
-  display-list calls; `SKIES_WATCH=ADDR` logs the block after which a RAM word changed.
+  display-list calls; `SKIES_WATCH=ADDR` logs the block after which a RAM word changed. Later: `SKIES_DI_TRACE=1`
+  (each disc read, with its file's name since 2026-10-27), `SKIES_DI_FAST=1` (the disc timing before
+  2026-10-27, for routes recorded with it).
 
 ## First battle and the graphics check (2026-10-25)
 

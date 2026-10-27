@@ -41,6 +41,19 @@ go together). Checked on WSL: US battle-start state (normal from the input to th
 turn, normal at the next input) and the EU / JP deck battles from a cold boot (the same switches every turn).
 Ship battles not run. **Not in the Dolphin build yet** (dev's `field-speed` / `battle-specials` speed logic in
 SkiesMenu.cpp): the user's call.
+**2026-10-27:** the Mac (M4, Metal) builds and plays the standalone unchanged, ahead of the Dolphin build;
+the Mac session's PGO (6f0e31b: every Mac module had been built without one) and QoS (e102520) fixes,
+static libpng on macOS (a3d1311), its sweep of 18 starts (*HANDOFF-emulator-free.md* *macOS*; one open bug,
+below). Closed here: the 4x-MSAA specks were llvmpipe's, a battle won after Continue on Windows, the romhack
+release path and the data-folder lookup (item 8), MSAA's cost (RTX 5080: none; Intel UHD 770 at 6x: 2x +20%,
+4x +15%, 8x +67% GPU per frame; item 2), MSAA through the menu on Windows (scripted), the European intro's
+timing and the Dreamcast intro in the standalone (item 7). **Found and fixed: the USA intro never reached the
+title screen** (62fe140): disc reads finished far faster than a drive and the intro's script waited forever
+after its last model load; reads are now timed with Dolphin's drive model (item 7, *The USA intro stalled*).
+Test routes recorded before it need `SKIES_DI_FAST=1`. Patched Dawn packages (MSAA 2x / 8x) for Windows,
+Linux and Android with `tools/build-dawn-package.*` (1983051, item 2); where CI gets them is the user's call.
+**Open bug (the Mac session is fixing it, as fork 0052):** a state loaded at an internal resolution other than
+2x changes the red save point's beam (*HANDOFF-emulator-free.md* *macOS*, *Sweep*).
 Items 9 and 10 need dev's code merged in first; **the user said hold** (no merge or rebase for now; *Items 9 and
 10 need dev's current code* below). **Pick up at items 8-10**, now one goal: the standalone **replaces** the Dolphin build as a normal update
 (the user, 2026-10-26; *Items 8-10* below has the approach, the runner contract and what doesn't carry over
@@ -109,6 +122,14 @@ save point's music cost).
   under display scaling). With 60 fps on, dumps write `frame_N-interp.ppm` too.
 - **`--seconds` with `--load-state`** counts the state's guest clock, and `[video] frame` numbers continue
   from the state's.
+- **Disc timing (2026-10-27):** reads follow Dolphin's drive model now, so cold boots and loads take a few
+  seconds longer in guest time than before. Routes recorded earlier (`fight-full.txt`, `lp-play.txt`, the
+  `build/sa-runs/*.txt` and `C:\dev\SkiesStandalone\*.txt` press files, the Continue scripts) replay as
+  recorded with `SKIES_DI_FAST=1`; record new ones without it. `bench-battle2.sst` and the other `.sst` files
+  of 2026-10-25 are state version 1 and no longer load (the current version is 2): make new bench states.
+- **Disc and memory traces:** `SKIES_DI_TRACE=1` logs each read with its file's name; `SKIES_WATCH=80002BE0`
+  logs each camera shot (`cs_shot`'s key, ws29+ DOLs); the Dolphin build's runner (`moderngekko-run
+  --headless --graphics Null --automation-dir DIR`) answers `read_memory` commands for the same comparisons.
 - **Test files on C: from this plan, for the user to keep or delete** (in `C:\dev\SkiesStandalone`;
   2026-10-26 evening adds `build\user-lp\` (a test card save, from a relative `--user` path), and
   `standalone\src\input.cpp` synced to 2d80f3f with the build rebuilt):
@@ -116,7 +137,10 @@ save point's music cost).
   `in3.log`, `lang.log`, `langtest.bat`, `hd-on.log` `hd-off.log`, `time-hd.log` `time-hd-png.log`,
   `async-hd.log` `async-hd-png.log`, `menu-hd.log`, `menu-hd.png` `menu-hd2.png`, `shot-dpi.ps1` (a tool;
   worth keeping). Earlier: `skies-standalone-msaa.apk`, `user-msaa*`, `dumps-msaa*`, `dumps-cont*`,
-  `msaa*.log`, `cont*.log`, `build-dawnsrc\`, `C:\dev\dawn-src`.
+  `msaa*.log`, `cont*.log`, `build-dawnsrc\`, `C:\dev\dawn-src`. 2026-10-27: `user-gpu-r{4,6}-m{1,2,4,8}\`, `gpu-r*-m*.log`,
+  `gpucost.bat` (a failed first MSAA-cost run), `dawn-package\` (1.5 GB: the Windows Dawn package build, its
+  tarball, `test-pkg.bat` and `build-pkg\`), the rebuilt `build\` (synced to 62fe140), and
+  `C:\dev\SkiesRecomp\build\mac-transfer-sa\aurora-backend-723ec15.bundle` (the Mac's transfer).
 
 ## The gaps
 
