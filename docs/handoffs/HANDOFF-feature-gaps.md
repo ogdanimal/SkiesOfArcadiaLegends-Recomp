@@ -45,7 +45,7 @@ Items 9 and 10 need dev's code merged in first; **the user said hold** (no merge
 10 need dev's current code* below). **Pick up at items 8-10**, now one goal: the standalone **replaces** the Dolphin build as a normal update
 (the user, 2026-10-26; *Items 8-10* below has the approach, the runner contract and what doesn't carry over
 yet). Standing leftovers:
-a battle won after Continue on Windows, and Continue on the Pocket 5 (item 1); the 4x-MSAA specks in the light beam and GPU
+Continue on the Pocket 5 (item 1); GPU
 cost at 4x / 6x resolution (item 2); shipping the patched Dawn and the macOS build (item 2); rumble by hand,
 a capture with a real pad, two pads and the Pocket 5 (item 3); the
 cloud-sea edges and the full 4x pack (item 5); 60 fps on the Nova and its scene list (item 6); the
@@ -210,8 +210,14 @@ its checks and a commit; device-heavy ones end with a head-to-head.
   (`lp-play.txt`'s first 18 s) wrote file #01 again; walking on (Encounters 400%) a battle started at ~48 s
   and ran (the walk's direction presses only moved the command cursor, so no round was fought). A longer run
   with the clock pinned took another route and met no encounter: a battle won after Continue is still open.
-- **Not checked yet:** RAM against a load from the game's own menu (needs scripted input), a battle won after
-  Continue, Continue on the Pocket 5.
+- **A battle won after Continue (Windows, 2026-10-27).** Cold `--continue card` from a fresh copy of
+  `build/sa-runs/user-lp2` (Encounters 400%), ws26 app game and module, `SKIES_RTC=847000789`, `lp-play.txt`
+  shifted by 9.5 s, 240 guest seconds, frames every 60: the save room, the save point's menu wrote file #01,
+  the walk through the ship's corridors, a battle from ~150 s fought by the script's A presses, the victory
+  pose and the results screen (frame ~7020), no errors. The Mac (Metal) did the same from a card save the
+  same day (the Pirate Isle save point) and won the first battle from a Dolphin state.
+- **Not checked yet:** RAM against a load from the game's own menu (needs scripted input), Continue on the
+  Pocket 5.
 
 ## 2. Graphics options (done 2026-10-25, WSL; Windows / Pocket 5 checks open)
 
@@ -274,10 +280,14 @@ its checks and a commit; device-heavy ones end with a head-to-head.
   three resampled outputs viewed through a local readback hack (not kept): area crisp, sharp bilinear =
   bilinear at a 1.5x stretch (Dolphin's formula: prescale floor 1), bicubic softest. No WebGPU errors in
   any mode. Android compiles.
-- **Open:** under 4x MSAA a few isolated bright pixels inside the light beam's transparent cone (llvmpipe or
-  an EFB-copy path under MSAA): run the frame-dump route (`capture/route-win.sh`) at 1x and 4x MSAA on
-  Windows and the Pocket 5 and look. GPU cost at 4x / 6x with `AURORA_GPU_PROF=300`. Menu changes by
-  hand on Windows / the Pocket 5 (only the ini path was driven here).
+- **The light-beam specks under 4x MSAA were llvmpipe's (closed 2026-10-27).** The fight route on Windows
+  D3D12 (`SKIES_RTC=847000789`, `fight-full.txt`, `AURORA_SYNC_PIPELINES=1`, frames every 60, native
+  resolution) with MSAA Off and 4x: both runs end on the same dispatch count, and the alarm beam's cone
+  (frames 2160-2280) is the same inside; only its edge is smoother (1,130 pixels in the beam's area of
+  frame 2220). A scan of all 91 frames for isolated pixels much brighter at 4x than Off and than their
+  neighbours finds only geometry edges (door frames, armour, floor seams). The Pocket 5 showed none either
+  (above). **Open:** GPU cost at 4x / 6x with `AURORA_GPU_PROF=300`; menu changes by hand on Windows / the
+  Pocket 5 (only the ini path was driven here).
 - **Frame rate** belongs to item 6, **HD textures** to item 5.
 
 ## 3. Input: keyboard layout, rumble, names, Button mapping
@@ -927,6 +937,15 @@ started as players do, on an existing data folder.
   parent redirects still arrives (the test scripts); started without it (the launcher, a double click) the log
   goes to `USER/Logs/skies-standalone.log`, both streams unbuffered. Checked on Windows both ways; the
   swapped package (`build/sa-runs/pkg-win`) has this build as `skies-run.exe`.
+- **macOS (2026-10-27, the Mac session, Apple M4, macOS 26.3, Command Line Tools only).** 723ec15 builds unchanged
+  (cmake + Ninja, Dawn's darwin-arm64 prebuilt; 12 harmless warnings) and runs on Metal ("Backend: Metal,
+  Device: Apple M4"). libpng links dynamically (`@rpath/libpng16.16.dylib` in the build's `_deps`): the
+  package must bundle it or link it static; the rest is system frameworks. Boot to the title and the
+  Cupil intro right (EFB dumps), 1.00x throttled. Unthrottled, 1x, muted, same DOL / module / Dolphin
+  `.sav` states on both sides: opening cutscene 3.13x vs the Dolphin build's 3.01x, first battle 5.25x vs
+  4.57x. `--load-state` of a Dolphin `.sav` converts and plays (code sections restored, 5551 files
+  remapped, 75-85 ms). Pairing trap there: an older ws DOL in the imported game against a newer app's
+  module ran 5417 of 5461 chunks native (the rest interpreted) until the DOL matched.
 - **WSL only: textures flicker in some runs under GL ES (Mesa's d3d12 driver), not a player issue.** On WSL
   Dawn skips the llvmpipe Vulkan adapter (a CPU one) and runs OpenGL ES on Mesa's d3d12 gallium driver
   (GL translated to D3D12 on the RTX 5080; llvmpipe GL itself crashes compiling Aurora's first pipeline).
