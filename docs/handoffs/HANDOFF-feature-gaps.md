@@ -57,17 +57,20 @@ mapped viewport / scissor left at the old render size after a resolution change;
 right one (*HANDOFF-emulator-free.md* *macOS*, *Sweep*). **2026-10-27 evening: the branch's code review is done**
 (*Code review of the branch* below): nine findings, none in the Aurora fork, **all nine fixed** the same evening
 (the DI read buffer reset on every state save, stale Dolphin copies after a failed `.sav` load, three env knobs
-read at static init and so ignored by Android's `env.txt`, plus the six smaller ones); WSL runs checked them,
-the Pocket 5 hasn't run the build yet.
+read at static init and so ignored by Android's `env.txt`, plus the six smaller ones). **Pocket 5 the same
+evening** (*Pocket 5 checks, 2026-10-27 evening* at the end): `env.txt` knobs honoured, the patched-Dawn
+package APK offers 2x MSAA, the 4x save-state round trip exact (fork 0052 on Android), Continue works, and the
+save point's Dreamcast music no longer costs anything (ahead of the Dolphin build there). Found on the way and
+fixed: **frame dumps on Android were sometimes one frame stale** (the 30 fps path didn't wait for the queued
+present before the readback). The test app is left on this build.
 Items 9 and 10 need dev's code merged in first; **the user said hold** (no merge or rebase for now; *Items 9 and
 10 need dev's current code* below). **Pick up at items 8-10**, now one goal: the standalone **replaces** the Dolphin build as a normal update
 (the user, 2026-10-26; *Items 8-10* below has the approach, the runner contract and what doesn't carry over
 yet). Standing leftovers:
-Continue on the Pocket 5 (item 1); hosting the patched Dawn packages for CI (item 2); rumble by hand,
+hosting the patched Dawn packages for CI (item 2); rumble by hand,
 a capture with a real pad, two pads and the Pocket 5 (item 3); the
 cloud-sea edges and the full 4x pack (item 5); 60 fps on the Nova and its scene list (item 6); the
-video thread on the Nova and with a pad by hand; item 7's open list (m03 in game, the Dreamcast intro by ear, the
-save point's music cost).
+video thread on the Nova and with a pad by hand; item 7's open list (m03 in game, the Dreamcast intro by ear).
 
 ## Ground rules
 
@@ -124,7 +127,9 @@ save point's music cost).
   without asking. Packs and games can be read from WSL the same way.
 - **Frame dumps** don't include the in-game menu (the overlay is drawn after the readback): screenshot the
   window with `C:\dev\SkiesStandalone\shot-dpi.ps1 OUT.png` (DPI-aware; `shot.ps1` cuts the window off
-  under display scaling). With 60 fps on, dumps write `frame_N-interp.ppm` too.
+  under display scaling). With 60 fps on, dumps write `frame_N-interp.ppm` too. Before 2026-10-27 evening
+  a 30 fps dump on Android was sometimes the frame before (fixed in `FrameEndVideo`); Pocket 5 dumps compare
+  exactly now with `SKIES_RTC=847000789` and `AURORA_SYNC_PIPELINES=1`, three runs identical.
 - **`--seconds` with `--load-state`** counts the state's guest clock, and `[video] frame` numbers continue
   from the state's.
 - **Disc timing (2026-10-27):** reads follow Dolphin's drive model now, so cold boots and loads take a few
@@ -244,8 +249,9 @@ its checks and a commit; device-heavy ones end with a head-to-head.
   the walk through the ship's corridors, a battle from ~150 s fought by the script's A presses, the victory
   pose and the results screen (frame ~7020), no errors. The Mac (Metal) did the same from a card save the
   same day (the Pirate Isle save point) and won the first battle from a Dolphin state.
-- **Not checked yet:** RAM against a load from the game's own menu (needs scripted input), Continue on the
-  Pocket 5.
+- **Pocket 5 (2026-10-27 evening):** cold `--continue card` from `user-lp2`'s card (ws26 game and module): "auto-load:
+  done at 6.21 s guest", the save room beside the save point at frame 310.
+- **Not checked yet:** RAM against a load from the game's own menu (needs scripted input).
 
 ## 2. Graphics options (done 2026-10-25, WSL; Windows / Pocket 5 checks open)
 
@@ -907,7 +913,7 @@ engines' CPU cost against the performance goal (measure on the Pocket 5).
   stream; the two differ all through (another recording), the Dreamcast one quieter for its first ~40 s
   (RMS 77-882 against 602-3,421), then louder (2,608-3,946 against 2,122-2,576). By ear: not yet.
 - **Open:** the m03 scene in game (no state reaches it); the intro with the Dreamcast recording by ear; the
-  Android picker import (item 9); the save point's music cost; re-recording the test routes for the new
+  Android picker import (item 9); re-recording the test routes for the new
   drive timing. (A romhack whose file sizes differ: done 2026-10-26, item 8.)
 
 ## Items 8-10: the standalone replaces the Dolphin build (decided 2026-10-26)
@@ -1292,7 +1298,8 @@ was checked.
   `CpuInit` (after `AndroidSetup`) into a plain variable, so `Watch()` after every block stays one load
   without a guard check. On WSL, `SKIES_AUTO_SAVE_SECONDS=6` from `field-start.sav` auto-saved every 6 s and
   the last save loaded back with its 4 EFB copies. A cold boot's 20th read (`warning.mld`) lands at 0.57 s
-  guest with `SKIES_DI_FAST=1` and 2.59 s without. Android `env.txt` not tried on the device yet.
+  guest with `SKIES_DI_FAST=1` and 2.59 s without; the Pocket 5 with `env.txt` 0.57 s and 2.58 s, and
+  `SKIES_AUTO_SAVE_SECONDS=8` there auto-saved every 8 s.
 - **4:** a failed disc read (disc ID or data) sets `ERR_READ` = 0x031100, Dolphin's `DriveError::ReadError`
   from `DVDThread::FinishRead`, so the next `0xE0` reports it.
 - **5:** `InGameFolder` knows `geaj8p`; `hd_textures.cpp` already loaded from a `GEAJ8P` folder.
@@ -1302,3 +1309,43 @@ was checked.
   the two patches). It passes on the patched tree in `~/projects/skies-aurora/dawn-src` and fails on a copy
   with one D3D12 header line removed, which the old check would have missed.
 - **8:** the unused copy in `TransferDone` is gone.
+- **6 (Pocket 5):** `SKIES_PIN_VIDEO=abc` in `env.txt` logged "left unpinned"; the emulation thread stayed on
+  cpu 7.
+
+## Pocket 5 checks, 2026-10-27 evening
+
+The test app (`com.skiesofarcadia.standalone`) now holds `DAWN_PACKAGE=build/dawn-package/dawn-android-aarch64.tar.gz
+tools/android-standalone-build.sh` with `MODULE=` the three modules of the 10-26 build (US sa26, EU, JP; byte-identical
+to the ones it had), installed with `-r` (data kept); `args.txt` / `env.txt` restored afterwards, the test
+folders deleted.
+
+- **Patched-Dawn package (item 2):** `MSAA = 2` in `GFX.ini` logs "anti-aliasing 2x MSAA" (stock Dawn falls
+  back to Off there). Built from the package, not the source tree, so the Android package works on the device.
+- **Env knobs (review finding 3):** see *Fixes* above.
+- **4x save-state round trip (fork 0052):** `conv/05-save-point.sav` (the red save point), `InternalResolution
+  = 4`, `SKIES_RTC=847000789`, `AURORA_SYNC_PIPELINES=1`, `SKIES_MUTE=1`, frames every 60 to 128 s guest. A
+  run with `SKIES_SAVE_AT=108`, a run loading that state and a run with no save: **all three identical at every
+  dumped frame** (3120-3660, 2560x1920).
+- **Found and fixed: Android frame dumps one frame stale.** The first comparisons differed by ~90% of the
+  picture at some frames (the room's red light pulse at another phase), even between two plain runs. Dumping
+  every frame of a window showed one run's frame 3060 equal to another's 3059: in `FrameEndVideo` (the 30 fps
+  path) the readback was requested while the frame before was still a queued, scheduled present, so it took
+  that one. `ReplayVideo` (60 fps) already synchronised first; `FrameEndVideo` now does too (only when
+  dumping). After it, three runs over frames 3056-3064 are identical. WSL dumps unchanged (two runs equal).
+  Auto-save (`SKIES_AUTO_SAVE_SECONDS`) fires on the wall clock, so two runs save at slightly different
+  guest moments; use `SKIES_SAVE_AT` for comparisons.
+- **Continue (item 1):** see item 1.
+- **The save point's Dreamcast music (item 7):** full speed, Native, `05-save-point.sav`, copies of
+  `user-bench-sa` with `DreamcastMusic` 1 / 0 (Volume 0, real audio driver), `SKIES_PRESENT_PACING=1`, the
+  last two 600-frame windows of each run; power = usb_in + bms current x 4.36 V. The Dolphin bench app from
+  `capture/android-ir-bench.sh dol 1 full savepoint` (its config already Native, full speed).
+
+  | Save point, full speed | p90 | p99 | max | power |
+  |---|---|---|---|---|
+  | Standalone, music on (2 runs) | 33.58-34.12 | 33.98-36.16 | 34.18-36.85 | ~2.75 W |
+  | Standalone, music off (2 runs) | 33.57-33.97 | 33.95-35.80 | 34.47-50.33 | 2.68-2.75 W |
+  | Dolphin bench app (2 runs) | 35.09-35.35 | 36.43-36.59 | 37.15-38.15 | ~3.2 W |
+
+  Music on is level with music off now (the 10-26 measurement had 35.9-36.6 against 34.3, before the
+  snapped and display-paced presents of 889f191), and the standalone is ahead of the Dolphin build at the save
+  point too. The device's performance mode was left as the user had it.
