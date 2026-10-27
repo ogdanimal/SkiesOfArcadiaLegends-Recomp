@@ -220,6 +220,8 @@ int FrontendPrepare(const char* argv0, LaunchOptions& o)
       frontend::MoveDiscStates(user, directory, release->disc_id);
       o.state_dir = frontend::PathUtf8(directory);
     }
+    if (!o.state_dir.empty())
+      Log("save states in %s\n", o.state_dir.c_str());
   }
   if (frontend::IsReleaseBuild())
   {

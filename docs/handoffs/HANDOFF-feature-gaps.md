@@ -1008,8 +1008,15 @@ Most of this is already Dolphin-free in `lib/ModernGekko/tools/` (std-only or `m
   extracted to `build/game-maeson151` by a small GCM extractor; 292 of its 5552 files differ in size from
   the US disc's, the battle data among them): a cold boot with the ws32 DOL (the module's code; the hack's
   own DOL kept in `sys/orig`) and `zt1.txt` plays the opening into the first deck battle like the US game,
-  331 disc reads, no errors. The release path (the hack's DOL with the widescreen patch applied by the
-  frontend) not run.
+  331 disc reads, no errors. **The release path (2026-10-27, WSL):** a headless build pinned like a release
+  (`build/standalone-rel`: `-DSKIES_RELEASE_DISC_IDS=GEAE8P -DSKIES_RELEASE_DOL_PATCHES=` skies-pal60's ws32
+  `release/skies-widescreen.dolpatch`), packaged as `build/sa-runs/rel-test/pkg` (program, ws32 module,
+  `patches/`), started as the launcher does (`--game G --user-dir U`) on the hack's own DOL: "Applied native
+  DOL patches", "modified game data (a romhack)", 5461 of 5461 chunks, states in
+  `StateSaves/romhack-4d5febec` (the frontend now logs the state folder), and with `zt1.txt` the same run as
+  the hand-patched one (frames and disc reads equal at 150 s, the first deck battle at 380 s). A second
+  start leaves the patched DOL alone. `codehack.iso`'s DOL is refused (code changed) with "The game needs
+  updating" and exit 20, as the Dolphin build's runner; the launcher refuses such hacks at import.
 - **States:** the standalone keeps `USER/StateSaves/Standalone/<disc ID>-slotN.sst` / `-auto-*.sst`; Continue
   picks the newest whose header matches the disc ID and DOL hash; Back up saves must include
   `StateSaves/Standalone/*.sst` (today's Kotlin takes only `StateSaves/*.sav` and cards).
