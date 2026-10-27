@@ -45,8 +45,7 @@ Items 9 and 10 need dev's code merged in first; **the user said hold** (no merge
 10 need dev's current code* below). **Pick up at items 8-10**, now one goal: the standalone **replaces** the Dolphin build as a normal update
 (the user, 2026-10-26; *Items 8-10* below has the approach, the runner contract and what doesn't carry over
 yet). Standing leftovers:
-Continue on the Pocket 5 (item 1); MSAA's
-cost on a GPU the game saturates (item 2); shipping the patched Dawn (item 2); rumble by hand,
+Continue on the Pocket 5 (item 1); hosting the patched Dawn packages for CI (item 2); rumble by hand,
 a capture with a real pad, two pads and the Pocket 5 (item 3); the
 cloud-sea edges and the full 4x pack (item 5); 60 fps on the Nova and its scene list (item 6); the
 video thread on the Nova and with a pad by hand; item 7's open list (m03 in game, the Dreamcast intro by ear, the
@@ -274,8 +273,26 @@ its checks and a commit; device-heavy ones end with a head-to-head.
   visibly smoother at each step; GPU work in passes (span minus not-in-a-zone, one 300-frame window,
   throttled, rough) Off 0.25 ms, 2x 0.34, 4x 0.96, 8x 2.24. **macOS (2026-10-27):** the prebuilt offers 1x / 4x;
   the M4's Metal renders 1 / 2 / 4 (no 8x), so the patched Dawn would add 2x there (not built on the Mac yet).
-  **Open:** shipping a patched Dawn (CI builds it, or our own prebuilt packages); D3D11 has no
-  `SupportsExtraSampleCount` (stays 1 / 4).
+  **Packages (2026-10-27):** `tools/build-dawn-package.sh linux|android|darwin` and
+  `tools/build-dawn-package.bat` (Windows x64) build a Dawn package with `patches/dawn/` as encounter's own
+  release workflow builds the prebuilt ones (`.github/workflows/release.yml` + `dawn-ci.cmake` in the Dawn tree:
+  the target options before `-C dawn-ci.cmake`, which reads `CMAKE_SYSTEM_NAME`; install; Android's library
+  stripped; the install tree tarred as `dawn-<system>-<arch>.tar.gz`). Each checks the patches are in the tree
+  and the macro in the installed header. Windows doesn't build DXC: Dawn is compiled to load it at run time and
+  the package carries encounter's `dxcompiler.dll` / `dxil.dll` for the same Dawn version (as
+  `build-dawnsrc.bat`). Linux refuses without `libx11-xcb-dev` (encounter's packages have X11; this WSL lacks
+  it), unless `NO_X11=1`, which names it `...-nox11` for local tests only. A build takes the package with
+  `-DSKIES_DAWN_PROVIDER=package -DAURORA_DAWN_PACKAGE_URL=file:///.../dawn-<system>-<arch>.tar.gz`, or
+  disconnected with `FETCHCONTENT_SOURCE_DIR_DAWN_PREBUILT` at the extracted tree; Android:
+  `DAWN_PACKAGE=<tarball> tools/android-standalone-build.sh` (into `build/standalone-android-dawnpkg`).
+  **Checked:** all three built from the patched trees (`DAWN_SRC=`; the default clone + `git am` path is
+  untried). Linux (`-nox11`, Wayland, lavapipe): MSAA modes 1x / 4x / 8x against the stock package's 1x / 4x,
+  the same dispatch count. Android: the APK's `libmain.so` has `dawn::native::SupportsSampleCount`, the stock one
+  doesn't (not installed: the Pocket 5 is the user's). Windows (MSVC, `C:\dev\SkiesStandalone\dawn-package`):
+  the standalone against the extracted tarball reports 1x / 2x / 4x / 8x on the RTX 5080, no errors.
+  **Open:** where the packages live for CI (a release asset the workflow downloads, by the user's choice), a
+  Linux package on a machine with X11 headers (or CI), macOS on the Mac, the Pocket 5 with the package APK;
+  D3D11 has no `SupportsExtraSampleCount` (stays 1 / 4).
 - **Checked (WSL, Dawn on llvmpipe, field after a Continue, EFB 1x):** each option changes the picture
   (pixels off the baseline: MSAA 4,340, Sharp 35,492, Smooth 16,575, 16x anisotropy 14,793; two baseline
   runs differ by 442); by eye: MSAA smooths geometry edges, Sharp shows texels, Smooth / 16x soften. The
