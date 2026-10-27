@@ -297,6 +297,14 @@ its checks and a commit; device-heavy ones end with a head-to-head.
   8x 1.88 ms) because the card idles between frames and its clock follows the load, so these times measure
   the clock more than the work. A cost figure would need a GPU the game saturates (the Intel UHD 770 via
   the low-power switch, fork 0030, or the Pocket 5, whose 2x / 4x figures are above).
+- **The cost on the Intel UHD 770 (same route and settings plus `AURORA_LOW_POWER_GPU=1`, EFB 6x,
+  2026-10-27).** The iGPU lists 1x / 2x / 4x / 8x; all four runs end on the same dispatch count. GPU work
+  per frame, mean of 18 windows: Off 19.6 ms, **2x 23.5 (+20%)**, **4x 22.4 (+15%)**, **8x 32.7 (+67%)**;
+  the heaviest window (the corridor before the fight): 36.3 / 41.6 / 41.3 / 56.9 ms. On Intel 2x is no
+  cheaper than 4x (the hardware resolves 4x natively), so 2x buys nothing there. Speed in the heaviest
+  stretch (with the video thread off, so GPU waits add to the frame): Off 0.9x, 2x / 4x 0.55x, 8x 0.39x;
+  wall time for the route 167 / 210 / 217 / 284 s. 6x is already past this iGPU at Off; the useful
+  settings there are lower resolutions, where MSAA's share is the same ratio of a smaller frame.
 - **Open:** menu changes by hand on Windows / the Pocket 5 (only the ini path was driven here).
 - **Frame rate** belongs to item 6, **HD textures** to item 5.
 
