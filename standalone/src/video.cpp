@@ -33,6 +33,11 @@
 #include <dolphin/gx.h>
 #include <dolphin/vi.h>
 
+#if defined(__ANDROID__)
+#include <android/choreographer.h>
+#include <android/looper.h>
+#endif
+
 extern bool aurora_debug_draw_log;  // GXRuntime: Aurora's per-draw log (AURORA_DRAW_LOG)
 
 extern "C" {
@@ -409,6 +414,121 @@ void PresentDone()
   last = now;
 }
 
+#if defined(__ANDROID__)
+// The display's refresh grid, from Choreographer's frame callbacks on a thread of their own (their
+// timestamps are the app's vsync on CLOCK_MONOTONIC, steady_clock here). The period is measured: the
+// span since the first callback over the refreshes in it, refreshed as callbacks come; a callback off
+// the grid (a new refresh rate, a long gap) starts the measurement again.
+std::atomic<s64> s_vsync_last_ns{0};
+std::atomic<s64> s_vsync_period_ns{0};
+
+void VsyncFrame(long frame_ns, void*);
+
+void VsyncPost()
+{
+  AChoreographer_postFrameCallback(AChoreographer_getInstance(), VsyncFrame, nullptr);
+}
+
+void VsyncFrame(long frame_ns, void*)
+{
+  static s64 s_first = 0, s_last = 0, s_period = 0;
+  const s64 now = frame_ns;
+  const s64 since = now - s_last;
+  if (s_last == 0 || since <= 0 || since > 200'000'000)
+  {
+    s_first = now;
+    s_period = 0;
+  }
+  else if (s_period == 0)
+  {
+    s_period = since;  // a first guess: one refresh, or a few when the thread was late
+  }
+  else
+  {
+    const double refreshes = static_cast<double>(since) / static_cast<double>(s_period);
+    if (std::abs(refreshes - std::round(refreshes)) > 0.15 || std::round(refreshes) < 1)
+    {
+      s_first = now;  // off the grid: measure again
+      s_period = since;
+    }
+    else
+    {
+      const s64 span = now - s_first;
+      const double n = std::round(static_cast<double>(span) / static_cast<double>(s_period));
+      if (n >= 1)
+        s_period = static_cast<s64>(static_cast<double>(span) / n);
+    }
+  }
+  s_last = now;
+  s_vsync_last_ns.store(now, std::memory_order_relaxed);
+  // Usable once it has a second of refreshes behind it
+  s_vsync_period_ns.store(now - s_first >= 1'000'000'000 ? s_period : 0, std::memory_order_relaxed);
+  VsyncPost();
+}
+
+void VsyncGridStart()
+{
+  static bool s_started = false;
+  if (s_started)
+    return;
+  s_started = true;
+  std::thread([] {
+    ALooper_prepare(0);
+    VsyncPost();
+    while (true)
+      ALooper_pollOnce(-1, nullptr, nullptr, nullptr);
+  }).detach();
+}
+
+// A present time moved to a refresh: Choreographer's vsync plus SKIES_VSYNC_OFFSET_MS (10), so a frame always
+// reaches the compositor at the same point of a refresh. Unsnapped, present times that drift across the
+// compositor's latch flipped frames between two and three refreshes for seconds at a time (on the Pocket 5
+// ~28 frames of 50 ms a minute at 30 fps). On the Pocket 5 offsets 4-12 ms are clean, 0 and 15 not (the GPU
+// takes 7-15 ms from the present call). The present times themselves wobble by a few ms (a copy's guest
+// time follows the game's work; the auto delay moves), so a frame keeps the last one's refresh plus the
+// refreshes between their times, and is snapped again only when that slot ends up more than 5 ms before its
+// time or a refresh and 5 ms after it. With the game paced to the display (main.cpp FollowDisplay) that
+// leaves 2-3 frames a minute a refresh longer. SKIES_VSYNC_SNAP=0 turns it off.
+s64 SnapToRefresh(s64 steady_ns)
+{
+  static s64 s_last_time = 0, s_last_slot = 0;
+  static const bool s_on = [] {
+    const char* v = std::getenv("SKIES_VSYNC_SNAP");
+    return !v || std::atoi(v) != 0;
+  }();
+  static const s64 s_offset = [] {
+    const char* v = std::getenv("SKIES_VSYNC_OFFSET_MS");
+    return static_cast<s64>((v ? std::atof(v) : 10.0) * 1e6);
+  }();
+  const s64 period = s_vsync_period_ns.load(std::memory_order_relaxed);
+  if (!s_on || period == 0)
+    return steady_ns;
+  constexpr s64 SLACK = 5'000'000;
+  if (s_last_slot != 0)
+  {
+    const s64 refreshes = (steady_ns - s_last_time + period / 2) / period;
+    const s64 slot = s_last_slot + refreshes * period;
+    if (refreshes >= 1 && slot >= steady_ns - SLACK && slot <= steady_ns + period + SLACK)
+    {
+      s_last_time = steady_ns;
+      s_last_slot = slot;
+      return slot;
+    }
+  }
+  const s64 base = s_vsync_last_ns.load(std::memory_order_relaxed) + s_offset;
+  const s64 refreshes = steady_ns > base ? (steady_ns - base + period - 1) / period : 0;
+  if (PacingOn() && s_last_slot != 0)
+  {
+    const s64 kept = s_last_slot + (steady_ns - s_last_time + period / 2) / period * period;
+    Log("[video] refresh slot again: the kept one was %.1f ms from the present time (%.1f ms since the last)\n",
+        (kept - steady_ns) / 1e6, (steady_ns - s_last_time) / 1e6);
+  }
+  s_last_time = steady_ns;
+  s_last_slot = base + refreshes * period;
+  return s_last_slot;
+}
+#endif
+
 // Presents on the throttle's clock: the render worker presents each frame at its copy's guest time plus a
 // delay instead of when the emulation thread got there, so the intervals keep the game's rhythm while the
 // threads' own timing wobbles (on the Pocket 5 the copy comes 6-11 ms after its guest time, p99 up to 18:
@@ -455,10 +575,13 @@ void SchedulePresent(std::chrono::steady_clock::time_point wall)
     }
     delay = s_delay;
   }
-  aurora_backend_set_present_time(
-      std::chrono::duration_cast<std::chrono::nanoseconds>(
-          (wall + std::chrono::microseconds(static_cast<s64>(delay * 1000))).time_since_epoch())
-          .count());
+  s64 at = std::chrono::duration_cast<std::chrono::nanoseconds>(
+               (wall + std::chrono::microseconds(static_cast<s64>(delay * 1000))).time_since_epoch())
+               .count();
+#if defined(__ANDROID__)
+  at = SnapToRefresh(at);
+#endif
+  aurora_backend_set_present_time(at);
 }
 
 // The picture centred in the window at PictureAspect (Dolphin's aspect ratio letterbox), from the
@@ -681,6 +804,9 @@ bool VideoInit(bool headless)
       SDL_SetWindowFullscreen(window, true);
   if (PacingOn())
     aurora_backend_set_present_callback(PresentDone);
+#if defined(__ANDROID__)
+  VsyncGridStart();
+#endif
   // As the Dolphin-side backend (ApplyEfbScale): the EFB keeps 640x480 times the scale whatever the
   // window's shape (the ws patch draws anamorphic) and the picture is stretched at the present.
   // The scale is the Resolution setting (menu.cpp; SKIES_EFB_SCALE=N overrides it), 0 = the window's.
@@ -1196,6 +1322,28 @@ void VideoRetrace()
   PostDeferred();  // the replay before the presents
   const auto wall = WallForGuest(Now());
   VideoPost([wall] { RetraceVideo(wall); });
+#endif
+}
+
+s64 VideoRefreshPeriodNs()
+{
+#if defined(SKIES_STANDALONE_AURORA) && defined(__ANDROID__)
+  return s_vsync_period_ns.load(std::memory_order_relaxed);
+#else
+  return 0;
+#endif
+}
+
+void VideoSetAudioRate(double rate)
+{
+#ifdef SKIES_STANDALONE_AURORA
+  static u32 s_rate = 32000;
+  const u32 next = static_cast<u32>(std::lround(32000 * rate));
+  if (next != s_rate && s_active)
+    dol_platform_audio_set_sample_rate(next);
+  s_rate = next;
+#else
+  (void)rate;
 #endif
 }
 

@@ -400,7 +400,9 @@ Dolphin build; decide whether to translate `GCPadNew.ini` once on first run.
   process 0.1 s later and no second restart; frame 750 of the new run is the German opening text. A restart
   that drops a `--load-state`: checked on WSL 2026-10-26 (`linux-eu-1017.sav`, Language -> Deutsch, A, A
   by `SKIES_PRESS` 3 s after the load; the new run boots at 0 s with no state load and shows German at frame
-  750). Not checked on Android (the filter is two lines in `AndroidSetup`).
+  750). Android, Pocket 5 2026-10-26 night: the same state and presses in the test app, one restart (the game's
+  process ends ~10 s in, `:restart`, a new process 0.1 s later), the new run boots at 0 s with no state load,
+  `restart.flag` consumed, frame 750 German.
 - **Checked:** WSL, European disc ws30 (`skies-pal60/build/game/GEAP8P-ws30`, `build/ws30eu/module`), frame 750
   (the opening text) with Language 0 / 1 / 2 / 3: English, German, French, Spanish; in the window: Language ->
   Deutsch, A, A: "restart for the language", the new process (named skies-standalone) shows German; one A then

@@ -28,6 +28,7 @@
 #include "dsphle/dsp_hle.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cerrno>
 #include <chrono>
 #include <cstdlib>
@@ -89,6 +90,14 @@ u64 s_stop_cycles = 0;
 // The menu asked for the game to start again (a new language): main runs itself again
 bool s_restart = false;
 std::chrono::steady_clock::time_point s_wall_start;
+// Guest seconds per wall second: 1, or the display's rate over the game's when it is paced to the display
+// (FollowDisplay)
+double s_rate = 1.0;
+
+std::chrono::nanoseconds GuestToWall(u64 cycles)
+{
+  return std::chrono::nanoseconds(static_cast<u64>(static_cast<double>(cycles) * 1e9 / (CPU_HZ * s_rate)));
+}
 u64 s_last_report_cycles = 0;
 std::chrono::steady_clock::time_point s_last_report_wall;
 // The emulation thread's time per field outside the throttle's sleep (PacingOn): its headroom at full speed
@@ -143,7 +152,7 @@ std::chrono::steady_clock::time_point WallForGuest(u64 cycles)
 {
   if (!s_throttle)
     return {};
-  return s_wall_start + std::chrono::nanoseconds(static_cast<u64>(static_cast<double>(cycles) * 1e9 / CPU_HZ));
+  return s_wall_start + GuestToWall(cycles);
 }
 
 double EmulationSpeed()
@@ -164,7 +173,7 @@ bool Throttled()
 void ThrottleRestart()
 {
   const auto now = std::chrono::steady_clock::now();
-  s_wall_start = now - std::chrono::nanoseconds(static_cast<u64>(static_cast<double>(g_cycles) * 1e9 / CPU_HZ));
+  s_wall_start = now - GuestToWall(g_cycles);
   s_last_report_cycles = g_cycles;
   s_last_report_wall = now;
   s_speed_next = 0;
@@ -273,6 +282,40 @@ void PinVideoThread()
   PinThread("SKIES_PIN_VIDEO", DEFAULT_PIN, 1, "video thread");
 }
 
+// The game paced to the display: when the display's refresh (VideoRefreshPeriodNs) is within 0.5% of a whole
+// number of refreshes per game frame (the GameCube's 59.94 Hz on a 60 Hz screen: 1.001), guest time runs at
+// that rate and the audio with it, so frames keep the same place against the refreshes. At 59.94 Hz they
+// drift by a refresh about every 17 s, and each time a frame stays up a refresh longer (a 50 ms frame at
+// 30 fps, a repeated one at 60). A 50 Hz game on a 60 Hz screen stays at its own rate. Checked every two
+// seconds; SKIES_DISPLAY_RATE=0 turns it off.
+void FollowDisplay()
+{
+  static const bool s_on = [] {
+    const char* v = std::getenv("SKIES_DISPLAY_RATE");
+    return !v || std::atoi(v) != 0;
+  }();
+  static u32 s_fields = 0;
+  if (!s_on || ++s_fields % 120 != 0)
+    return;
+  const s64 period = VideoRefreshPeriodNs();
+  const u64 frame_cycles = ViFrameCycles();
+  if (period <= 0 || frame_cycles == 0)
+    return;
+  const double frame_ns = static_cast<double>(frame_cycles) * 1e9 / CPU_HZ;
+  const double refreshes = std::round(frame_ns / static_cast<double>(period));
+  double rate = refreshes >= 1 ? frame_ns / (refreshes * static_cast<double>(period)) : 1.0;
+  if (std::abs(rate - 1.0) > 0.005)
+    rate = 1.0;
+  if (rate == s_rate)
+    return;
+  if (std::abs(rate - s_rate) > 1e-4)
+    Log("[host] paced to the display (%.3f Hz): the game at %.4fx\n", 1e9 / static_cast<double>(period), rate);
+  const auto at = s_wall_start + GuestToWall(g_cycles);  // the wall time now's guest time keeps
+  s_rate = rate;
+  s_wall_start = at - GuestToWall(g_cycles);
+  VideoSetAudioRate(rate);
+}
+
 // Called by the VI at every field: pace guest time to the wall clock, stop at --seconds.
 void Throttle()
 {
@@ -310,8 +353,8 @@ void Throttle()
   s_last_wake = now;
   if (!s_throttle)
     return;
-  const auto target = s_wall_start + std::chrono::nanoseconds(static_cast<u64>(
-                                         static_cast<double>(g_cycles) * 1e9 / CPU_HZ));
+  FollowDisplay();
+  const auto target = s_wall_start + GuestToWall(g_cycles);
   if (target > now + std::chrono::milliseconds(1))
   {
     if (spin_ms != 0)

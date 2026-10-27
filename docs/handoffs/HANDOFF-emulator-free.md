@@ -770,6 +770,42 @@ The standalone on the Pocket 5 is now smoother than the Dolphin build in both sc
 against 1.38x). Windows (RTX 5080 machine, the user-bench-sa settings, throttled): present at once p99 39.7-39.9,
 max 42.5 (4-5 over 40); auto delay p99 34.9-35.1, max 35.5 in both scenes.
 
+## Frames against the display's refreshes (2026-10-26, night)
+
+**What showed:** the user watched the Pocket 5 (Retroid's game assistant overlay) and asked why the frame time
+was so high. At 30 fps every frame is 33.3 ms by design (the game's own rate; 60 fps is the Frame rate option,
+off in a fresh user folder, as in the shipping Android app). But SurfaceFlinger (`dumpsys SurfaceFlinger
+--latency` on the game's `SurfaceView ... (BLAST)` layer, sampled every 2 s and merged: `sfwatch.sh` /
+`sfrun.sh` in the session scratch) showed the frames on screen weren't even: at the save point, 30 fps, one
+minute, 30 frames stayed up three refreshes (50 ms) and 23 one (17 ms), in bursts every 7-13 s; at 60 fps 18
+frames were repeated. Each bad frame was ready 17-22 ms before its refresh instead of 2-6: it finished just
+after the compositor's latch and waited a refresh.
+
+**Why:** presents were scheduled on the game's clock (fork 0036, *Pacing on the Pocket 5*), never on the
+display's. The game runs at 59.94 Hz, the display at 60.000 (Choreographer measures 16.665 ms), so present
+times slide across the refreshes by ~1 ms a second, and a few ms of wobble (a copy's guest time follows the
+game's work; the auto delay moves) flips frames between refreshes whenever they pass the latch.
+
+**Fix (Android only; desktop has no refresh times yet):**
+- `video.cpp`: a thread with Choreographer frame callbacks measures the refresh grid (`VideoRefreshPeriodNs`).
+  `SnapToRefresh` moves each present time to a refresh + `SKIES_VSYNC_OFFSET_MS` (10; offsets 4-12 clean, 0
+  and 15 not: the GPU takes 7-15 ms from the present call) and keeps a frame on the last frame's refresh plus
+  the refreshes between them unless that slot ends up >5 ms before its time or >1 refresh + 5 ms after
+  (without that hysteresis the wobble re-snapped back and forth). `SKIES_VSYNC_SNAP=0` turns it off.
+- `main.cpp` `FollowDisplay`: when a game frame is within 0.5% of a whole number of refreshes, guest time runs
+  at the display's rate (59.94 -> 60.000 Hz: 1.0011x) and the audio's sample rate with it (32032 Hz through
+  SDL's stream), so the frames don't drift against the refreshes at all. A 50 Hz game on a 60 Hz screen keeps
+  its own rate. `SKIES_DISPLAY_RATE=0` turns it off. Log `[host] paced to the display (60.005 Hz): the game at
+  1.0011x`.
+- Tried and dropped: an auto delay that falls only slowly (to stop it pushing frames across slots): at 60 fps it
+  stayed near its early peak and the queued presents stalled the video thread (0.91x).
+
+**Result (Pocket 5, save point, lowest performance mode, 1.00x in all):** frames per minute that weren't the
+normal count of refreshes: 30 fps 53 -> 3; 60 fps 18 -> 3. The few left are the slot moving when the delay
+jumps. Latency: the present call now waits for its refresh (queue to display ~26 ms median at offset 8,
+14-31 before). Not checked: by ear (the 0.1% faster audio and the Dreamcast streams), a battle scene, a
+120 Hz display, Windows / macOS (no snap there).
+
 ## The Pocket 5 at higher internal resolutions (2026-10-25, night)
 
 `capture/android-ir-bench.sh` for both apps (same settings as above, lowest performance mode). GPU time per

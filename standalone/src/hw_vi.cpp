@@ -173,6 +173,11 @@ bool ViIsPal()
   return s_pal;
 }
 
+u64 ViFrameCycles()
+{
+  return static_cast<u64>(HalfLinesOdd() + HalfLinesEven()) * TicksPerHalfLine();
+}
+
 void ViInit()
 {
   std::memset(s_regs, 0, sizeof(s_regs));

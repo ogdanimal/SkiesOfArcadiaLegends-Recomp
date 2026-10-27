@@ -175,6 +175,7 @@ void ViInit();
 u16 ViRead16(u32 offset);
 void ViWrite16(u32 offset, u16 value);
 bool ViIsPal();
+u64 ViFrameCycles();  // guest cycles per frame (two fields) at the current timing
 u32 ViXfbAddress();  // the frame buffer the VI scans out (top field), physical
 
 // GPU: command processor, pixel engine, the gather pipe and the GX command stream into Aurora.
@@ -278,6 +279,10 @@ void VideoFence();
 std::unique_lock<std::recursive_mutex> VideoInputLock();
 void VideoFrameEnd();                         // the game's display copy (EFB to XFB)
 void VideoRetrace();                          // a VI field
+// The display's refresh period in ns, 0 when not known (Android: Choreographer's; video.cpp)
+s64 VideoRefreshPeriodNs();
+// The game's audio played at RATE times its own sample rate (the game paced to the display)
+void VideoSetAudioRate(double rate);
 bool VideoQuitRequested();
 void VideoPadRead(u16 buttons[4], s8 sticks[4][4], u8 triggers[4][2], bool connected[4]);
 // A controller's motor: 0 stop, 1 rumble, 2 hard stop (the SDK's PAD_MOTOR_*)
