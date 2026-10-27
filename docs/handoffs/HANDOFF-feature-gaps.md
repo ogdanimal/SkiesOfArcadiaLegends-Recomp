@@ -1025,6 +1025,11 @@ Most of this is already Dolphin-free in `lib/ModernGekko/tools/` (std-only or `m
   `EA_LEGEND.*`, the others `SA_LEGENDS.*`.
 - **Check:** `tools/save-import-test.py`'s 16 cases against the standalone's import; a move of the data
   folder on Linux, Windows and the Pocket 5 (as *HANDOFF-datadir.md*).
+- **Finding the data folder, checked (2026-10-27, WSL, `build/sa-runs/rel-test`, no arguments, a scratch
+  `XDG_DATA_HOME`):** the default folder; `data-folder.txt` there pointing at a moved one (card, states and
+  config.ini all in the moved folder); the moved folder gone ("Data folder not found", exit 1, no empty
+  folder made); `portable.txt` beside the program wins (`<program>/User`). Each start read its
+  `default-game.txt`. The move itself is the launchers' (item 9 / dev's launcher), not run here.
 
 ## 9. Android launcher
 
