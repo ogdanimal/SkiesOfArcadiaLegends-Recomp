@@ -946,6 +946,17 @@ started as players do, on an existing data folder.
   4.57x. `--load-state` of a Dolphin `.sav` converts and plays (code sections restored, 5551 files
   remapped, 75-85 ms). Pairing trap there: an older ws DOL in the imported game against a newer app's
   module ran 5417 of 5461 chunks native (the rest interpreted) until the DOL matched.
+  Later the same day (scripted input, log and ini checks, no source changes): the menu (Z+Start, Graphics
+  rows written to GFX.ini and applied live; 60 fps 598 of 600 frames interpolated at 1.00x); MSAA on the
+  prebuilt Dawn is 1x / 4x only, and the M4's Metal itself offers 1 / 2 / 4 (no 8x), so a patched Dawn
+  adds only 2x there; save states (slot save 71 ms, load 78 ms, auto-saves every 8 s with 3 kept); the
+  Language restart on the EU disc (re-exec with the same argv); the standalone as `Contents/MacOS/skies-run`
+  in a copy of the installed .app, started as the launcher does (data from `Contents/Resources`, config.ini
+  and GCPadNew.ini picked up). Packaging: a build without `SKIES_RELEASE_*` never patches the DOL; with the
+  app's patches it did (31e439…). An older imported DOL got "The game needs updating" (correct; a headless
+  test waits on the box). No overlay screenshot (no Screen Recording permission there). Left for the user:
+  the menu by eye, the DualSense (play, rumble, mapping, name) and keyboard, sound against the picture by
+  ear, the launcher's Play in the scratch app copy.
 - **WSL only: textures flicker in some runs under GL ES (Mesa's d3d12 driver), not a player issue.** On WSL
   Dawn skips the llvmpipe Vulkan adapter (a CPU one) and runs OpenGL ES on Mesa's d3d12 gallium driver
   (GL translated to D3D12 on the RTX 5080; llvmpipe GL itself crashes compiling Aurora's first pipeline).
