@@ -35,8 +35,7 @@ Items 9 and 10 need dev's code merged in first; **the user said hold** (no merge
 10 need dev's current code* below). **Pick up at items 8-10**, now one goal: the standalone **replaces** the Dolphin build as a normal update
 (the user, 2026-10-26; *Items 8-10* below has the approach, the runner contract and what doesn't carry over
 yet). Standing leftovers:
-the European / Japanese first field on the Pocket 5 (the European disc boots and plays its opening there, 2026-10-26; item 0); a first battle
-and card save after Continue, Windows and the Pocket 5 (item 1); the 4x-MSAA specks in the light beam and GPU
+a battle won after Continue on Windows, and Continue on the Pocket 5 (item 1); the 4x-MSAA specks in the light beam and GPU
 cost at 4x / 6x resolution (item 2); shipping the patched Dawn and the macOS build (item 2); rumble by hand,
 a capture with a real pad, two pads and the Pocket 5 (item 3); the
 cloud-sea edges and the full 4x pack (item 5); 60 fps on the Nova and its scene list (item 6); the
@@ -159,9 +158,11 @@ its checks and a commit; device-heavy ones end with a head-to-head.
   7.8 s wall, JP 9.7 -> 6.3 s, same frame counts. Test inputs: EU `~/projects/skies-pal60/build/game/
   GEAP8P-ws30` + `build/ws30eu/module`; JP `GEAJ8P-ws34` there + this worktree's `build/ws34jp/module`
   (Linux module made for this check, gen script as `skies-pal60/build/ws30eu/build.sh`).
-- **Not checked yet:** the first field on EU / JP (needs a state or a scripted New Game), the EU intro
-  against m01 (item 7), an APK with the EU / JP arm64 modules on the Pocket 5 (`skies-pal60/build/android/
-  module-ws34-GEA{P,J}8P` match the ws34 DOLs).
+- **Checked on the Pocket 5 (2026-10-26 night):** a test app with all three modules (US sa26, EU and JP from
+  `skies-pal60/build/android/jniLibs-ws34`) and the ws34 games in `files/game-eu` / `files/game-jp`: a cold boot
+  with `zt1.txt` (in-app presses) plays the opening, the deck battle and the deck after it on both, 1.00x
+  but for two load moments (0.93-0.96x on EU), no errors.
+- **Not checked yet:** the EU intro against m01 (item 7).
 
 ## 1. Continue (auto-load of a card save) (done 2026-10-25, desktop)
 
@@ -194,8 +195,13 @@ its checks and a commit; device-heavy ones end with a head-to-head.
   save to continue from"), missing file 5 ("wasn't found on card A"), the unpatched DOL ("can't load a save
   directly"). Key one shot (1 -> 0 after use); a state saved after a Continue loads with the key set and
   no Continue starts, key cleared.
-- **Not checked yet:** RAM against a load from the game's own menu (needs scripted input), a first battle
-  and a card save after Continue, Windows, the Pocket 5.
+- **Windows (2026-10-26 night):** cold `--continue card` from the ten-minute play's card (`build/sa-runs/user-lp2`,
+  ws26 app game and module): auto-load done at 3.55 s guest, the save room, then the save point's menu
+  (`lp-play.txt`'s first 18 s) wrote file #01 again; walking on (Encounters 400%) a battle started at ~48 s
+  and ran (the walk's direction presses only moved the command cursor, so no round was fought). A longer run
+  with the clock pinned took another route and met no encounter: a battle won after Continue is still open.
+- **Not checked yet:** RAM against a load from the game's own menu (needs scripted input), a battle won after
+  Continue, Continue on the Pocket 5.
 
 ## 2. Graphics options (done 2026-10-25, WSL; Windows / Pocket 5 checks open)
 
