@@ -52,8 +52,12 @@ title screen** (62fe140): disc reads finished far faster than a drive and the in
 after its last model load; reads are now timed with Dolphin's drive model (item 7, *The USA intro stalled*).
 Test routes recorded before it need `SKIES_DI_FAST=1`. Patched Dawn packages (MSAA 2x / 8x) for Windows,
 Linux and Android with `tools/build-dawn-package.*` (1983051, item 2); where CI gets them is the user's call.
-**Open bug (the Mac session is fixing it, as fork 0052):** a state loaded at an internal resolution other than
-2x changes the red save point's beam (*HANDOFF-emulator-free.md* *macOS*, *Sweep*).
+**Fixed (fork 0052, from the Mac session, integrated a4d4c23):** the "4x save-state bug" was the GX state's
+mapped viewport / scissor left at the old render size after a resolution change; the loaded picture was the
+right one (*HANDOFF-emulator-free.md* *macOS*, *Sweep*). **2026-10-27 evening: the branch's code review is done**
+(*Code review of the branch* below): nine findings, none in the Aurora fork, **none fixed yet**; the three to
+fix first are the DI read buffer reset on every state save, stale Dolphin copies after a failed `.sav` load,
+and three env knobs read at static init (ignored by Android's `env.txt`, `SKIES_DI_FAST` among them).
 Items 9 and 10 need dev's code merged in first; **the user said hold** (no merge or rebase for now; *Items 9 and
 10 need dev's current code* below). **Pick up at items 8-10**, now one goal: the standalone **replaces** the Dolphin build as a normal update
 (the user, 2026-10-26; *Items 8-10* below has the approach, the runner contract and what doesn't carry over
@@ -1234,3 +1238,43 @@ on desktop, the device checks still to come):
 - Saves, launcher and packaging: 2-3 weeks.
 
 The order above keeps the build playable and measurable after every step.
+
+## Code review of the branch (2026-10-27)
+
+The whole branch against its merge base with dev (`4598e1d..4875f36`, 111 commits, ~44k added lines),
+correctness first. Nine findings, none in `patches/recompcore-aurora.patch` or the fork; **none fixed** when
+this was written. Fix 1-3 first (the user's call, 2026-10-27 evening), then the rest as they come up.
+
+1. **`standalone/src/hw_di.cpp` `DiDoState`:** the read-ahead buffer model (`s_buffer_*`) is reset
+   unconditionally, so every state **save** (and the in-memory backup taken before each load) discards the
+   live buffer too, not only a load as the comment claims. After an auto-save mid-cutscene the next disc read is
+   modelled as a cold seek (75+ ms) instead of a buffer hit, so disc timing changes after every save. Guard it
+   with `p.Reading()` like `SiDoState`'s `s_motor` reset.
+2. **`standalone/src/video.cpp` `VideoFromDolphin` / `VideoStateLoaded`:** a Dolphin-state load that throws
+   partway (`d.Array` on a texture-cache entry whose `config` isn't 8 words) leaves `s_dolphin_copies`
+   populated; it is cleared only in `VideoStateLoaded` (the success path). `DolphinStateApply` returns false,
+   `state.cpp` restores the backup (`VideoDoState` resets only `s_loaded_copies`), and the next successful load
+   of a native slot calls `aurora_backend_copy_restore_rgba` for the old Dolphin copies at their guest
+   addresses, over the new state's EFB copies. Clear `s_dolphin_copies` on the failure path (or at the start of
+   every load).
+3. **Env knobs read at namespace-scope static init:** `hw_di.cpp` `s_fast` (`SKIES_DI_FAST`), `cpu.cpp`
+   `s_watch_address` (`SKIES_WATCH`), `menu.cpp` autosave `s_test_seconds` (`SKIES_AUTO_SAVE_SECONDS`). On
+   Android `env.txt` is applied in `main()` (`AndroidSetup`) after static init, so these three are silently
+   ignored there; a Pocket 5 route run with `SKIES_DI_FAST=1` in `env.txt` runs on the new drive timing anyway.
+   Every other knob in the tree uses a function-local `static const` (for example `s_trace` in `hw_di.cpp`,
+   `SKIES_DISPLAY_RATE` in `main.cpp`) for this reason; do the same.
+4. **`hw_di.cpp` DMA read failure:** a failed `DmaRead` raises DEINT (`s_pending_deint` = error) but leaves
+   `s_error = ERR_NONE`, so the game's follow-up `0xE0` request-error reads "no error" for a read that
+   delivered zeros. Dolphin sets an error code (for example `ERR_READ`) before the interrupt.
+5. **`standalone/src/texture_pack.cpp` `InGameFolder`:** knows `gea` / `geae8p` / `geap8p` but not `GEAJ8P`;
+   a Japanese pack laid out Dolphin-style as `<pack>/GEAJ8P/...` imports zero textures.
+6. **`standalone/src/main.cpp` `PinThread`:** `SKIES_PIN_CPU` / `SKIES_PIN_VIDEO` go from `atoi()` straight
+   to `CPU_SET` without a check against `CPU_SETSIZE`; `=1024` writes outside the `cpu_set_t`, and a garbage
+   value pins to core 0 silently.
+7. **`tools/build-dawn-package.sh` "patch applied" check:** pairs the patch's first `+` line with its first
+   `+++ b/` file, which need not be the same file; a multi-file patch can be reported missing from a correctly
+   patched tree. Check each file's own added line, or `git apply --check --reverse`.
+8. **`standalone/src/hw_si.cpp` `TransferDone`:** copies the 128-byte SI buffer into a local `request` that is
+   never read; delete the copy.
+9. **`hw_di.cpp`:** the four-field buffer reset is copy-pasted in `DiInit`, `DiDoState` and `DiFromDolphin`;
+   one `ResetReadBuffer()` helper (finding 1 is one of the three drifting).
