@@ -1119,9 +1119,44 @@ commits, 8cbdaac (QoS) and 9a77aae (PGO), below.
 - **Packaging, for item 10:** a plain configure leaves the release table empty, so the standalone never
   patches the game's DOL. Pass `-DSKIES_RELEASE_DISC_IDS="GEAE8P;GEAP8P"` and
   `-DSKIES_RELEASE_DOL_PATCHES=<the patches>`; then a plain DOL gets "Applied native DOL patches", and a DOL
-  from an earlier import gets the "The game needs updating" box (modal: a headless test waits on it). libpng is
-  linked as `@rpath/libpng16.16.dylib` with an rpath into the build folder: bundle it or link it statically.
+  from an earlier import gets the "The game needs updating" box (modal: a headless test waits on it). libpng was
+  linked as `@rpath/libpng16.16.dylib` with an rpath into the build folder; it is static on macOS since 654321b
+  (zlib is the system's).
 - **Open (the user, at the Mac):** the menu overlay by eye; the DualSense Edge (input, rumble, Button mapping,
   the controller's name) and the keyboard; sound against the picture by ear; Play from the launcher (a scratch
   copy of the app, portable, on a copy of the data); the picture and the sound after a restore from the Dock;
   a profile trained on the Mac (untried).
+
+**Sweep (2026-10-27, later), 18 starts on the Mac:** every save state and card save on it (USA: boot, the
+Dolphin build's states 01 / 02 / 03 / 04 / 07 / 10 / smoke, card files 1-3; EU: boot; Japanese: boot, the first
+battle, a 45 s state, card files 1-3), each with the matching module (USA: this branch's DOL + the PGO module;
+EU / JP: ws28's). Per start, uncapped, `SKIES_RTC=847000789`, `AURORA_SYNC_PIPELINES=1`: run A with scripted
+input for 50 s of game time (A and the D-pad every 1.5 s), run B the same again, C1 without input and an
+auto-save every 3 s, C2 loading C1's first auto-save in a new process; frames every 150-300 compared by hash.
+Scripts and contact sheets in the Mac session's scratchpad (`sweep/run.sh`, `report.py`, `montage.py`).
+
+- **No crash, hang or error line in 72 runs** (plus 24 at 4x + 4x MSAA and 24 at 60 fps on six of the starts:
+  field, battle, world map, card, EU, JP). By eye (contact sheets of every start): logos, title, cutscenes with
+  text, field, battles to the results screen, the world map, the save screens in English and Japanese, all
+  right. State 03's ceiling view is the scene as saved (the Dolphin build shows the same), and `jp-pirate-isle.sav`
+  is at the intro, despite its name (45 s after boot).
+- **Repeatable:** A = B on 16 of 18 starts. The other differences are 1-2 pixels by 1-10 levels in a frame,
+  mostly at the Pirate Isle underground save point's glow (card file 3, either region), once in the first
+  battle at 60 fps; reruns are mostly identical (two of three): GPU-level flutter, invisible, but frame
+  comparisons on Metal need a few pixels of tolerance.
+- **Save-state round trip exact at the default scale:** C2 = C1 for every field start (the same flutter
+  aside), and a menu slot save in battle (us-02, jp-battle) loads to frames identical to the run that went on.
+  Auto-save never fires in battle, by design (`GAME_MODE` 6 only).
+- **Bug (open): a state loaded at an internal resolution other than 2x changes the red save point's beam.**
+  Card file 1 (the red-alarm save point), `GFX.ini` `InternalResolution = 4`: after a load, every frame differs
+  from the run that went on in the beam's sparks (2-2.7% of the picture, x 1251-2054 y 785-1745 of 2560x1920,
+  from the first frame after the load). 1x and 3x too (14k / 55-69k pixels); exactly 2x (the window's scale)
+  and MSAA alone are exact. The scene keeps 4 rotating single-channel (R8) converted copies of the whole
+  screen (`fmt 8`, ~2 per frame, `SKIES_COPY_LOG=1`), a feedback effect, so a difference never fades. Ruled out:
+  the cache key (snapshot and live copies both 2560x1920; no copy-cache miss after the restore, temporary
+  logging in `copy_tex` and `aurora_backend_copies_restore`), the copy events (identical after the save), and the
+  new process (a load in the same process gives the identical difference, the same pixel count). So the
+  snapshot / restore of these copies (`aurora_graphics.cpp`) loses something at scales other than 2x. Repro:
+  `--continue 1` with that GFX.ini, `SKIES_AUTO_SAVE_SECONDS=3`, then `--load-state` the first
+  `recovery-*.sav` in a fresh user folder; compare `SKIES_DUMP_EVERY=150` frames after the save's frame. Probably
+  not Mac-specific (nothing in the path is); not yet tried on WSL / Windows.

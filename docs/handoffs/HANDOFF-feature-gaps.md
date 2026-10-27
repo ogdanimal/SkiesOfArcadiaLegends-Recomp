@@ -1173,8 +1173,7 @@ checks 3-5 days).
 - Desktop: add the standalone binary to the release jobs (Windows MSVC as `C:\dev\SkiesStandalone`'s
   `build.bat`, Linux / AppImage, macOS). Configure it with `SKIES_RELEASE_DISC_IDS` /
   `SKIES_RELEASE_DOL_PATCHES` (without them the release table is empty and the game's DOL is never patched).
-  macOS: libpng is linked as `@rpath/libpng16.16.dylib` (rpath into the build folder): bundle it in the app or
-  link it statically.
+  macOS: libpng is static since 654321b (it was `@rpath/libpng16.16.dylib` with an rpath into the build folder).
 - Android: `tools/android-standalone-build.sh` packs one module without Gradle. Extend it to three modules,
   the launcher classes and `libskiesimport.so`, then call it from CI (it needs the Android build tools).
   Sign with `tools/sign-apk.sh` and the release key. The final app ID replaces `com.skiesofarcadia.standalone`.
