@@ -1730,7 +1730,7 @@ index 2d7f795689..13d6e5b4dd 100644
          if (std::abs(xr) > controller->m_deadZones.substickDeadZone) {
            xr /= 256;
 diff --git a/GXRuntime/graphics/aurora/lib/gfx/common.cpp b/GXRuntime/graphics/aurora/lib/gfx/common.cpp
-index 4c672587f0..9cb79fe633 100644
+index 4c672587f0..8e70e0103d 100644
 --- a/GXRuntime/graphics/aurora/lib/gfx/common.cpp
 +++ b/GXRuntime/graphics/aurora/lib/gfx/common.cpp
 @@ -22,13 +22,17 @@
@@ -1964,7 +1964,19 @@ index 4c672587f0..9cb79fe633 100644
  
    current_render_passes().emplace_back();
    auto& pass = current_render_passes()[0];
-@@ -1420,6 +1546,86 @@ static void encode_op(wgpu::CommandEncoder& cmd, FramePacket& frame, const Frame
+@@ -1226,6 +1352,11 @@ bool begin_frame() {
+   // Refresh render viewport/scissor from logical in case FB size changed
+   g_cachedViewport = gx::map_logical_viewport(gx::g_gxState.logicalViewport);
+   g_cachedScissor = gx::map_logical_scissor(gx::g_gxState.logicalScissor);
++  // The GX state's mapped copies too: the draws' uniforms (line and point sizes), the full-screen quad
++  // check and the texture LOD bias read them, and a render size change (resolution, window resize)
++  // left them at the old size until the game set its viewport again
++  gx::g_gxState.renderViewport = g_cachedViewport;
++  gx::g_gxState.renderScissor = g_cachedScissor;
+   push_command(CommandType::SetViewport, Command::Data{.setViewport = g_cachedViewport});
+   push_command(CommandType::SetScissor, Command::Data{.setScissor = g_cachedScissor});
+   begin_pipeline_frame();
+@@ -1420,6 +1551,86 @@ static void encode_op(wgpu::CommandEncoder& cmd, FramePacket& frame, const Frame
    }
  }
  
@@ -2051,7 +2063,7 @@ index 4c672587f0..9cb79fe633 100644
  static void render(wgpu::CommandEncoder& cmd, FramePacket& frame, RenderPass& passInfo, uint32_t passIndex) {
    ZoneScoped;
    if (!passInfo.sealed) {
-@@ -1526,12 +1732,23 @@ static void render(wgpu::CommandEncoder& cmd, FramePacket& frame, RenderPass& pa
+@@ -1526,12 +1737,23 @@ static void render(wgpu::CommandEncoder& cmd, FramePacket& frame, RenderPass& pa
        };
        cmd.CopyTextureToTexture(&src, &dst, &size);
      }
@@ -4712,7 +4724,7 @@ index 5b176e702c..0d62c6db79 100644
    } else if (subCmd == GX_AURORA_DEBUG_GROUP_PUSH) {
      auto label = read_string(data, pos, size, bigEndian);
 diff --git a/GXRuntime/graphics/aurora/lib/gx/gx.cpp b/GXRuntime/graphics/aurora/lib/gx/gx.cpp
-index 5915c5b5f7..0e01e6655f 100644
+index 5915c5b5f7..06f4a080bb 100644
 --- a/GXRuntime/graphics/aurora/lib/gx/gx.cpp
 +++ b/GXRuntime/graphics/aurora/lib/gx/gx.cpp
 @@ -1,3 +1,9 @@
@@ -4911,21 +4923,21 @@ index 5915c5b5f7..0e01e6655f 100644
 +          return entry.handle;
 +        }
 +        pendingHandle = entry.handle;
-       }
-     }
-   }
- 
++      }
++    }
++  }
++
 +  RetailTextureKey retailKey;
 +  const bool retail = make_retail_key(obj, nullptr, retailKey);
 +  if (retail && !pendingHandle) {
 +    if (const auto it = s_retailTextureCache.find(retailKey); it != s_retailTextureCache.end() && it->second) {
 +      if (!replacement_may_be_ready(it->second)) {
 +        return it->second;
-+      }
+       }
 +      pendingHandle = it->second;
-+    }
-+  }
-+
+     }
+   }
+ 
    gfx::TextureHandle handle;
 -  if (const auto replacement = gfx::texture_replacement::find_replacement(obj); replacement.has_value()) {
 +  const uint32_t generation = gfx::texture_replacement::load_generation();
@@ -4969,21 +4981,21 @@ index 5915c5b5f7..0e01e6655f 100644
 +          return entry.handle;
 +        }
 +        pendingHandle = entry.handle;
-       }
-     }
-   }
- 
++      }
++    }
++  }
++
 +  RetailTextureKey retailKey;
 +  const bool retail = make_retail_key(obj, &tlut, retailKey);
 +  if (retail && !pendingHandle) {
 +    if (const auto it = s_retailTextureCache.find(retailKey); it != s_retailTextureCache.end() && it->second) {
 +      if (!replacement_may_be_ready(it->second)) {
 +        return it->second;
-+      }
+       }
 +      pendingHandle = it->second;
-+    }
-+  }
-+
+     }
+   }
+ 
    gfx::TextureHandle handle;
 -  if (const auto replacement = gfx::texture_replacement::find_replacement(obj, tlut); replacement.has_value()) {
 +  const uint32_t generation = gfx::texture_replacement::load_generation();
@@ -5013,7 +5025,7 @@ index 5915c5b5f7..0e01e6655f 100644
    return handle;
  }
  
-@@ -391,8 +590,57 @@ void evict_tlut_object(u32 tlutObjId) noexcept {
+@@ -391,8 +590,59 @@ void evict_tlut_object(u32 tlutObjId) noexcept {
    }
  }
  
@@ -5040,8 +5052,10 @@ index 5915c5b5f7..0e01e6655f 100644
 +  g_gxState.stateDirty = true;
 +  g_gxState.clearVtxSizeCache();
 +  gfx::restart_efb_pass();
-+  gfx::set_viewport(g_gxState.renderViewport);
-+  gfx::set_scissor(g_gxState.renderScissor);
++  // Mapped again from the logical rects: the other context's were mapped at the render size of its
++  // last use, which may have changed since
++  set_render_viewport(map_logical_viewport(g_gxState.logicalViewport));
++  set_render_scissor(map_logical_scissor(g_gxState.logicalScissor));
 +  return true;
 +}
 +
@@ -5071,7 +5085,7 @@ index 5915c5b5f7..0e01e6655f 100644
    g_gxState.copyTextureCache.clear();
    for (auto& [_, cache] : s_tlutObjectCaches) {
      cache.dynamicPaletteTextures.clear();
-@@ -401,6 +649,63 @@ void clear_copy_texture_cache() noexcept {
+@@ -401,6 +651,63 @@ void clear_copy_texture_cache() noexcept {
  
  void clear_static_texture_cache() noexcept { s_staticTextureCacheClearPending.store(true, std::memory_order_release); }
  
@@ -5135,7 +5149,7 @@ index 5915c5b5f7..0e01e6655f 100644
  void evict_copy_texture(const void* dest) noexcept {
    absl::flat_hash_set<const void*> sourceIdentities;
    if (const auto it = g_gxState.copyTextures.find(dest); it != g_gxState.copyTextures.end()) {
-@@ -454,7 +759,13 @@ void resolve_sampled_textures(const ShaderInfo& info) noexcept {
+@@ -454,7 +761,13 @@ void resolve_sampled_textures(const ShaderInfo& info) noexcept {
      }
  
      gfx::TextureHandle handle;
@@ -5150,7 +5164,7 @@ index 5915c5b5f7..0e01e6655f 100644
      const GXState::CopyTextureRef* copyRef = copyIt != g_gxState.copyTextures.end() ? &copyIt->second : nullptr;
      if (is_palette_format(obj.format())) {
        GXTlutObj_ recompTlut{};
-@@ -475,6 +786,27 @@ void resolve_sampled_textures(const ShaderInfo& info) noexcept {
+@@ -475,6 +788,27 @@ void resolve_sampled_textures(const ShaderInfo& info) noexcept {
            tlut = &recompTlut;
          }
        }
@@ -5178,7 +5192,7 @@ index 5915c5b5f7..0e01e6655f 100644
        if (tlut != nullptr) {
          if (copyRef != nullptr) {
            handle = resolve_dynamic_palette_texture(obj, *copyRef, *tlut);
-@@ -484,10 +816,19 @@ void resolve_sampled_textures(const ShaderInfo& info) noexcept {
+@@ -484,10 +818,19 @@ void resolve_sampled_textures(const ShaderInfo& info) noexcept {
        }
      } else if (copyRef != nullptr) {
        handle = copyRef->handle;
@@ -5198,7 +5212,7 @@ index 5915c5b5f7..0e01e6655f 100644
      obj.mFormat = resolved_format_for_handle(handle);
      textureBind = gfx::TextureBind{obj, std::move(handle)};
    }
-@@ -573,7 +914,41 @@ static inline wgpu::BlendState to_blend_state(GXBlendMode mode, GXBlendFactor sr
+@@ -573,7 +916,41 @@ static inline wgpu::BlendState to_blend_state(GXBlendMode mode, GXBlendFactor sr
      break;
    case GX_BM_LOGIC:
      switch (op) {
@@ -5241,7 +5255,7 @@ index 5915c5b5f7..0e01e6655f 100644
      case GX_LO_CLEAR:
        colorBlendComponent = {
            .operation = wgpu::BlendOperation::Add,
-@@ -666,12 +1041,24 @@ wgpu::RenderPipeline build_pipeline(const PipelineConfig& config, ArrayRef<wgpu:
+@@ -666,12 +1043,24 @@ wgpu::RenderPipeline build_pipeline(const PipelineConfig& config, ArrayRef<wgpu:
        .depthBiasSlopeScale = depthBiasSlopeScale,
        .depthBiasClamp = depthBiasClamp,
    };
@@ -5268,7 +5282,7 @@ index 5915c5b5f7..0e01e6655f 100644
    }};
    const wgpu::FragmentState fragmentState{
        .module = shader,
-@@ -968,6 +1355,18 @@ static std::pair<wgpu::FilterMode, wgpu::MipmapFilterMode> wgpu_filter_mode(GXTe
+@@ -968,6 +1357,18 @@ static std::pair<wgpu::FilterMode, wgpu::MipmapFilterMode> wgpu_filter_mode(GXTe
    }
  }
  
@@ -5287,7 +5301,7 @@ index 5915c5b5f7..0e01e6655f 100644
  static u16 wgpu_aniso(GXAnisotropy aniso) {
    switch (aniso) {
      DEFAULT_FATAL("invalid aniso {}", static_cast<int>(aniso));
-@@ -987,7 +1386,22 @@ wgpu::SamplerDescriptor aurora::gfx::TextureBind::get_descriptor() const noexcep
+@@ -987,7 +1388,22 @@ wgpu::SamplerDescriptor aurora::gfx::TextureBind::get_descriptor() const noexcep
    const bool mipsEnabled = mipFilter != wgpu::MipmapFilterMode::Undefined;
    float minLod = texObj.min_lod();
    float maxLod = texObj.max_lod();
