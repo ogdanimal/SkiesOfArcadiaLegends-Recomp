@@ -47,6 +47,9 @@
 #if defined(__linux__)
 #include <sched.h>
 #endif
+#if defined(__APPLE__)
+#include <pthread.h>
+#endif
 
 namespace host
 {
@@ -188,7 +191,7 @@ void ThrottleRestart()
 // SchedulePresent), which takes up the rest. docs/handoffs/HANDOFF-emulator-free.md, *Pacing on the Pocket 5*.
 // SKIES_PIN_CPU=fast|none|N picks the cores; SKIES_THROTTLE_SPIN_MS=N busy-waits the last N ms before each
 // field's target instead of sleeping them (-1: all of it; it raises the clock, at a power cost).
-#if defined(__ANDROID__)
+#if defined(__ANDROID__) || defined(__APPLE__)
 constexpr const char* DEFAULT_PIN = "fast";
 constexpr double DEFAULT_SPIN_MS = 0;
 #else
@@ -235,7 +238,8 @@ std::vector<cpu_set_t> CoreTiers()
 #endif
 
 // Keeps the calling thread on some cores: ENV=fast|none|N (fast: the cores of the given clock tier, 0
-// the fastest; a device with one tier has only that), else the platform's default.
+// the fastest; a device with one tier has only that; on macOS any value but none is the user-interactive
+// QoS class), else the platform's default.
 void PinThread(const char* env, const char* default_pin, size_t tier, const char* name)
 {
 #if defined(__linux__)
@@ -260,6 +264,19 @@ void PinThread(const char* env, const char* default_pin, size_t tier, const char
       cpus += (cpus.empty() ? "" : ",") + std::to_string(cpu);
   const int rc = sched_setaffinity(0, sizeof(set), &set);
   Log("[host] %s on cpu %s: %s\n", name, cpus.c_str(), rc == 0 ? "ok" : "failed");
+#elif defined(__APPLE__)
+  // No affinity on macOS: the user-interactive QoS class keeps a thread on the performance cores (an SDL
+  // thread starts at the default class, which the scheduler moves to the efficiency cores under load: on
+  // an M4 beside 8 busy default-class processes, 2.18x without and 3.45x with it, as fast as with none)
+  (void)tier;
+  const char* pin = std::getenv(env);
+  if (std::strcmp(pin ? pin : default_pin, "none") == 0)
+    return;
+  qos_class_t before = QOS_CLASS_UNSPECIFIED;
+  pthread_get_qos_class_np(pthread_self(), &before, nullptr);
+  const int rc = pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+  Log("[host] %s at user-interactive QoS (was 0x%x): %s\n", name, static_cast<unsigned>(before),
+      rc == 0 ? "ok" : "failed");
 #else
   (void)env;
   (void)default_pin;
