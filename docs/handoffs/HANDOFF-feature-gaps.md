@@ -307,7 +307,12 @@ its checks and a commit; device-heavy ones end with a head-to-head.
   stretch (with the video thread off, so GPU waits add to the frame): Off 0.9x, 2x / 4x 0.55x, 8x 0.39x;
   wall time for the route 167 / 210 / 217 / 284 s. 6x is already past this iGPU at Off; the useful
   settings there are lower resolutions, where MSAA's share is the same ratio of a smaller frame.
-- **Open:** menu changes by hand on Windows / the Pocket 5 (only the ini path was driven here).
+- **The menu path on Windows, scripted (2026-10-27):** `build\skies-standalone.exe` (prebuilt Dawn: Off / 4x),
+  the plain DOL from a cold boot, `SKIES_PRESS_FILE` with `30.0:Z,30.1:START` (Z held first), `R` (Graphics),
+  four `DOWN` (Anti-aliasing), `RIGHT`, `START`: the log shows `[menu] open`, `[menu] closed`, then
+  `[menu] anti-aliasing 4x MSAA` (staged changes apply on close), and `GFX.ini` gets `MSAA = 4`. Frame dumps
+  hold the game's picture only, not the overlay.
+- **Open:** the menu overlay by eye on Windows; the menu on the Pocket 5.
 - **Frame rate** belongs to item 6, **HD textures** to item 5.
 
 ## 3. Input: keyboard layout, rumble, names, Button mapping
