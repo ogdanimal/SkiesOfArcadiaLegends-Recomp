@@ -1153,16 +1153,21 @@ Scripts and contact sheets in the Mac session's scratchpad (`sweep/run.sh`, `rep
 - **Save-state round trip exact at the default scale:** C2 = C1 for every field start (the same flutter
   aside), and a menu slot save in battle (us-02, jp-battle) loads to frames identical to the run that went on.
   Auto-save never fires in battle, by design (`GAME_MODE` 6 only).
-- **Bug (open): a state loaded at an internal resolution other than 2x changes the red save point's beam.**
-  Card file 1 (the red-alarm save point), `GFX.ini` `InternalResolution = 4`: after a load, every frame differs
-  from the run that went on in the beam's sparks (2-2.7% of the picture, x 1251-2054 y 785-1745 of 2560x1920,
-  from the first frame after the load). 1x and 3x too (14k / 55-69k pixels); exactly 2x (the window's scale)
-  and MSAA alone are exact. The scene keeps 4 rotating single-channel (R8) converted copies of the whole
-  screen (`fmt 8`, ~2 per frame, `SKIES_COPY_LOG=1`), a feedback effect, so a difference never fades. Ruled out:
-  the cache key (snapshot and live copies both 2560x1920; no copy-cache miss after the restore, temporary
-  logging in `copy_tex` and `aurora_backend_copies_restore`), the copy events (identical after the save), and the
-  new process (a load in the same process gives the identical difference, the same pixel count). So the
-  snapshot / restore of these copies (`aurora_graphics.cpp`) loses something at scales other than 2x. Repro:
-  `--continue 1` with that GFX.ini, `SKIES_AUTO_SAVE_SECONDS=3`, then `--load-state` the first
-  `recovery-*.sav` in a fresh user folder; compare `SKIES_DUMP_EVERY=150` frames after the save's frame. Probably
-  not Mac-specific (nothing in the path is); not yet tried on WSL / Windows.
+- **Bug found and fixed (fork 0052): a resolution change left the GX state's viewport at the old size.** Seen
+  as a save state that changed the red save point's beam at an internal resolution other than 2x (card file 1,
+  `GFX.ini` `InternalResolution = 4`: every frame after a load differed in the beam's sparks, 2-2.7% of the
+  picture; 1x and 3x too; 2x, the window's scale, and MSAA alone exact). Not the copies: dumped at the frames
+  after a load (a temporary `SKIES_COPIES_DUMP` hook), all four of the scene's R8 copies were byte-identical to
+  the run that went on, while the picture already differed. Aurora's draw log (`SKIES_DRAW_LOG_FRAME`) showed
+  it: in the run that went on, the 640x480 viewport mapped to **1707x960** (the scale before the 4x setting
+  applied) while the scissor mapped to 2560x1920. `set_logical_viewport` / `_scissor` map the game's rects
+  into `g_gxState.renderViewport` / `renderScissor` only when the game sets them; the frame start refreshed
+  gfx's cached viewport from the logical one but not those, and the draws' uniforms (line and point sizes:
+  the sparks), the full-screen quad check, the texture LOD bias and the replay context switch read them. A
+  state load re-applies the GP registers, which mapped them right, so the loaded picture was the correct one,
+  and the bug was in normal play: **after a resolution change (the menu, a config, a window resize while the
+  resolution follows the window) some effects drew at the old size until the game set its viewport again.**
+  The fix: the frame start keeps the GX state's mapped copies in step, and the replay context switch maps
+  them again from the logical rects. Checked on the M4: the round trip exact at 1x, 2x, 3x and 4x, and at 4x
+  with 60 fps (interpolated frames too); the 18-start sweep at the default scale gives the same frames as
+  before (GPU flutter aside).
