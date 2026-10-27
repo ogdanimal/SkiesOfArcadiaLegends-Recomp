@@ -49,7 +49,7 @@ Continue on the Pocket 5 (item 1); MSAA's
 cost on a GPU the game saturates (item 2); shipping the patched Dawn (item 2); rumble by hand,
 a capture with a real pad, two pads and the Pocket 5 (item 3); the
 cloud-sea edges and the full 4x pack (item 5); 60 fps on the Nova and its scene list (item 6); the
-video thread on the Nova and with a pad by hand; item 7's open list (m03 and the intro in game, the
+video thread on the Nova and with a pad by hand; item 7's open list (m03 in game, the Dreamcast intro by ear, the
 save point's music cost).
 
 ## Ground rules
@@ -829,8 +829,16 @@ engines' CPU cost against the performance goal (measure on the Pocket 5).
   follow (its timing words are part of the key, so they differ by design), and after the intro the
   European disc starts another stream (140.76 s) where the USA reads nothing to 190 s: not compared
   with the Dolphin build.
-- **Open:** the m03 scene and the intro with the Dreamcast recordings in game; the Android picker import
-  (item 9); the save point's music cost; whether the Dolphin build's European disc also starts a stream
+- **The intro with the Dreamcast recording plays in the standalone (2026-10-27).** WSL, headless, the USA ws30
+  game, a cold boot to 150 guest s, `SKIES_DC_MUSIC_SYNC=1` (mixed in guest time, so on and off line up),
+  `SKIES_WAV`, the music folder copied from `C:\dev\SkiesUncensor\app\User\DreamcastMusic` without its
+  `STREAMS`: `Dreamcast stream m01 left/right: .../SOUND/M01S.P04 (122.6 s; the GameCube's 128.2 s)` and m03
+  converted at boot, the four `STREAMS` files byte-identical to the Dolphin build's. Sound (peak over 200,
+  50 ms steps) from 16.4 to 137.85 s with `DreamcastMusic = 1`, 16.9 to 139.05 s with the GameCube's
+  stream; the two differ all through (another recording), the Dreamcast one quieter for its first ~40 s
+  (RMS 77-882 against 602-3,421), then louder (2,608-3,946 against 2,122-2,576). By ear: not yet.
+- **Open:** the m03 scene in game (no state reaches it); the intro with the Dreamcast recording by ear; the
+  Android picker import (item 9); the save point's music cost; whether the Dolphin build's European disc also starts a stream
   after the intro. (A romhack whose file sizes differ: done 2026-10-26, item 8.)
 
 ## Items 8-10: the standalone replaces the Dolphin build (decided 2026-10-26)
