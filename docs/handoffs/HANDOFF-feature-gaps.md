@@ -45,8 +45,8 @@ Items 9 and 10 need dev's code merged in first; **the user said hold** (no merge
 10 need dev's current code* below). **Pick up at items 8-10**, now one goal: the standalone **replaces** the Dolphin build as a normal update
 (the user, 2026-10-26; *Items 8-10* below has the approach, the runner contract and what doesn't carry over
 yet). Standing leftovers:
-Continue on the Pocket 5 (item 1); GPU
-cost at 4x / 6x resolution (item 2); shipping the patched Dawn and the macOS build (item 2); rumble by hand,
+Continue on the Pocket 5 (item 1); MSAA's
+cost on a GPU the game saturates (item 2); shipping the patched Dawn and the macOS build (item 2); rumble by hand,
 a capture with a real pad, two pads and the Pocket 5 (item 3); the
 cloud-sea edges and the full 4x pack (item 5); 60 fps on the Nova and its scene list (item 6); the
 video thread on the Nova, macOS and with a pad by hand; item 7's open list (m03 and the intro in game, the
@@ -286,8 +286,18 @@ its checks and a commit; device-heavy ones end with a head-to-head.
   (frames 2160-2280) is the same inside; only its edge is smoother (1,130 pixels in the beam's area of
   frame 2220). A scan of all 91 frames for isolated pixels much brighter at 4x than Off and than their
   neighbours finds only geometry edges (door frames, armour, floor seams). The Pocket 5 showed none either
-  (above). **Open:** GPU cost at 4x / 6x with `AURORA_GPU_PROF=300`; menu changes by hand on Windows / the
-  Pocket 5 (only the ini path was driven here).
+  (above).
+- **MSAA at 4x / 6x on the RTX 5080 costs no speed (2026-10-27).** The fight route (as above, 185 s guest,
+  `--unthrottled`, `SKIES_VIDEO_THREAD=0` so Aurora's log lines don't interleave with the host's, stderr
+  apart from stdout, `AURORA_GPU_PROF=300`, `build-dawnsrc`) at EFB 4x and 6x with MSAA Off / 2x / 4x / 8x:
+  all eight end on the same dispatch count, and the host's speed samples match within ±0.05x (1.0-2.4x
+  along the route), so the CPU side sets the pace in every case. GPU work per frame (span minus not in a
+  zone, 18 windows of 300 frames) stays under 5.1 ms in every window of every run; the means don't rise
+  with the sample count (4x: Off 0.73, 2x 1.78, 4x 3.22, 8x 2.18 ms; 6x: Off 2.33, 2x 2.73, 4x 1.85,
+  8x 1.88 ms) because the card idles between frames and its clock follows the load, so these times measure
+  the clock more than the work. A cost figure would need a GPU the game saturates (the Intel UHD 770 via
+  the low-power switch, fork 0030, or the Pocket 5, whose 2x / 4x figures are above).
+- **Open:** menu changes by hand on Windows / the Pocket 5 (only the ini path was driven here).
 - **Frame rate** belongs to item 6, **HD textures** to item 5.
 
 ## 3. Input: keyboard layout, rumble, names, Button mapping
