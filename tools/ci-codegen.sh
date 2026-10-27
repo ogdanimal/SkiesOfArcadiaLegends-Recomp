@@ -12,7 +12,8 @@
 #                  Japanese: NAME-jp/generated
 #                  (no DOL in any; checked)
 # pgo/windows.profdata is the desktop profile (trained on Linux with tools/pgo-wsl.sh), used for both
-# x86_64 targets. A build without its profile has no PGO (the profiles are keyed by code addresses,
+# x86_64 targets and macOS (on an M4 as fast as the Android profile, 11-16% over none). A build without
+# its profile has no PGO (the profiles are keyed by code addresses,
 # so the USA ones don't fit the European DOL). DOLRECOMP defaults to lib/ModernGekko/build/dolrecomp;
 # TARGETS (default: all of codegen-targets.txt) and REGIONS (default: "us" and each of "eu" / "jp"
 # whose main-eu.dol / main-jp.dol the secrets have) limit the run. CI runs it once per target and region.

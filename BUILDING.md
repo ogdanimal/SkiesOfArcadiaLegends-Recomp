@@ -104,13 +104,13 @@ python3 -I tools/applydolpatch.py /path/to/japanese/main.dol release/skies-wides
 `tools/ci-codegen.sh` is the release recipe: from a folder holding `main.dol` (the USA original),
 `main-eu.dol` (the European original), `main-jp.dol` (the Japanese original; without either, the
 games it has) and the PGO profiles
-`pgo/windows.profdata` (desktop, used for both x86_64 targets), `pgo/android.profdata` and optionally
-`pgo/macos.profdata`, it patches each DOL, runs DolRecomp for each target in
+`pgo/windows.profdata` (desktop, used for both x86_64 targets and macOS) and `pgo/android.profdata`,
+it patches each DOL, runs DolRecomp for each target in
 `tools/codegen-targets.txt` (Windows, Linux, Android, macOS; one line each: the LLVM triple, CPU and
 profile) and precomputes each module's tables, so the module builds below never need the DOL. The
 USA game goes to `windows/`, `linux/`, `android/` and `macos/`, the European one to `windows-eu/` and
 so on, the Japanese one to `windows-jp/` and so on, built without PGO unless `pgo/windows-eu.profdata`
-/ `pgo/android-eu.profdata` / `pgo/macos-eu.profdata` (`-jp` likewise) exist (the profiles are keyed
+/ `pgo/android-eu.profdata` (`-jp` likewise) exist (the profiles are keyed
 by code addresses, which differ between the games). A target without its profile is built without PGO:
 
 ```sh
@@ -211,9 +211,9 @@ This makes `build/SkiesOfArcadiaLegends-VERSION-macos.zip`: `Skies of Arcadia Le
 launcher, `skies-run` and the modules in `Contents/MacOS`; `Sys`, the DOL patches and the launcher
 background in `Contents/Resources`) and the documents. The app is signed ad hoc (Apple Silicon runs
 nothing unsigned), not with a Developer ID, so Gatekeeper asks before the first start (see the
-[README](README.md#getting-started)). The macOS codegen is built without PGO until there is a
-`pgo/macos.profdata` (none trained yet: the desktop profile was trained on x86_64 and the Android one
-on Android's target). `REGIONS` works as on Linux. CI runs these steps in validate.yml's `macos` job
+[README](README.md#getting-started)). The macOS codegen uses the desktop profile
+`pgo/windows.profdata`: the profiles are keyed by game code, not by the host CPU, and on an M4 it is as
+fast as the Android one (11-16% over no PGO). `REGIONS` works as on Linux. CI runs these steps in validate.yml's `macos` job
 (a `macos-15` runner with Xcode 26 selected, Homebrew's Ninja), from the `macos us` / `macos eu` /
 `macos jp` codegen jobs' `codegen/macos{,-eu,-jp}`. The script builds Dolphin's own zstd, lz4, LZO and libusb
 (`USE_SYSTEM_*=OFF`; the runner has Homebrew's), and `package` stops if the launcher or runner links
@@ -299,7 +299,7 @@ Secrets (in the `ci` environment, and `release` for signing; none at repository 
 
 | Secret | What |
 |---|---|
-| `SOAL_SECRETS_REPO_WITH_PAT` | `https://x-access-token:<PAT>@github.com/<owner>/<secrets repo>.git`: `main.dol` (USA original, SHA-256 `87c240ac...`), `main-eu.dol` (European original, `d0e9fc91...`), `main-jp.dol` (Japanese original, `4aa0f3dc...`) and `pgo/windows.profdata`, `pgo/android.profdata` at its root (`pgo/macos.profdata` and the European and Japanese profiles `pgo/*-eu.profdata`, `pgo/*-jp.profdata` optional) |
+| `SOAL_SECRETS_REPO_WITH_PAT` | `https://x-access-token:<PAT>@github.com/<owner>/<secrets repo>.git`: `main.dol` (USA original, SHA-256 `87c240ac...`), `main-eu.dol` (European original, `d0e9fc91...`), `main-jp.dol` (Japanese original, `4aa0f3dc...`) and `pgo/windows.profdata`, `pgo/android.profdata` at its root (the European and Japanese profiles `pgo/*-eu.profdata`, `pgo/*-jp.profdata` optional) |
 | `SOAL_ARTIFACT_KEY` | any long random string (encrypts the codegen artifact) |
 | `RELEASE_KEYSTORE_BASE64`, `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_PASSWORD`, `RELEASE_KEY_ALIAS` | Android release signing (`tools/make-release-key.sh`, then `tools/set-release-secrets.sh`) |
 

@@ -20,8 +20,8 @@
 #   SOAL_SECRETS_REPO_WITH_PAT -> https://x-access-token:<PAT>@github.com/<owner>/<secrets repo>.git
 #       holding main.dol (the ORIGINAL USA DOL), main-eu.dol (the ORIGINAL European DOL), main-jp.dol
 #       (the ORIGINAL Japanese DOL; SHA-256s below) and pgo/windows.profdata, pgo/android.profdata
-#       (optionally pgo/windows-eu.profdata, pgo/android-eu.profdata, pgo/macos.profdata,
-#       pgo/macos-eu.profdata and the -jp ones) at its root
+#       (optionally pgo/windows-eu.profdata, pgo/android-eu.profdata and the -jp ones; macOS uses
+#       the windows ones) at its root
 #   SOAL_ARTIFACT_KEY          -> any long random string (encrypts the codegen artifact)
 #   RELEASE_KEYSTORE_BASE64, RELEASE_STORE_PASSWORD, RELEASE_KEY_PASSWORD, RELEASE_KEY_ALIAS
 #       -> release signing (tools/make-release-key.sh); release mode only, and only in the

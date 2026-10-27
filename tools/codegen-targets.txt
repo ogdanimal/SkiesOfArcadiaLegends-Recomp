@@ -9,4 +9,4 @@
 windows  windows  -           x86_64-pc-windows-msvc
 linux    windows  -           x86_64-pc-linux-gnu
 android  android  cortex-a77  aarch64-unknown-linux-android24  --targets=aarch64
-macos    macos    apple-m1    arm64-apple-macosx13.0           --targets=aarch64
+macos    windows  apple-m1    arm64-apple-macosx13.0           --targets=aarch64

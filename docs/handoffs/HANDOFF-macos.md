@@ -9,7 +9,7 @@ macOS 26.3, Command Line Tools only, no Homebrew) in the main checkout
 `~/Projects/SkiesOfArcadiaLegends-Recomp`, with answers from the Windows/WSL session. Build
 steps: BUILDING *macOS*; patches: `patches/README.md` (`moderngekko-macos`, `recompcore-macos`,
 `recompcore-menu-close`, `dolrecomp-macho-sections`); developer notes: NOTES *macOS*. Open: the PS button's Game Overlay, a player check of the launcher,
-Developer ID signing / notarization, and a macOS PGO profile (*Open* below).
+Developer ID signing / notarization (*Open* below).
 
 ## What it is
 
@@ -24,7 +24,8 @@ Developer ID signing / notarization, and a macOS PGO profile (*Open* below).
   (MoltenVK needs the full Xcode). Audio: Cubeb.
 - Codegen: `TARGETS=macos tools/ci-codegen.sh` → `DOLRECOMP_LLVM_TARGET=arm64-apple-macosx13.0`,
   `DOLRECOMP_LLVM_CPU=apple-m1`, `--targets=aarch64` (the `macos` line of `tools/codegen-targets.txt`,
-  since 2026-10-19); no PGO (no `pgo/macos.profdata` yet).
+  since 2026-10-19); PGO with the desktop profile `pgo/windows.profdata` since 2026-10-27 (M4, standalone,
+  states 01 / 02 unthrottled: 3.01x / 5.14x without, 3.47x / 5.68x with it or the Android profile).
   Modules: `tools/module-macos.sh`.
 
 ## Checked (2026-10-18)
@@ -103,8 +104,8 @@ visible.
    selected, `a8d0007`: 16.4's libc++ has no `std::jthread`; bundled libraries only, `87ba4f3`; the codegen matrix's `macos us` /
    `macos eu` jobs make `codegen/macos{,-eu}` on Linux, the job links the modules and packages the
    app; release.yml ships the zip and checks it like the other packages). No Developer ID signing or notarization (backlog
-   *macOS release*). PGO profile for macOS not trained (`--profile-generate` run on the Mac, like
-   Android's device run; trying `pgo/android.profdata`, the same aarch64 code, is a cheap first step).
+   *macOS release*). PGO: the desktop profile since 2026-10-27 (the Android one measured the same); a
+   profile trained on the Mac (`--profile-generate`, like Android's device run) is untried.
 7. **Two speed bugs found by the 2026-10-19 benchmark (NOTES *macOS*), fixed in `recompcore-macos.patch`
    (build `v0.50.0-beta-fix`, not released; the user played with the pad after the fix, item 1):**
    Dolphin's `Sys` resolves to `<app>.app/Sys/` (`LINUX_LOCAL_DEV`), so the app runs without the game INI
