@@ -1055,7 +1055,13 @@ void FrameEndVideo(const FrameEnd& end)
   s_shown.clear();
   const bool dump = DumpWanted(end.frame);
   if (dump)
+  {
+    // As ReplayVideo: the readback goes with the next submitted present, so the frame before (still
+    // queued when presents are scheduled, as on Android) must be out first, or its picture gets this
+    // frame's number
+    aurora_backend_synchronize();
     aurora_request_framebuffer_readback();
+  }
   SchedulePresent(end.wall);
   if (PacingOn())
   {
