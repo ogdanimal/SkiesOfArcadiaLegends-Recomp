@@ -50,7 +50,7 @@ cost on a GPU the game saturates (item 2); shipping the patched Dawn (item 2); r
 a capture with a real pad, two pads and the Pocket 5 (item 3); the
 cloud-sea edges and the full 4x pack (item 5); 60 fps on the Nova and its scene list (item 6); the
 video thread on the Nova and with a pad by hand; item 7's open list (m03 and the intro in game, the
-European intro timing, the save point's music cost).
+save point's music cost).
 
 ## Ground rules
 
@@ -818,9 +818,20 @@ engines' CPU cost against the performance goal (measure on the Pocket 5).
   video thread's polling flips on and off (the game sleeps 12-18%, the threshold is 15%).
 - **Home and back with the music on** (Pocket 5): in the background neither the game's thread nor the
   audio thread takes measurable CPU (the music stops with the game), both resume on return.
-- **Open:** the m03 scene and the intro with the Dreamcast recordings in game; the European intro timing
-  (`cs_shot`, ratio 0.993-1.005) in the standalone; the Android picker import (item 9); the save point's
-  music cost. (A romhack whose file sizes differ: done 2026-10-26, item 8.)
+- **The European intro keeps the USA's timing in the standalone (2026-10-27).** WSL, headless,
+  `--unthrottled`, `SKIES_RTC=847000789`, muted, a cold boot to 190 guest s, the ws30 games and modules
+  (`~/projects/skies-pal60/build/game/GEAE8P-ws30` / `GEAP8P-ws30`, `build/ws30/module`, `build/ws30eu/module`),
+  `SKIES_WATCH=80002BE0` (`cs_shot`'s key, each change with its guest time) and `SKIES_DI_TRACE=1`. The log
+  says `European 60 Hz audio: 280 sound banks and 223 streams ready`. The shots both scripts share come
+  0.9996-1.0000 of the USA's stretch lengths (the 38.7 s and 17.6 s stretches 0.9998 / 0.9999), the European
+  disc +0.03 s behind at 53 s and +0.11 s at 118 s; the intro's music stream ends at 142.403 s against
+  142.363 s (+0.04 s; the Dolphin build's runs: +11 frames). From 118.7 s the European script's own shots
+  follow (its timing words are part of the key, so they differ by design), and after the intro the
+  European disc starts another stream (140.76 s) where the USA reads nothing to 190 s: not compared
+  with the Dolphin build.
+- **Open:** the m03 scene and the intro with the Dreamcast recordings in game; the Android picker import
+  (item 9); the save point's music cost; whether the Dolphin build's European disc also starts a stream
+  after the intro. (A romhack whose file sizes differ: done 2026-10-26, item 8.)
 
 ## Items 8-10: the standalone replaces the Dolphin build (decided 2026-10-26)
 
