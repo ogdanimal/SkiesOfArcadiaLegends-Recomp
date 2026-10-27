@@ -1349,3 +1349,13 @@ folders deleted.
   Music on is level with music off now (the 10-26 measurement had 35.9-36.6 against 34.3, before the
   snapped and display-paced presents of 889f191), and the standalone is ahead of the Dolphin build at the save
   point too. The device's performance mode was left as the user had it.
+
+## Issue #10 and the standalone (2026-10-27, a question, no work started)
+
+The user asked whether Aurora makes issue #10's kind of problem easier. The full sorting is in the backlog's
+#10 entry on branch `review` (20029ad, local). Short form: shots that show past their set, reframing and
+clipping from the original are game data, fixed in the game patch (`cutscene.c`) for both builds alike, so
+Aurora doesn't change them. The 4:3 screen effects (harpoon cannon, red Gigas beam, Lynx spells) and Fina's
+face at 60 fps are renderer-side, where the standalone's draw log, offline FIFO replay and its own
+interpolator make them easier to find. Neither is checked in the standalone yet. An unbuilt idea: a
+headless 16:9 sweep of the cutscenes flagging draws that land only in the side margins.
