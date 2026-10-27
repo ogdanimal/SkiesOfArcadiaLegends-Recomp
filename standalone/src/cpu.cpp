@@ -507,8 +507,17 @@ static void DecrementerDue(u64);
 // Guest MEM1, page-aligned (a static array: MSVC has no std::aligned_alloc)
 alignas(4096) static u8 s_ram_storage[RAM_SIZE];
 
+// Debug: SKIES_WATCH=ADDR (hex) logs the block (and lr) after which the word at ADDR changed (the
+// first 40 changes, or SKIES_WATCH_MAX). Read in CpuInit, not at static init (Android applies env.txt
+// in main()), and kept a plain variable since Watch() runs after every block.
+static u32 s_watch_address = 0;
+
 void CpuInit()
 {
+  {
+    const char* v = std::getenv("SKIES_WATCH");
+    s_watch_address = v ? static_cast<u32>(std::strtoul(v, nullptr, 16)) : 0u;
+  }
   std::memset(&g_cpu, 0, sizeof(g_cpu));
   std::memset(s_spr, 0, sizeof(s_spr));
   g_ram = s_ram_storage;
@@ -707,13 +716,6 @@ void DecrementerWritten()
   if ((value & 0x80000000u) == 0)
     Schedule(EV_DEC, static_cast<u64>(value) * TIMER_RATIO, DecrementerDue);
 }
-
-// Debug: SKIES_WATCH=ADDR (hex) logs the block (and lr) after which the word at ADDR changed (the
-// first 40 changes, or SKIES_WATCH_MAX).
-const u32 s_watch_address = [] {
-  const char* v = std::getenv("SKIES_WATCH");
-  return v ? static_cast<u32>(std::strtoul(v, nullptr, 16)) : 0u;
-}();
 
 static void WatchChanged(u32 pc, u32 address)
 {

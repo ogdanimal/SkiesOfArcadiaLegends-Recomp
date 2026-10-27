@@ -34,11 +34,16 @@ else
     git -C "$SRC" -c user.name=build -c user.email=build@localhost am "$ROOT"/patches/dawn/*.patch
   fi
 fi
-# The patches must be in the tree: each one's first added line appears in it
+# The patches must be in the tree: for each file a patch changes, the first line it adds there appears in it
 for p in "$ROOT"/patches/dawn/*.patch; do
-  line=$(grep -m1 '^+[^+]' "$p" | cut -c2-)
-  file=$(grep -m1 '^+++ b/' "$p" | cut -c7-)
-  grep -qF -- "$line" "$SRC/$file" || { echo "$SRC lacks $(basename "$p") ($file)" >&2; exit 1; }
+  checked=0
+  while IFS=$'\t' read -r file line; do
+    grep -qF -- "$line" "$SRC/$file" || { echo "$SRC lacks $(basename "$p") ($file)" >&2; exit 1; }
+    checked=$((checked + 1))
+  done < <(awk '/^\+\+\+ b\// { file = substr($0, 7); next }
+                /^\+\+\+ / { file = ""; next }
+                file != "" && /^\+[^+]/ { print file "\t" substr($0, 2); file = "" }' "$p")
+  [ "$checked" -gt 0 ] || { echo "$(basename "$p") adds no line to check" >&2; exit 1; }
 done
 
 # dawn-ci.cmake reads CMAKE_SYSTEM_NAME, so the target options come first (as in release.yml); LATE ones after

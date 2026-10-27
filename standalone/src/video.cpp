@@ -1208,7 +1208,10 @@ void VideoFromDolphin(const DolphinState& d)
   s_loaded_copies.assign(8, 0);
   const u32 magic = 0x53504F43;  // "COPS"
   std::memcpy(s_loaded_copies.data(), &magic, 4);
+  // Built apart and kept only once every entry parsed: a state that throws partway (DolphinStateApply
+  // fails, state.cpp restores its backup) must not leave copies for the next load's VideoStateLoaded
   s_dolphin_copies.clear();
+  std::vector<DolphinCopy> copies;
   const u64 count = d.U("video/texture_cache/entry_count");
   for (u64 i = 0; i < count; ++i)
   {
@@ -1239,8 +1242,9 @@ void VideoFromDolphin(const DolphinState& d)
       for (size_t k = 0; k + 3 < copy.rgba.size(); k += 4)
         std::swap(copy.rgba[k], copy.rgba[k + 2]);
     }
-    s_dolphin_copies.push_back(std::move(copy));
+    copies.push_back(std::move(copy));
   }
+  s_dolphin_copies = std::move(copies);
 }
 
 void VideoStateLoaded()

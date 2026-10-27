@@ -135,7 +135,7 @@ std::optional<std::string> InGameFolder(std::string path)
     if (end == std::string::npos)
       return std::nullopt;
     const std::string part = Lower(std::string_view(path).substr(start, end - start));
-    if (part == "gea" || part == "geae8p" || part == "geap8p")
+    if (part == "gea" || part == "geae8p" || part == "geap8p" || part == "geaj8p")
       return path.substr(end + 1);
     start = end + 1;
   }

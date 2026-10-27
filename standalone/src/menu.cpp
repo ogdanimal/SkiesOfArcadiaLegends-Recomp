@@ -1534,14 +1534,14 @@ constexpr double CARD_QUIET_SECONDS = 10.0;
 Clock::time_point s_due{};
 int s_minutes = 0;
 
-// SKIES_AUTO_SAVE_SECONDS=N: every N seconds instead (tests)
-const int s_test_seconds = [] {
-  const char* v = std::getenv("SKIES_AUTO_SAVE_SECONDS");
-  return v ? std::atoi(v) : 0;
-}();
-
 std::chrono::seconds Interval(int minutes)
 {
+  // SKIES_AUTO_SAVE_SECONDS=N: every N seconds instead (tests). Read on first use, not at static init:
+  // Android applies env.txt in main().
+  static const int s_test_seconds = [] {
+    const char* v = std::getenv("SKIES_AUTO_SAVE_SECONDS");
+    return v ? std::atoi(v) : 0;
+  }();
   return std::chrono::seconds(s_test_seconds > 0 ? s_test_seconds : minutes * 60);
 }
 

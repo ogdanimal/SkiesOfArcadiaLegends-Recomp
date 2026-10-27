@@ -257,7 +257,16 @@ void PinThread(const char* env, const char* default_pin, size_t tier, const char
     set = tiers[std::min(tier, tiers.size() - 1)];
   }
   else
-    CPU_SET(std::atoi(want.c_str()), &set);
+  {
+    char* end = nullptr;
+    const long cpu = std::strtol(want.c_str(), &end, 10);
+    if (want.empty() || *end != '\0' || cpu < 0 || cpu >= CPU_SETSIZE)
+    {
+      Log("[host] %s: %s=%s is not fast, none or a core number, left unpinned\n", name, env, want.c_str());
+      return;
+    }
+    CPU_SET(static_cast<int>(cpu), &set);
+  }
   std::string cpus;
   for (int cpu = 0; cpu < CPU_SETSIZE; ++cpu)
     if (CPU_ISSET(cpu, &set))

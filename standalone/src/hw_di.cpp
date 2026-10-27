@@ -32,6 +32,7 @@ enum : u32
 enum DriveError : u32
 {
   ERR_NONE = 0x000000,
+  ERR_READ = 0x031100,  // unrecovered read error (DVDThread::FinishRead)
   ERR_INVALID_COMMAND = 0x052000,
   ERR_NO_AUDIO_BUF = 0x052001,
 };
@@ -66,6 +67,11 @@ constexpr u64 BUFFER_TRANSFER_RATE = 32 * 1024 * 1024;  // bytes/s from the driv
 // The read-ahead buffer (not in save states: after a load the next read starts unbuffered)
 u64 s_buffer_start_offset = 0, s_buffer_end_offset = 0, s_buffer_start_time = 0, s_buffer_end_time = 0;
 
+void ResetReadBuffer()
+{
+  s_buffer_start_offset = s_buffer_end_offset = s_buffer_start_time = s_buffer_end_time = 0;
+}
+
 double PhysicalPosition(u64 offset)
 {
   return std::sqrt(static_cast<double>(offset) / WII_DISC_LAYER_SIZE *
@@ -98,17 +104,22 @@ double RawReadTime(u64 offset, u64 length)
 }
 
 // SKIES_DI_FAST=1: the timing before 2026-10-27 (100 us a command, about 16 MB/s, no seeks), for test
-// routes (SKIES_PRESS_FILE) recorded with it; it leaves the USA intro waiting after its last model load
-const bool s_fast = [] {
-  const char* v = std::getenv("SKIES_DI_FAST");
-  return v && v[0] != '0';
-}();
+// routes (SKIES_PRESS_FILE) recorded with it; it leaves the USA intro waiting after its last model load.
+// Read on first use, not at static init: Android applies env.txt in main().
+bool Fast()
+{
+  static const bool s_fast = [] {
+    const char* v = std::getenv("SKIES_DI_FAST");
+    return v && v[0] != '0';
+  }();
+  return s_fast;
+}
 
 // Cycles until a read of LENGTH bytes at OFFSET completes, and the buffer's state after it
 // (ScheduleReads; Dolphin completes each ECC block apart, but the game sees only the last one's interrupt)
 u64 ReadLatency(u64 offset, u32 length)
 {
-  if (s_fast)
+  if (Fast())
     return CPU_HZ / 10000 + static_cast<u64>(length) * (CPU_HZ / 1000000) / 16;
   const u64 now = Now();
   bool seek = false;
@@ -215,7 +226,7 @@ void Execute()
 {
   const u8 command = static_cast<u8>(s_cmd[0] >> 24);
   bool error = false;
-  u64 latency = s_fast ? CPU_HZ / 10000 : MINIMUM_COMMAND_LATENCY_US * (CPU_HZ / 1000000);
+  u64 latency = Fast() ? CPU_HZ / 10000 : MINIMUM_COMMAND_LATENCY_US * (CPU_HZ / 1000000);
   if (command != 0xE0)
     s_error = ERR_NONE;
   switch (command)
@@ -240,6 +251,8 @@ void Execute()
             DiscPathAt(static_cast<u64>(s_cmd[1]) << 2).c_str());
       s_drive_ready = true;
     }
+    if (error)
+      s_error = ERR_READ;  // what the follow-up 0xE0 reports (Dolphin: DVDThread::FinishRead)
     break;
   case 0xAB:  // seek
     break;
@@ -274,7 +287,7 @@ void DiInit()
   s_dicfg = 1;
   s_error = ERR_NONE;
   s_drive_ready = false;
-  s_buffer_start_offset = s_buffer_end_offset = s_buffer_start_time = s_buffer_end_time = 0;
+  ResetReadBuffer();
   SchedRegister(EV_DI, Complete);
 }
 
@@ -291,7 +304,9 @@ void DiDoState(StateIO& p)
   p.Do(s_error);
   p.Do(s_drive_ready);
   p.Do(s_pending_deint);
-  s_buffer_start_offset = s_buffer_end_offset = s_buffer_start_time = s_buffer_end_time = 0;
+  // Only a load drops the buffer; a save (and the backup taken before each load) leaves the live one
+  if (p.Reading())
+    ResetReadBuffer();
 }
 
 // A Dolphin state's DI. A command it had in flight completes here at the same time: a disc read
@@ -299,7 +314,7 @@ void DiDoState(StateIO& p)
 // RAM now, which the game sees only at the transfer interrupt anyway.
 void DiFromDolphin(const DolphinState& d)
 {
-  s_buffer_start_offset = s_buffer_end_offset = s_buffer_start_time = s_buffer_end_time = 0;
+  ResetReadBuffer();
   s_disr = static_cast<u32>(d.U("hw/dvd/DISR"));
   s_dicvr = static_cast<u32>(d.U("hw/dvd/DICVR"));
   d.Array("hw/dvd/DICMDBUF", s_cmd, 3);

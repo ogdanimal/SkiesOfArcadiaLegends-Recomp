@@ -170,8 +170,6 @@ int RunBuffer(u32 ch, u8* buffer)
 void TransferDone(u64)
 {
   const u32 ch = (s_comcsr >> 1) & 3;
-  u8 request[128];
-  std::memcpy(request, s_buffer, sizeof(request));
   const int reply = RunBuffer(ch, s_buffer);
   s_comcsr &= ~(COMCSR_TSTART | COMCSR_COMERR);
   if (reply < 0)
