@@ -55,9 +55,10 @@ Linux and Android with `tools/build-dawn-package.*` (1983051, item 2); where CI 
 **Fixed (fork 0052, from the Mac session, integrated a4d4c23):** the "4x save-state bug" was the GX state's
 mapped viewport / scissor left at the old render size after a resolution change; the loaded picture was the
 right one (*HANDOFF-emulator-free.md* *macOS*, *Sweep*). **2026-10-27 evening: the branch's code review is done**
-(*Code review of the branch* below): nine findings, none in the Aurora fork, **none fixed yet**; the three to
-fix first are the DI read buffer reset on every state save, stale Dolphin copies after a failed `.sav` load,
-and three env knobs read at static init (ignored by Android's `env.txt`, `SKIES_DI_FAST` among them).
+(*Code review of the branch* below): nine findings, none in the Aurora fork, **all nine fixed** the same evening
+(the DI read buffer reset on every state save, stale Dolphin copies after a failed `.sav` load, three env knobs
+read at static init and so ignored by Android's `env.txt`, plus the six smaller ones); WSL runs checked them,
+the Pocket 5 hasn't run the build yet.
 Items 9 and 10 need dev's code merged in first; **the user said hold** (no merge or rebase for now; *Items 9 and
 10 need dev's current code* below). **Pick up at items 8-10**, now one goal: the standalone **replaces** the Dolphin build as a normal update
 (the user, 2026-10-26; *Items 8-10* below has the approach, the runner contract and what doesn't carry over
@@ -1242,8 +1243,9 @@ The order above keeps the build playable and measurable after every step.
 ## Code review of the branch (2026-10-27)
 
 The whole branch against its merge base with dev (`4598e1d..4875f36`, 111 commits, ~44k added lines),
-correctness first. Nine findings, none in `patches/recompcore-aurora.patch` or the fork; **none fixed** when
-this was written. Fix 1-3 first (the user's call, 2026-10-27 evening), then the rest as they come up.
+correctness first. Nine findings, none in `patches/recompcore-aurora.patch` or the fork. **All nine fixed
+2026-10-27 evening** (1-3 first, the user's call, then 4-9); *Fixes* at the end of this section says how each
+was checked.
 
 1. **`standalone/src/hw_di.cpp` `DiDoState`:** the read-ahead buffer model (`s_buffer_*`) is reset
    unconditionally, so every state **save** (and the in-memory backup taken before each load) discards the
@@ -1278,3 +1280,25 @@ this was written. Fix 1-3 first (the user's call, 2026-10-27 evening), then the 
    never read; delete the copy.
 9. **`hw_di.cpp`:** the four-field buffer reset is copy-pasted in `DiInit`, `DiDoState` and `DiFromDolphin`;
    one `ResetReadBuffer()` helper (finding 1 is one of the three drifting).
+
+**Fixes (2026-10-27 evening).**
+
+- **1 and 9:** `ResetReadBuffer()` in `hw_di.cpp` replaces the three copies; `DiDoState` calls it only when
+  `p.Reading()`. Not measured directly: the field runs below made no disc reads between saves.
+- **2:** `VideoFromDolphin` builds the copies in a local list and keeps it only after every entry parsed. A
+  Dolphin state with an EFB copy (`conv-states/retroid-us-1012-slot1.sav`) still rebuilds it ("1 of the
+  Dolphin build's 1 EFB copies rebuilt"). The throw path wasn't run: no state on hand fails that late.
+- **3:** `SKIES_DI_FAST` and `SKIES_AUTO_SAVE_SECONDS` are function-local statics. `SKIES_WATCH` is read in
+  `CpuInit` (after `AndroidSetup`) into a plain variable, so `Watch()` after every block stays one load
+  without a guard check. On WSL, `SKIES_AUTO_SAVE_SECONDS=6` from `field-start.sav` auto-saved every 6 s and
+  the last save loaded back with its 4 EFB copies. A cold boot's 20th read (`warning.mld`) lands at 0.57 s
+  guest with `SKIES_DI_FAST=1` and 2.59 s without. Android `env.txt` not tried on the device yet.
+- **4:** a failed disc read (disc ID or data) sets `ERR_READ` = 0x031100, Dolphin's `DriveError::ReadError`
+  from `DVDThread::FinishRead`, so the next `0xE0` reports it.
+- **5:** `InGameFolder` knows `geaj8p`; `hd_textures.cpp` already loaded from a `GEAJ8P` folder.
+- **6:** `PinThread` parses the core with `strtol` and leaves the thread unpinned with a log line for
+  anything outside 0..`CPU_SETSIZE`-1 (WSL: `SKIES_PIN_CPU=1024`, `SKIES_PIN_VIDEO=abc` both logged).
+- **7:** `build-dawn-package.sh` checks the first added line of every file in each patch (18 files across
+  the two patches). It passes on the patched tree in `~/projects/skies-aurora/dawn-src` and fails on a copy
+  with one D3D12 header line removed, which the old check would have missed.
+- **8:** the unused copy in `TransferDone` is gone.
