@@ -793,8 +793,8 @@ game's work; the auto delay moves) flips frames between refreshes whenever they 
   the refreshes between them unless that slot ends up >5 ms before its time or >1 refresh + 5 ms after
   (without that hysteresis the wobble re-snapped back and forth). `SKIES_VSYNC_SNAP=0` turns it off.
 - `main.cpp` `FollowDisplay`: when a game frame is within 0.5% of a whole number of refreshes, guest time runs
-  at the display's rate (59.94 -> 60.000 Hz: 1.0011x) and the audio's sample rate with it (32032 Hz through
-  SDL's stream), so the frames don't drift against the refreshes at all. A 50 Hz game on a 60 Hz screen keeps
+  at the display's rate (59.94 -> 60.000 Hz: 1.0011x), so the frames don't drift against the refreshes at all.
+  The audio follows through its queue (fork 0051, next section: the playback runs 0.11% fast there). A 50 Hz game on a 60 Hz screen keeps
   its own rate. `SKIES_DISPLAY_RATE=0` turns it off. Log `[host] paced to the display (60.005 Hz): the game at
   1.0011x`.
 - Tried and dropped: an auto delay that falls only slowly (to stop it pushing frames across slots): at 60 fps it
@@ -805,6 +805,26 @@ normal count of refreshes: 30 fps 53 -> 3; 60 fps 18 -> 3. The few left are the 
 jumps. Latency: the present call now waits for its refresh (queue to display ~26 ms median at offset 8,
 14-31 before). Not checked: by ear (the 0.1% faster audio and the Dreamcast streams), a battle scene, a
 120 Hz display, Windows / macOS (no snap there).
+
+## Sound against the picture (2026-10-26, night; fork 0051)
+
+**What showed:** the user heard S-move sound out of step with the hits in the standalone. Two causes:
+- The first Windows window ran the ws26 test game (`C:\dev\SkiesUncensor\app`), older than the issue #7
+  fix (ws27: spells and S-moves at normal speed). With the release patch (ws32 / v0.83) the game holds
+  normal speed from 0.6 s before Cutlass Fury's stream (`stv66/67.samp`) to 3.4 s after its last read, at 1x
+  and at a real 4x on Windows (`SKIES_WATCH=80002BDC`, `SKIES_DI_TRACE=1`). Use the release package
+  (`build/sa-runs/pkg-win`) for anything played by hand.
+- The audio queue: Aurora's SDL stream held whatever it got, since the game makes sound on its clock and the
+  device plays it on its own: 76-102 ms on Windows from the state load's burst on, up to the 250 ms cap after
+  hitches, so every sound came that late against a picture presented within ~10 ms.
+
+**Fix (fork 0051, `backends/aurora/aurora_audio.cpp`):** the playback rate (SDL's frequency ratio) follows the
+queue's smoothed level toward `DOL_AUDIO_TARGET_MS` (40; Android 60), up to 0.5% fast or slow; 30 ms over, a
+pushed block is dropped (a state load's or a stall's catch-up). `DOL_AUDIO_QUEUE_LOG=1` logs level / ratio /
+drops every 64 pushes. Windows, the S-move state at 4x: 5 drops after the load, then 63 -> 43 ms in ~20 s and
+40-45 ms on (was 76-102); one dip when the S-move's files load (the game thread pauses ~60 ms), no
+underruns. Pocket 5 with the display-rate lock: settles at ~72 ms with the playback 0.11% fast (the lock's
+surplus; a proportional controller's offset), no drops, frames as before. Not checked by ear.
 
 ## The Pocket 5 at higher internal resolutions (2026-10-25, night)
 

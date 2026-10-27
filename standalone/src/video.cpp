@@ -1334,19 +1334,6 @@ s64 VideoRefreshPeriodNs()
 #endif
 }
 
-void VideoSetAudioRate(double rate)
-{
-#ifdef SKIES_STANDALONE_AURORA
-  static u32 s_rate = 32000;
-  const u32 next = static_cast<u32>(std::lround(32000 * rate));
-  if (next != s_rate && s_active)
-    dol_platform_audio_set_sample_rate(next);
-  s_rate = next;
-#else
-  (void)rate;
-#endif
-}
-
 std::chrono::steady_clock::duration VideoPresentTime()
 {
 #ifdef SKIES_STANDALONE_AURORA

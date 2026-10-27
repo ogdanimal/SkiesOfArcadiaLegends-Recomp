@@ -281,8 +281,6 @@ void VideoFrameEnd();                         // the game's display copy (EFB to
 void VideoRetrace();                          // a VI field
 // The display's refresh period in ns, 0 when not known (Android: Choreographer's; video.cpp)
 s64 VideoRefreshPeriodNs();
-// The game's audio played at RATE times its own sample rate (the game paced to the display)
-void VideoSetAudioRate(double rate);
 bool VideoQuitRequested();
 void VideoPadRead(u16 buttons[4], s8 sticks[4][4], u8 triggers[4][2], bool connected[4]);
 // A controller's motor: 0 stop, 1 rumble, 2 hard stop (the SDK's PAD_MOTOR_*)

@@ -79,10 +79,10 @@ index f9e2bde3f6..75d06bdde8 100644
          target_compile_definitions(gxruntime_aurora
              PRIVATE GXRUNTIME_HAS_AURORA_RECOMP=1)
 diff --git a/GXRuntime/backends/aurora/aurora_audio.cpp b/GXRuntime/backends/aurora/aurora_audio.cpp
-index f25215d3ab..4b2cb177e3 100644
+index f25215d3ab..30f6b51fd9 100644
 --- a/GXRuntime/backends/aurora/aurora_audio.cpp
 +++ b/GXRuntime/backends/aurora/aurora_audio.cpp
-@@ -1,5 +1,14 @@
+@@ -1,7 +1,18 @@
  // SPDX-License-Identifier: GPL-3.0-or-later
  #include "aurora_backend_private.h"
 +
@@ -96,14 +96,55 @@ index f25215d3ab..4b2cb177e3 100644
 +#include "aurora_backend_private.h"
  #include <SDL3/SDL_audio.h>
  #include <SDL3/SDL_timer.h>
++#include <algorithm>
++#include <cmath>
  #include <cstdio>
-@@ -78,3 +87,4 @@ void aurora_backend_audio_push(const s16* samples, u32 frames) {
+ 
+ extern "C" {
+@@ -54,6 +65,36 @@ void aurora_backend_audio_push(const s16* samples, u32 frames) {
+         queued = SDL_GetAudioStreamQueued(gx_aurora::g_audio_stream);
+     }
+ 
++    // The sound's latency held near g_audio_target_ms. The game makes its sound in step with its own clock
++    // and the device plays it on the device's, so whatever the queue holds stays there: after a hitch
++    // (a stall and the catch-up) it kept 80-250 ms and every sound came that late against the picture
++    // (an S-move's hits on Windows: ~90 ms). The playback rate follows the queue's smoothed level, up to
++    // 0.5% fast or slow (not heard), and over by 30 ms (a stall's catch-up, a state load) a pushed block is dropped.
++    if (gx_aurora::g_audio_playing && queued >= 0) {
++        static double s_level = -1.0;
++        static double s_ratio = 1.0;
++        static unsigned long long s_dropped = 0;
++        const double target = bytes_per_second * gx_aurora::g_audio_target_ms / 1000.0;
++        s_level = s_level < 0 ? queued : s_level + (queued - s_level) * 0.05;
++        if (s_level > target + bytes_per_second * 0.03) {
++            s_dropped++;
++            s_level -= bytes;
++            if (gx_aurora::g_audio_queue_log)
++                std::fprintf(stderr, "[audio-queue] dropped a block: queued=%d level=%.0f (%llu so far)\n", queued,
++                             s_level, s_dropped);
++            return;
++        }
++        const double ratio = 1.0 + std::clamp((s_level - target) / target, -1.0, 1.0) * 0.005;
++        if (std::abs(ratio - s_ratio) >= 0.0002) {
++            if (SDL_SetAudioStreamFrequencyRatio(gx_aurora::g_audio_stream, static_cast<float>(ratio)))
++                s_ratio = ratio;
++        }
++        if (gx_aurora::g_audio_queue_log && gx_aurora::g_audio_push_count % 64 == 0)
++            std::fprintf(stderr, "[audio-queue] level=%.1f ms queued=%.1f ms ratio=%.4f dropped=%llu\n",
++                         s_level * 1000.0 / bytes_per_second, queued * 1000.0 / bytes_per_second, s_ratio,
++                         s_dropped);
++    }
++
+     const bool low_queue =
+         queued >= 0 && queued < bytes_per_second / 100;
+     if (gx_aurora::g_audio_queue_log &&
+@@ -78,3 +119,4 @@ void aurora_backend_audio_push(const s16* samples, u32 frames) {
  }
  
  } // extern "C"
 +#endif // AURORA_NO_SDL
 diff --git a/GXRuntime/backends/aurora/aurora_backend.cpp b/GXRuntime/backends/aurora/aurora_backend.cpp
-index 4b7454f19c..2174570cf7 100644
+index 4b7454f19c..7efb4544b8 100644
 --- a/GXRuntime/backends/aurora/aurora_backend.cpp
 +++ b/GXRuntime/backends/aurora/aurora_backend.cpp
 @@ -3,10 +3,16 @@
@@ -123,7 +164,15 @@ index 4b7454f19c..2174570cf7 100644
  
  namespace gx_aurora {
  
-@@ -131,6 +137,13 @@ void log_callback(AuroraLogLevel level, const char* module, const char* message,
+@@ -29,6 +35,7 @@ SDL_AudioStream* g_audio_stream = nullptr;
+ bool g_audio_playing = false;
+ int g_audio_prebuffer_ms = 40;
+ int g_audio_max_queue_ms = 250;
++int g_audio_target_ms = 40;
+ DolPlatformGuestAddressResolverFn g_guest_address_resolver = nullptr;
+ void* g_guest_address_resolver_user = nullptr;
+ 
+@@ -131,6 +138,13 @@ void log_callback(AuroraLogLevel level, const char* module, const char* message,
      }
      std::fprintf(level >= LOG_ERROR ? stderr : stdout, "[aurora:%s:%s] %s\n",
                   level_name, module ? module : "core", message ? message : "");
@@ -137,7 +186,7 @@ index 4b7454f19c..2174570cf7 100644
      if (level == LOG_FATAL)
          std::abort();
  }
-@@ -179,6 +192,10 @@ void install_platform_ops() {
+@@ -179,6 +193,10 @@ void install_platform_ops() {
  
  } // namespace gx_aurora
  
@@ -148,7 +197,7 @@ index 4b7454f19c..2174570cf7 100644
  extern "C" {
  
  bool aurora_backend_should_quit(void) {
-@@ -189,6 +206,9 @@ bool dol_aurora_initialize(int argc, char** argv,
+@@ -189,6 +207,9 @@ bool dol_aurora_initialize(int argc, char** argv,
                             const AuroraBackendConfig* backend_config) {
      if (gx_aurora::g_initialized)
          return true;
@@ -158,7 +207,7 @@ index 4b7454f19c..2174570cf7 100644
  
      const AuroraBackendConfig defaults = {
          .app_name = "GXRuntime",
-@@ -199,6 +219,12 @@ bool dol_aurora_initialize(int argc, char** argv,
+@@ -199,6 +220,12 @@ bool dol_aurora_initialize(int argc, char** argv,
          .info_logging = false,
          .graphics_logging = false,
          .force_untextured = false,
@@ -171,7 +220,7 @@ index 4b7454f19c..2174570cf7 100644
      };
      if (backend_config == nullptr)
          backend_config = &defaults;
-@@ -208,6 +234,29 @@ bool dol_aurora_initialize(int argc, char** argv,
+@@ -208,6 +235,29 @@ bool dol_aurora_initialize(int argc, char** argv,
          backend_config->app_name != nullptr ? backend_config->app_name
                                              : defaults.app_name;
      config.desiredBackend = BACKEND_AUTO;
@@ -201,7 +250,7 @@ index 4b7454f19c..2174570cf7 100644
      config.vsync = backend_config->vsync;
      config.windowWidth = backend_config->window_width != 0
                               ? backend_config->window_width
-@@ -220,6 +269,13 @@ bool dol_aurora_initialize(int argc, char** argv,
+@@ -220,6 +270,13 @@ bool dol_aurora_initialize(int argc, char** argv,
      config.logLevel = backend_config->info_logging ? LOG_INFO : LOG_ERROR;
      config.mem1Size = 0;
      config.mem2Size = 0;
@@ -215,7 +264,20 @@ index 4b7454f19c..2174570cf7 100644
  
      const AuroraInfo info = aurora_initialize(argc, argv, &config);
      gx_aurora::g_initialized = info.window != nullptr;
-@@ -361,6 +417,7 @@ bool dol_aurora_initialize(int argc, char** argv,
+@@ -356,11 +413,20 @@ bool dol_aurora_initialize(int argc, char** argv,
+     gx_aurora::g_audio_prebuffer_ms = gx_aurora::audio_ms_env("DOL_AUDIO_PREBUFFER_MS", 40, 20, 500);
+     gx_aurora::g_audio_max_queue_ms =
+         gx_aurora::audio_ms_env("DOL_AUDIO_MAX_QUEUE_MS", 250, gx_aurora::g_audio_prebuffer_ms, 1000);
++    gx_aurora::g_audio_target_ms =
++        gx_aurora::audio_ms_env("DOL_AUDIO_TARGET_MS",
++#if defined(__ANDROID__)
++                                60,  // the phone's game thread stalls longer: more slack against underruns
++#else
++                                40,
++#endif
++                                gx_aurora::g_audio_prebuffer_ms, gx_aurora::g_audio_max_queue_ms);
+     gx_aurora::g_audio_push_count = 0;
+     gx_aurora::g_audio_throttle_count = 0;
      gx_aurora::g_audio_low_log_push = 0;
      gx_aurora::g_audio_sample_rate = 32000;
  
@@ -223,7 +285,7 @@ index 4b7454f19c..2174570cf7 100644
      if (SDL_InitSubSystem(SDL_INIT_AUDIO)) {
          SDL_AudioSpec spec{};
          spec.format = SDL_AUDIO_S16;
-@@ -376,6 +433,7 @@ bool dol_aurora_initialize(int argc, char** argv,
+@@ -376,6 +442,7 @@ bool dol_aurora_initialize(int argc, char** argv,
      } else {
          std::fprintf(stderr, "[audio] SDL audio initialization failed: %s\n", SDL_GetError());
      }
@@ -231,7 +293,7 @@ index 4b7454f19c..2174570cf7 100644
  
      gx_aurora::poll_events();
      gx_aurora::g_frame_open = !gx_aurora::g_should_quit && aurora_begin_frame();
-@@ -383,14 +441,23 @@ bool dol_aurora_initialize(int argc, char** argv,
+@@ -383,14 +450,23 @@ bool dol_aurora_initialize(int argc, char** argv,
      return true;
  }
  
@@ -256,7 +318,7 @@ index 4b7454f19c..2174570cf7 100644
  #if GXRUNTIME_HAS_AURORA_RECOMP
      gx_aurora::trace_close_and_log();
      if (gx_aurora::g_gx_core_enabled) {
-@@ -401,11 +468,13 @@ void dol_aurora_shutdown(void) {
+@@ -401,11 +477,13 @@ void dol_aurora_shutdown(void) {
                       gx_aurora::g_shadow_frontend_failed ? 1 : 0);
      }
  #endif
@@ -271,7 +333,7 @@ index 4b7454f19c..2174570cf7 100644
      gx_aurora::g_pending_textures = {};
      gx_aurora::g_pending_tluts = {};
 diff --git a/GXRuntime/backends/aurora/aurora_backend_private.h b/GXRuntime/backends/aurora/aurora_backend_private.h
-index 47c60b1038..82efa7082b 100644
+index 47c60b1038..55b40c1411 100644
 --- a/GXRuntime/backends/aurora/aurora_backend_private.h
 +++ b/GXRuntime/backends/aurora/aurora_backend_private.h
 @@ -3,8 +3,13 @@
@@ -288,7 +350,16 @@ index 47c60b1038..82efa7082b 100644
  #include <array>
  #include <string>
  #include <unordered_map>
-@@ -178,6 +183,16 @@ void aurora_backend_load_tlut_guest(u8 slot, u32 guest_address, const void* data
+@@ -48,6 +53,8 @@ extern SDL_AudioStream* g_audio_stream;
+ extern bool g_audio_playing;
+ extern int g_audio_prebuffer_ms;
+ extern int g_audio_max_queue_ms;
++// The queue the playback rate holds (aurora_audio.cpp): DOL_AUDIO_TARGET_MS
++extern int g_audio_target_ms;
+ extern DolPlatformGuestAddressResolverFn g_guest_address_resolver;
+ extern void* g_guest_address_resolver_user;
+ 
+@@ -178,6 +185,16 @@ void aurora_backend_load_tlut_guest(u8 slot, u32 guest_address, const void* data
  void aurora_backend_set_copy_destination(const void* data);
  void aurora_backend_set_copy_destination_guest(u32 guest_address, const void* data);
  void aurora_backend_set_guest_address_resolver(DolPlatformGuestAddressResolverFn resolve, void* user);

@@ -284,7 +284,8 @@ void PinVideoThread()
 
 // The game paced to the display: when the display's refresh (VideoRefreshPeriodNs) is within 0.5% of a whole
 // number of refreshes per game frame (the GameCube's 59.94 Hz on a 60 Hz screen: 1.001), guest time runs at
-// that rate and the audio with it, so frames keep the same place against the refreshes. At 59.94 Hz they
+// that rate (the audio's playback rate follows its queue, Aurora's aurora_audio.cpp), so frames keep the same
+// place against the refreshes. At 59.94 Hz they
 // drift by a refresh about every 17 s, and each time a frame stays up a refresh longer (a 50 ms frame at
 // 30 fps, a repeated one at 60). A 50 Hz game on a 60 Hz screen stays at its own rate. Checked every two
 // seconds; SKIES_DISPLAY_RATE=0 turns it off.
@@ -313,7 +314,6 @@ void FollowDisplay()
   const auto at = s_wall_start + GuestToWall(g_cycles);  // the wall time now's guest time keeps
   s_rate = rate;
   s_wall_start = at - GuestToWall(g_cycles);
-  VideoSetAudioRate(rate);
 }
 
 // Called by the VI at every field: pace guest time to the wall clock, stop at --seconds.
