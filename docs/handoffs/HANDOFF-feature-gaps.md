@@ -31,6 +31,16 @@ Windows, the log to `USER/Logs` (64ea652). The Language restart on Android, chec
 European disc (fde8bf1). **2026-10-26 night:** a resize during the battle start's screen grab blacked the
 grab out for a second; fork 0050 keeps EFB copies across a resize (WSL and Windows checked; item 9,
 *Lifecycle*). The desktop Language restart from a loaded state boots clean (item 4).
+**Battle speed while choosing commands (2026-10-26 night, the user):** at 2x-4x the command wheel turned too
+fast to pick from. `menu.cpp` `qol::ChoosingCommands` now writes normal speed while the game waits for
+commands: a ground battle's command input task (`fn_8007CAB0`, EU `8007CE74`, JP `8007CA98`) in the task list
+(`lbl_803475A8` -> root task, +4 links; EU `8034ACC0`, JP `80347028`), a ship battle's turn not playing
+(`lbl_803472DC` = 0; EU `8034A9F4`, JP `80346D5C`); the turn then plays at the chosen speed. Found by tracing
+the task list across a turn (the wheel `fn_80025624`, the party panels `fn_80022F74` and `fn_8007CAB0` come and
+go together). Checked on WSL: US battle-start state (normal from the input to the last command, 4x for the
+turn, normal at the next input) and the EU / JP deck battles from a cold boot (the same switches every turn).
+Ship battles not run. **Not in the Dolphin build yet** (dev's `field-speed` / `battle-specials` speed logic in
+SkiesMenu.cpp): the user's call.
 Items 9 and 10 need dev's code merged in first; **the user said hold** (no merge or rebase for now; *Items 9 and
 10 need dev's current code* below). **Pick up at items 8-10**, now one goal: the standalone **replaces** the Dolphin build as a normal update
 (the user, 2026-10-26; *Items 8-10* below has the approach, the runner contract and what doesn't carry over

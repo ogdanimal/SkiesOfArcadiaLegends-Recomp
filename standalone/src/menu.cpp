@@ -1140,12 +1140,42 @@ int EffectiveQuarters(Place place, int quarters)
   return std::min(quarters, s_speed_cap);
 }
 
+// The player choosing commands in a battle, which plays at normal speed (at speed the command wheel
+// turns too fast to pick from): a ground battle's command input task (fn_8007CAB0) in the game's task
+// list (lbl_803475A8 -> the root task, linked through +4; the wheel's and the party panels' tasks
+// come and go with it), a ship battle's turn not playing (lbl_803472DC, 1.0 while it plays).
+const RegionAddress TASK_ROOT{0x803475A8, 0x8034ACC0, 0x80347028};
+const RegionAddress COMMAND_INPUT_TASK{0x8007CAB0, 0x8007CE74, 0x8007CA98};
+const RegionAddress SHIP_TURN_PLAYING{0x803472DC, 0x8034A9F4, 0x80346D5C};
+
+bool ChoosingCommands()
+{
+  if (InShipBattle())
+    return Read32(SHIP_TURN_PLAYING) == 0;
+  if (Read32(GAME_MODE) != 7)
+    return false;
+  const u32 root = Read32(TASK_ROOT);
+  const u32 input = COMMAND_INPUT_TASK;
+  u32 task = root;
+  for (int i = 0; i < 1024 && task >= 0x80000000u && task < 0x81800000u; ++i)
+  {
+    if (Read32(task) == input)
+      return true;
+    task = Read32(task + 4);
+    if (task == root)
+      break;
+  }
+  return false;
+}
+
 void Write()
 {
   const Place place = WhereNow();
   const int wanted = place == Place::Field ? (FieldSpeed() * 4 + 50) / 100 :
                                              std::clamp(Get(BATTLE_SPEED), 1, 4) * 4;
-  const int quarters = EffectiveQuarters(place, wanted);
+  const int quarters = place == Place::Battle && wanted > 4 && ChoosingCommands() ?
+                           4 :
+                           EffectiveQuarters(place, wanted);
   Write32(INPUT, INPUT_MAGIC);
   // Percentages, held to the menus' range: a hand-edited Dolphin.ini can say anything.
   const auto percent = [](const Key& key, int most) {
