@@ -46,10 +46,10 @@ Items 9 and 10 need dev's code merged in first; **the user said hold** (no merge
 (the user, 2026-10-26; *Items 8-10* below has the approach, the runner contract and what doesn't carry over
 yet). Standing leftovers:
 Continue on the Pocket 5 (item 1); MSAA's
-cost on a GPU the game saturates (item 2); shipping the patched Dawn and the macOS build (item 2); rumble by hand,
+cost on a GPU the game saturates (item 2); shipping the patched Dawn (item 2); rumble by hand,
 a capture with a real pad, two pads and the Pocket 5 (item 3); the
 cloud-sea edges and the full 4x pack (item 5); 60 fps on the Nova and its scene list (item 6); the
-video thread on the Nova, macOS and with a pad by hand; item 7's open list (m03 and the intro in game, the
+video thread on the Nova and with a pad by hand; item 7's open list (m03 and the intro in game, the
 European intro timing, the save point's music cost).
 
 ## Ground rules
@@ -272,8 +272,10 @@ its checks and a commit; device-heavy ones end with a head-to-head.
   `_deps\dawn-build\` (the bat copies it). RTX 5080 D3D12 reports **1x / 2x / 4x / 8x**; battle state at 3x
   (1920x1440): each applies (`MSAA 1x -> Nx`), pixels changed from Off 8,062 / 11,284 / 11,839, edges
   visibly smoother at each step; GPU work in passes (span minus not-in-a-zone, one 300-frame window,
-  throttled, rough) Off 0.25 ms, 2x 0.34, 4x 0.96, 8x 2.24. **Open:** macOS (Metal); shipping a patched Dawn
-  (CI builds it, or our own prebuilt packages); D3D11 has no `SupportsExtraSampleCount` (stays 1 / 4).
+  throttled, rough) Off 0.25 ms, 2x 0.34, 4x 0.96, 8x 2.24. **macOS (2026-10-27):** the prebuilt offers 1x / 4x;
+  the M4's Metal renders 1 / 2 / 4 (no 8x), so the patched Dawn would add 2x there (not built on the Mac yet).
+  **Open:** shipping a patched Dawn (CI builds it, or our own prebuilt packages); D3D11 has no
+  `SupportsExtraSampleCount` (stays 1 / 4).
 - **Checked (WSL, Dawn on llvmpipe, field after a Continue, EFB 1x):** each option changes the picture
   (pixels off the baseline: MSAA 4,340, Sharp 35,492, Smooth 16,575, 16x anisotropy 14,793; two baseline
   runs differ by 442); by eye: MSAA smooths geometry edges, Sharp shows texels, Smooth / 16x soften. The
@@ -1001,7 +1003,8 @@ started as players do, on an existing data folder.
 
 **Next for items 8-10:** by hand (the user): remapping with a pad and two pads; Continue in the launcher
 with the swapped package (`build/sa-runs/pkg-win`, `skies-run.exe` = the standalone as of 2d80f3f,
-`skies-run-dolphin.exe` kept). macOS frontend check. Then item 9 (Android shell) and 10 (packaging: the
+`skies-run-dolphin.exe` kept). macOS frontend checked 2026-10-27 (the standalone as `skies-run` in a copy of
+the release app; Play from the launcher still to do by hand; *HANDOFF-emulator-free.md* *macOS*). Then item 9 (Android shell) and 10 (packaging: the
 standalone in build-release-win.bat etc. with `SKIES_RELEASE_*`, Dawn DLLs, Sys, and the launcher built
 with `moderngekko-standalone-launcher.patch` and `MODERNGEKKO_STANDALONE_RUNNER=ON`). Both wait for the
 merge the user put on hold (next paragraph).
@@ -1126,7 +1129,10 @@ checks 3-5 days).
   `PROFILE.profdata`, `-eu`, `-jp`). The standalone needs the same modules (generated from the same patched
   DOL the import produces).
 - Desktop: add the standalone binary to the release jobs (Windows MSVC as `C:\dev\SkiesStandalone`'s
-  `build.bat`, Linux / AppImage, macOS).
+  `build.bat`, Linux / AppImage, macOS). Configure it with `SKIES_RELEASE_DISC_IDS` /
+  `SKIES_RELEASE_DOL_PATCHES` (without them the release table is empty and the game's DOL is never patched).
+  macOS: libpng is linked as `@rpath/libpng16.16.dylib` (rpath into the build folder): bundle it in the app or
+  link it statically.
 - Android: `tools/android-standalone-build.sh` packs one module without Gradle. Extend it to three modules,
   the launcher classes and `libskiesimport.so`, then call it from CI (it needs the Android build tools).
   Sign with `tools/sign-apk.sh` and the release key. The final app ID replaces `com.skiesofarcadia.standalone`.

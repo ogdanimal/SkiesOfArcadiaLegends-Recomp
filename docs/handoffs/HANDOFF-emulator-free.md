@@ -34,7 +34,9 @@ started before fork 0049), a dialog when none starts; a GUI program on Windows (
 `USER/Logs`); the Language restart on Android; open: the Android shell and packaging (items 9-10,
 waiting for dev to be merged in, on hold by the user), and the device checks of items 0-4; phase 5 (Android) started: a test app that plays on the Retroid Pocket 5 (from a
 state; pacing fixed; higher resolutions measured; immersive; Home and back work, with the video thread too;
-the built-in pad and audio on the device untested by hand; no launcher yet).
+the built-in pad and audio on the device untested by hand; no launcher yet). **macOS (2026-10-27):** builds
+unchanged and plays on Metal, ahead of the Dolphin build on the same M4, plus PGO and QoS fixes (*macOS* at
+the end).
 
 **Where it stands (2026-10-26):** as an engine it is ahead of the Dolphin build on every number measured
 (speed at 30 and 60 fps, pacing, power, memory, GPU time at high resolutions; pictures matched to Dolphin's
@@ -1038,8 +1040,8 @@ point at 60 fps (Dolphin ~2.9 / 3.8).
 (every 600 frames: the game's waits at tokens / frame ends / a full queue, the video thread's work and
 present waits; Android reads it lazily, after `env.txt`), `SKIES_VIDEO_SPIN=auto|1|0`,
 `SKIES_PIN_VIDEO=fast|none|N`, `SKIES_DRAIN` (the video thread parses each chunk at once by default).
-**Open:** the Nova; a pad by hand on Windows and the Pocket 5 (the input lock); macOS (main-thread SDL is
-kept, so it should hold).
+**Open:** the Nova; a pad by hand on Windows and the Pocket 5 (the input lock). macOS holds (2026-10-27,
+*macOS* at the end).
 
 ## Dreamcast features (feature-gap item 7, 2026-10-26)
 
@@ -1060,3 +1062,66 @@ Commit 9862a64; details and measurements in *HANDOFF-feature-gaps.md* item 7.
   less), level at the save point (p99 ~36 vs ~36.5 ms), where it costs the standalone ~2 ms of p99.
 - **Watch for:** SDL's device thread must keep up, or Aurora's audio push (queue > 250 ms) blocks the game
   thread (seen with the `dummy` driver and with the device thread on the little cores).
+
+## macOS (2026-10-27): builds, plays on Metal, faster than the Dolphin build
+
+The Mac session (M4 Mac mini, 4 performance + 6 efficiency cores, macOS 26.3, Command Line Tools only) built
+aurora-backend 723ec15 from a bundle in the worktree `~/Projects/skies-aurora-backend`. **No source change was
+needed**: `cmake -S standalone -B build/standalone -G Ninja -DCMAKE_BUILD_TYPE=Release` + `ninja`, the prebuilt
+Dawn (darwin-arm64) on Metal ("Device: Apple M4"), 12 harmless warnings. The Apple branches (`.dylib`,
+`_NSGetExecutablePath`, `Contents/Resources` as the data folder in a bundle) work as written. Then two speed
+commits, 8cbdaac (QoS) and 9a77aae (PGO), below.
+
+- **Pairing trap:** a module only fits the DOL it was generated from (`module chunks matching the DOL: 5461 of
+  5461`). The player's imported `games/GEAE8P/sys/main.dol` can be an older widescreen DOL than the installed
+  app's module (5417 of 5461 there, 23,985 interpreted instructions in 40 s). Make the right one with
+  `tools/applydolpatch.py ORIGINAL.dol <app>/Contents/Resources/patches/skies-widescreen.dolpatch OUT` and pass
+  `--dol OUT`.
+- **Checked (scripted with `SKIES_PRESS`, frame dumps, the log and the ini files; the in-game menu overlay
+  wasn't seen, since the terminal has no Screen Recording permission):** logos, intro, title, the Cupil intro;
+  `--continue card` into the field (Pirate Isle underground); the first battle from the Dolphin build's
+  `02-first-battle.sav` won to the results screen; the menu (Z+Start): graphics rows written to GFX.ini and
+  applied live, 60 fps (598 of 600 frames interpolated at 1.00x); a slot save (71 ms) and load (78 ms, the
+  second A), auto-save every interval with the newest three kept; Dolphin `.sav` states 01 / 02 (code
+  sections restored, the other file table served); the Language restart on the European disc (re-execs itself
+  with the same argv); the standalone as `skies-run` in a copy of the release app, as the launcher starts it.
+- **MSAA:** the prebuilt Dawn offers 1x / 4x (8x and 16x run as 4x, 2x as off). The M4's Metal
+  `supportsTextureSampleCount` gives 1 / 2 / 4, **no 8x**, so a patched Dawn would add 2x only here.
+- **Speed, one M4, the same DOL and module on both sides, 1x, muted, uncapped** (the Dolphin build:
+  `tools/bench-mac.sh`, the release app dev-87ba4f3, fullscreen):
+
+  | | Dolphin build | standalone | standalone + PGO (9a77aae) |
+  |---|---|---|---|
+  | 01 opening cutscene | 3.01x | 3.13x | 3.47x |
+  | 02 first battle | 4.57x | 5.25x | 5.68x |
+
+  Throttled it holds 1.00x. The PGO column comes from a module generated from this branch's DOL (c615035e):
+  3.01x / 5.14x without the profile on that DOL.
+- **PGO (9a77aae):** `tools/codegen-targets.txt` named a `pgo/macos.profdata` that was never trained, so every
+  Mac module (the Dolphin build's too) was built without PGO. The profiles are keyed by game code, not by the
+  host CPU: the desktop profile `pgo/windows.profdata` fits the arm64 build (22 functions discarded), the
+  Android profile measures the same, and the pictures are byte-identical with and without it (frames 4200 and
+  9700, `AURORA_SYNC_PIPELINES=1`). The macos line now names `windows`, as the linux line does. The Dolphin
+  build's Mac module would gain too, but dev was left alone (the user's focus is the standalone).
+- **QoS (8cbdaac):** `PinThread` had no macOS branch. The video thread (the main thread) already ran at
+  user-interactive QoS; the game's SDL thread ran at the default class (log: `was 0x15`), which macOS moves to
+  the efficiency cores when other work runs. macOS now defaults to `fast` = `QOS_CLASS_USER_INTERACTIVE`
+  (`SKIES_PIN_CPU` / `SKIES_PIN_VIDEO=none` opt out). State 01 uncapped beside 8 busy default-class processes:
+  2.18x before, 3.45x after; no load: 3.48x either way.
+- **A covered window doesn't slow it down** (the whole display covered by an opaque window: 3.5x uncapped,
+  1.00x throttled), unlike the Dolphin build (~0.67x, `tools/bench-mac.sh`'s note).
+- **A minimized window pauses the game**, sound included: Aurora's `window.cpp` `lifecycle_event_watch` marks
+  the window backgrounded on `SDL_EVENT_WINDOW_MINIMIZED` under `SDL_PLATFORM_APPLE` as well as Android, and
+  `poll_events` waits in `SDL_WaitEvent` until it is restored. On Windows and Linux it keeps running.
+  **The user keeps the pause** (2026-10-27), as long as it resumes: minimized at 12 s and restored at 32 s, it
+  went on from where it stopped at 1.00x, with no catch-up burst (`Throttle` makes up at most 200 ms) and no
+  GPU errors. (The restore came from a temporary test hook, `SDL_RestoreWindow`, as a Dock click does.)
+- **Packaging, for item 10:** a plain configure leaves the release table empty, so the standalone never
+  patches the game's DOL. Pass `-DSKIES_RELEASE_DISC_IDS="GEAE8P;GEAP8P"` and
+  `-DSKIES_RELEASE_DOL_PATCHES=<the patches>`; then a plain DOL gets "Applied native DOL patches", and a DOL
+  from an earlier import gets the "The game needs updating" box (modal: a headless test waits on it). libpng is
+  linked as `@rpath/libpng16.16.dylib` with an rpath into the build folder: bundle it or link it statically.
+- **Open (the user, at the Mac):** the menu overlay by eye; the DualSense Edge (input, rumble, Button mapping,
+  the controller's name) and the keyboard; sound against the picture by ear; Play from the launcher (a scratch
+  copy of the app, portable, on a copy of the data); the picture and the sound after a restore from the Dock;
+  a profile trained on the Mac (untried).

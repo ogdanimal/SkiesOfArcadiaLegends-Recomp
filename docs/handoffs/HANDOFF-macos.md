@@ -11,6 +11,10 @@ steps: BUILDING *macOS*; patches: `patches/README.md` (`moderngekko-macos`, `rec
 `recompcore-menu-close`, `dolrecomp-macho-sections`); developer notes: NOTES *macOS*. Open: the PS button's Game Overlay, a player check of the launcher,
 Developer ID signing / notarization (*Open* below).
 
+**The standalone (no Dolphin) on macOS (2026-10-27):** builds unchanged, plays on Metal and is faster than
+this port on the same M4; the QoS and PGO fixes, MSAA counts, the minimize pause and the packaging notes are
+in [HANDOFF-emulator-free.md](HANDOFF-emulator-free.md) *macOS*.
+
 ## What it is
 
 - `Skies of Arcadia Legends.app` (arm64, macOS 13+), in `build/SkiesOfArcadiaLegends-<version>-macos.zip`
