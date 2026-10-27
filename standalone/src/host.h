@@ -132,6 +132,7 @@ u32 RtcSeconds();
 // dol_path: a DOL to boot instead of sys/main.dol (a game-patched one), or empty
 bool DiscOpen(const std::string& game_dir, const std::string& dol_path);
 bool DiscRead(u64 offset, void* out, u32 length);
+std::string DiscPathAt(u64 offset);  // the file at a disc offset, relative to the game folder (traces)
 const u8* DiscHeader();  // boot.bin (0x440 bytes)
 // The console region the game boots on: the disc's, except the European game, which runs as an NTSC-U
 // game as in the Dolphin build (SConfig::SetPathsAndGameMetadata): its render mode follows the TV format

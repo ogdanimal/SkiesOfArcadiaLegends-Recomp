@@ -287,6 +287,18 @@ const std::vector<u8>& DiscDol()
   return s_dol;
 }
 
+std::string DiscPathAt(u64 offset)
+{
+  auto it = std::upper_bound(s_extents.begin(), s_extents.end(), offset,
+                             [](u64 value, const Extent& e) { return value < e.offset; });
+  if (it == s_extents.begin())
+    return {};
+  --it;
+  if (offset >= it->offset + it->size)
+    return {};
+  return it->path.empty() ? std::string("(system)") : std::filesystem::path(it->path).filename().string();
+}
+
 bool DiscRead(u64 offset, void* out, u32 length)
 {
   u8* dst = static_cast<u8*>(out);

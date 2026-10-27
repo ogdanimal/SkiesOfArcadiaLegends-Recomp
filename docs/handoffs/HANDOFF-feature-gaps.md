@@ -826,9 +826,27 @@ engines' CPU cost against the performance goal (measure on the Pocket 5).
   0.9996-1.0000 of the USA's stretch lengths (the 38.7 s and 17.6 s stretches 0.9998 / 0.9999), the European
   disc +0.03 s behind at 53 s and +0.11 s at 118 s; the intro's music stream ends at 142.403 s against
   142.363 s (+0.04 s; the Dolphin build's runs: +11 frames). From 118.7 s the European script's own shots
-  follow (its timing words are part of the key, so they differ by design), and after the intro the
-  European disc starts another stream (140.76 s) where the USA reads nothing to 190 s: not compared
-  with the Dolphin build.
+  follow (its timing words are part of the key, so they differ by design). After the intro the European
+  disc went on to the title screen and its music while **the USA disc never left the intro's last shot**
+  (fixed the same day: *The USA intro stalled on a fast drive* below).
+- **The USA intro stalled on a fast drive (found and fixed 2026-10-27).** The standalone completed every
+  disc read after 100 us + about 16 MB/s with no seeks. With that, the USA intro's script (the unpatched
+  DOL too, on WSL and Windows) reached its last shot pair (`f80c48a8` / `9cc6ed80`) 0.75 s after the
+  previous one instead of the Dolphin build's 1.2 s, read `a299a29d.mld`, and never advanced again: no
+  more shots, silence after the intro's music, no title screen (checked to 600 s; the game sat in its idle
+  loop). The European script, rewritten for 60 Hz, happened to escape it. The Dolphin build (default
+  emulated drive, `moderngekko-run --headless --graphics Null`, `cs_shot` polled through
+  `--automation-dir`) plays all 53 shots and the title music from 144.3 s. Slower drives (4 or 2 MB/s, or
+  16 MB/s with 100 ms seeks) all get through, so the game races its own loads. **Fix:** `hw_di.cpp` times
+  reads with Dolphin's model (`DVDMath.cpp` + `ScheduleReads`: 600 us per read, seeks, rotational
+  latency, 2.1-3.3 MB/s CAV, the 1 MiB read-ahead buffer at 32 MB/s; 300 us for other commands; the
+  buffer isn't in save states, so the first read after a load is unbuffered). Now both discs play all 53
+  shots; USA intro music 20.2-142.35 s and the title's from 144.45 s against the Dolphin build's
+  20.1-142.15 / 144.3 s (European 20.25-142.4 / 145.0 s); the same on Windows with the unpatched DOL.
+  Continue's auto-load finishes at 6.21 s guest (3.55 s before). **Test routes** recorded before this
+  (`fight-full.txt`, `lp-play.txt`, the other `SKIES_PRESS_FILE` routes and the benches' cold-boot
+  timings) need `SKIES_DI_FAST=1`, which restores the old timing exactly (the same `cs_shot` log); new
+  routes should be recorded without it. `SKIES_DI_TRACE=1` now names the file of each read.
 - **The intro with the Dreamcast recording plays in the standalone (2026-10-27).** WSL, headless, the USA ws30
   game, a cold boot to 150 guest s, `SKIES_DC_MUSIC_SYNC=1` (mixed in guest time, so on and off line up),
   `SKIES_WAV`, the music folder copied from `C:\dev\SkiesUncensor\app\User\DreamcastMusic` without its
@@ -838,8 +856,8 @@ engines' CPU cost against the performance goal (measure on the Pocket 5).
   stream; the two differ all through (another recording), the Dreamcast one quieter for its first ~40 s
   (RMS 77-882 against 602-3,421), then louder (2,608-3,946 against 2,122-2,576). By ear: not yet.
 - **Open:** the m03 scene in game (no state reaches it); the intro with the Dreamcast recording by ear; the
-  Android picker import (item 9); the save point's music cost; whether the Dolphin build's European disc also starts a stream
-  after the intro. (A romhack whose file sizes differ: done 2026-10-26, item 8.)
+  Android picker import (item 9); the save point's music cost; re-recording the test routes for the new
+  drive timing. (A romhack whose file sizes differ: done 2026-10-26, item 8.)
 
 ## Items 8-10: the standalone replaces the Dolphin build (decided 2026-10-26)
 
