@@ -445,7 +445,7 @@ Intel UHD 770), Windows, the **same DOL and module on both sides** (`C:\dev\Skie
 `modules-llvm-pgo-ws26`), the same settings (`C:\dev\SkiesRecomp\build\user-bench`'s Config: internal
 resolution 1, 30 fps mode), muted, standing at the opening dungeon's save point (Dolphin:
 `savestates/05-save-point.sav`; standalone: `C:\dev\SkiesStandalone\bench-savepoint.sst`, made by the
-`fight-full.txt` route at 100 s). Dolphin: `capture/inproc-win.sh` with `user-bench-dc` (dual core).
+`fight-full.txt` route at 100 s (2026-10-27 night: the 10-25 `.sst` files are state version 1 and no longer load; the current bench states are `build/sa-runs/bench-states/`, made from the Dolphin bench states, see *HANDOFF-feature-gaps.md* *Testing practice*)). Dolphin: `capture/inproc-win.sh` with `user-bench-dc` (dual core).
 
 | | Standalone | Dolphin Vulkan | Dolphin D3D12 | Aurora in Dolphin | Dolphin Null |
 |---|---|---|---|---|---|
@@ -588,6 +588,8 @@ alone at 327/504 HP, idle at the command menu with the camera drifting; ws26 DOL
   `SKIES_PRESS_FILE=box.txt` (after 100 s that script is only a box walk at the save point, 3 s per
   direction) and `user-bench-sa`'s Encounters 400%; the battle starts around frame 3900 (~131 s).
   (`bench-battle.sst` next to it is a failed first try: `fight-full.txt` on ws26 walks into a wall.)
+  Since 2026-10-27 night the standalone's battle bench is this same Dolphin state, converted
+  (`build/sa-runs/bench-states/bench-battle2.sst`), so both builds start from one moment.
 - Dolphin `C:\dev\SkiesRecomp\build\savestates\20-corridor-battle.sav`: `05-save-point.sav` in a copy of
   `user-bench-dc` (`C:\dev\SkiesAuroraRun\user-mkbattle`), `drive.py config:Dolphin.Skies.Encounters=400`,
   eight rounds of `tap:dpad_right:180 tap:dpad_down:180 tap:dpad_left:180 tap:dpad_up:180`, then `save:`.
@@ -647,7 +649,8 @@ there. The module is the disc's own by default (`libg<disc ID>_recomp.so` in the
 files folder (no game files in the APK): `game/sys` from `C:\dev\SkiesRomhack\build\game\GEAE8P-ws26\sys`,
 `game/files` from `C:\dev\SkiesRecomp\extracted\SkiesOfArcadiaLegends\files` (1.4 GB, 50 s),
 `user-bench-sa` (Encounters 400%, widescreen), `dsp_coef.bin` (Dolphin's `Data/Sys/GC`),
-`bench-savepoint.sst`, `bench-battle2.sst`, and `args.txt` / `env.txt` (`SKIES_MUTE=1`,
+`bench-savepoint.sst`, `bench-battle2.sst` (replaced 2026-10-27 night by the version-2 states made from the
+Dolphin bench states), and `args.txt` / `env.txt` (`SKIES_MUTE=1`,
 `SKIES_PRESENT_PACING=1`, `SKIES_AURORA_LOG=1`). Started with
 `adb.exe -s <serial> shell am start -n com.skiesofarcadia.standalone/.SkiesActivity`.
 

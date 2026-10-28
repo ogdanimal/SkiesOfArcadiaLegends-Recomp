@@ -62,7 +62,11 @@ evening** (*Pocket 5 checks, 2026-10-27 evening* at the end): `env.txt` knobs ho
 package APK offers 2x MSAA, the 4x save-state round trip exact (fork 0052 on Android), Continue works, and the
 save point's Dreamcast music no longer costs anything (ahead of the Dolphin build there). Found on the way and
 fixed: **frame dumps on Android were sometimes one frame stale** (the 30 fps path didn't wait for the queued
-present before the readback). The test app is left on this build.
+present before the readback). The test app is left on this build. **2026-10-27 night** (*Testing practice*):
+new bench states from the Dolphin bench app's own states (on the Pocket 5 too); the routes in use re-timed for
+the drive model (`fight-full-dt`, `lp-play-dt`, `zt1-dt`: the title's Start pressed twice, repeatable on
+Windows); and **press scripts no longer take the host's controllers** (a resting pad's stick had made Windows
+runs differ). The Windows build in `C:\dev\SkiesStandalone` is synced to this branch.
 Items 9 and 10 need dev's code merged in first; **the user said hold** (no merge or rebase for now; *Items 9 and
 10 need dev's current code* below). **Pick up at items 8-10**, now one goal: the standalone **replaces** the Dolphin build as a normal update
 (the user, 2026-10-26; *Items 8-10* below has the approach, the runner contract and what doesn't carry over
