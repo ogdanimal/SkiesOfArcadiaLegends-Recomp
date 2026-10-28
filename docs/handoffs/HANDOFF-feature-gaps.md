@@ -949,8 +949,8 @@ engines' CPU cost against the performance goal (measure on the Pocket 5).
   stream; the two differ all through (another recording), the Dreamcast one quieter for its first ~40 s
   (RMS 77-882 against 602-3,421), then louder (2,608-3,946 against 2,122-2,576). By ear: not yet.
 - **Open:** the m03 scene in game (no state reaches it); the intro with the Dreamcast recording by ear; the
-  Android picker import (item 9); re-recording the test routes for the new
-  drive timing. (A romhack whose file sizes differ: done 2026-10-26, item 8.)
+  Android picker import (item 9). (The test routes for the new drive timing: done 2026-10-27 night,
+  *Testing practice*. A romhack whose file sizes differ: done 2026-10-26, item 8.)
 
 ## Items 8-10: the standalone replaces the Dolphin build (decided 2026-10-26)
 
