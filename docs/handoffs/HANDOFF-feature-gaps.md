@@ -74,7 +74,7 @@ yet). Standing leftovers:
 hosting the patched Dawn packages for CI (item 2); rumble by hand,
 a capture with a real pad, two pads and the Pocket 5 (item 3); the
 cloud-sea edges and the full 4x pack (item 5); 60 fps on the Nova and its scene list (item 6); the
-video thread on the Nova and with a pad by hand; item 7's open list (m03 in game, the Dreamcast intro by ear).
+video thread on the Nova and with a pad by hand; item 7's open list (the Dreamcast intro by ear; m03 played 2026-10-27 night).
 
 ## Ground rules
 
@@ -952,7 +952,20 @@ engines' CPU cost against the performance goal (measure on the Pocket 5).
   50 ms steps) from 16.4 to 137.85 s with `DreamcastMusic = 1`, 16.9 to 139.05 s with the GameCube's
   stream; the two differ all through (another recording), the Dreamcast one quieter for its first ~40 s
   (RMS 77-882 against 602-3,421), then louder (2,608-3,946 against 2,122-2,576). By ear: not yet.
-- **Open:** the m03 scene in game (no state reaches it); the intro with the Dreamcast recording by ear; the
+- **The m03 scene played (2026-10-27 night, WSL, USA ws32):** no save reaches it, so a run warps into it:
+  `me298a.sct`'s `loop` calls the scene (`me298al21`) unconditionally, so a map change is enough. From
+  `conv-states/05-save-point.sav`, `SKIES_POKE="@107.5:80305CF0=6D65323938612E7363740000;@107.5:80311AEC=0000000F"`
+  (the script name into the map-change buffer, then field state 0xF; the new one-shot `@SECONDS:` form):
+  `me298a.sct` read at 107.6 s, `m03_l.dsp` from 108.5 s, the scene's cut models to ~210 s, pictures right
+  (moonstones, Vyse and Aika on deck, the ship). With `DreamcastMusic = 1` (the Windows app's
+  `DreamcastMusic` copied without `STREAMS`): m03 converted at boot ("Dreamcast stream m03 ...: SOUND/M03S.P04
+  (124.5 s; the GameCube's 121.1 s), gain 0.75"), the converted pair byte-identical to the Dolphin build's
+  `STREAMS`, and the scene's stream reads served from them (a temporary log in `SkiesStreams::Redirect`,
+  not committed: `STREAMS/m03_l-7a9bf601.dsp` for `sound/m03_l.dsp`; the disc's own with the setting off).
+  The game's audio with the Dreamcast sequencer left out (`SKIES_DC_MUSIC_SYNC=2`): quieter with it on,
+  correlation 0.4-0.95 with the GameCube run in 6 s windows (the same recording, another mix). Not by ear;
+  `me250a` (the other m03 script) not played.
+- **Open:** the intro with the Dreamcast recording by ear; the
   Android picker import (item 9). (The test routes for the new drive timing: done 2026-10-27 night,
   *Testing practice*. A romhack whose file sizes differ: done 2026-10-26, item 8.)
 
