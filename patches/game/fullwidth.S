@@ -153,10 +153,61 @@ UNWIDE ws_unwide_80097CA4, fn_80097CA4
  * scaled for a shake or zoom. It's sized to the game's own field of view, so the widened one drew
  * the whole picture squeezed into the middle 4:3, black at the sides (Drachma's victory pose,
  * issue #9; found with trace2d: fn_8003484C+0x158 -> fn_801CF0F8 -> fn_80287B38). Its three model
- * draws, by how the model is animated. */
-UNWIDE ws_unwide_801CEF30, fn_801CEF30
-UNWIDE ws_unwide_801CF020, fn_801CF020
-UNWIDE ws_unwide_801CF0F8, fn_801CF0F8
+ * draws, by how the model is animated. ws31 drew them at the game's field of view (UNWIDE), which
+ * covered the picture but turned the plane in the squeezed 4:3 space: a tilt sheared the 16:9
+ * picture (issue #22). Now the plane is widened along its own x (ws_plane_widen: the model matrix,
+ * after the game's translate, turn and scale) and drawn with the widened view, so it turns as a
+ * 16:9 picture. */
+.macro WIDE_PLANE name, target
+	.global \name
+	.type \name, @function
+\name:
+	ORIGINAL_IN_43 \target
+	stwu 1, -112(1)
+	mflr 0
+	stw 0, 116(1)
+	stw 3, 8(1)
+	stw 4, 12(1)
+	stw 5, 16(1)
+	stw 6, 20(1)
+	stw 7, 24(1)
+	stw 8, 28(1)
+	stw 9, 32(1)
+	stw 10, 36(1)
+	stfd 1, 40(1)
+	stfd 2, 48(1)
+	stfd 3, 56(1)
+	stfd 4, 64(1)
+	stfd 5, 72(1)
+	stfd 6, 80(1)
+	stfd 7, 88(1)
+	stfd 8, 96(1)
+	bl ws_plane_widen
+	lwz 3, 8(1)
+	lwz 4, 12(1)
+	lwz 5, 16(1)
+	lwz 6, 20(1)
+	lwz 7, 24(1)
+	lwz 8, 28(1)
+	lwz 9, 32(1)
+	lwz 10, 36(1)
+	lfd 1, 40(1)
+	lfd 2, 48(1)
+	lfd 3, 56(1)
+	lfd 4, 64(1)
+	lfd 5, 72(1)
+	lfd 6, 80(1)
+	lfd 7, 88(1)
+	lfd 8, 96(1)
+	lwz 0, 116(1)
+	mtlr 0
+	addi 1, 1, 112
+	b \target
+	.size \name, . - \name
+.endm
+WIDE_PLANE ws_unwide_801CEF30, fn_801CEF30
+WIDE_PLANE ws_unwide_801CF020, fn_801CF020
+WIDE_PLANE ws_unwide_801CF0F8, fn_801CF0F8
 	.text
 
 /* Squeezed: the reverse of FULLWIDTH. Call a 2D function with ws_config.full_m00 set to the

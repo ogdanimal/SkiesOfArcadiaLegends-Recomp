@@ -16,6 +16,7 @@
     "FontIsReady": "0x801E34AC",
     "FontUpdate": "0x801E35FC",
     "njClipZ": "0x80299188",
+    "njScale": "0x802923E0",
     "njSetScreen": "0x802993C8",
     "njSetPerspective": "0x802992F8",
     "ws_ortho_m00": "0x803463C0",
@@ -136,7 +137,7 @@
       "site": "0x8003497C",
       "target": "fn_801CEF30",
       "to": "ws_unwide_801CEF30",
-      "why": "fn_8003484C: the battle's screen plane (the copied frame on a model in front of the camera), drawn at the game's own field of view so it covers the whole picture (issue #9, found with trace2d)"
+      "why": "fn_8003484C: the battle's screen plane (the copied frame on a model in front of the camera), widened along its own x so it covers the whole picture and turns as a 16:9 one (issues #9 and #22, found with trace2d)"
     },
     {
       "site": "0x80034994",

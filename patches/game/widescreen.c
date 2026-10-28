@@ -98,7 +98,7 @@ struct ws_config {
 /* Bumped whenever the data section's layout or the defaults change. A savestate made with another
  * build brings that build's data section back (its code is replaced by this build's on load), so
  * ws_check resets everything here when the version in memory isn't this one. */
-#define WS_VERSION 10
+#define WS_VERSION 11
 
 /* The HUD's width, written by the frontend (Core/SkiesSettings.cpp) at a fixed address (cave.ld;
  * unused in every earlier build, so it writes it whatever the DOL): 0 = the anchored pieces at the
@@ -119,7 +119,8 @@ __attribute__((section(".ws_hud"), used)) float ws_hud_aspect;
     {0x8002B584, 0x3EC, 100, 0, 0, 0},    /* battle: status icon column */                         \
     {0x8012B054, 0x184, -100, 0, 0, 0},   /* ship battle: Spirit gauge and bar (fn_8012B054) */    \
     {0x8012C744, 0xA4, -100, 0, 0, 0},    /* ship battle: command ring (fn_8012C744) */            \
-    {0x8012E640, 0xAC, -100, 0, 0, 50},   /* ship battle: the ring's lists, down by the ring */  \
+    {0x8012E640, 0xAC, -100, 0, 0, 20},   /* ship battle: the ring's lists, down by the ring as \
+                                             far as the Item list's box fits (#25) */          \
     {0x801331AC, 0x2CC, -100, 0, 0, -24}, /* ship battle: crew and ship panels, midway between the \
                                              Spirit gauge and the ring (fn_801331AC) */          \
     {0x801303D0, 0x214, 100, 0, 175, -34}, /* ship battle: turn bar, top right (fn_801303D0) */    \
@@ -230,6 +231,16 @@ void ws_unwide_end(void) {
   NJ_SCALE_X = unwide_saved[1];
   NJ_INV_SCALE_X = unwide_saved[2];
   njClipZ(-NJ_VOLUME[1], -NJ_VOLUME[0]);
+}
+
+/* The battle's screen plane (fn_8003484C, fullwidth.S WIDE_PLANE): its model is as wide as the
+ * game's own field of view, so with the widened one it's stretched along its own x to the picture's
+ * width, inside the task's push / pop of the matrix (issue #22). */
+extern void njScale(void *matrix, float x, float y, float z);
+#define TRK_CAVE_LATE __attribute__((section(".trkcave_late")))
+TRK_CAVE_LATE void ws_plane_widen(void) {
+  if (ws_config.factor > 0.0f && ws_config.factor < 1.0f)
+    njScale(0, 1.0f / ws_config.factor, 1.0f, 1.0f);
 }
 
 /* Whether a 2D polygon reaches both screen edges. */
