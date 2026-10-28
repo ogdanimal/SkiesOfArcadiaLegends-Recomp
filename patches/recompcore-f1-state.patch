@@ -1,0 +1,68 @@
+diff --git a/Source/Core/Core/SkiesInput.cpp b/Source/Core/Core/SkiesInput.cpp
+index a0830f92d6..1431b087e4 100644
+--- a/Source/Core/Core/SkiesInput.cpp
++++ b/Source/Core/Core/SkiesInput.cpp
+@@ -595,6 +595,21 @@ bool OwnsKeyboard()
+   return s_owns_keyboard;
+ }
+ 
++bool KeyBound(std::string_view control)
++{
++  const auto lock = ControllerEmu::EmulatedController::GetStateLock();
++  for (const SkiesBindings::Input& input : SkiesBindings::Inputs())
++  {
++    for (const SkiesBindings::Term& term : SkiesBindings::SplitExpression(Expression(input)))
++    {
++      Slot slot;
++      if (SkiesBindings::TermSlot(term, &slot) && slot == Slot::Keyboard && term.control == control)
++        return true;
++    }
++  }
++  return false;
++}
++
+ std::string BindingLabel(int input, Slot slot)
+ {
+   const auto inputs = SkiesBindings::Inputs();
+diff --git a/Source/Core/Core/SkiesInput.h b/Source/Core/Core/SkiesInput.h
+index 98363b45f9..7bb9b8dce5 100644
+--- a/Source/Core/Core/SkiesInput.h
++++ b/Source/Core/Core/SkiesInput.h
+@@ -4,6 +4,7 @@
+ #pragma once
+ 
+ #include <string>
++#include <string_view>
+ 
+ #include "Core/SkiesBindings.h"
+ 
+@@ -33,6 +34,9 @@ bool HasKeyboard();
+ // True when the game should have the keyboard to itself: the host window's own keys (fast-forward,
+ // save states, quitting on Escape) stay out of the way (DolphinNoGUI's platforms)
+ bool OwnsKeyboard();
++// Whether a keyboard key (the control's name, "F1") is bound to the game or a hotkey: a key that
++// isn't keeps its window shortcut while the game owns the keyboard (F1 saves a state, issue #19)
++bool KeyBound(std::string_view control);
+ 
+ // Remapping (the in-game menu, CPU thread). Index into SkiesBindings::Inputs().
+ std::string BindingLabel(int input, SkiesBindings::Slot slot);
+diff --git a/Source/Core/DolphinNoGUI/PlatformWin32.cpp b/Source/Core/DolphinNoGUI/PlatformWin32.cpp
+index 6c39c8785d..feebd5b3a7 100644
+--- a/Source/Core/DolphinNoGUI/PlatformWin32.cpp
++++ b/Source/Core/DolphinNoGUI/PlatformWin32.cpp
+@@ -432,9 +432,13 @@ LRESULT PlatformWin32::WndProc(const HWND hwnd, const UINT msg, const WPARAM wPa
+ 
+   case WM_KEYDOWN:
+     // Skies plays on the keyboard: Space is A, Escape opens its menu (Core/SkiesInput.cpp), and the
+-    // developer keys (F1 state, Space fast-forward, Escape quits) are off. F11 / Alt+Enter stay.
+-    if (SkiesInput::OwnsKeyboard() && wParam != VK_F11)
++    // developer keys (Space fast-forward, Escape quits) are off. F11 / Alt+Enter stay, and F1 saves
++    // a state as the File menu says, unless the player bound F1 to the game (issue #19).
++    if (SkiesInput::OwnsKeyboard() && wParam != VK_F11 &&
++        (wParam != VK_F1 || SkiesInput::KeyBound("F1")))
++    {
+       break;
++    }
+     // Bit 30 of lParam is the previous key state: ignore auto-repeat, or holding
+     // F1 down would write a state every few milliseconds.
+     if (wParam == VK_F1 && (static_cast<ULONG_PTR>(lParam) & (1u << 30)) == 0)
