@@ -73,7 +73,7 @@ Items 9 and 10 need dev's code merged in first; **the user said hold** (no merge
 yet). Standing leftovers:
 hosting the patched Dawn packages for CI (item 2); rumble by hand,
 a capture with a real pad, two pads and the Pocket 5 (item 3); the
-cloud-sea edges and the full 4x pack (item 5); 60 fps on the Nova and its scene list (item 6); the
+the full 4x pack (item 5; the cloud-sea edge is the pack's, 2026-10-27 night); 60 fps on the Nova and its scene list (item 6); the
 video thread on the Nova and with a pad by hand; item 7's open list (the Dreamcast intro by ear; m03 played 2026-10-27 night).
 
 ## Ground rules
@@ -629,8 +629,16 @@ Dolphin build; decide whether to translate `GCPadNew.ini` once on first run.
 - **Not compared:** the Dolphin build's "149 of 745 across 9 states" came from Dolphin states the standalone
   can't load; the fight route reaches 89-91. Both hash the same way (no misses among the files the route
   uses, and the replaced textures are the ones expected), so the counts differ by coverage.
-- **Open:** a side-by-side with the Dolphin build of the cloud sea in the first battle (a few straight
-  cloud-quad edges show with the pack: possibly the pack's own); the full 4x pack (15,497 textures, about 4 GB
+- **Side-by-side with the Dolphin build (2026-10-27 night, Windows, ws26 game + module, the v0.06 PNG pack
+  imported in one user folder for both, HD textures on):** both builds load the same Dolphin states (the
+  standalone through the converter, `AURORA_SYNC_REPLACEMENTS=1`); the Dolphin build is the dev runner in
+  `C:\dev\SkiesAuroraRun` (Vulkan) screenshotted through `--automation-dir` (a `screenshot` command file
+  whose path is the `\\wsl.localhost` form: drive.py passes Linux paths through, which Windows reads as
+  `C:\tmp\...`). `02-first-battle.sav` (the deck battle at night, 49 replacements loaded): the cloud backdrop
+  above the rail the same texture and layout in both, no straight edges. `13-pre-battle.sav` (the world map
+  flight over the cloud sea): **the straight diagonal sky / cloud edge at the top left is in both builds, at
+  the same place**, so it is the pack's (or the game's), not the standalone's.
+- **Open:** the full 4x pack (15,497 textures, about 4 GB
   of GPU memory if all were used; Aurora's replacement cache evicts past 4 GB).
 
 **Pocket 5 (2026-10-26):** the PNG pack imported on WSL and pushed into both test apps
