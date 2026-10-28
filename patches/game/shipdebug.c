@@ -7,6 +7,10 @@
  * 0x80311AEC, as fn_80100270 does) starts the battle. Build it together with widescreen.json.
  * A member: 'PTY' << 8 | member (0-5; 3 = Drachma) to PARTY_REQUEST joins them through the game's
  * own join (fn_800FF6B4, which a script's join runs: stats from their table on a first join).
+ * The victory pose's member: 'VIC' << 8 | member to VICTORY_REQUEST makes every won battle's pose
+ * that member's (the game's pick, fn_80017324, rolls 1 in 4 per member in turn; the pose itself is
+ * not random: fn_80017430 plays motion 0x1A + 0 / 1 / 2 by the poser's HP ratio and status), so a
+ * test sees one pose every run (issue #22: Drachma's screen plane). Kept until the test clears it.
  * dbg_field (shipdebug.S) tail-calls the field main, so no frame of this code is on the stack when
  * a savestate is made: states made with this build load in play builds. */
 
@@ -24,6 +28,18 @@ extern void fn_800FF6B4(int member); /* a member joins the party */
 #define SHIP_MAGIC 0x534850u /* 'SHP' */
 #define PARTY_REQUEST (*(volatile u32 *)0x8031AA20)
 #define PARTY_MAGIC 0x505459u /* 'PTY' */
+/* After dcm_box (dcmusic.c ends at 0x8031AA0C), before the party word. */
+#define VICTORY_REQUEST (*(volatile u32 *)0x8031AA1C)
+#define VICTORY_MAGIC 0x564943u /* 'VIC' */
+
+extern int fn_80017324(int kind); /* the victory pose's member, picked at random */
+
+int dbg_victory_pick(int kind) {
+  u32 request = VICTORY_REQUEST;
+  if ((request >> 8) == VICTORY_MAGIC && (request & 0xFF) < 6)
+    return (int)(request & 0xFF);
+  return fn_80017324(kind);
+}
 
 void dbg_ship_request(void) {
   u32 request = SHIP_REQUEST;

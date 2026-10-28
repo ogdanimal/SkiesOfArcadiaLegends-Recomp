@@ -7,6 +7,12 @@
       "target": "fn_80101828",
       "to": "dbg_field",
       "why": "fn_801DC288: game mode 3 / 6 dispatch to the field main"
+    },
+    {
+      "site": "0x80013B9C",
+      "target": "fn_80017324",
+      "to": "dbg_victory_pick",
+      "why": "fn_800136DC, a won battle: the victory pose's member, forced on request"
     }
   ]
 }
