@@ -1965,7 +1965,8 @@ Clock::time_point s_last_frame{};
 
 void LoadFonts()
 {
-  // The launchers' faces: Segoe UI on Windows, DejaVu Sans on Linux; ImGui's own otherwise.
+  // The launchers' faces: Segoe UI on Windows, Roboto on Android, DejaVu Sans on Linux (the Dolphin
+  // build's list); ImGui's own (monospace) otherwise.
   const auto add = [](std::initializer_list<std::string> candidates) -> ImFont* {
     for (const std::string& path : candidates)
     {
@@ -1982,7 +1983,7 @@ void LoadFonts()
   ImGui::GetIO().Fonts->AddFontDefault();
   const char* windir = std::getenv("windir");
   const std::string windows = windir ? std::string(windir) + "\\Fonts\\" : std::string();
-  s_ui_font = add({windows.empty() ? "" : windows + "segoeui.ttf",
+  s_ui_font = add({windows.empty() ? "" : windows + "segoeui.ttf", "/system/fonts/Roboto-Regular.ttf",
                    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"});
   s_title_font = add({windows.empty() ? "" : windows + "segoeuib.ttf",
                       "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"});
