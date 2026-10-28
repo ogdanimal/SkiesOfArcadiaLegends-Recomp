@@ -404,7 +404,13 @@ its checks and a commit; device-heavy ones end with a head-to-head.
   four `DOWN` (Anti-aliasing), `RIGHT`, `START`: the log shows `[menu] open`, `[menu] closed`, then
   `[menu] anti-aliasing 4x MSAA` (staged changes apply on close), and `GFX.ini` gets `MSAA = 4`. Frame dumps
   hold the game's picture only, not the overlay.
-- **Open:** the menu overlay by eye on Windows; the menu on the Pocket 5.
+- **Menu overlay checked (2026-10-27 night):** opened by a press script (`110:Z,110.05:START`, then R for the
+  tabs) from `bench-savepoint.sst`, a window screenshot each (Windows `shot-dpi.ps1`, Pocket 5
+  `adb exec-out screencap`). Windows D3D12: panel, tab bar, rows with their help lines, the footer, sharp
+  Segoe UI, the game drawn behind. Pocket 5: the same, but in ImGui's built-in monospace font: the port of
+  `LoadFonts` had lost the Dolphin build's `/system/fonts/Roboto-Regular.ttf`. Fixed (menu.cpp); the
+  test app rebuilt and installed, the menu now in Roboto. macOS has no font in the list (ImGui's, as the
+  Dolphin build).
 - **Frame rate** belongs to item 6, **HD textures** to item 5.
 
 ## 3. Input: keyboard layout, rumble, names, Button mapping
