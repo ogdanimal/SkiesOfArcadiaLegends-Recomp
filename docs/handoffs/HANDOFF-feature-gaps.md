@@ -66,15 +66,19 @@ present before the readback). The test app is left on this build. **2026-10-27 n
 new bench states from the Dolphin bench app's own states (on the Pocket 5 too); the routes in use re-timed for
 the drive model (`fight-full-dt`, `lp-play-dt`, `zt1-dt`: the title's Start pressed twice, repeatable on
 Windows); and **press scripts no longer take the host's controllers** (a resting pad's stick had made Windows
-runs differ). The Windows build in `C:\dev\SkiesStandalone` is synced to this branch.
+runs differ). The Windows build in `C:\dev\SkiesStandalone` is synced to this branch. **Later the same night:**
+the m03 scene played by a warp, with the Dreamcast m03 served there (item 7; `SKIES_POKE` takes one-shot
+`@SECONDS:` entries); the menu overlay checked on Windows and the Pocket 5, where it had lost Roboto (fixed, item 2);
+Continue's auto-load against the game's own load menu, the card save's blocks identical (item 1); the HD pack's
+straight cloud-sea edge is in the Dolphin build too (item 5).
 Items 9 and 10 need dev's code merged in first; **the user said hold** (no merge or rebase for now; *Items 9 and
 10 need dev's current code* below). **Pick up at items 8-10**, now one goal: the standalone **replaces** the Dolphin build as a normal update
 (the user, 2026-10-26; *Items 8-10* below has the approach, the runner contract and what doesn't carry over
 yet). Standing leftovers:
 hosting the patched Dawn packages for CI (item 2); rumble by hand,
-a capture with a real pad, two pads and the Pocket 5 (item 3); the
-the full 4x pack (item 5; the cloud-sea edge is the pack's, 2026-10-27 night); 60 fps on the Nova and its scene list (item 6); the
-video thread on the Nova and with a pad by hand; item 7's open list (the Dreamcast intro by ear; m03 played 2026-10-27 night).
+a capture with a real pad, two pads and the Pocket 5 (item 3); the full 4x pack (item 5); 60 fps on the Nova
+and its scene list (item 6); the video thread on the Nova and with a pad by hand; the Dreamcast intro and m03
+by ear (item 7); the old press files still on `SKIES_DI_FAST=1` (*Testing practice*).
 
 ## Ground rules
 
