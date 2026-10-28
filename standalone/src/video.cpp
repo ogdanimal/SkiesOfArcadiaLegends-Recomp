@@ -987,26 +987,40 @@ void VideoRun(const std::function<void()>& game)
 
 // SKIES_POKE=ADDR=WORDS[;ADDR=WORDS...] (hex; WORDS: 8 hex digits each, big-endian guest words)
 // written to RAM at every frame, as a frontend writes the game patch's input blocks every poll
-// (e.g. qol_input at 80002EA0: 'QOLC', encounter percent, ...).
+// (e.g. qol_input at 80002EA0: 'QOLC', encounter percent, ...). An entry as @SECONDS:ADDR=WORDS is
+// written once, at the first frame end at or after that guest time (tests: a map change is
+// "@110:80305CF0=6D65323938612E7363740000;@110:80311AEC=0000000F", the script name then field state
+// 0xF, USA addresses).
 void ApplyPokes()
 {
   struct Poke
   {
     u32 address;
     std::vector<u32> words;
+    double at = -1;  // once, at this guest time; < 0: every frame
+    bool done = false;
   };
-  static const std::vector<Poke> pokes = [] {
+  static std::vector<Poke> pokes = [] {
     std::vector<Poke> list;
     const char* spec = std::getenv("SKIES_POKE");
     for (std::string rest = spec ? spec : ""; !rest.empty();)
     {
       const size_t semi = rest.find(';');
-      const std::string one = rest.substr(0, semi);
+      std::string one = rest.substr(0, semi);
       rest = semi == std::string::npos ? "" : rest.substr(semi + 1);
+      double at = -1;
+      if (!one.empty() && one[0] == '@')
+      {
+        const size_t colon = one.find(':');
+        if (colon == std::string::npos)
+          continue;
+        at = std::strtod(one.c_str() + 1, nullptr);
+        one = one.substr(colon + 1);
+      }
       const size_t eq = one.find('=');
       if (eq == std::string::npos)
         continue;
-      Poke p{static_cast<u32>(std::strtoul(one.substr(0, eq).c_str(), nullptr, 16)), {}};
+      Poke p{static_cast<u32>(std::strtoul(one.substr(0, eq).c_str(), nullptr, 16)), {}, at};
       const std::string hex = one.substr(eq + 1);
       for (size_t i = 0; i + 8 <= hex.size(); i += 8)
         p.words.push_back(static_cast<u32>(std::strtoul(hex.substr(i, 8).c_str(), nullptr, 16)));
@@ -1014,9 +1028,19 @@ void ApplyPokes()
     }
     return list;
   }();
-  for (const Poke& p : pokes)
+  const double now = static_cast<double>(Now()) / CPU_HZ;
+  for (Poke& p : pokes)
+  {
+    if (p.at >= 0)
+    {
+      if (p.done || now < p.at)
+        continue;
+      p.done = true;
+      Log("[video] poke %08x (%zu words) at %.3f s guest\n", p.address, p.words.size(), now);
+    }
     for (size_t i = 0; i < p.words.size(); ++i)
       Write32(p.address + static_cast<u32>(4 * i), p.words[i]);
+  }
 }
 
 #ifdef SKIES_STANDALONE_AURORA
