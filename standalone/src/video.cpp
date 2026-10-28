@@ -1385,6 +1385,10 @@ bool VideoQuitRequested()
 // SKIES_PRESS="12.5:START,14:A,...": port 1 holds that button for 0.2 guest seconds from each time
 // (START A B X Y Z L R UP DOWN LEFT RIGHT; CUP CDOWN CLEFT CRIGHT push the C-stick fully over, LT RT
 // the analog triggers fully in), for unattended runs. The low 16 bits are buttons.
+// While a script is set the host's own controllers and keyboard are left out of port 1-4, so an
+// unattended run doesn't pick up a connected pad's resting stick (one unit off centre changes the
+// encounter dice: two runs of one route met their battle 37 s apart); SKIES_PRESS_HOST_PADS=1 keeps them.
+static bool s_script_active = false;
 constexpr u32 SCRIPT_C_UP = 1u << 16, SCRIPT_C_DOWN = 1u << 17, SCRIPT_C_LEFT = 1u << 18,
               SCRIPT_C_RIGHT = 1u << 19, SCRIPT_LT = 1u << 20, SCRIPT_RT = 1u << 21;
 u32 ScriptedButtons()
@@ -1444,6 +1448,13 @@ u32 ScriptedButtons()
         if (name == n.name)
           s_presses.push_back({at, n.bit});
     }
+    if (!s_presses.empty())
+    {
+      const char* host = std::getenv("SKIES_PRESS_HOST_PADS");
+      s_script_active = !(host && host[0] != '0');
+      if (s_script_active)
+        Log("[video] press script: %zu presses, the host's controllers and keyboard left out\n", s_presses.size());
+    }
   }
   const double now = static_cast<double>(Now()) / CPU_HZ;
   u32 held = 0;
@@ -1469,7 +1480,7 @@ void VideoPadRead(u16 buttons[4], s8 sticks[4][4], u8 triggers[4][2], bool conne
   triggers[0][0] = scripted & SCRIPT_LT ? 255 : 0;
   triggers[0][1] = scripted & SCRIPT_RT ? 255 : 0;
 #ifdef SKIES_STANDALONE_AURORA
-  if (!s_active)
+  if (!s_active || s_script_active)
     return;
   const auto input = VideoInputLock();
   DolPadState state[4];
