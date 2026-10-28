@@ -59,6 +59,8 @@ git -C lib/ModernGekko/vendor/dolphin apply ../../../../patches/recompcore-andro
 git -C lib/ModernGekko/vendor/dolphin apply ../../../../patches/recompcore-tz-fallback.patch
 git -C lib/ModernGekko/vendor/dolphin apply ../../../../patches/recompcore-aurora.patch
 git -C lib/ModernGekko/vendor/dolphin apply ../../../../patches/recompcore-standalone-app.patch
+git -C lib/ModernGekko/vendor/dolphin apply ../../../../patches/recompcore-f1-state.patch
+git -C lib/ModernGekko/vendor/dolphin apply ../../../../patches/recompcore-dcmusic-level.patch
 git -C lib/ModernGekko/vendor/dolphin/DolRecomp apply ../../../../../patches/dolrecomp-mtmsr-entry.patch
 git -C lib/ModernGekko/vendor/dolphin/DolRecomp apply ../../../../../patches/dolrecomp-gather-pipe.patch
 git -C lib/ModernGekko/vendor/dolphin/DolRecomp apply ../../../../../patches/dolrecomp-llvm-cpu.patch
