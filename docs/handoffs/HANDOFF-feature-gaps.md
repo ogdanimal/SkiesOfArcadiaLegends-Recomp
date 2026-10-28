@@ -135,8 +135,44 @@ video thread on the Nova and with a pad by hand; item 7's open list (m03 in game
 - **Disc timing (2026-10-27):** reads follow Dolphin's drive model now, so cold boots and loads take a few
   seconds longer in guest time than before. Routes recorded earlier (`fight-full.txt`, `lp-play.txt`, the
   `build/sa-runs/*.txt` and `C:\dev\SkiesStandalone\*.txt` press files, the Continue scripts) replay as
-  recorded with `SKIES_DI_FAST=1`; record new ones without it. `bench-battle2.sst` and the other `.sst` files
-  of 2026-10-25 are state version 1 and no longer load (the current version is 2): make new bench states.
+  recorded with `SKIES_DI_FAST=1`. **Re-timed for the drive model (2026-10-27 night)**, in `build/sa-runs`
+  (local, `build/` isn't in git); all checked on Windows D3D12 with `SKIES_RTC=847000789`, muted, twice each,
+  identical disc read traces:
+
+  | Route | Run with | Milestones (guest s) |
+  |---|---|---|
+  | `fight-full-dt.txt` | plain USA disc (`C:\dev\SkiesRecomp\extracted\SkiesOfArcadiaLegends`) + `modules-sa-plain-pgo`, copy of `user-qa-plain`, to 270 s | Continue, the ship's field 68.4, battle 137.0, won 224.9, field 229.6 |
+  | `lp-play-dt.txt` | ws26 game + module (`C:\dev\SkiesUncensor\app`), copy of `user-lp2`, `--continue card`, absolute times (no `+9.5`) | card file #01 written at the save point, battle 94.6, won 149.9, field 154.9 |
+  | `zt1-dt.txt` | ws26, empty user folder (New Game) | intro, opening (map 201), deck (200), deck battle 303.8, won 348.3 |
+
+  What changed in them: (1) **the title's Start is pressed twice, 0.25 s apart** (53 and 53.25 s). A single
+  Start there often does nothing, with the old timing too (single presses at 44, 47 and 50 s failed with
+  `SKIES_DI_FAST=1`; the old routes' press at 53 s happened to land where it works), so it isn't the drive
+  model. (2) `fight-full-dt` and `lp-play-dt` move everything after the field loads by a whole number of VI
+  fields (1001/60000 s each: 160 and 152 fields), so presses keep their phase against the frames. The old
+  battles can't be replayed exactly: the slower loads leave the encounter dice elsewhere, so the shift was
+  searched for one that meets and wins a battle, and `fight-full-dt` walks its box twice (the second walk
+  54.4 s later) before the A presses. `zt1-dt` needs no shift (A presses carry it through the opening).
+  The other old press files (`box`, `boxfight`, `cam`, `hdtoggle`, `pace`, `zt3`, `zx`, `fight`, `walk`,
+  `lp-play2`, ...) still need `SKIES_DI_FAST=1`. Device copies (`press-eu0.txt`, `press-jp0.txt`) aren't updated.
+- **Press scripts leave the host's controllers out (2026-10-27 night).** While `SKIES_PRESS` /
+  `SKIES_PRESS_FILE` holds presses, port 1-4 get only the script (log: "press script: N presses, the host's
+  controllers and keyboard left out"); `SKIES_PRESS_HOST_PADS=1` merges them again. Found re-timing the
+  routes: on Windows a connected pad's resting stick (0x7e / 0x7f instead of 0x80, the stick dead zone is Off
+  by default) reached the game, and two runs of one route met their battle 37 s apart. Saved states of the
+  two runs differed only in those stick bytes. Hotkeys (Esc, the menu) still come from SDL.
+- **Bench states (2026-10-27 night):** `build/sa-runs/bench-states/bench-savepoint.sst` and
+  `bench-battle2.sst` (state version 2), made on Windows (ws26 game + module) from the Dolphin bench app's own
+  states (`C:\dev\SkiesRecomp\build\savestates\05-save-point.sav` and `20-corridor-battle.sav`, saved
+  2 s after the load), so both builds bench the same scene: the opening dungeon's save point, and the
+  corridor battle with Vyse at 327/504 HP at the command menu. Pushed to the Pocket 5 under the names
+  `capture/android-ir-bench.sh` uses (the old version-1 files replaced; originals in
+  `C:\dev\SkiesStandalone`): savepoint full speed p99 34.0 ms, battle 35.8 ms in the second window. The
+  copies in `C:\dev\SkiesStandalone` are still the old ones (no writes on C: for this); point Windows benches
+  at the WSL files.
+- **Windows build synced (2026-10-27 night):** `C:\dev\SkiesStandalone\standalone` and the vendored
+  GXRuntime's two fork-0052 files copied from this branch, `build.bat build`: the exe has the review fixes,
+  0052, the dump fix and the press-script change.
 - **Disc and memory traces:** `SKIES_DI_TRACE=1` logs each read with its file's name; `SKIES_WATCH=80002BE0`
   logs each camera shot (`cs_shot`'s key, ws29+ DOLs); the Dolphin build's runner (`moderngekko-run
   --headless --graphics Null --automation-dir DIR`) answers `read_memory` commands for the same comparisons.
