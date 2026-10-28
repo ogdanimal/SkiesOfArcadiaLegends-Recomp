@@ -377,7 +377,7 @@ index 47c60b1038..55b40c1411 100644
  
  bool aurora_backend_pad_init(void);
 diff --git a/GXRuntime/backends/aurora/aurora_graphics.cpp b/GXRuntime/backends/aurora/aurora_graphics.cpp
-index 24367bf568..f1735b2025 100644
+index 24367bf568..813a94dc47 100644
 --- a/GXRuntime/backends/aurora/aurora_graphics.cpp
 +++ b/GXRuntime/backends/aurora/aurora_graphics.cpp
 @@ -8,11 +8,23 @@
@@ -442,7 +442,7 @@ index 24367bf568..f1735b2025 100644
  #if GXRUNTIME_HAS_AURORA_RECOMP
          gx_aurora::g_shadow_transform_next_draw_index = 0;
  #endif
-@@ -852,6 +884,449 @@ void aurora_backend_call_display_list(const void* data, u32 size) {
+@@ -852,6 +884,458 @@ void aurora_backend_call_display_list(const void* data, u32 size) {
      gx_aurora::g_fifo_bytes += size;
  }
  
@@ -506,6 +506,15 @@ index 24367bf568..f1735b2025 100644
 +    if (slot >= 0 && slot < static_cast<int>(s_kept_pictures.size()) &&
 +        s_kept_pictures[static_cast<size_t>(slot)].texture)
 +        aurora::gfx::set_present_override(&s_kept_pictures[static_cast<size_t>(slot)]);
++    // A retrace can come while the game's frame is half sent (Skies sends most of a frame in one
++    // burst at its end; a frame with little to compute starts it early): the EFB goes on into the
++    // next frame instead of being cleared under it (the world map by the waterfall drew only its
++    // mist and HUD on black at 60 fps). The pass so far is rendered, empty or not.
++    if (gx_aurora::g_frame_open) {
++        if (!aurora::gfx::is_offscreen())
++            aurora::gfx::restart_efb_pass();
++        aurora::gfx::continue_efb_next_frame();
++    }
 +    aurora_backend_present();
 +    aurora::gfx::set_present_override(nullptr);
 +}
@@ -1730,7 +1739,7 @@ index 2d7f795689..13d6e5b4dd 100644
          if (std::abs(xr) > controller->m_deadZones.substickDeadZone) {
            xr /= 256;
 diff --git a/GXRuntime/graphics/aurora/lib/gfx/common.cpp b/GXRuntime/graphics/aurora/lib/gfx/common.cpp
-index 4c672587f0..8e70e0103d 100644
+index 4c672587f0..36010ae9c3 100644
 --- a/GXRuntime/graphics/aurora/lib/gfx/common.cpp
 +++ b/GXRuntime/graphics/aurora/lib/gfx/common.cpp
 @@ -22,13 +22,17 @@
@@ -1775,7 +1784,7 @@ index 4c672587f0..8e70e0103d 100644
      enqueue_pass(frame, g_recordingFrameSlot, g_currentRenderPass);
      g_currentRenderPass = UINT32_MAX;
    }
-@@ -556,6 +568,102 @@ void queue_texture_copy(wgpu::TexelCopyTextureInfo src, wgpu::TexelCopyTextureIn
+@@ -556,6 +568,105 @@ void queue_texture_copy(wgpu::TexelCopyTextureInfo src, wgpu::TexelCopyTextureIn
    enqueue_op(frame, g_recordingFrameSlot, opIndex);
  }
  
@@ -1865,6 +1874,9 @@ index 4c672587f0..8e70e0103d 100644
 +  return true;
 +}
 +
++static bool g_continueEfb = false;
++void continue_efb_next_frame() noexcept { g_continueEfb = true; }
++
 +void copy_present_source_to(const webgpu::TextureWithSampler& dst) {
 +  const auto& src = webgpu::present_source();
 +  if (!src.texture || !dst.texture || g_recordingFrame == nullptr) {
@@ -1878,7 +1890,7 @@ index 4c672587f0..8e70e0103d 100644
  void begin_color_pass(const ColorPassDescriptor& desc) {
    ZoneScoped;
    auto& frame = current_frame_packet();
-@@ -671,6 +779,7 @@ void set_scissor(const ClipRect& cmd) noexcept {
+@@ -671,6 +782,7 @@ void set_scissor(const ClipRect& cmd) noexcept {
  
  template <>
  void push_draw_command(clear::DrawData data) {
@@ -1886,7 +1898,7 @@ index 4c672587f0..8e70e0103d 100644
    push_draw_command(ShaderDrawCommand{.type = ShaderType::Clear, .clear = data});
  }
  
-@@ -681,6 +790,9 @@ PipelineRef pipeline_ref(const clear::PipelineConfig& config) {
+@@ -681,6 +793,9 @@ PipelineRef pipeline_ref(const clear::PipelineConfig& config) {
  
  void resolve_pass(TextureHandle texture, ClipRect rect, bool clearColor, bool clearAlpha, bool clearDepth,
                    Vec4<float> clearColorValue, float clearDepthValue, GXTexFmt resolveFormat) {
@@ -1896,7 +1908,7 @@ index 4c672587f0..8e70e0103d 100644
    // Resolve current render pass
    auto& prevPass = current_render_passes()[g_currentRenderPass];
    prevPass.resolveTarget = std::move(texture);
-@@ -689,9 +801,17 @@ void resolve_pass(TextureHandle texture, ClipRect rect, bool clearColor, bool cl
+@@ -689,9 +804,17 @@ void resolve_pass(TextureHandle texture, ClipRect rect, bool clearColor, bool cl
    // Push UV transform uniform for tex_copy_conv (crop region in UV space)
    const auto srcW = static_cast<float>(prevPass.targetSize.width);
    const auto srcH = static_cast<float>(prevPass.targetSize.height);
@@ -1916,7 +1928,7 @@ index 4c672587f0..8e70e0103d 100644
        static_cast<float>(rect.width) / srcW,
        static_cast<float>(rect.height) / srcH,
    };
-@@ -750,6 +870,7 @@ void queue_palette_conv(tex_palette_conv::ConvRequest req) {
+@@ -750,6 +873,7 @@ void queue_palette_conv(tex_palette_conv::ConvRequest req) {
  }
  
  bool is_offscreen() noexcept { return g_inOffscreen; }
@@ -1924,7 +1936,7 @@ index 4c672587f0..8e70e0103d 100644
  
  uint32_t get_sample_count() noexcept {
    CHECK(g_currentRenderPass != UINT32_MAX, "get_sample_count called outside of a frame");
-@@ -859,6 +980,7 @@ void begin_offscreen(uint32_t width, uint32_t height) {
+@@ -859,6 +983,7 @@ void begin_offscreen(uint32_t width, uint32_t height) {
    ++g_currentRenderPass;
  
    g_inOffscreen = true;
@@ -1932,7 +1944,7 @@ index 4c672587f0..8e70e0103d 100644
  
    g_cachedViewport = {0.f, 0.f, static_cast<float>(width), static_cast<float>(height), 0.f, 1.f};
    g_cachedScissor = {0, 0, static_cast<int32_t>(width), static_cast<int32_t>(height)};
-@@ -873,6 +995,7 @@ void end_offscreen() {
+@@ -873,6 +998,7 @@ void end_offscreen() {
    enqueue_pass(current_frame_packet(), g_recordingFrameSlot, g_currentRenderPass);
  
    g_inOffscreen = false;
@@ -1940,7 +1952,7 @@ index 4c672587f0..8e70e0103d 100644
    g_offscreenColor = {};
    g_offscreenDepth = {};
  
-@@ -903,6 +1026,7 @@ void push_draw_command(gx::DrawData data) {
+@@ -903,6 +1029,7 @@ void push_draw_command(gx::DrawData data) {
  #ifdef AURORA_ENABLE_RMLUI
  template <>
  void push_draw_command(rmlui::DrawData data) {
@@ -1948,7 +1960,7 @@ index 4c672587f0..8e70e0103d 100644
    push_draw_command(ShaderDrawCommand{.type = ShaderType::Rml, .rml = data});
  }
  #endif
-@@ -910,6 +1034,7 @@ void push_draw_command(rmlui::DrawData data) {
+@@ -910,6 +1037,7 @@ void push_draw_command(rmlui::DrawData data) {
  #ifdef AURORA_ENABLE_GXCORE
  template <>
  void push_draw_command(gxcore::DrawData data) {
@@ -1956,7 +1968,7 @@ index 4c672587f0..8e70e0103d 100644
    push_draw_command(
        ShaderDrawCommand{.type = ShaderType::GXCore, .gxcore = data});
  }
-@@ -1215,6 +1340,7 @@ bool begin_frame() {
+@@ -1215,6 +1343,7 @@ bool begin_frame() {
    g_drawCallCount = 0;
    g_mergedDrawCallCount = 0;
    g_suspendedEfbPass.reset();
@@ -1964,7 +1976,18 @@ index 4c672587f0..8e70e0103d 100644
  
    current_render_passes().emplace_back();
    auto& pass = current_render_passes()[0];
-@@ -1226,6 +1352,11 @@ bool begin_frame() {
+@@ -1222,10 +1351,22 @@ bool begin_frame() {
+   set_efb_targets(pass);
+   pass.clearColorValue = gx::g_gxState.clearColor;
+   pass.clearDepthValue = gx::clear_depth_value();
++  if (g_continueEfb) {
++    // The frame before ended at a present that wasn't the game's: what the game drew stays (a
++    // display copy's clear after it is drawn, clear_at_frame_start needing a clearing pass)
++    pass.clearColor = false;
++    pass.clearDepth = false;
++    g_continueEfb = false;
++  }
+   g_currentRenderPass = 0;
    // Refresh render viewport/scissor from logical in case FB size changed
    g_cachedViewport = gx::map_logical_viewport(gx::g_gxState.logicalViewport);
    g_cachedScissor = gx::map_logical_scissor(gx::g_gxState.logicalScissor);
@@ -1976,7 +1999,7 @@ index 4c672587f0..8e70e0103d 100644
    push_command(CommandType::SetViewport, Command::Data{.setViewport = g_cachedViewport});
    push_command(CommandType::SetScissor, Command::Data{.setScissor = g_cachedScissor});
    begin_pipeline_frame();
-@@ -1420,6 +1551,86 @@ static void encode_op(wgpu::CommandEncoder& cmd, FramePacket& frame, const Frame
+@@ -1420,6 +1561,86 @@ static void encode_op(wgpu::CommandEncoder& cmd, FramePacket& frame, const Frame
    }
  }
  
@@ -2063,7 +2086,7 @@ index 4c672587f0..8e70e0103d 100644
  static void render(wgpu::CommandEncoder& cmd, FramePacket& frame, RenderPass& passInfo, uint32_t passIndex) {
    ZoneScoped;
    if (!passInfo.sealed) {
-@@ -1526,12 +1737,23 @@ static void render(wgpu::CommandEncoder& cmd, FramePacket& frame, RenderPass& pa
+@@ -1526,12 +1747,23 @@ static void render(wgpu::CommandEncoder& cmd, FramePacket& frame, RenderPass& pa
        };
        cmd.CopyTextureToTexture(&src, &dst, &size);
      }
@@ -2088,10 +2111,10 @@ index 4c672587f0..8e70e0103d 100644
  
  void gpu_synchronize() { render_worker::synchronize(); }
 diff --git a/GXRuntime/graphics/aurora/lib/gfx/common.hpp b/GXRuntime/graphics/aurora/lib/gfx/common.hpp
-index e885be071a..f9c5be5c4a 100644
+index e885be071a..61fffc9c13 100644
 --- a/GXRuntime/graphics/aurora/lib/gfx/common.hpp
 +++ b/GXRuntime/graphics/aurora/lib/gfx/common.hpp
-@@ -267,10 +267,38 @@ struct ColorPassDescriptor {
+@@ -267,10 +267,41 @@ struct ColorPassDescriptor {
  void begin_color_pass(const ColorPassDescriptor& desc);
  void end_color_pass();
  void queue_texture_copy(wgpu::TexelCopyTextureInfo src, wgpu::TexelCopyTextureInfo dst, wgpu::Extent3D size);
@@ -2105,6 +2128,9 @@ index e885be071a..f9c5be5c4a 100644
 +bool clear_at_frame_start(bool clearColor, bool clearAlpha, bool clearDepth, const Vec4<float>& color, float depth);
 +// Queue a copy of the whole present source into dst (same size and format), then go on drawing.
 +void copy_present_source_to(const webgpu::TextureWithSampler& dst);
++// Local (fork): the next frame's first EFB pass loads the EFB instead of clearing it: a present that
++// isn't the game's (a kept picture at a retrace) can fall while the game's frame is half drawn.
++void continue_efb_next_frame() noexcept;
 +// The picture end_frame presents instead of the EFB (null: the EFB). Read when end_frame records
 +// the present, so the pointee must live until then.
 +void set_present_override(const webgpu::TextureWithSampler* source) noexcept;

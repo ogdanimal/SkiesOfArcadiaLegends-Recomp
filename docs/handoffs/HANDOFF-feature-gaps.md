@@ -434,6 +434,17 @@ its checks and a commit; device-heavy ones end with a head-to-head.
   (`fight-full-dt`, `SKIES_RTC=846000000`, grab at frame 3056). Pocket 5 not checked. Debug path that found it:
   `SKIES_COPY_LOG`, `SKIES_GX_TRACE`, Aurora's draw log (`SKIES_DRAW_LOG_FRAME` + `SKIES_DRAIN=0`), the
   draws' vertex UVs.
+- **60 fps: the world map went black by the waterfall (fork 0054, 2026-10-27 late night):** the user saw the
+  picture flash to grey mist walls on black, no ship, while flying (60 fps on). The user's own slot state there
+  (ship held against the misty waterfall) reproduced it: 117 of 120 real frames dark uncapped, bursts of 17 at
+  full speed, none at 30 fps or with `SKIES_INTERP=0`; the live command stream identical either way. Cause:
+  Aurora's frames start with a clearing pass, and 60 fps presents the kept pictures at retraces, which can
+  fall while Skies' end-of-frame burst is half sent (a frame with little to compute starts it early): the
+  clear wiped the opaque scene, leaving the mist and HUD. 0054: `aurora_backend_present_kept` renders the pass
+  so far and the next frame's first pass loads. Checked: 0 dark of 120 (uncapped and full speed), in-between
+  frames right; state 10 at 30 vs 60 fps 296 of 297 real frames identical (the first after the load differs
+  before 0054 too). Lesson: a running `skies-standalone.exe` locks the Windows build's link (LNK1104, and
+  `build.bat` prints nothing; read `build.log`): move the running exe aside first.
 - **Frame rate** belongs to item 6, **HD textures** to item 5.
 
 ## 3. Input: keyboard layout, rumble, names, Button mapping
