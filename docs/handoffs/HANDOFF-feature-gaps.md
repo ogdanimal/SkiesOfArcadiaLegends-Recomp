@@ -423,6 +423,17 @@ its checks and a commit; device-heavy ones end with a head-to-head.
   `LoadFonts` had lost the Dolphin build's `/system/fonts/Roboto-Regular.ttf`. Fixed (menu.cpp); the
   test app rebuilt and installed, the menu now in Roboto. macOS has no font in the list (ImGui's, as the
   Dolphin build).
+- **World map menu panels (fork 0053, 2026-10-27 late night):** the user saw the world map's Start / Z menu
+  (Map / To Bridge / Save) with only its text in the Windows standalone (`10-worldmap-android.sav`; the same
+  after a cold boot with `--continue 1` from a card saved there, so not the converter). The game grabs the
+  screen into the 640x480 corner of a 1024x512 RGB5A3 buffer at `0x80667540` whose right part holds the
+  panels' pictures (UVs 0.77-0.84) and draws grab and panels from it (`fn_800D7B28` -> `fn_801D4F0C`); Aurora's
+  padded copy (0027) was zero outside the copy. 0053 decodes the buffer's memory under it (RGBA8 / BGRA8
+  targets: D3D12's render textures are BGRA8), nearest to the copy's scale. Checked: WSL 1x and Windows D3D12 3x
+  panels as in the Dolphin build; the battle start's grab (same buffer) 22 frames byte-identical old vs new
+  (`fight-full-dt`, `SKIES_RTC=846000000`, grab at frame 3056). Pocket 5 not checked. Debug path that found it:
+  `SKIES_COPY_LOG`, `SKIES_GX_TRACE`, Aurora's draw log (`SKIES_DRAW_LOG_FRAME` + `SKIES_DRAIN=0`), the
+  draws' vertex UVs.
 - **Frame rate** belongs to item 6, **HD textures** to item 5.
 
 ## 3. Input: keyboard layout, rumble, names, Button mapping

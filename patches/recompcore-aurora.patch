@@ -4724,7 +4724,7 @@ index 5b176e702c..0d62c6db79 100644
    } else if (subCmd == GX_AURORA_DEBUG_GROUP_PUSH) {
      auto label = read_string(data, pos, size, bigEndian);
 diff --git a/GXRuntime/graphics/aurora/lib/gx/gx.cpp b/GXRuntime/graphics/aurora/lib/gx/gx.cpp
-index 5915c5b5f7..06f4a080bb 100644
+index 5915c5b5f7..474c06127e 100644
 --- a/GXRuntime/graphics/aurora/lib/gx/gx.cpp
 +++ b/GXRuntime/graphics/aurora/lib/gx/gx.cpp
 @@ -1,3 +1,9 @@
@@ -4981,21 +4981,21 @@ index 5915c5b5f7..06f4a080bb 100644
 +          return entry.handle;
 +        }
 +        pendingHandle = entry.handle;
-+      }
-+    }
-+  }
-+
+       }
+     }
+   }
+ 
 +  RetailTextureKey retailKey;
 +  const bool retail = make_retail_key(obj, &tlut, retailKey);
 +  if (retail && !pendingHandle) {
 +    if (const auto it = s_retailTextureCache.find(retailKey); it != s_retailTextureCache.end() && it->second) {
 +      if (!replacement_may_be_ready(it->second)) {
 +        return it->second;
-       }
++      }
 +      pendingHandle = it->second;
-     }
-   }
- 
++    }
++  }
++
    gfx::TextureHandle handle;
 -  if (const auto replacement = gfx::texture_replacement::find_replacement(obj, tlut); replacement.has_value()) {
 +  const uint32_t generation = gfx::texture_replacement::load_generation();
@@ -5085,7 +5085,7 @@ index 5915c5b5f7..06f4a080bb 100644
    g_gxState.copyTextureCache.clear();
    for (auto& [_, cache] : s_tlutObjectCaches) {
      cache.dynamicPaletteTextures.clear();
-@@ -401,6 +651,63 @@ void clear_copy_texture_cache() noexcept {
+@@ -401,6 +651,113 @@ void clear_copy_texture_cache() noexcept {
  
  void clear_static_texture_cache() noexcept { s_staticTextureCacheClearPending.store(true, std::memory_order_release); }
  
@@ -5109,19 +5109,61 @@ index 5915c5b5f7..06f4a080bb 100644
 +
 +// An EFB copy drawn as a bigger texture than was copied (Skies' battle transition copies the
 +// 640x480 screen into a 1024x512 buffer and draws the buffer): a texture of the bound size with the
-+// copy in its top-left corner and zero elsewhere (as Dolphin's texture cache composes it, the rest of
-+// the memory being the zeroed copy area), refreshed when the copy is made again.
++// copy in its top-left corner and the texture's memory decoded around it (as Dolphin's texture cache
++// composes it: its world map menu keeps the panels' pictures right of the 640 columns the screen
++// grab covers, in the same 1024x512 buffer; the battle transition's is zero there), refreshed when
++// the copy is made again or that memory changes.
 +struct PaddedCopy {
 +  gfx::TextureHandle texture;
 +  u32 width = 0;
 +  u32 height = 0;
 +  u32 revision = UINT32_MAX;
++  u64 ramFingerprint = 0;
 +};
 +static absl::flat_hash_map<const gfx::TextureRef*, PaddedCopy> s_paddedCopies;
 +
 +static void clear_padded_copies() noexcept { s_paddedCopies.clear(); }
 +
-+static gfx::TextureHandle padded_copy_texture(const GXState::CopyTextureRef& copy, u32 width, u32 height) noexcept {
++// The bound texture's memory decoded and stretched (nearest) to the padded texture's size, as its
++// base; only for an RGBA8 or BGRA8 padded texture (a render texture has the surface's format: BGRA8
++// on D3D12) and a format that decodes to RGBA8. The copy area reads zero in memory (the host clears
++// what a copy covers), and the copy goes over it after.
++static void upload_padded_base(const gfx::TextureRef& dst, const GXTexObj_& obj, u32 bytes) noexcept {
++  const bool bgra = dst.format == wgpu::TextureFormat::BGRA8Unorm;
++  if (dst.format != wgpu::TextureFormat::RGBA8Unorm && !bgra) {
++    return;
++  }
++  const u32 width = obj.width();
++  const u32 height = obj.height();
++  const auto converted =
++      gfx::convert_texture(obj.format(), width, height, 1, {static_cast<const uint8_t*>(obj.data), bytes});
++  if (converted.data.empty() || converted.format != wgpu::TextureFormat::RGBA8Unorm) {
++    return;
++  }
++  const u32 w = dst.size.width;
++  const u32 h = dst.size.height;
++  std::vector<u32> scaled(static_cast<size_t>(w) * h);
++  const auto* src = reinterpret_cast<const u32*>(converted.data.data());
++  for (u32 y = 0; y < h; ++y) {
++    const u32* row = src + static_cast<size_t>(static_cast<u64>(y) * height / h) * width;
++    u32* out = scaled.data() + static_cast<size_t>(y) * w;
++    for (u32 x = 0; x < w; ++x) {
++      out[x] = row[static_cast<u64>(x) * width / w];
++    }
++  }
++  if (bgra) {
++    for (u32& texel : scaled) {
++      auto* c = reinterpret_cast<u8*>(&texel);
++      std::swap(c[0], c[2]);
++    }
++  }
++  gfx::queue_texture_upload_data(reinterpret_cast<const uint8_t*>(scaled.data()), w * 4, h,
++                                 wgpu::TexelCopyTextureInfo{.texture = dst.texture}, wgpu::Extent3D{w, h, 1});
++}
++
++static gfx::TextureHandle padded_copy_texture(const GXState::CopyTextureRef& copy, const GXTexObj_& obj) noexcept {
++  const u32 width = obj.width();
++  const u32 height = obj.height();
 +  const auto& src = copy.handle;
 +  const float sx = static_cast<float>(src->size.width) / static_cast<float>(copy.logicalWidth);
 +  const float sy = static_cast<float>(src->size.height) / static_cast<float>(copy.logicalHeight);
@@ -5136,12 +5178,20 @@ index 5915c5b5f7..06f4a080bb 100644
 +    padded.height = h;
 +    padded.revision = UINT32_MAX;
 +  }
-+  if (padded.revision != copy.revision) {
++  const u32 bytes = obj.has_data() ? GXGetTexBufferSize(static_cast<u16>(width), static_cast<u16>(height),
++                                                        obj.format(), GX_FALSE, 0)
++                                   : 0;
++  const u64 fingerprint = bytes != 0 ? copy_ram_fingerprint(obj.data, bytes) : 0;
++  if (padded.revision != copy.revision || padded.ramFingerprint != fingerprint) {
++    if (bytes != 0) {
++      upload_padded_base(*padded.texture, obj, bytes);
++    }
 +    gfx::queue_texture_copy(wgpu::TexelCopyTextureInfo{.texture = src->texture},
 +                            wgpu::TexelCopyTextureInfo{.texture = padded.texture->texture}, src->size);
 +    // The copy closed the EFB pass; the draw being set up goes on in a new one.
 +    gfx::restart_efb_pass();
 +    padded.revision = copy.revision;
++    padded.ramFingerprint = fingerprint;
 +  }
 +  return padded.texture;
 +}
@@ -5149,7 +5199,7 @@ index 5915c5b5f7..06f4a080bb 100644
  void evict_copy_texture(const void* dest) noexcept {
    absl::flat_hash_set<const void*> sourceIdentities;
    if (const auto it = g_gxState.copyTextures.find(dest); it != g_gxState.copyTextures.end()) {
-@@ -454,7 +761,13 @@ void resolve_sampled_textures(const ShaderInfo& info) noexcept {
+@@ -454,7 +811,13 @@ void resolve_sampled_textures(const ShaderInfo& info) noexcept {
      }
  
      gfx::TextureHandle handle;
@@ -5164,7 +5214,7 @@ index 5915c5b5f7..06f4a080bb 100644
      const GXState::CopyTextureRef* copyRef = copyIt != g_gxState.copyTextures.end() ? &copyIt->second : nullptr;
      if (is_palette_format(obj.format())) {
        GXTlutObj_ recompTlut{};
-@@ -475,6 +788,27 @@ void resolve_sampled_textures(const ShaderInfo& info) noexcept {
+@@ -475,6 +838,27 @@ void resolve_sampled_textures(const ShaderInfo& info) noexcept {
            tlut = &recompTlut;
          }
        }
@@ -5192,13 +5242,13 @@ index 5915c5b5f7..06f4a080bb 100644
        if (tlut != nullptr) {
          if (copyRef != nullptr) {
            handle = resolve_dynamic_palette_texture(obj, *copyRef, *tlut);
-@@ -484,10 +818,19 @@ void resolve_sampled_textures(const ShaderInfo& info) noexcept {
+@@ -484,10 +868,19 @@ void resolve_sampled_textures(const ShaderInfo& info) noexcept {
        }
      } else if (copyRef != nullptr) {
        handle = copyRef->handle;
 +      if (handle && copyRef->logicalWidth != 0 && copyRef->logicalHeight != 0 &&
 +          (obj.width() > copyRef->logicalWidth || obj.height() > copyRef->logicalHeight)) {
-+        handle = padded_copy_texture(*copyRef, obj.width(), obj.height());
++        handle = padded_copy_texture(*copyRef, obj);
 +      }
      } else if (obj.has_data()) {
        handle = resolve_static_texture(obj);
@@ -5212,7 +5262,7 @@ index 5915c5b5f7..06f4a080bb 100644
      obj.mFormat = resolved_format_for_handle(handle);
      textureBind = gfx::TextureBind{obj, std::move(handle)};
    }
-@@ -573,7 +916,41 @@ static inline wgpu::BlendState to_blend_state(GXBlendMode mode, GXBlendFactor sr
+@@ -573,7 +966,41 @@ static inline wgpu::BlendState to_blend_state(GXBlendMode mode, GXBlendFactor sr
      break;
    case GX_BM_LOGIC:
      switch (op) {
@@ -5255,7 +5305,7 @@ index 5915c5b5f7..06f4a080bb 100644
      case GX_LO_CLEAR:
        colorBlendComponent = {
            .operation = wgpu::BlendOperation::Add,
-@@ -666,12 +1043,24 @@ wgpu::RenderPipeline build_pipeline(const PipelineConfig& config, ArrayRef<wgpu:
+@@ -666,12 +1093,24 @@ wgpu::RenderPipeline build_pipeline(const PipelineConfig& config, ArrayRef<wgpu:
        .depthBiasSlopeScale = depthBiasSlopeScale,
        .depthBiasClamp = depthBiasClamp,
    };
@@ -5282,7 +5332,7 @@ index 5915c5b5f7..06f4a080bb 100644
    }};
    const wgpu::FragmentState fragmentState{
        .module = shader,
-@@ -968,6 +1357,18 @@ static std::pair<wgpu::FilterMode, wgpu::MipmapFilterMode> wgpu_filter_mode(GXTe
+@@ -968,6 +1407,18 @@ static std::pair<wgpu::FilterMode, wgpu::MipmapFilterMode> wgpu_filter_mode(GXTe
    }
  }
  
@@ -5301,7 +5351,7 @@ index 5915c5b5f7..06f4a080bb 100644
  static u16 wgpu_aniso(GXAnisotropy aniso) {
    switch (aniso) {
      DEFAULT_FATAL("invalid aniso {}", static_cast<int>(aniso));
-@@ -987,7 +1388,22 @@ wgpu::SamplerDescriptor aurora::gfx::TextureBind::get_descriptor() const noexcep
+@@ -987,7 +1438,22 @@ wgpu::SamplerDescriptor aurora::gfx::TextureBind::get_descriptor() const noexcep
    const bool mipsEnabled = mipFilter != wgpu::MipmapFilterMode::Undefined;
    float minLod = texObj.min_lod();
    float maxLod = texObj.max_lod();
