@@ -291,7 +291,15 @@ its checks and a commit; device-heavy ones end with a head-to-head.
   same day (the Pirate Isle save point) and won the first battle from a Dolphin state.
 - **Pocket 5 (2026-10-27 evening):** cold `--continue card` from `user-lp2`'s card (ws26 game and module): "auto-load:
   done at 6.21 s guest", the save room beside the save point at frame 310.
-- **Not checked yet:** RAM against a load from the game's own menu (needs scripted input).
+- **Against a load from the game's own menu (2026-10-27 night, Windows, ws26):** two copies of `user-lp2`'s card,
+  one cold `--continue card` (auto-load done 6.21 s, state saved at 25 s), one through the title and the
+  load screen by a press script (`38:START,53:START,53.25:START,56:A,60:A,63:A,66:A`, the field at 68.8 s,
+  state at 90 s). The blocks the card save fills are byte-identical: `lbl_8030B7F4` (party, items, flags,
+  0x16A0), the map (`lbl_80311AC0`), the event flags (`lbl_80310B3C`, 0xD58) and `lbl_80310A1C` (0x120);
+  Vyse stands on the same spot with the same camera. What differs is runtime state from the different
+  histories (113 small ranges in 0x802E0000-0x80320000: 28 bytes of script IntVars, task and timer state,
+  the map-change buffer), as the title screen ran in one and not the other. The Dolphin build's
+  auto-load is the same game patch, so this is parity, not a standalone difference.
 
 ## 2. Graphics options (done 2026-10-25, WSL; Windows / Pocket 5 checks open)
 
