@@ -60,6 +60,9 @@ extern void njProjectScreen(void *matrix, const float *point, float *screen);
  * place depends on which ship it is (fn_8015887C: plate 0, the party's ship, at the left; the
  * enemies' in a column at the right): the entry's move is for the enemies', plate 0 mirrors its
  * side and keeps its height. */
+/* Flag on a kind: a ship battle piece, which stays put when ws_ship_hud asks for the centred
+ * layout (#25). */
+#define WS_SHIP 0x10
 struct ws_anchor {
   u32 lo;
   unsigned short size;
@@ -69,11 +72,11 @@ struct ws_anchor {
   short dy;
 };
 
-#define WS_SHIP_PLATE 1
+#define WS_SHIP_PLATE (1 | WS_SHIP)
 /* Kind WS_SHIP_POPUP: a popup (damage numbers, fn_8021F330 / fn_8021F0EC) in a ship battle, placed
  * next to a plate: right of x 400 it moves like the enemies' plates, left of 240 like the party's,
  * anything between stays (and outside ship battles nothing moves: the popups are shared code). */
-#define WS_SHIP_POPUP 2
+#define WS_SHIP_POPUP (2 | WS_SHIP)
 
 /* The plate object fn_8015887C is drawing and the popup sprite being drawn (set by the stubs in
  * fullwidth.S). */
@@ -108,6 +111,11 @@ struct ws_config {
  * variable after it, which a state made with an earlier build still has at the old addresses. */
 __attribute__((section(".ws_hud"), used)) float ws_hud_aspect;
 
+/* The ship battle HUD's layout, written by the frontend like ws_hud_aspect (a free word in every
+ * earlier build): 0 = spread out with the rest (the WS_SHIP anchors below), 1 = centred, the
+ * game's own layout in the HUD area (the Spirit bar across the top, the grid under it; #25). */
+__attribute__((section(".ws_ship_hud"), used)) u32 ws_ship_hud;
+
 /* The HUD at the wide edges (found with trace2d.c's call chains, docs/development-notes.md *Widescreen*). A range
  * is a whole function, lo = start and size = its size, unless it says call sites. */
 #define WS_HUD_ANCHORS                                                                           \
@@ -117,18 +125,24 @@ __attribute__((section(".ws_hud"), used)) float ws_hud_aspect;
     {0x800240EC, 0x5A0, -100, 0, 0, 0},   /* battle: the wheel's lists (fn_800240EC) */            \
     {0x80027C04, 0xF8C, 0, 0, 0, -16},    /* battle: SP gauge, up a little (fn_80027C04) */        \
     {0x8002B584, 0x3EC, 100, 0, 0, 0},    /* battle: status icon column */                         \
-    {0x8012B054, 0x184, -100, 0, 0, 0},   /* ship battle: Spirit gauge and bar (fn_8012B054) */    \
-    {0x8012C744, 0xA4, -100, 0, 0, 0},    /* ship battle: command ring (fn_8012C744) */            \
-    {0x8012E640, 0xAC, -100, 0, 0, 20},   /* ship battle: the ring's lists, down by the ring as \
-                                             far as the Item list's box fits (#25) */          \
-    {0x801331AC, 0x2CC, -100, 0, 0, -24}, /* ship battle: crew and ship panels, midway between the \
-                                             Spirit gauge and the ring (fn_801331AC) */          \
-    {0x801303D0, 0x214, 100, 0, 175, -34}, /* ship battle: turn bar, top right (fn_801303D0) */    \
-    {0x80131734, 0xEC, 100, 0, 175, -34}, /* ship battle: command grid, top right (fn_80131734) */ \
-    {0x8015887C, 0x140, 100, WS_SHIP_PLATE, 0, 88}, /* ship battle: HP plates and icons, enemies' \
-                                                       below the grid (fn_8015887C) */             \
-    {0x8021F330, 0x578, 100, WS_SHIP_POPUP, 0, 88}, /* ship battle: popups by the plates */        \
-    {0x8021F0EC, 0x244, 100, WS_SHIP_POPUP, 0, 88}, /* ship battle: popups by the plates */        \
+    {0x8012B054, 0x184, -100, WS_SHIP, 0, 0},       /* ship battle: Spirit gauge and bar         \
+                                                       (fn_8012B054) */                          \
+    {0x8012C744, 0xA4, -100, WS_SHIP, 0, 0},        /* ship battle: command ring                 \
+                                                       (fn_8012C744) */                          \
+    {0x8012E640, 0xAC, -100, WS_SHIP, 0, 20},       /* ship battle: the ring's lists, down by    \
+                                                       the ring as far as the Item list's box    \
+                                                       fits (#25) */                             \
+    {0x801331AC, 0x2CC, -100, WS_SHIP, 0, -24},     /* ship battle: crew and ship panels, midway \
+                                                       between the Spirit gauge and the ring     \
+                                                       (fn_801331AC) */                          \
+    {0x801303D0, 0x214, 100, WS_SHIP, 175, -34},    /* ship battle: turn bar, top right          \
+                                                       (fn_801303D0) */                          \
+    {0x80131734, 0xEC, 100, WS_SHIP, 175, -34},     /* ship battle: command grid, top right      \
+                                                       (fn_80131734) */                          \
+    {0x8015887C, 0x140, 100, WS_SHIP_PLATE, 0, 88}, /* ship battle: HP plates and icons,         \
+                                                       enemies' below the grid (fn_8015887C) */  \
+    {0x8021F330, 0x578, 100, WS_SHIP_POPUP, 0, 88}, /* ship battle: popups by the plates */      \
+    {0x8021F0EC, 0x244, 100, WS_SHIP_POPUP, 0, 88}, /* ship battle: popups by the plates */      \
     {0x8016B434, 0xBC, -100, 0, 0, 0},    /* world map: altitude gauge (fn_8016B434) */            \
     {0x8016C204, 0xBC, 100, 0, 0, 0},     /* world map: compass (fn_8016C204) */                   \
     {0x800E26F8, 0xCC, 100, 0, 0, 0},     /* dungeon minimap: fn_800E23B0's calls to it */         \
@@ -344,6 +358,8 @@ TRK_CAVE static int ws_anchor_find(float *dx, float *dy) {
       const struct ws_anchor *a = &ws_config.anchors[i];
       if (lr > a->lo && lr <= a->lo + a->size) {
         int side = a->side, move_x = a->dx, move_y = a->dy, party = 0;
+        if ((a->kind & WS_SHIP) && ws_ship_hud == 1)
+          return 0;
         if (a->kind == WS_SHIP_PLATE) {
           party = ws_ship_plate == 0 || *(short *)((char *)ws_ship_plate + 0x10) == 0;
         } else if (a->kind == WS_SHIP_POPUP) {

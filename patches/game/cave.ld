@@ -35,6 +35,9 @@ SECTIONS
     KEEP(*(.qol_input))
     . = 0x80002EC0;
     KEEP(*(.cam_input))
+    /* widescreen.c's ship battle HUD layout (ws35; free before). */
+    . = 0x80002EEC;
+    KEEP(*(.ws_ship_hud))
     /* autoload.c's load_request, which the frontend writes at boot. */
     . = 0x80002EF0;
     KEEP(*(.load_request))

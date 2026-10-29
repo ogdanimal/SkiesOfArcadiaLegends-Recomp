@@ -1,0 +1,143 @@
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+@@ -70,6 +70,7 @@ class SkiesSettingsPanel(
+         val PICTURE = choices(1 to "Widescreen 16:9", 2 to "Match screen", 0 to "Original 4:3")
+         val HUD = choices(2 to "Screen edges", 3 to "21:9 area", 1 to "16:9 area",
+             0 to "Original 4:3")
++        val SHIP_HUD = choices(0 to "Spread out", 1 to "Centred")
+         val FRAME_RATE = choices(0 to "30 fps (original)", 1 to "60 fps (interpolated)")
+         val RESOLUTION = choices(1 to "Native (480p)", 2 to "2x (720p)", 3 to "3x (1080p)",
+             4 to "4x (1440p)", 6 to "6x (4K)")
+@@ -238,6 +239,9 @@ class SkiesSettingsPanel(
+                 configRow(rows, "HUD", HUD, dolphin, "Skies", "Hud", 2,
+                     "Where the HUD sits on a wide picture: at the edges, or nearer the middle " +
+                         "in a 16:9 or 21:9 area. Original keeps the GameCube's layout.")
++                configRow(rows, "Ship battle HUD", SHIP_HUD, dolphin, "Skies", "ShipHud", 0,
++                    "Spread out moves the ship battle HUD to the sides with the rest. Centred " +
++                        "keeps the game's own layout, with the grid under the Spirit bar.")
+                 configRow(rows, "Frame rate", FRAME_RATE, dolphin, "Skies", "FrameMode", 0,
+                     "60 fps adds in-between frames for smoother motion. 30 fps is the original.")
+                 configRow(rows, "Resolution", RESOLUTION, gfx, "Settings", "InternalResolution", 1,
+diff --git a/Source/Core/Core/Config/SkiesSettings.cpp b/Source/Core/Core/Config/SkiesSettings.cpp
+--- a/Source/Core/Core/Config/SkiesSettings.cpp
++++ b/Source/Core/Core/Config/SkiesSettings.cpp
+@@ -7,6 +7,7 @@ namespace Config
+ {
+ const Info<int> SKIES_WIDESCREEN{{System::Main, "Skies", "Widescreen"}, -1};
+ const Info<int> SKIES_HUD{{System::Main, "Skies", "Hud"}, -1};
++const Info<int> SKIES_SHIP_HUD{{System::Main, "Skies", "ShipHud"}, 0};
+ const Info<int> SKIES_FRAME_MODE{{System::Main, "Skies", "FrameMode"}, -1};
+ const Info<int> SKIES_CAMERA_CONTROL{{System::Main, "Skies", "CameraControl"}, 1};
+ const Info<int> SKIES_ENCOUNTERS{{System::Main, "Skies", "Encounters"}, 100};
+diff --git a/Source/Core/Core/Config/SkiesSettings.h b/Source/Core/Core/Config/SkiesSettings.h
+--- a/Source/Core/Core/Config/SkiesSettings.h
++++ b/Source/Core/Core/Config/SkiesSettings.h
+@@ -18,6 +18,9 @@ extern const Info<int> SKIES_WIDESCREEN;
+ // 1 = at the edges of a centred 16:9 area, 3 = of a 21:9 area (on a wider picture; a narrower one
+ // keeps its edges), 0 = the original 4:3 layout in the middle. -1 = not set: 2.
+ extern const Info<int> SKIES_HUD;
++// The ship battle HUD on a wide picture (the game patch's ws_ship_hud): 0 = spread out with the
++// rest of the HUD, 1 = centred, the game's own layout in the HUD area (issue #25).
++extern const Info<int> SKIES_SHIP_HUD;
+ // 0 = 30 fps (the game's own rate), 1 = 60 fps (frame interpolation), 2 = reserved (unlocked).
+ extern const Info<int> SKIES_FRAME_MODE;
+ // 1 = hold Z to tilt and zoom the camera with the C-stick and triggers (VideoCommon/SkiesMenu.cpp,
+diff --git a/Source/Core/Core/SkiesSettings.cpp b/Source/Core/Core/SkiesSettings.cpp
+--- a/Source/Core/Core/SkiesSettings.cpp
++++ b/Source/Core/Core/SkiesSettings.cpp
+@@ -36,6 +36,8 @@ constexpr float WIDE_ASPECT = 16.0f / 9.0f;
+ // original 4:3 layout.
+ constexpr u32 WS_HUD_ASPECT_ADDRESS = 0x80002E9C;
+ constexpr int HUD_EDGES = 2;
++// The game patch's ws_ship_hud (free in earlier builds): 0 = spread out, 1 = centred.
++constexpr u32 WS_SHIP_HUD_ADDRESS = 0x80002EEC;
+ // Widescreen = 2 follows the screen between these: narrower letterboxes at 4:3 (a portrait
+ // phone), wider pillarboxes at 32:9 (past it the sides show scenery the game never meant to be
+ // seen; 21:9 is clean in every scene checked, 32:9 shows a little at the very edges).
+@@ -139,6 +141,12 @@ void ApplyNow(Core::System& system)
+       NOTICE_LOG_FMT(CORE, "[skies] HUD {}",
+                      hud == 0 ? "4:3" : hud == 1 ? "16:9" : hud == 3 ? "21:9" : "edges");
+     }
++    const u32 ship_hud = Config::Get(Config::SKIES_SHIP_HUD) == 1 ? 1 : 0;
++    if (memory.Read_U32(WS_SHIP_HUD_ADDRESS) != ship_hud)
++    {
++      memory.Write_U32(ship_hud, WS_SHIP_HUD_ADDRESS);
++      NOTICE_LOG_FMT(CORE, "[skies] ship battle HUD {}", ship_hud ? "centred" : "spread out");
++    }
+     // Letterbox to match: a custom picture of the same aspect, or Dolphin's 4:3.
+     const AspectMode want = widescreen ? AspectMode::CustomStretch : AspectMode::ForceStandard;
+     if (Config::Get(Config::GFX_ASPECT_RATIO) != want)
+diff --git a/Source/Core/VideoCommon/SkiesMenu.cpp b/Source/Core/VideoCommon/SkiesMenu.cpp
+--- a/Source/Core/VideoCommon/SkiesMenu.cpp
++++ b/Source/Core/VideoCommon/SkiesMenu.cpp
+@@ -89,6 +89,7 @@ enum class Option
+   AutoSave,
+   Picture,
+   Hud,
++  ShipHud,
+   FrameRate,
+   Resolution,
+   Antialiasing,
+@@ -120,9 +121,9 @@ enum class Option
+ // SkiesSettingsPanel.kt), with Saves first since in game that's the one used most. L / R switch tabs.
+ constexpr std::array SAVES_ROWS{Option::SaveState, Option::LoadState, Option::AutoSave};
+ constexpr std::array GRAPHICS_ROWS{
+-    Option::Picture,      Option::Hud,           Option::FrameRate,  Option::Resolution,
+-    Option::Antialiasing, Option::TextureFilter, Option::Anisotropy, Option::Scaling,
+-    Option::HdTextures,   Option::VSync,         Option::ShowFps};
++    Option::Picture,    Option::Hud,          Option::ShipHud,       Option::FrameRate,
++    Option::Resolution, Option::Antialiasing, Option::TextureFilter, Option::Anisotropy,
++    Option::Scaling,    Option::HdTextures,   Option::VSync,         Option::ShowFps};
+ constexpr std::array GAMEPLAY_ROWS{Option::Camera,     Option::BattleSpeed, Option::FieldSpeed,
+                                    Option::Encounters, Option::HoldB,       Option::Exp,
+                                    Option::Gold,       Option::MagicExp,    Option::Invincible};
+@@ -180,6 +181,7 @@ struct Values
+ {
+   int widescreen = 1;
+   int hud = 2;
++  int ship_hud = 0;  // 1 = the ship battle HUD centred (issue #25)
+   int frame_mode = 0;
+   int efb_scale = 1;
+   int msaa = 1;
+@@ -396,6 +398,7 @@ Values ReadValues()
+   values.widescreen = widescreen < 0 ? 1 : widescreen;
+   const int hud = Config::Get(Config::SKIES_HUD);
+   values.hud = hud < 0 ? 2 : hud;
++  values.ship_hud = Config::Get(Config::SKIES_SHIP_HUD) == 1 ? 1 : 0;
+   const int frame_mode = Config::Get(Config::SKIES_FRAME_MODE);
+   values.frame_mode = frame_mode < 0 ? 0 : frame_mode;
+   values.efb_scale = Config::Get(Config::GFX_EFB_SCALE);
+@@ -444,6 +447,11 @@ void Apply(const Values& values, const Values& before)
+     Config::SetBase(Config::SKIES_HUD, values.hud);
+     changed = true;
+   }
++  if (values.ship_hud != before.ship_hud)
++  {
++    Config::SetBase(Config::SKIES_SHIP_HUD, values.ship_hud);
++    changed = true;
++  }
+   if (values.frame_mode != before.frame_mode)
+   {
+     Config::SetBase(Config::SKIES_FRAME_MODE, values.frame_mode);
+@@ -668,6 +676,9 @@ void Change(Option option, int direction, bool wrap)
+   case Option::Hud:
+     v.hud = Step(HUDS, v.hud, direction, wrap);
+     break;
++  case Option::ShipHud:
++    v.ship_hud = v.ship_hud ? 0 : 1;
++    break;
+   case Option::FrameRate:
+     v.frame_mode = v.frame_mode ? 0 : 1;
+     break;
+@@ -2103,6 +2114,10 @@ void Draw(float scale)
+                            "Screen edges",
+               "Where the HUD sits on a wide picture: at the edges, or nearer the middle in a 16:9 "
+               "or 21:9 area (easier to see on an ultrawide). Original keeps the GameCube's layout."};
++    case Option::ShipHud:
++      return {"Ship battle HUD", v.ship_hud ? "Centred" : "Spread out",
++              "Spread out moves the ship battle HUD to the sides with the rest. Centred keeps the "
++              "game's own layout, with the grid under the Spirit bar."};
+     case Option::FrameRate:
+       return {"Frame rate", v.frame_mode ? "60 fps (interpolated)" : "30 fps (original)",
+               slow_note ? "This device runs the game below full speed at 60 fps. 30 fps keeps it "
