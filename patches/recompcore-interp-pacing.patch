@@ -1,0 +1,333 @@
+diff --git a/Source/Core/VideoCommon/FrameInterpolator.cpp b/Source/Core/VideoCommon/FrameInterpolator.cpp
+--- a/Source/Core/VideoCommon/FrameInterpolator.cpp
++++ b/Source/Core/VideoCommon/FrameInterpolator.cpp
+@@ -46,6 +46,7 @@
+ #include "VideoCommon/OpcodeDecoding.h"
+ #include "VideoCommon/PerformanceMetrics.h"
+ #include "VideoCommon/PixelShaderManager.h"
++#include "VideoCommon/Present.h"
+ #include "VideoCommon/TMEM.h"
+ #include "VideoCommon/VertexLoaderManager.h"
+ #include "VideoCommon/VertexLoader_Color.h"
+@@ -273,6 +274,8 @@
+ };
+ Budget s_budget;
+ u64 s_stat_skipped = 0;
++u64 s_stat_repaired = 0;  // draws paired across a texture change
++bool s_blend_repaired = false;  // the last blend had such draws (RECOMP_FRAME_INTERPOLATION_DUMP_REPAIRED)
+ u64 s_trace_indexed_prims = 0;
+ u64 s_trace_big_loads = 0;  // loads traced in this blend
+ u64 s_trace_pos_moved = 0;  // blended vertices that moved more than 5 units  // this frame's draws with an indexed attribute (trace)
+@@ -737,6 +740,77 @@
+       Log( "[interp-trace]   key %016llx: %d draws, previous %d, %d left unpaired\n",
+                    static_cast<unsigned long long>(key), n_cur, n_prev, unpaired);
+   }
++  // Draws still without a partner, paired again without the texture: a draw whose texture changed
++  // between the frames (Fina's face changing expression) has a new key, and drawn as it is while
++  // the rest of the model moved halfway, the model's edges showed around it (issue #18). It pairs
++  // with the nearest previous draw of the same shape (vertex format, count and size) and another
++  // texture that has no partner either, if their first vertices don't jump (VertexJumps).
++  {
++    static std::vector<u8> prev_taken;
++    prev_taken.assign(s_previous.prims.size(), 0);
++    for (const Prim* p : partner)
++    {
++      if (p)
++        prev_taken[static_cast<size_t>(p - s_previous.prims.data())] = 1;
++    }
++    const auto shape = [](const Prim& prim) { return prim.key ^ (u64{prim.texture} << 20); };
++    static std::vector<std::pair<u64, u32>> lone_prev;  // shape, index
++    lone_prev.clear();
++    for (u32 j = 0; j < s_previous.prims.size(); ++j)
++    {
++      const Prim& prim = s_previous.prims[j];
++      if (!prev_taken[j] && prim.pos_format == static_cast<u8>(ComponentFormat::Float))
++        lone_prev.emplace_back(shape(prim), j);
++    }
++    std::sort(lone_prev.begin(), lone_prev.end());
++    // A scene change leaves everything unpaired: only look at a few candidates per draw.
++    constexpr ptrdiff_t MAX_CANDIDATES = 64;
++    // RECOMP_FRAME_INTERPOLATION_REPAIR=0 skips this pass (to compare).
++    static const bool repair_on = [] {
++      const char* env = std::getenv("RECOMP_FRAME_INTERPOLATION_REPAIR");
++      return !env || env[0] != '0';
++    }();
++    u32 repaired = 0;
++    for (size_t index = 0; index < s_current.prims.size() && !lone_prev.empty(); ++index)
++    {
++      const Prim& prim = s_current.prims[index];
++      if (partner[index] || prim.pos_format != static_cast<u8>(ComponentFormat::Float))
++        continue;
++      const u64 s = shape(prim);
++      auto it = std::lower_bound(lone_prev.begin(), lone_prev.end(), std::make_pair(s, 0u));
++      const auto end = it + std::min(MAX_CANDIDATES, lone_prev.end() - it);
++      const u8* cur = s_current.stream.data() + prim.data_offset + prim.pos_offset;
++      int best = -1;
++      float best_distance = 1e30f;
++      for (; it != end && it->first == s; ++it)
++      {
++        const Prim& old = s_previous.prims[it->second];
++        // Same texture: the alignment above already left it unpaired on purpose (a particle that
++        // went, another that came).
++        if (prev_taken[it->second] || old.texture == prim.texture)
++          continue;
++        const u8* prev = s_previous.stream.data() + old.data_offset + old.pos_offset;
++        if (VertexJumps(cur, prev, prim.pos_count))
++          continue;
++        float distance = 0.0f;
++        for (u32 k = 0; k < prim.pos_count; ++k)
++          distance += std::fabs(ReadFloat(cur + k * 4) - ReadFloat(prev + k * 4));
++        if (distance < best_distance)
++          best_distance = distance, best = static_cast<int>(it->second);
++      }
++      if (best >= 0)
++      {
++        prev_taken[static_cast<size_t>(best)] = 1;
++        if (repair_on)
++          partner[index] = &s_previous.prims[static_cast<size_t>(best)];
++        ++repaired;
++      }
++    }
++    s_stat_repaired += repaired;
++    s_blend_repaired = repaired != 0;
++    if (Tracing() && repaired != 0)
++      Log("[interp-trace]   %u draws paired across a texture change\n", repaired);
++  }
+   // Which paired draws jump (VertexJumps: a coordinate moves more than half its value and more than
+   // 50 units or a tenth of the vertex's distance; with the two added, a full-screen quad Skies moves from z = 100 to 0.001 after a menu passed, and
+   // halfway it covered the scene). When one draw jumps, every draw with the same texture snaps
+@@ -1401,13 +1475,30 @@
+     File::CreateDir(dump_dir);
+     return true;
+   }();
+-  if (!dump_on || shown.frame < dump_first || shown.frame >= dump_first + dump_count)
++  // RECOMP_FRAME_INTERPOLATION_DUMP_REPAIRED=1: only frames with draws paired across a texture
++  // change (or that would be, with RECOMP_FRAME_INTERPOLATION_REPAIR=0), up to the count.
++  static const bool only_repaired = std::getenv("RECOMP_FRAME_INTERPOLATION_DUMP_REPAIRED") != nullptr;
++  static u64 repaired_dumped = 0;
++  if (only_repaired)
++  {
++    if (!dump_on || !s_blend_repaired || repaired_dumped >= dump_count)
++      return;
++    ++repaired_dumped;
++  }
++  else if (!dump_on || shown.frame < dump_first || shown.frame >= dump_first + dump_count)
++  {
+     return;
++  }
+   const std::string base = dump_dir + "/f" + std::to_string(shown.frame);
+   if (shown.interp && shown.interp->texture)
+     shown.interp->texture->Save(base + "-interp.png", 0);
+   if (shown.real && shown.real->texture)
+     shown.real->texture->Save(base + "-real.png", 0);
++  if (only_repaired)
++  {
++    if (const Shown* before = FindShown(shown.frame - 1); before && before->real && before->real->texture)
++      before->real->texture->Save(dump_dir + "/f" + std::to_string(shown.frame - 1) + "-real.png", 0);
++  }
+ }
+ 
+ // The job's frame becomes the previous one, which the next frame is blended with.
+@@ -1566,6 +1657,8 @@
+                (unsigned long long)s_stat_verts[2], (unsigned long long)s_stat_verts[3],
+                (unsigned long long)s_stat_indexed_loads,
+                (unsigned long long)s_stat_prims_blended);
++  Log("[interp] draws paired across a texture change: %llu\n",
++      static_cast<unsigned long long>(s_stat_repaired));
+   Log(
+                "[interp] %llu of %llu frames interpolated; matrix loads %llu, matched %llu, "
+                "blended %llu (changed %llu); stream %zu bytes, %zu loads; shown %llu in-between, "
+@@ -1760,9 +1853,36 @@
+   return draw;
+ }
+ 
++// Recent slice durations (blend included), for OnGpuIdle.
++static double s_slice_estimate = 0.0;
++
+ bool OnGpuIdle()
+ {
+-  return RunJob(false);
++  // Not a slice that would still be running when the next picture is due: the present waits for
++  // it, and a variable-refresh display (G-Sync, FreeSync) refreshes when the present comes, so a
++  // late one and the on-time one after it flickered the panel (issue #24). The GPU thread comes
++  // back here until the present has gone (the swap moves the estimate to the next retrace).
++  // RECOMP_FRAME_INTERPOLATION_GUARD=0 turns this off (to compare).
++  static const bool guard = [] {
++    const char* env = std::getenv("RECOMP_FRAME_INTERPOLATION_GUARD");
++    return !env || env[0] != '0';
++  }();
++  if (guard && s_job.active && g_presenter)
++  {
++    const Clock::time_point now = Clock::now();
++    const Clock::time_point due = g_presenter->GetNextSwapEstimatedTime();
++    const DT slice = std::chrono::duration_cast<DT>(
++        DT_s(std::max(1.5 * s_slice_estimate, 0.0005)));
++    if (now < due && now + slice > due)
++      return true;
++  }
++  const Clock::time_point start = Clock::now();
++  const bool more = RunJob(false);
++  const double seconds = DT_s(Clock::now() - start).count();
++  s_slice_estimate = s_slice_estimate == 0.0 ? seconds :
++                     seconds > s_slice_estimate ? seconds :
++                                                  s_slice_estimate * 0.9 + seconds * 0.1;
++  return more;
+ }
+ 
+ void AddReplayCopy(u32 address, RcTcacheEntry entry, bool is_xfb_copy)
+@@ -1916,8 +2036,15 @@
+   s_recording = true;
+ }
+ 
++static int s_last_picture_kind = 0;
++int LastPictureKind()
++{
++  return s_last_picture_kind;
++}
++
+ RcTcacheEntry PictureForRetrace(u32 xfb_address, bool is_duplicate)
+ {
++  s_last_picture_kind = 0;
+   // The newest frame in this XFB, and the one before it.
+   Shown* current = nullptr;
+   Shown* before = nullptr;
+@@ -1951,8 +2078,15 @@
+     else if (current->retraces == 2)
+     {
+       if (current->interp_due && s_job.active && s_job.frame == current->frame)
++      {
+         FinishJob();
++        s_last_picture_kind = 2;
++      }
+       picture = current->interp ? current->interp : current->real;
++      if (!current->interp)
++        s_last_picture_kind = 0;
++      else if (s_last_picture_kind == 0)
++        s_last_picture_kind = 1;
+       what = current->interp ? "in-between" : "real (no in-between)";
+     }
+     else
+@@ -1966,6 +2100,7 @@
+     {
+       picture = current->interp;
+       what = "in-between";
++      s_last_picture_kind = 1;
+     }
+     else
+     {
+diff --git a/Source/Core/VideoCommon/FrameInterpolator.h b/Source/Core/VideoCommon/FrameInterpolator.h
+--- a/Source/Core/VideoCommon/FrameInterpolator.h
++++ b/Source/Core/VideoCommon/FrameInterpolator.h
+@@ -120,4 +120,7 @@
+ // From the presenter, for each retrace that shows xfb_address: the picture to present instead of
+ // the XFB cache's, if any.
+ RcTcacheEntry PictureForRetrace(u32 xfb_address, bool is_duplicate);
++// What the last PictureForRetrace picked (for present statistics): 0 a real picture, 1 an
++// in-between, 2 an in-between whose replay had to be finished then.
++int LastPictureKind();
+ }  // namespace FrameInterpolator
+diff --git a/Source/Core/VideoCommon/Present.cpp b/Source/Core/VideoCommon/Present.cpp
+--- a/Source/Core/VideoCommon/Present.cpp
++++ b/Source/Core/VideoCommon/Present.cpp
+@@ -3,6 +3,9 @@
+ 
+ #include "VideoCommon/Present.h"
+ 
++#include <cstdio>
++#include <cstdlib>
++
+ #include "Common/ChunkFile.h"
+ #include "Core/Config/GraphicsSettings.h"
+ #include "Core/Config/MainSettings.h"
+@@ -1005,6 +1008,64 @@
+ TimePoint Presenter::GetUpdatedPresentationTime(TimePoint intended_presentation_time)
+ {
+   const auto now = Clock::now();
++  // [Skies] A present that comes late holds the next ones back with it, and they return to their
++  // times gradually, at most 0.5 ms a present. A variable-refresh display (G-Sync, FreeSync) in
++  // fullscreen refreshes when a present arrives: one 7 ms late and the next on time made
++  // intervals of 24 and 9 ms, which swung it between about 40 and 110 Hz and made the panel
++  // flicker (issue #24); at 60 fps (frame interpolation) the game presents every refresh, so it
++  // happened every few seconds. Later than 1.5 refreshes (a load, a pause, a slow scene) isn't
++  // held: the next presents keep their times. Nor when presents are late all the time (the GPU
++  // thread can't keep up, or single core): holding them back takes time from the GPU thread,
++  // which the presents' sleep blocks, and they only came later.
++  {
++    constexpr DT MAX_HOLD = std::chrono::microseconds(25000);
++    constexpr DT STEP = std::chrono::microseconds(500);
++    const DT late = now - intended_presentation_time;
++    m_late_share += ((late > std::chrono::milliseconds(1) ? 1.0f : 0.0f) - m_late_share) / 60.0f;
++    if (late > MAX_HOLD || m_late_share > 0.25f)
++      m_late_offset = DT{};
++    else if (late > m_late_offset)
++      m_late_offset = late;
++    else
++      m_late_offset = std::max(m_late_offset - STEP, DT{});
++    static const bool stats = [] {
++      const char* env = std::getenv("RECOMP_PRESENT_STATS");
++      return env && env[0] == '1';
++    }();
++    if (stats)
++    {
++      ++m_pace_presents;
++      if (late > std::chrono::milliseconds(2))
++      {
++        ++m_pace_late, m_pace_worst = std::max(m_pace_worst, late);
++        ++m_pace_late_kind[FrameInterpolator::IsEnabled() ? FrameInterpolator::LastPictureKind() : 0];
++      }
++      if (m_late_offset > DT{})
++        ++m_pace_held;
++      if (m_pace_presents == 600)
++      {
++        std::fprintf(stderr,
++                     "[present] of 600: %u late by over 2 ms (worst %.1f ms; real %u, in-between %u, "
++                     "in-between finished then %u), %u held back\n",
++                     m_pace_late, DT_ms(m_pace_worst).count(), m_pace_late_kind[0],
++                     m_pace_late_kind[1], m_pace_late_kind[2], m_pace_held);
++        m_pace_late_kind = {};
++        m_pace_presents = m_pace_late = m_pace_held = 0;
++        m_pace_worst = DT{};
++      }
++    }
++    // RECOMP_PRESENT_PACING=0 presents as before (to compare).
++    static const bool pacing = [] {
++      const char* env = std::getenv("RECOMP_PRESENT_PACING");
++      return !env || env[0] != '0';
++    }();
++    if (pacing && !Config::Get(Config::MAIN_SMOOTH_EARLY_PRESENTATION) &&
++        !g_ActiveConfig.bImmediateXFB && !Config::Get(Config::MAIN_RUSH_FRAME_PRESENTATION))
++    {
++      m_presentation_time_offset = std::min(late, DT{});
++      return intended_presentation_time + m_late_offset;
++    }
++  }
+   const auto arrival_offset = std::min(now - intended_presentation_time, DT{});
+ 
+   if (!Config::Get(Config::MAIN_SMOOTH_EARLY_PRESENTATION))
+diff --git a/Source/Core/VideoCommon/Present.h b/Source/Core/VideoCommon/Present.h
+--- a/Source/Core/VideoCommon/Present.h
++++ b/Source/Core/VideoCommon/Present.h
+@@ -30,6 +30,9 @@
+ class Presenter
+ {
+ public:
++  // [Skies] When the next VI swap is due (frame interpolation keeps its replay slices clear of
++  // it). GPU thread.
++  TimePoint GetNextSwapEstimatedTime() const { return m_next_swap_estimated_time; }
+   using ClearColor = std::array<float, 4>;
+ 
+   Presenter();
+@@ -186,6 +189,13 @@
+ 
+   // Used by the SmoothEarlyPresentation setting.
+   DT m_presentation_time_offset{};
++  // [Skies] How far presents are held back after a late one (GetUpdatedPresentationTime), and
++  // the late-present counts RECOMP_PRESENT_STATS=1 logs.
++  DT m_late_offset{};
++  float m_late_share = 0.0f;  // how often presents come over 1 ms late, about the last second
++  u32 m_pace_presents = 0, m_pace_late = 0, m_pace_held = 0;
++  std::array<u32, 3> m_pace_late_kind{};
++  DT m_pace_worst{};
+ 
+   // Calculated from the previous swap time and current refresh rate.
+   // Can be used for presentation of ImmediateXFB swaps which don't have timing information.
