@@ -13,6 +13,18 @@
       "target": "fn_80017324",
       "to": "dbg_victory_pick",
       "why": "fn_800136DC, a won battle: the victory pose's member, forced on request"
+    },
+    {
+      "site": "0x8003A290",
+      "target": "fn_8003DCF4",
+      "to": "dbg_screenshot_gate",
+      "why": "fn_8003A264, battle script SCREENSHOT: its motion gate, logged and forced on request"
+    },
+    {
+      "site": "0x800392AC",
+      "target": "fn_8003DCF4",
+      "to": "dbg_texcopy_gate",
+      "why": "fn_80039280, battle script TEXCOPYMODEL: its motion gate, logged and forced on request"
     }
   ]
 }

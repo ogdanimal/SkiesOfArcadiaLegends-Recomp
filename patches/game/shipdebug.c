@@ -11,6 +11,11 @@
  * that member's (the game's pick, fn_80017324, rolls 1 in 4 per member in turn; the pose itself is
  * not random: fn_80017430 plays motion 0x1A + 0 / 1 / 2 by the poser's HP ratio and status), so a
  * test sees one pose every run (issue #22: Drachma's screen plane). Kept until the test clears it.
+ * The screen copy: battle script commands SCREENSHOT (0x30, fn_8003A264) and TEXCOPYMODEL (0x43,
+ * fn_80039280) only run while the actor is still in the motion the script belongs to (their gate,
+ * fn_8003DCF4). COPY_LOG counts each command's calls and gate passes ((calls << 16) | passes for
+ * SCREENSHOT in the low half-word pair, TEXCOPYMODEL in COPY_LOG2); 'CPY' << 8 | 1 to COPY_FORCE
+ * opens the gate, so the plane shows whenever a script asks for it.
  * dbg_field (shipdebug.S) tail-calls the field main, so no frame of this code is on the stack when
  * a savestate is made: states made with this build load in play builds. */
 
@@ -33,6 +38,23 @@ extern void fn_800FF6B4(int member); /* a member joins the party */
 #define VICTORY_MAGIC 0x564943u /* 'VIC' */
 
 extern int fn_80017324(int kind); /* the victory pose's member, picked at random */
+extern int fn_8003DCF4(void *script, void *actor); /* a battle script command's motion gate */
+
+#define COPY_LOG (*(volatile u32 *)0x8031AA10)
+#define COPY_LOG2 (*(volatile u32 *)0x8031AA14)
+#define COPY_FORCE (*(volatile u32 *)0x8031AA18)
+#define COPY_MAGIC 0x435059u /* 'CPY' */
+
+static int copy_gate(volatile u32 *log, void *script, void *actor) {
+  int open = fn_8003DCF4(script, actor);
+  if ((COPY_FORCE >> 8) == COPY_MAGIC && (COPY_FORCE & 1))
+    open = 1;
+  *log += 0x10000u + (open ? 1u : 0u);
+  return open;
+}
+
+int dbg_screenshot_gate(void *script, void *actor) { return copy_gate(&COPY_LOG, script, actor); }
+int dbg_texcopy_gate(void *script, void *actor) { return copy_gate(&COPY_LOG2, script, actor); }
 
 int dbg_victory_pick(int kind) {
   u32 request = VICTORY_REQUEST;
