@@ -1864,6 +1864,59 @@ top right as before. A poke to `full_m00` as a test does nothing (`ws_apply` wri
 and the JIT can't test a new patch from an older state (the state brings its own code back; only
 the static module replaces it).
 
+### Issue pass #16-#25 (2026-10-28, branch `issues`, game patch ws35)
+
+- **#25, ship battle Item list off the bottom** with a wide HUD: the ring's lists (`fn_8012E640`)
+  moved down 50 HUD pixels with the ring; 20 now, the box fits (`WS_VERSION` 11). The reporter's
+  other wish, the game's own layout with the grid under the Spirit bar, is a setting:
+  `[Skies] ShipHud` (0 spread out, the default; 1 centred), rows in the launcher, the in-game menu
+  and the Android panel (`recompcore-ship-hud.patch`, `moderngekko-ship-hud.patch`). The frontend
+  writes it to `ws_ship_hud` (`0x80002EEC`, free in every earlier build); anchors whose kind has
+  `WS_SHIP` stay put when it's 1. Checked on WSL and Windows, both values, from a ship battle state.
+- **#22, Drachma's pose stretched**: ws31 drew the screen plane through `UNWIDE` (the game's 4:3
+  projection), so the copy filled the picture, but the shake's rotation then happened in squeezed
+  space and sheared the picture. ws35 keeps the wide projection and widens the plane itself:
+  `WIDE_PLANE` wrappers (`fullwidth.S`) call `ws_plane_widen`, `njScale(0, 1 / factor, 1, 1)` on the
+  model matrix before the draw. **Not seen in game.** Only two battle script commands set the copy
+  bit: `SCREENSHOT` (0x30, `fn_8003A264` -> `fn_80056B6C`) and entry 0x42 (`fn_80039280` ->
+  `fn_8005B648`, beside `TEXCOPYMODEL`), both behind a motion gate (`fn_8003DCF4`: the actor must
+  still be in the script's motion). The debug patch logs both (`COPY_LOG` `0x8031AA10` / `14`) and can
+  force the gate (`'CPY' << 8 | 1` at `0x8031AA18`); with Drachma forced as the poser (`'VIC' << 8 | 2`,
+  the battle's own number for him; 3 gives no pose), his healthy and low-HP poses, 12 seeds and a whole
+  deck battle from `10-worldmap-android.sav`, neither command ran once. The #9 video's pose (a walk
+  toward the camera, then a low shot with the arm raised) never came up; `fn_80017430` gives every
+  member motion `0x1A + v` (v 1 at or above 0.75 HP, 0 below, 2 with status bit 0x8000 while anyone
+  has one of 0xCD80; HP is the half-word at unit `+0x16`, max at `+0x1A`).
+- **#19**: F1 saves a state again on Windows while the game owns the keyboard, unless bound
+  (`recompcore-f1-state.patch`; Windows built, the key itself not pressed by a test). Dreamcast music
+  gain 358 -> 290 (`recompcore-dcmusic-level.patch`): with the reverb on, the whole mix measured 1.35x
+  the GameCube's in a deck battle and 1.12x in Pirate Isle. Footsteps cutting each other off: the
+  original game's voice limit.
+- **#18, 60 fps glitches**: a draw whose texture changed between frames (a face changing
+  expression) had a new key and no partner, so it was drawn at the new frame's place while the
+  rest of the model moved halfway. A second pass pairs it with the nearest unpaired previous draw of
+  the same shape and another texture (`recompcore-interp-pacing.patch`). In the lookout scene
+  (`22-lookout-scene-ws32.sav`, A through the dialogue) 41 frames use it; there the faces barely move,
+  so the pictures with and without it measure the same (worst-tile error 9.7 / 10.1). The pyramid's
+  lights jumping (chrisbrasington's video) and the vignette flicker are not reproduced: no state there.
+- **#24, refresh swinging 50-72 Hz** in fullscreen on a variable-refresh display at 60 fps. Windows,
+  `LogRenderTimeToFile` (present intervals): v0.83 perftest1 at 60 fps keeps them within about ±1 ms
+  (in-between and real alternate 16.2 / 17.2 ms), but 0.6-1.3% come 5-9 ms late and the next one 7-13
+  ms after it, which a VRR panel follows (about 40 then 110-140 Hz); at 30 fps its frame doubling
+  hides that. The dev runner's stock game ini is single core: there every other present was 4-7 ms late
+  (12 / 21 ms), the CPU thread reaching the retrace late during the game's work; the release ini is
+  dual core. Changes: the replay doesn't start a slice it expects to still run at the next swap
+  (`GetNextSwapEstimatedTime`), and a late present holds the next ones back, returning 0.5 ms a present
+  (not past 25 ms, nor while over a quarter of presents are late: holding sleeps the GPU thread, which
+  also draws the replay, and single core then got worse). On this PC both measure within noise of
+  before; the reporter's case needs a VRR display to judge: `C:\dev\SkiesIssues\play\play-new.bat` /
+  `play-old.bat` (fullscreen, 60 fps; old = `RECOMP_PRESENT_PACING=0`, `RECOMP_FRAME_INTERPOLATION_GUARD=0`;
+  both log `[present]` counts to `last-*.log`).
+- Not reproduced: #17 (Pirate Isle ladder: standalone and Dolphin Vulkan on WSL draw the house), #21
+  (Sailors' Island bridge: the rock backdrop isn't there at this point of the story, any aspect; needs
+  the reporter's card save), #23 (Valua fortress turrets: nothing wrong at the screenshot's size;
+  the reporter saw it in Dolphin too). #16 needs an Exynos device.
+
 ### Battle screen plane: Drachma's victory pose (2026-10-22, ws31, issue #9)
 
 Sandbowl (v0.80.0-beta, with a video): in 16:9, Drachma's victory pose "reverts back to 4:3". The
