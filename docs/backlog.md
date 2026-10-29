@@ -275,3 +275,44 @@ at full speed on both Retroids with Vulkan's on-screen cadence; the Picture opti
 menu and OSD draw through a Dear ImGui overlay (fork 0026). Inside Dolphin it is at parity with Vulkan, not
 ahead, and Dolphin's HD packs don't apply under it, so it stays opt-in there. Committed as patches on the
 local branch `aurora-backend`, kept local on purpose (not rebased, merged or pushed).
+
+## Cheat codes from the GameCube databases — issue #5, requested 2026-10-21
+
+doc-haz: optional cheats from the existing Action Replay / Gecko lists (gamehacking.org game 54824,
+USA): infinite gold, Moonberries, max party Spirit, ship HP, items, no random battles, save anywhere,
+character and equipment modifiers, toggled in a file or the in-game menu. The recompiled game keeps the
+GameCube's RAM layout, so plain RAM-write codes (AR 00/02/04 writes, Gecko 00-05 and their
+conditionals) could run as written once per frame from the frontend; codes that patch instructions
+(Gecko C2/04 into `.text`) do nothing, since the code is native, and need a game-patch equivalent
+(`patches/game/qol.c`, decomp `docs/qol_cheats.md`; Encounters and Invincible are already there).
+Steps: a code parser + per-frame applier in the frontend, a Cheats list in the in-game menu, a check of
+the listed codes' kinds.
+
+## More save slots — issue #15 and #19, requested 2026-10-22 / 2026-10-27
+
+Renatodep (#15): "increase the number of save slots". Unclear whether the game's memory card files or
+the port's save states (slots 1-5, in-game menu *Save state*). Cawl87 (#19) wants the opposite for
+states: a cap, keeping just slot 1 (the in-game menu already saves to a chosen slot). Ask #15 which one;
+for states, a slot count setting covers both.
+
+## The rest of the reported cutscene shots — issue #10, reported 2026-10-22..26
+
+Not framed yet (ws32 has the four listed above), from the #10 comments:
+- Opening, Galcian turns to the camera: the flames' backdrop ends short of the left and right edges.
+- Opening: a piece of Alphonso's ship clips through Fina's ship (the original does it too).
+- A room shot showing the sky and the outside wall over the top: pan the shot down (three screenshots).
+- Sailors' Island, the three shops: move the camera.
+- A Nasr merchant who appears from nowhere at the edge.
+- Vyse pops up at the far right in a scene with Alfonso.
+- Marco running in place at the side of the screen (Cawl87, video).
+- Effects still drawn 4:3: the Harpoon Cannon animation, the Red Gigas' beam, some Lynx ship battle
+  spells (Cawl87).
+Each needs a state or a warp to the scene (`docs/development-notes.md` *Cutscene shots framed for
+widescreen*) and a per-shot zoom, or for the effects a screen-plane fix like #9.
+
+## Dreamcast DSF rips as the music source — issue #8, requested 2026-10-21
+
+aro-1790's second point: play the Dreamcast music from the DSF rips (Highly Theoretical plays them
+directly), so players don't need the Dreamcast disc. Open: hosting (the rips are game data), and
+mapping the rip's track names onto the song numbers the GameCube driver asks for. The reverb half of #8
+is done (v0.80.0-beta).
