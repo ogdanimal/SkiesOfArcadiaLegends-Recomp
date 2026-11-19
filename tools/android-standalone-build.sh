@@ -71,7 +71,9 @@ if [ ! -f $B/build.ninja ]; then
     $DAWN_ARGS "${SRC_ARGS[@]}" ${STANDALONE_CMAKE_ARGS:-} > $B-configure.log 2>&1 ||
     { tail -20 $B-configure.log; exit 1; }
 fi
-cmake --build $B -j8 --target skies-standalone > $B-build.log 2>&1 || { grep -E "error|FAILED" $B-build.log | head -20; exit 1; }
+# As many jobs as cores (CI runners have 4; -j8 there can run out of memory); the end of the log on any failure
+cmake --build $B -j$(nproc) --target skies-standalone > $B-build.log 2>&1 ||
+  { grep -E "error|FAILED" $B-build.log | head -20; echo "--- end of $B-build.log:"; tail -30 $B-build.log; exit 1; }
 
 rm -rf "${O:?}"
 mkdir -p $O/classes $O/dex $O/sdl-java

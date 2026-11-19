@@ -177,7 +177,7 @@ rm -rf $ASSETS/Sys && mkdir -p $ASSETS && cp -r $V/Data/Sys $ASSETS/ && rm -rf $
 AURORA_ARGS=()
 if [ "${STANDALONE:-0}" = 1 ]; then
   LIB_ONLY=1 O=$A/standalone-lib tools/android-standalone-build.sh > $A/standalone-lib.log 2>&1 ||
-    { tail -20 $A/standalone-lib.log; exit 1; }
+    { echo "the standalone's Android build failed:"; tail -40 $A/standalone-lib.log; exit 1; }
   cp $A/standalone-lib/lib/*.so $A/jniLibs-$NAME/arm64-v8a/
   AURORA_ARGS+=(-PskiesStandaloneJava=$A/standalone-lib/app-java)
 fi
