@@ -1286,6 +1286,15 @@ from that slot, menu by Back and D-pad, Quit game back to the launcher (process 
 before a second Continue (~0.5 s). Testing tools: controller events with `sendevent /dev/input/event8`
 (BTN_SOUTH 304, KEY_BACK 158 from the controller = the menu; the D-pad is `ABS_HAT0Y` 3 17 +-1); `log.txt` in
 the app's external files folder is per game process (a relaunch overwrites it).
+Later 2026-11-18 (d7db74b): a launcher started over the running game (a frontend, `am start -n`) offers
+Continue (game in progress), which moves the game's screen to the front (`FLAG_ACTIVITY_REORDER_TO_FRONT`, the
+same process); icon -> Home -> icon goes straight back to the game; after Quit game every launcher screen waits
+for the process to end before it offers Continue again. The Language restart through the launcher checked with
+the European disc imported by the app's picker (`RESULT_RESTART` -> the old process ends -> a new one, the intro
+in French), and Dreamcast music from the app's import plays. Picker tests: a file pushed by adb needs
+`am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file:///sdcard/...` before the picker lists it.
+The test app was left on the US game (pushed back as `Games/GEAE8P` with `main.dol.orig`; the launcher
+repatches) with the European game beside it, its language Spanish as before.
 
 Today's shipping app is Dolphin's APK with `-PskiesBrand`: `SkiesLauncherActivity` (~720 lines: home menu,
 disc import, Continue, game in progress, picker, driver guard), `SkiesSettingsPanel` (~520), `SkiesDataFolder`,
