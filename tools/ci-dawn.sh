@@ -32,6 +32,10 @@ case $TARGET in
       git -C "$SRC" checkout --detach "$REF"
       git -C "$SRC" -c user.name=build -c user.email=build@localhost am "$ROOT"/patches/dawn/*.patch
     fi
+    # The .bat configures with DAWN_FETCH_DEPENDENCIES=OFF (a local tree has its third_party/ already); a fresh
+    # clone gets it here, with the script that option would run
+    PY=$(command -v python3 || command -v python)
+    "$PY" "$SRC/tools/fetch_dawn_dependencies.py" --directory "$SRC"
     # DXC isn't built: Dawn loads dxcompiler.dll / dxil.dll at run time, the stock package's
     STOCK=$OUT/stock
     mkdir -p "$STOCK"

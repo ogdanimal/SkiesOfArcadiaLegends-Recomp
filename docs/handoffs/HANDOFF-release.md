@@ -25,7 +25,8 @@
   v26 R8 battles at 1.00x, keep prompt and crash safeguard work, test app back on the system driver), and
   **MSAA 2x / 8x** from a CI-built patched Dawn (`validate.yml` `dawn` job, `tools/ci-dawn.sh`; falls back to the
   stock package, Off / 4x, if it fails). Left out by the owner: Android 7 / 8, the Windows File menu. **The first
-  tag after this costs 1-2 h more** (the Dawn cache is empty); check in the release jobs' logs that each found
+  tag after this builds Dawn again** (branch caches don't reach tags; Linux 18 min, Android 13 min in the first
+  run, Windows and macOS not yet seen through, backlog *Patched Dawn*); check in the release jobs' logs that each found
   its `dawn-<target>` artifact (`DAWN_PACKAGE` set) and, after the draft, that Anti-aliasing offers 2x.
 - **What it has** (`release/test-build-notes.md`, appended to the draft's notes by `release.yml`): the `issues`
   branch (#25 Ship battle HUD, #19 DC music level, #18 60 fps texture-change pairing, #22 screen plane, #24 in

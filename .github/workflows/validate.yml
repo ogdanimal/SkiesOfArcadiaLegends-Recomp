@@ -382,6 +382,12 @@ jobs:
           path: build/dawn-package/${{ matrix.package }}
           retention-days: 1
 
+      # The steps above may fail without failing the job: say so in the run's summary
+      - name: Report a missing package
+        if: hashFiles(format('build/dawn-package/{0}', matrix.package)) == ''
+        shell: bash
+        run: echo "::warning title=No patched Dawn for ${{ matrix.target }}::the ${{ matrix.target }} build uses the stock Dawn package (anti-aliasing Off / 4x only); see this job's Build step"
+
   windows:
     name: windows
     environment: ci
