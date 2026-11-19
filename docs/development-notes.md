@@ -1929,7 +1929,10 @@ pacing statistics' `s_last_picture_kind` side by side; `Present.cpp` already had
 - **#19** gain 290 in its own `DCMusic.cpp` copy. F1 not ported: in the Dolphin build it's
   `PlatformWin32`'s timestamped state file; the standalone has slot states and no keyboard state keys.
 - **#18** the texture-change pairing pass in `interp60.cpp` (`SKIES_INTERP_REPAIR=0` skips it, the
-  stats line counts it): first battle at 60 fps, 2.7-5.5 draws a blend paired, blend 0.4-0.8 ms.
+  stats line counts it): first battle at 60 fps, 2.7-5.5 draws a blend paired, blend 0.4-0.8 ms. Pocket 5 (test
+  app, Continue into the ship's hold at 60 fps, `env.txt` `SKIES_INTERP=1`; its Field speed 2x set to 1x for the
+  run, since 60 fps is held off at speed): blend 3.16 / 3.08 ms with the pass, 3.18 / 3.25 without
+  (`SKIES_INTERP_REPAIR=0`), full speed, 0 frames skipped; nothing to pair there (every draw has a partner).
 - **#24** nothing to port: the standalone presents each frame at its guest time plus an adaptive delay
   (fork 0036) and doesn't slice the replay around the present.
 - **ws35 for Europe and Japan:** `tools/dolmatch.py` against the secrets' DOLs added `0x80002EEC`,
