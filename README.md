@@ -1,11 +1,14 @@
 # Skies of Arcadia Legends: Recompiled
 
 A native port of **Skies of Arcadia Legends** (GameCube) to **Windows, Linux, macOS and Android**, made by
-static recompilation: the game's PowerPC code is translated ahead of time into native code, and the
-GameCube's graphics, sound and input come from [Dolphin](https://dolphin-emu.org/)'s hardware code.
-It adds widescreen, 60 fps, camera control, save states and quality-of-life options.
+static recompilation: the game's PowerPC code is translated ahead of time into native code. It adds
+widescreen, 60 fps, camera control, save states and quality-of-life options.
 
-**This is a beta (v0.83).** Please [report](../../issues/new/choose) what you run into.
+**This is a test build of the new engine** (`v0.90.0-standalone`): the game runs on its own GameCube
+graphics, sound and disc layer, drawing through Direct3D 12, Vulkan, Direct3D 11, Metal or OpenGL ES,
+instead of inside [Dolphin](https://dolphin-emu.org/). It's faster and smoother than v0.83, most of all on
+weaker PCs and Android handhelds. **v0.83.0-beta**, on the Dolphin engine, stays the recommended release
+until the new engine has been tested more. Please [report](../../issues/new/choose) what you run into.
 
 No build contains the game. You need your own copy of the disc.
 
@@ -20,7 +23,8 @@ Get a build from the **[Releases](../../releases)** page:
 | macOS (Apple Silicon) | `SkiesOfArcadiaLegends-<version>-macos.zip` |
 | Android | `SkiesOfArcadiaLegends-<version>-android.apk` |
 
-Versions ending in `-beta` (or `-rc1`, `-rc2`, ...) are published as prereleases.
+Versions ending in `-beta` (or `-rc1`, `-rc2`, ...) are published as prereleases; `-standalone.N` versions are
+test builds of the new engine.
 
 ## Getting Started
 
@@ -55,9 +59,9 @@ replaces it.
 | | |
 |---|---|
 | **Windows** | 64-bit Windows 10 (version 1703 or later) or 11 |
-| **Linux** | 64-bit (x86_64), with a Vulkan or OpenGL driver |
+| **Linux** | 64-bit (x86_64), with a Vulkan or OpenGL ES driver |
 | **macOS** | macOS 13 or later on an Apple Silicon Mac (M1 or newer) |
-| **Android** | 7.0+, a 64-bit (`arm64-v8a`) device |
+| **Android** | 9 or later, a 64-bit (`arm64-v8a`) device (on Android 7 and 8 the app uses the Dolphin engine) |
 
 Tested on a **Retroid Pocket 5** (Android 13, Snapdragon 865), which runs it at full speed at 60 fps,
 and on Windows. Slower Android devices may not keep 60 fps (see [Slower devices](#slower-devices)).
@@ -68,8 +72,7 @@ and on Windows. Slower Android devices may not keep 60 fps (see [Slower devices]
 |---|---|
 | **macOS:** the game opens Apple's **Game Overlay** and stops responding to the controller | That's the controller's PS button: macOS uses it for its own overlay. Press it again (or Esc) to close the overlay, and use **Create** for the game's settings menu. |
 | **macOS:** "can't be opened" / "Apple could not verify" at the first start | The app isn't notarized: **System Settings → Privacy & Security → Open Anyway** (once). |
-| **Windows / Linux:** "Failed to create Vulkan device" or a similar message at start | Your graphics driver can't run Vulkan. The game switches to OpenGL by itself and keeps it (**Settings → Display → Graphics backend**). If neither starts, install the latest driver for your graphics card. |
-| **New engine (test builds):** the game crashes, stays black or draws things wrong | **Settings → Graphics → Renderer** (or the in-game menu's Graphics tab): try another graphics API than Auto (Direct3D 11 or Vulkan on Windows, OpenGL ES on Linux). The log names the one in use. On Android it's the same row (Vulkan / OpenGL ES). |
+| The game crashes, stays black or draws things wrong | **Settings → Graphics → Renderer** (or the in-game menu's Graphics tab): try another graphics API than Auto (Direct3D 11 or Vulkan on Windows, OpenGL ES on Linux). The game already falls back by itself when one doesn't start, and says so if none does; then install the latest driver for your graphics card. The log names the one in use. |
 | **Android:** the game crashes or draws things wrong | **Settings → Graphics → Renderer** switches between Vulkan and OpenGL ES. On Adreno devices, **Settings → Graphics → GPU driver** can load another driver (see [GPU driver](#gpu-driver-android)). |
 | **Windows / Linux / macOS:** "Game files missing" when the game starts | A file of the download (`gGEAE8P_recomp.dll`, the European `gGEAP8P_recomp.dll` or the Japanese `gGEAJ8P_recomp.dll`; `.so` on Linux; inside the app on macOS) isn't beside the game. Extract the whole zip again and keep its files together; if the file disappears again, your antivirus removed it (allow the folder). |
 | The import refuses your disc | It must be the USA (`GEAE8P`), European (`GEAP8P`) or Japanese (`GEAJ8P`) disc, the original release. |
@@ -167,8 +170,9 @@ it:
 - **A memory card save** from Dolphin or a real GameCube: `.gci`, `.gcs` or `.sav`.
 - **A whole memory card** from Dolphin (`MemoryCardA.USA.raw`) or a card dump (`.gcp`): its Skies of
   Arcadia Legends saves are taken, nothing else.
-- **A save state** from this port, e.g. from your other device. Save states only work in the same
-  version of the port; memory card saves work in every version.
+- **A save state** from this port, e.g. from your other device. The new engine also loads v0.83's save
+  states (converted when they load), but v0.83 can't load the new engine's; memory card saves work in every
+  version.
 - **A backup** made with **Settings → Saves → Back up saves** on Android (`.zip`): every save in it.
   Make one before uninstalling the app, which deletes its saves.
 
@@ -279,12 +283,9 @@ Turnip) when the device's own driver crashes or draws things wrong. This is unsu
 doesn't close normally with a new driver, the app goes back to the device's own driver by itself, and
 after the first normal session it asks whether to keep the new one.
 
-### Slower devices
+### Cheat codes
 
-If 60 fps can't keep full speed for a while, the settings menu opens once by itself on Frame rate, so
-you can switch to 30 fps. Nothing changes unless you choose it.
-
-**Cheat codes (new engine):** memory-writing Action Replay and Gecko codes from your data folder's
+Memory-writing Action Replay and Gecko codes from your data folder's
 `Cheats/<disc ID>.ini` (for example `Cheats/GEAE8P.ini`; on Android, **Settings → Gameplay → Cheat file** copies
 one there), in Dolphin's own format, so a Dolphin cheat file works as it is (codes in `GameSettings/<disc ID>.ini`,
 where Dolphin keeps them, count too). Codes listed under `[ActionReplay_Enabled]` / `[Gecko_Enabled]` are applied every
@@ -303,18 +304,23 @@ Action Replay codes must be the decrypted kind (two 8-digit words per line, as D
 patch the game's code (Gecko C2 / 04 into the game's instructions, conditionals) can't work here, since the
 game runs as native code: they're skipped and named in the log.
 
+### Slower devices
+
+If 60 fps can't keep full speed, switch **Frame rate** to 30 fps (the settings menu's Graphics tab, or the
+launcher's Settings). A lower **Resolution** helps too where the graphics chip is the limit.
+
 ## Known Issues
 
-- On Android, battles top out at about 2.5x speed on a Snapdragon 865; 3x and 4x settle at 2x.
-- On Android, the field speed tops out at about 1.25x-1.5x on a Snapdragon 865 (1.5x on foot, 1.25x on
-  the world map and in cutscenes).
+- On Android, fast battle and field speeds are limited by the device: with the Dolphin engine a Snapdragon 865
+  settled at 2x in battle and about 1.25x-1.5x in the field; the new engine is faster, not yet measured there.
 - An auto-save can cause a brief hitch on Android.
 
 ## Reporting a Problem
 
-[Open an issue](../../issues/new/choose) and say what happened and where in the game. On Android, open
-**Settings → About → Copy device info** and paste it into the report: it names the device, its chip
-and the graphics driver.
+[Open an issue](../../issues/new/choose) and say what happened and where in the game. Attach the log:
+`Logs/skies-standalone.log` in your data folder (see [Disc and Storage](#disc-and-storage)); it names your graphics
+card, API and driver, and writes your home folder as `~`. On Android, open **Settings → About → Copy device info**
+and paste it into the report: it names the device, its chip and the graphics driver.
 
 ## Disc and Storage
 
@@ -361,9 +367,10 @@ See [BUILDING.md](BUILDING.md). How the port works, with measurements and histor
 - Romhack support was made for, and tested with, **Maeson**'s rebalance (romhacking.net 2859).
 - HD textures were tested with **Shoopkid**'s HD Texture Pack 4x Upscaled (not included: download
   it from its author).
-- Built on [ModernGekko](https://github.com/ExpansionPak/ModernGekko) and
+- Built on [ModernGekko](https://github.com/ExpansionPak/ModernGekko) (and its GXRuntime) and
   [DolRecomp](https://github.com/ExpansionPak/DolRecomp), which build on the
-  [Dolphin](https://dolphin-emu.org/) emulator's hardware code.
+  [Dolphin](https://dolphin-emu.org/) emulator's hardware code. The new engine draws through Luke Street's
+  [Aurora](https://github.com/encounter/aurora) and Google's [Dawn](https://dawn.googlesource.com/dawn) (WebGPU).
 - The Dreamcast music plays through Neill Corlett's
   [Highly Theoretical](https://github.com/kode54/Highly_Theoretical) (the Dreamcast sound chip,
   maintained by kode54) and reads CHD images with Romain Tisserand's

@@ -4,7 +4,11 @@ A native port of **Skies of Arcadia Legends** (GameCube) for Windows, Linux, mac
 recompilation. It doesn't contain the game: you supply your own copy of the disc, and the game's
 data is read from it.
 
-This is a **beta** (v0.83). Please report what you run into.
+This is a **test build of the new engine** (`v0.90.0-standalone`): the game runs on its own GameCube graphics,
+sound and disc layer, drawing through Direct3D 12, Vulkan, Direct3D 11, Metal or OpenGL ES, instead of inside
+Dolphin. It's faster and smoother than v0.83, most of all on weaker PCs and Android handhelds; v0.83.0-beta stays
+the recommended release until the new engine has been tested more. Back up your saves before you try it
+(**Settings → Saves → Back up saves**). Please report what you run into, with the log (see *Reporting a problem*).
 
 ## What you need
 
@@ -16,9 +20,10 @@ This is a **beta** (v0.83). Please report what you run into.
 - As RVZ, ISO, GCM, GCZ, WIA or CISO.
 - **Windows:** 64-bit Windows 10 (version 1703 or later) or 11.
 - **Linux:** 64-bit (x86_64) with glibc 2.35 or newer (Ubuntu 22.04, Debian 12, Fedora 36, SteamOS,
-  Bazzite or later), and a Vulkan or OpenGL driver.
+  Bazzite or later), and a Vulkan or OpenGL ES driver.
 - **macOS:** macOS 13 or later on an Apple Silicon Mac (M1 or newer).
-- **Android:** a 64-bit (arm64) device with Android 7 or newer. Tested on a Retroid Pocket 5
+- **Android:** a 64-bit (arm64) device with Android 9 or newer (on Android 7 and 8 the app uses the Dolphin
+  engine). Tested on a Retroid Pocket 5
   (Snapdragon 865), which runs it at full speed at 60 fps. Slower devices may not.
 
 ## Getting started
@@ -65,7 +70,8 @@ it. It asks first, then opens a file picker. It takes:
 - **A whole memory card** from Dolphin (`MemoryCardA.USA.raw`) or a card dump (`.gcp`): its Skies of
   Arcadia Legends saves are taken, nothing else.
 - **A save state** from this port (`.sav` from the `StateSaves` folder), e.g. from your other device.
-  Save states only work in the same version of the port; memory card saves work in every version.
+  The new engine also loads v0.83's save states (converted when they load), but v0.83 can't load the new
+  engine's; memory card saves work in every version.
 - **A backup** made with **Settings → Saves → Back up saves** on Android (`.zip`): every save in it.
 
 A memory card save replaces the file with the same number here; the one it replaces is kept beside
@@ -163,7 +169,7 @@ item and magic tables, so they mustn't mix): Continue, the menu's slots and the 
 the disc you play. Its memory card saves sit beside the original game's (the romhack keeps the disc
 ID), which the romhack's author says is fine.
 
-**Cheat codes (new engine):** memory-writing Action Replay and Gecko codes from your data folder's
+**Cheat codes:** memory-writing Action Replay and Gecko codes from your data folder's
 `Cheats/<disc ID>.ini` (for example `Cheats/GEAE8P.ini`; on Android, **Settings → Gameplay → Cheat file** copies
 one there), in Dolphin's own format, so a Dolphin cheat file works as it is (codes in `GameSettings/<disc ID>.ini`,
 where Dolphin keeps them, count too). Codes listed under `[ActionReplay_Enabled]` / `[Gecko_Enabled]` are applied every
@@ -225,9 +231,8 @@ Every setting is also in the launcher's **Settings** window, with a short descri
 
 ## Known issues
 
-- On Android, battles top out at about 2.5x speed on a Snapdragon 865; 3x and 4x settle at 2x.
-- On Android, the field speed tops out at about 1.25x-1.5x on a Snapdragon 865 (1.5x on foot, 1.25x on
-  the world map and in cutscenes).
+- On Android, fast battle and field speeds are limited by the device: with the Dolphin engine a Snapdragon 865
+  settled at 2x in battle and about 1.25x-1.5x in the field; the new engine is faster, not yet measured there.
 - An auto-save can cause a brief hitch on Android.
 - If you change Picture while the world map's menu (Start) is open, the flight meter and compass keep
   the old shape until you close that menu.
@@ -239,8 +244,10 @@ Every setting is also in the launcher's **Settings** window, with a short descri
 
 ## Reporting a problem
 
-Please say what happened and where in the game. On Android, open **Settings → About → Copy device
-info** and paste it into the report: it names the phone, its chip and the graphics driver.
+Please say what happened and where in the game, and attach the log: `Logs/skies-standalone.log` in your data
+folder (it names your graphics card, API and driver, and writes your home folder as `~`). On Android, open
+**Settings → About → Copy device info** and paste it into the report: it names the phone, its chip and the
+graphics driver.
 
 **Android GPU drivers:** on Adreno devices, **Settings → Graphics → GPU driver** can load a driver
 package (for example Mesa Turnip) when the device's own driver crashes or draws things wrong. This is
@@ -249,12 +256,13 @@ own driver by itself, and after the first normal session it asks whether to keep
 On any Android device, **Settings → Graphics → Renderer** can switch from Vulkan to OpenGL ES if the
 game crashes or draws things wrong with Vulkan.
 
-**Windows / Linux graphics:** when the graphics driver can't start Vulkan ("Failed to create Vulkan
-device" or a similar message), the game switches to OpenGL by itself and keeps it (**Settings →
-Display → Graphics backend**). If neither starts, install the latest driver for your graphics card.
+**Graphics on Windows, Linux and macOS:** the game tries the graphics APIs in order (Windows: Direct3D 12, Vulkan,
+Direct3D 11; Linux: Vulkan, OpenGL ES; macOS: Metal) and falls back by itself; if it crashes, stays black or
+draws things wrong, **Settings → Graphics → Renderer** picks the one tried first. If none starts it says so: install
+the latest driver for your graphics card.
 
-**60 fps on slower devices:** if 60 fps can't keep full speed for a while, the settings menu opens
-once by itself on Frame rate, so you can switch to 30 fps. Nothing changes unless you choose it.
+**60 fps on slower devices:** if 60 fps can't keep full speed, switch **Frame rate** to 30 fps (the settings
+menu's Graphics tab or the launcher's Settings); a lower **Resolution** helps where the graphics chip is the limit.
 
 ## Credits
 
@@ -265,9 +273,10 @@ once by itself on Frame rate, so you can switch to 30 fps. Nothing changes unles
 - Romhack support was made for, and tested with, **Maeson**'s rebalance (romhacking.net 2859).
 - HD textures were tested with **Shoopkid**'s HD Texture Pack 4x Upscaled (not included: download
   it from its author).
-- Built on [ModernGekko](https://github.com/ExpansionPak/ModernGekko) and
+- Built on [ModernGekko](https://github.com/ExpansionPak/ModernGekko) (and its GXRuntime) and
   [DolRecomp](https://github.com/ExpansionPak/DolRecomp), which build on the
-  [Dolphin](https://dolphin-emu.org/) emulator's hardware code.
+  [Dolphin](https://dolphin-emu.org/) emulator's hardware code. The new engine draws through Luke Street's
+  [Aurora](https://github.com/encounter/aurora) and Google's [Dawn](https://dawn.googlesource.com/dawn) (WebGPU).
 - The Dreamcast music plays through Neill Corlett's
   [Highly Theoretical](https://github.com/kode54/Highly_Theoretical) (the Dreamcast sound chip,
   maintained by kode54) and reads CHD images with Romain Tisserand's

@@ -82,6 +82,8 @@ package)
   cp lib/ModernGekko/vendor/dolphin/Externals/licenses.md "$P/THIRD-PARTY-DOLPHIN.md"
   cp -r lib/ModernGekko/vendor/dolphin/LICENSES/. "$P/licenses/"
   cp lib/libchdr/LICENSE.txt "$P/licenses/libchdr-LICENSE.txt"
+  # The emulator-free host's components (release/THIRD-PARTY.md)
+  cp release/licenses/*.txt "$P/licenses/"
   tar -C build -czf "$P.tar.gz" "$NAME"
   (cd build && sha256sum "$NAME.tar.gz" > "$NAME.tar.gz.sha256" && cat "$NAME.tar.gz.sha256")
   ;;

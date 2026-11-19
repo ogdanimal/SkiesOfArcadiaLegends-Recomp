@@ -65,7 +65,7 @@ if [ "${BRAND:-0}" = 1 ]; then
   # The GPL and the notices travel with the APK too
   mkdir -p $B/assets/licenses && cp COPYING release/README.md release/THIRD-PARTY.md $B/assets/licenses/ &&
     cp $V/Externals/licenses.md $B/assets/licenses/THIRD-PARTY-DOLPHIN.md && cp -r $V/LICENSES/. $B/assets/licenses/ &&
-    cp lib/libchdr/LICENSE.txt $B/assets/licenses/libchdr-LICENSE.txt
+    cp lib/libchdr/LICENSE.txt $B/assets/licenses/libchdr-LICENSE.txt && cp release/licenses/*.txt $B/assets/licenses/
   # The DOL the import must produce: the patch's output hash (PREGEN), or this DOL's, checked against it
   if [ -n "${PREGEN:-}" ] || [ -n "${JNILIBS:-}" ]; then
     sed -n 's/^output-sha256 //p' release/skies-widescreen.dolpatch > $B/dol-sha256.txt

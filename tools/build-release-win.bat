@@ -121,6 +121,8 @@ copy /y COPYING %P%\COPYING.txt >nul || exit /b 1
 copy /y lib\ModernGekko\vendor\dolphin\Externals\licenses.md %P%\THIRD-PARTY-DOLPHIN.md >nul || exit /b 1
 xcopy /e /i /q /y lib\ModernGekko\vendor\dolphin\LICENSES %P%\licenses >nul || exit /b 1
 copy /y lib\libchdr\LICENSE.txt %P%\licenses\libchdr-LICENSE.txt >nul || exit /b 1
+rem The emulator-free host's components (release\THIRD-PARTY.md)
+copy /y release\licenses\*.txt %P%\licenses\ >nul || exit /b 1
 set CRT=
 for /d %%D in ("%VCToolsRedistDir%x64\Microsoft.VC*.CRT") do set CRT=%%D
 if not defined CRT (echo no Visual C++ runtime under "%VCToolsRedistDir%" & exit /b 1)

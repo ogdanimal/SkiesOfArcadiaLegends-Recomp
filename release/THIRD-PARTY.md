@@ -18,6 +18,27 @@ Skies of Arcadia Legends: Recompiled is distributed under the GNU General Public
 - The [LZMA SDK](https://www.7-zip.org/sdk.html) by Igor Pavlov, version 23.01 (its 7z decoder, which
   reads `.7z` texture packs for the HD textures import): public domain
 
+The new engine (the game's runtime in the `v0.90.0-standalone` test builds; licence texts in `licenses/`):
+
+- GXRuntime (the GameCube hardware layer the recompiled game runs on, part of ModernGekko's Dolphin tree): GPL-3.0
+- [Aurora](https://github.com/encounter/aurora) by Luke Street (GameCube graphics on WebGPU): MIT
+  (`licenses/Aurora-LICENSE.txt`)
+- [Dawn](https://dawn.googlesource.com/dawn) by the Dawn & Tint Authors (WebGPU, with its Tint shader compiler):
+  BSD-3-Clause (`licenses/Dawn-LICENSE.txt`), with [SPIRV-Tools](https://github.com/KhronosGroup/SPIRV-Tools)
+  and [Abseil](https://github.com/abseil/abseil-cpp): Apache-2.0 (`licenses/SPIRV-Tools-LICENSE.txt`,
+  `licenses/abseil-LICENSE.txt`)
+- Windows: the [DirectX Shader Compiler](https://github.com/microsoft/DirectXShaderCompiler) (`dxcompiler.dll`,
+  `dxil.dll`, from Dawn's Windows package): University of Illinois/NCSA (`licenses/DirectXShaderCompiler-LICENSE.txt`)
+- [SDL](https://libsdl.org/) 3: zlib (`licenses/SDL-LICENSE.txt`)
+- [xxHash](https://github.com/Cyan4973/xxHash), [LZ4](https://github.com/lz4/lz4): BSD-2-Clause;
+  [Zstandard](https://github.com/facebook/zstd): BSD-3-Clause; [libpng](http://www.libpng.org/pub/png/libpng.html):
+  the libpng licence; [zlib](https://zlib.net/) and [minizip-ng](https://github.com/zlib-ng/minizip-ng): zlib;
+  [picojson](https://github.com/kazuho/picojson): BSD-2-Clause; SQLite (Aurora's pipeline cache): public domain
+  (`licenses/xxHash-LICENSE.txt`, `lz4-LICENSE.txt`, `zstd-LICENSE.txt`, `libpng-LICENSE.txt`, `zlib-LICENSE.txt`,
+  `minizip-ng-LICENSE.txt`, `picojson-LICENSE.txt`)
+- Android: [libadrenotools](https://github.com/bylaws/libadrenotools) by Billy Laws (custom GPU drivers):
+  BSD-2-Clause (`licenses/libadrenotools-LICENSE.txt`)
+
 Dolphin's own third-party components (SDL, Dear ImGui, zlib-ng, Zstandard, cubeb, mbed TLS and others)
 are listed with their licences in `THIRD-PARTY-DOLPHIN.md`, a copy of Dolphin's `Externals/licenses.md`.
 

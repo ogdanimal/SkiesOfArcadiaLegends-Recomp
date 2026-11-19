@@ -118,6 +118,8 @@ EOF
   cp lib/ModernGekko/vendor/dolphin/Externals/licenses.md "$P/THIRD-PARTY-DOLPHIN.md"
   cp -R lib/ModernGekko/vendor/dolphin/LICENSES/. "$P/licenses/"
   cp lib/libchdr/LICENSE.txt "$P/licenses/libchdr-LICENSE.txt"
+  # The emulator-free host's components (release/THIRD-PARTY.md)
+  cp release/licenses/*.txt "$P/licenses/"
   # ditto keeps the bundle's permissions; no resource forks or extended attributes (AppleDouble ._
   # files: the build machine's quarantine and provenance data), which the signature doesn't need
   ditto -c -k --norsrc --noextattr --noqtn --keepParent "$P" "$P.zip"
