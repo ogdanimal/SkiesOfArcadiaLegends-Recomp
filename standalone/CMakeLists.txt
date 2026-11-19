@@ -191,9 +191,15 @@ target_include_directories(skies-standalone PRIVATE
   "${DOLPHIN_DIR}/DolRecomp/src/frontend")
 # GXRuntime's CPU core: the bit-exact FP / paired-single helpers the fallback interpreter calls
 target_link_libraries(skies-standalone PRIVATE GXRuntime::runtime zstd::libzstd ${CMAKE_DL_LIBS})
-# The AX resampler's DSP ROM coefficients (Dolphin ships them; not game data)
-target_compile_definitions(skies-standalone PRIVATE
-  SKIES_DSP_COEF_DEFAULT="${DOLPHIN_DIR}/Data/Sys/GC/dsp_coef.bin")
+# The AX resampler's DSP ROM coefficients (Dolphin ships them; not game data): the source tree's for test
+# builds; a release has none built in (no build machine path in the binary: the launchers' runner form takes
+# Sys/GC/dsp_coef.bin beside the program, the Android app and test app pass --dsp-coef)
+if(SKIES_RELEASE_DISC_IDS OR ANDROID)
+  target_compile_definitions(skies-standalone PRIVATE SKIES_DSP_COEF_DEFAULT="")
+else()
+  target_compile_definitions(skies-standalone PRIVATE
+    SKIES_DSP_COEF_DEFAULT="${DOLPHIN_DIR}/Data/Sys/GC/dsp_coef.bin")
+endif()
 if(SKIES_STANDALONE_AURORA)
   # Dear ImGui (Dolphin's copy) for the in-game menu, drawn through Aurora's overlay
   set(IMGUI_DIR "${DOLPHIN_DIR}/Externals/imgui/imgui")

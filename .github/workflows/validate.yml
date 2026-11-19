@@ -352,12 +352,18 @@ jobs:
           set MODULE_TABLES_INC=%CD%\codegen\windows-jp\generated\module_tables.inc
           call tools\module-win.bat %CD%\codegen\windows-jp\generated %CD%\build\module-jp || exit /b 1
 
+      # The emulator-free host (aurora-backend): the release's runner, skies-run.exe in the package
+      - name: Build the standalone
+        shell: cmd
+        run: call tools\build-standalone-release.bat build\standalone-release || exit /b 1
+
       - name: Build and package the launcher and runner
         shell: cmd
         env:
           VNAME: ${{ inputs.vname }}
         run: |
           if "%VNAME%"=="" (set VERSION=dev-%GITHUB_SHA:~0,7%) else (set VERSION=v%VNAME%)
+          set STANDALONE=%CD%\build\standalone-release
           call tools\build-release-win.bat configure || exit /b 1
           call tools\build-release-win.bat build || exit /b 1
           call tools\build-release-win.bat package build\module\gGEAE8P_recomp.dll build\module-eu\gGEAP8P_recomp.dll build\module-jp\gGEAJ8P_recomp.dll %VERSION% || exit /b 1
@@ -435,9 +441,25 @@ jobs:
           GAME_ID=GEAJ8P MODULE_TABLES_INC=codegen/linux-jp/generated/module_tables.inc \
             tools/module-linux.sh codegen/linux-jp/generated build/module-linux-jp
 
+      # The emulator-free host (aurora-backend): the release's runner. Aurora needs CMake 3.25+ (pip's), SDL3's X11
+      # parts XTest and friends; Dawn's prebuilt needs GCC 13's libstdc++ (the toolchain PPA, linked in statically)
+      - name: Build the standalone
+        run: |
+          apt-get install -y --no-install-recommends software-properties-common gpg-agent python3-pip \
+            libx11-dev libxext-dev libxcursor-dev libxss-dev libxtst-dev libxinerama-dev libxfixes-dev \
+            libxkbcommon-dev libwayland-dev libdbus-1-dev
+          add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          apt-get update
+          apt-get install -y --no-install-recommends gcc-13 g++-13
+          # In a folder of its own: the launcher and Dolphin runner keep the container's CMake
+          python3 -m pip install --target /opt/cmake-pip cmake==3.31.6
+          CC=gcc-13 CXX=g++-13 PATH=/opt/cmake-pip/bin:$PATH PYTHONPATH=/opt/cmake-pip \
+            tools/build-standalone-release.sh build/standalone-release
+
       - name: Build and package the launcher and runner
         env:
           VNAME: ${{ inputs.vname }}
+          STANDALONE: build/standalone-release
         run: |
           if [ -z "$VNAME" ]; then VERSION=dev-${GITHUB_SHA::7}; else VERSION=v$VNAME; fi
           tools/build-release-linux.sh configure
@@ -514,9 +536,14 @@ jobs:
             tools/module-macos.sh codegen/macos-jp/generated build/module-macos-jp
           rm -rf codegen
 
+      # The emulator-free host (aurora-backend): the release's runner, Contents/MacOS/skies-run
+      - name: Build the standalone
+        run: tools/build-standalone-release.sh build/standalone-release
+
       - name: Build and package the launcher and runner
         env:
           VNAME: ${{ inputs.vname }}
+          STANDALONE: build/standalone-release
         run: |
           if [ -z "$VNAME" ]; then VERSION=dev-${GITHUB_SHA::7}; else VERSION=v$VNAME; fi
           tools/build-release-macos.sh configure
@@ -644,7 +671,8 @@ jobs:
           RELEASE: ${{ (inputs.release || inputs.unsigned_release) && '1' || '0' }}
           VERSION: ${{ inputs.vname }}
         run: |
-          BRAND=1 SIGN=0 NAME=ci JNILIBS=android-module NDK=$ANDROID_HOME/ndk/29.0.14206865 tools/android-ws-build.sh
+          # STANDALONE=1: the game on the emulator-free host (aurora-backend; libskies.so + skies/SkiesGameActivity)
+          STANDALONE=1 BRAND=1 SIGN=0 NAME=ci JNILIBS=android-module NDK=$ANDROID_HOME/ndk/29.0.14206865 tools/android-ws-build.sh
           ls -la build/android/apk/
 
       - name: Upload APK

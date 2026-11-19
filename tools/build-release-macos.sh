@@ -39,7 +39,8 @@ configure)
     -DMODERNGEKKO_RUNNER_OUTPUT_NAME=skies-run "-DMODERNGEKKO_USER_DIRECTORY_NAME=$APP_NAME" \
     "-DMODERNGEKKO_REQUIRED_DISC_ID=$IDS" "-DMODERNGEKKO_REQUIRED_DOL_SHA256=$SHAS" \
     "-DMODERNGEKKO_DOL_PATCH_MANIFEST=$PATCHES" "-DMODERNGEKKO_GAME_SETTINGS_OVERRIDE=$INIS" \
-    "-DMODERNGEKKO_DEFAULT_WINDOW_TITLE=$APP_NAME" -DMODERNGEKKO_GAMECUBE_CONTROLLERS=ON
+    "-DMODERNGEKKO_DEFAULT_WINDOW_TITLE=$APP_NAME" -DMODERNGEKKO_GAMECUBE_CONTROLLERS=ON \
+    ${STANDALONE:+-DMODERNGEKKO_STANDALONE_RUNNER=ON}
   ;;
 build)
   cmake --build $B --target moderngekko-run moderngekko-launcher
@@ -62,6 +63,8 @@ package)
   # Programs and game modules in Contents/MacOS; Sys, the patches and the background in
   # Contents/Resources (where Dolphin looks for Sys and the launcher and runner for their data)
   cp $B/SkiesOfArcadiaLegends $B/skies-run "$APP/Contents/MacOS/"
+  # STANDALONE=DIR: the emulator-free host (tools/build-standalone-release.sh) is the runner
+  [ -n "${STANDALONE:-}" ] && cp "$STANDALONE/skies-standalone" "$APP/Contents/MacOS/skies-run"
   # Only system libraries: the GitHub runner has Homebrew's zstd, lz4, lzo and libusb, which
   # Dolphin's CMake prefers to the bundled ones (USE_SYSTEM_*=OFF above), and a player's Mac doesn't
   if otool -L $B/SkiesOfArcadiaLegends $B/skies-run | grep -E '/opt/homebrew|/usr/local'; then

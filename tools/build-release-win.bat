@@ -7,6 +7,9 @@ rem the players' zip (see :package below).
 rem usage: tools\build-release-win.bat configure^|build^|package <usa.dll> [europe.dll] [japan.dll] [version]
 rem REGIONS=us eu jp (configure) makes the release take the European and the Japanese disc too (us eu: the
 rem European one); the default is the USA disc alone, and package then needs only the USA module.
+rem STANDALONE=DIR (configure and package): the emulator-free host built in DIR
+rem (tools\build-standalone-release.bat) is the runner: the launcher without the backend row, the host as
+rem skies-run.exe with Dawn's and libpng's DLLs.
 rem Local Build Tools unless the environment already has MSVC set up (CI: msvc-dev-cmd)
 if not defined VCINSTALLDIR (
   call "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Auxiliary\Build\vcvars64.bat" >nul || exit /b 1
@@ -45,6 +48,8 @@ set SHAS=%SHAS%;%DOL_SHA256_JP%
 set PATCHES=%PATCHES%;%CD%\release\skies-widescreen-jp.dolpatch
 set INIS=%INIS%;%CD%\release\GEAJ8P.ini
 :regions_jp_done
+set STANDALONE_ARGS=
+if defined STANDALONE set STANDALONE_ARGS=-DMODERNGEKKO_STANDALONE_RUNNER=ON
 if "%1"=="configure" (
   cmake -S lib\ModernGekko -B %B% -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DDOLRECOMP_ENABLE_LLVM=OFF ^
     "-DMODERNGEKKO_FRONTEND_NAME=Skies of Arcadia Legends" "-DMODERNGEKKO_LAUNCHER_OUTPUT_NAME=Skies of Arcadia Legends" ^
@@ -52,7 +57,7 @@ if "%1"=="configure" (
     "-DMODERNGEKKO_REQUIRED_DISC_ID=%IDS%" "-DMODERNGEKKO_REQUIRED_DOL_SHA256=%SHAS%" ^
     "-DMODERNGEKKO_DOL_PATCH_MANIFEST=%PATCHES%" "-DMODERNGEKKO_GAME_SETTINGS_OVERRIDE=%INIS%" ^
     "-DMODERNGEKKO_DEFAULT_WINDOW_TITLE=Skies of Arcadia Legends" -DMODERNGEKKO_GAMECUBE_CONTROLLERS=ON ^
-    "-DMODERNGEKKO_WINDOWS_ICON=%CD%\release\skies.ico" || exit /b 1
+    "-DMODERNGEKKO_WINDOWS_ICON=%CD%\release\skies.ico" %STANDALONE_ARGS% || exit /b 1
 )
 if "%1"=="build" (
   cmake --build %B% --target moderngekko-run moderngekko-launcher || exit /b 1
@@ -97,6 +102,10 @@ if exist %P% rmdir /s /q %P%
 mkdir %P% || exit /b 1
 for %%F in ("Skies of Arcadia Legends.exe" skies-run.exe gGEAE8P_recomp.dll launcher-background.png) do (
   copy /y "%B%\%%~F" %P%\ >nul || exit /b 1
+)
+if defined STANDALONE (
+  copy /y "%STANDALONE%\skies-standalone.exe" %P%\skies-run.exe >nul || exit /b 1
+  for %%F in (webgpu_dawn.dll dxil.dll dxcompiler.dll libpng16.dll zlib1.dll) do copy /y "%STANDALONE%\%%F" %P%\ >nul || exit /b 1
 )
 if defined MODULE_EU copy /y %B%\gGEAP8P_recomp.dll %P%\ >nul || exit /b 1
 if defined MODULE_JP copy /y %B%\gGEAJ8P_recomp.dll %P%\ >nul || exit /b 1

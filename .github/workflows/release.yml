@@ -34,6 +34,7 @@ jobs:
     outputs:
       vname: ${{ steps.ver.outputs.vname }}
       prerelease: ${{ steps.ver.outputs.prerelease }}
+      standalone: ${{ steps.guard.outputs.standalone }}
     steps:
       - name: Checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -41,18 +42,31 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      # Any v* tag on any commit would otherwise publish a signed release.
-      - name: Guard -- tag commit must be on main
+      # Any v* tag on any commit would otherwise publish a signed release. On the aurora-backend branch (the
+      # emulator-free host's opt-in test builds, 2026-11-18) a prerelease tag (vX.Y.Z-suffix) may also be on that
+      # branch instead: it publishes as a GitHub prerelease, never the latest release. Dev and main keep the
+      # main-only guard (this file is read from the tagged commit).
+      - name: Guard -- tag commit must be on main (or a prerelease on aurora-backend)
+        id: guard
         run: |
           if [ "$GITHUB_REF_TYPE" != tag ]; then
             echo "::error::${GITHUB_REF} is not a tag; run this on the release tag."
             exit 1
           fi
           git fetch --no-tags origin main
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD; then
-            echo "::error::Tag ${GITHUB_REF_NAME} (${GITHUB_SHA}) is not on main; refusing to publish."
-            exit 1
+          if git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD; then
+            exit 0
           fi
+          if printf '%s' "$GITHUB_REF_NAME" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+-[0-9A-Za-z.]+$'; then
+            git fetch --no-tags origin aurora-backend
+            if git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD; then
+              echo "Prerelease ${GITHUB_REF_NAME} on aurora-backend"
+              echo "standalone=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          echo "::error::Tag ${GITHUB_REF_NAME} (${GITHUB_SHA}) is not on main (nor a prerelease on aurora-backend); refusing to publish."
+          exit 1
 
       - name: Derive version from tag
         id: ver
@@ -203,9 +217,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PRERELEASE: ${{ needs.guard.outputs.prerelease }}
+          STANDALONE: ${{ needs.guard.outputs.standalone }}
         run: |
           FLAGS=()
           if [ "$PRERELEASE" = "true" ]; then FLAGS+=(--prerelease); fi
+          # The emulator-free host's test builds: a draft, published by hand after the notes are read
+          if [ "$STANDALONE" = "true" ]; then FLAGS+=(--draft); fi
           cat > notes.md <<'EOF'
           **You need your own Skies of Arcadia Legends disc (GameCube, USA `GEAE8P`, European
           `GEAP8P` or Japanese `GEAJ8P`, Eternal Arcadia Legends)** as RVZ, ISO, GCM, GCZ, WIA or CISO. Nothing here contains game data: the launcher imports your disc and
@@ -225,6 +242,35 @@ jobs:
           Known issue: changing the battle speed while a round plays out can freeze the battle;
           change it while choosing commands. See README.md in the download for controls and settings.
           EOF
+          if [ "$STANDALONE" = "true" ]; then
+            cat > notes.md <<'EOF'
+          **Test build of the new engine.** The game no longer runs inside Dolphin: it runs on its own
+          engine (the recompiled game code with a GameCube graphics, sound and disc layer of its own,
+          drawing through WebGPU). Everything else is as in the latest release. Please report what
+          works and what doesn't in the GitHub issues, with your device or PC, and the log
+          (`Logs/skies-standalone.log` in the data folder on desktop).
+
+          **Back up your saves first** (Settings → Saves → Back up saves). Memory card saves and your
+          save states carry over: older save states are converted when they load. Save states made by
+          this build don't load in v0.83 or earlier.
+
+          **You need your own Skies of Arcadia Legends disc (GameCube, USA `GEAE8P`, European
+          `GEAP8P` or Japanese `GEAJ8P`)**; nothing here contains game data.
+
+          - **Windows** (64-bit Windows 10 / 11): unzip into a new folder, or over your current one;
+            run `Skies of Arcadia Legends.exe`.
+          - **Linux** (x86_64): the `.AppImage`, or the `.tar.gz`.
+          - **macOS** (Apple Silicon, macOS 13+): unzip and open; allow it in Privacy & Security the
+            first time (not notarized).
+          - **Android** (arm64): installs over the app as an update. The new engine needs Android 9
+            or later (older devices keep the Dolphin engine). Going back to v0.83 means uninstalling
+            first, which deletes the app's data unless you moved the data folder: back up your saves.
+            In the game, Back opens the menu; Saves → Quit game returns to the launcher. Custom GPU
+            drivers (Turnip) aren't used by the new engine.
+
+          Not in this build: anti-aliasing 2x / 8x (Off and 4x only).
+          EOF
+          fi
           gh release create "$GITHUB_REF_NAME" out/* \
             --repo "$GITHUB_REPOSITORY" \
             --title "Skies of Arcadia Legends: Recompiled $GITHUB_REF_NAME" \

@@ -12,6 +12,8 @@
 # appimage: build/SkiesOfArcadiaLegends-VERSION-x86_64.AppImage (+ .sha256) from the folder
 # package made, with the libraries the binaries need from the build machine inside (linuxdeploy;
 # glibc and the graphics drivers stay the player's own, so it needs a glibc as new as the builder's).
+# STANDALONE=DIR (configure, package): the emulator-free host built in DIR (tools/build-standalone-release.sh)
+# is the runner: the launcher without the backend row, the host as skies-run (the AppImage then carries its libpng).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 B=${BUILD_DIR:-lib/ModernGekko/build-release-linux}
@@ -45,7 +47,8 @@ configure)
     -DMODERNGEKKO_RUNNER_OUTPUT_NAME=skies-run "-DMODERNGEKKO_USER_DIRECTORY_NAME=Skies of Arcadia Legends" \
     "-DMODERNGEKKO_REQUIRED_DISC_ID=$IDS" "-DMODERNGEKKO_REQUIRED_DOL_SHA256=$SHAS" \
     "-DMODERNGEKKO_DOL_PATCH_MANIFEST=$PATCHES" "-DMODERNGEKKO_GAME_SETTINGS_OVERRIDE=$INIS" \
-    "-DMODERNGEKKO_DEFAULT_WINDOW_TITLE=Skies of Arcadia Legends" -DMODERNGEKKO_GAMECUBE_CONTROLLERS=ON
+    "-DMODERNGEKKO_DEFAULT_WINDOW_TITLE=Skies of Arcadia Legends" -DMODERNGEKKO_GAMECUBE_CONTROLLERS=ON \
+    ${STANDALONE:+-DMODERNGEKKO_STANDALONE_RUNNER=ON}
   ;;
 build)
   cmake --build $B --target moderngekko-run moderngekko-launcher
@@ -65,6 +68,7 @@ package)
   P=build/$NAME
   rm -rf "$P" "$P.tar.gz"; mkdir -p "$P/patches" "$P/licenses"
   cp $B/SkiesOfArcadiaLegends $B/skies-run $B/launcher-background.png "$P/"
+  [ -n "${STANDALONE:-}" ] && strip --strip-debug -o "$P/skies-run" "$STANDALONE/skies-standalone"
   strip --strip-debug -o "$P/gGEAE8P_recomp.so" "$MODULE"
   [ -n "$MODULE_EU" ] && strip --strip-debug -o "$P/gGEAP8P_recomp.so" "$MODULE_EU"
   [ -n "$MODULE_JP" ] && strip --strip-debug -o "$P/gGEAJ8P_recomp.so" "$MODULE_JP"
