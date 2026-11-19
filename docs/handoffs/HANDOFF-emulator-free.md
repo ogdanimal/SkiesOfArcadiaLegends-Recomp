@@ -25,9 +25,11 @@ full speed p99 ~17.7 ms against 24.5-25.9, at 0.4-0.9 W less; with the PNG HD pa
 **Status (2026-11-18): the standalone is the runner of an opt-in test prerelease.** origin/dev merged in,
 the Android app plays on it (dev's launcher + `skies/SkiesGameActivity` in a `:game` process), CI packages it
 for all four platforms, `v0.90.0-standalone.4` is a verified draft (*HANDOFF-feature-gaps.md* items 9-10,
-*HANDOFF-release.md* first section). Next after testers' reports: issue #26 (Dreamcast reverb stuck level),
-the patched Dawn (MSAA 2x / 8x), the `issues` branch (ws35) ported, then a normal release replacing the
-Dolphin build.
+*HANDOFF-release.md* first section). **2026-11-19:** `.4` was never published (still a draft, now out of date);
+the next one, `.5`, is prepared on `origin/aurora-backend` but not tagged (the `issues` branch with ws35 on all
+discs, Android touch controls, cheats, the sweeps below), waiting on the owner (*HANDOFF-release.md*, first
+section). Next after testers' reports: issue #26 (needs the reporter's state), the patched Dawn (MSAA 2x / 8x,
+decided: built in CI), then a normal release replacing the Dolphin build.
 
 **Status (2026-10-26):** phases 1-3 done (title screen, audio bit-exact with Dolphin's AX HLE, first
 battle at full speed, card saves); phase 4 under way: in-game menu, save states and auto-save, and the

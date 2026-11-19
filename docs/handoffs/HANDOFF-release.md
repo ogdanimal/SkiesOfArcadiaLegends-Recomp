@@ -1,12 +1,21 @@
 # Handoff: releases (Windows, Linux, macOS, Android)
 
-## Next test build: v0.90.0-standalone.5 (prepared 2026-11-19, local `aurora-backend`, not pushed)
+## Next test build: v0.90.0-standalone.5 (prepared 2026-11-19, NOT tagged, NOT built)
 
-- **State (2026-11-19 morning):** pushed: `origin/aurora-backend` has everything below (the owner said to push).
-  The tag was refused by Claude's permission rules, so the owner tags the branch's newest commit:
-  `git tag v0.90.0-standalone.5 <commit> && git push origin v0.90.0-standalone.5`. Since the first push: test tools
-  (relative times, `tools/sa-run.sh`, `tools/sa-sweep.sh`) and `highlytheoretical-dsp-shift-wrap.patch` (#26, not
-  confirmed as its cause).
+- **Release status (2026-11-19, ~10:30 EST):** nothing published. `v0.90.0-standalone.4` is still a **draft**
+  (the workflow makes every standalone test build a draft; the owner never published it), and it's out of date:
+  built from `52bbf15`, before the touch controls, ws35, the launchers' dead zone / rumble fix and the rest
+  below (its notes say Android needs a controller). `v0.90.0-standalone.5` doesn't exist: Claude's tag push was
+  refused by the permission rules (the owner had approved pushing the branch, not a release). The owner asked
+  why the draft isn't published; Claude recommended not publishing `.4` and offered either to tag + build `.5`
+  and leave it a draft, or to tag, build, check and publish `.5` as a prerelease and delete the `.4` draft.
+  **Waiting on the owner's choice.**
+- **Code:** all of it on `origin/aurora-backend` (newest `5dd7c22` at the time of writing; tag the branch's newest
+  commit): `git tag v0.90.0-standalone.5 origin/aurora-backend && git push origin v0.90.0-standalone.5`. Since
+  the first push: test tools (relative times, `tools/sa-run.sh`, `tools/sa-sweep.sh`, `tools/sa-device-sweep.sh`,
+  `SKIES_EXTRA_ARGS` on Android), `highlytheoretical-dsp-shift-wrap.patch` (#26, not confirmed as its cause),
+  cheat codes (#5: `Cheats/<disc ID>.ini`, a switch in the in-game menu and both launchers, the Android launcher's
+  Cheat file import), the graphics adapter in every log and dual-GPU exports (#32), the READMEs.
 - **What it has** (`release/test-build-notes.md`, appended to the draft's notes by `release.yml`): the `issues`
   branch (#25 Ship battle HUD, #19 DC music level, #18 60 fps texture-change pairing, #22 screen plane, #24 in
   the Dolphin build only), game patch ws35 on all three discs (`release/*.dolpatch` regenerated, CI rebuilds the
@@ -14,7 +23,8 @@
   `recompcore-touch-setting.patch`), dead zone / rumble read from the controller profile (the launchers' rows
   did nothing in v0.90.0-standalone.4), the game clock in local time, F1 saves a state on desktop (#19).
 - **Checked before the push:** WSL (ws35 Linux modules for US / EU / JP, a 47-start sweep: no errors, every start
-  repeatable; HANDOFF-emulator-free *Sweep (2026-11-19)*), Windows (MSVC runner + ws35 module in
+  repeatable; HANDOFF-emulator-free *Sweep (2026-11-19)*), the Pocket 5 (a 31-start device sweep, all 1.00x, no
+  errors; cheats there: the picker import and 99999999 Gold), Windows (MSVC runner + ws35 module in
   `C:\dev\SkiesStandalone`: ship battle HUD, a battle, 60 fps, the clock), the Pocket 5's test app (ws35 APK:
   re-patch, touch controls and their setting, the launcher rows, Continue / Quit). Not checked: macOS (CI builds
   it), #22 in game (no state reaches Drachma's pose), two controllers / remapping by hand, #24 on a VRR display.
@@ -23,11 +33,12 @@
   `.4` (SHA256SUMS, APK signer, PII scan, one Windows / Linux / Android run); approve `android-sign` (ask the
   owner: their permission for `.4` was for that release only); the owner publishes. Then clear
   `release/test-build-notes.md` for the build after.
-- If `v0.90.0-standalone.4` is still a draft by then, it can be deleted instead of published (the owner's call).
+- `v0.90.0-standalone.4` is still a draft: delete it when `.5` ships (Claude's recommendation; the owner's call).
 
 ## Test prerelease of the standalone: v0.90.0-standalone.4 (2026-11-18, branch `aurora-backend`)
 
-- **A DRAFT, not published**: the owner reads the notes and publishes (Releases page, Edit -> Publish release).
+- **A DRAFT, not published** (still so on 2026-11-19; superseded by `.5` above): the owner reads the notes and
+  publishes (Releases page, Edit -> Publish release).
   It is a prerelease, so "Latest" stays v0.83.0-beta. Built by run 44441854078 from `52bbf15` (the branch has
   moved on since: the #28 time zone fix and docs; a later test build takes them).
 - **How it was made:** `release.yml` on `aurora-backend` accepts a `vX.Y.Z-suffix` tag on that branch and
