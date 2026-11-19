@@ -67,7 +67,8 @@ package)
   [ -n "${STANDALONE:-}" ] && cp "$STANDALONE/skies-standalone" "$APP/Contents/MacOS/skies-run"
   # Only system libraries: the GitHub runner has Homebrew's zstd, lz4, lzo and libusb, which
   # Dolphin's CMake prefers to the bundled ones (USE_SYSTEM_*=OFF above), and a player's Mac doesn't
-  if otool -L $B/SkiesOfArcadiaLegends $B/skies-run | grep -E '/opt/homebrew|/usr/local'; then
+  # (checked on what ships: with STANDALONE the host is skies-run)
+  if otool -L $B/SkiesOfArcadiaLegends "$APP/Contents/MacOS/skies-run" | grep -E '/opt/homebrew|/usr/local'; then
     echo "error: the programs link libraries outside macOS (above)" >&2; exit 1
   fi
   strip -S -x -o "$APP/Contents/MacOS/gGEAE8P_recomp.dylib" "$MODULE"

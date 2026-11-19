@@ -11,7 +11,9 @@ IDS="GEAE8P;GEAP8P;GEAJ8P"
 PATCHES="$PWD/release/skies-widescreen.dolpatch;$PWD/release/skies-widescreen-eu.dolpatch;$PWD/release/skies-widescreen-jp.dolpatch"
 # Keep the build machine's paths (home directory, user name) out of the binary
 MAP="-ffile-prefix-map=$PWD/="
-EXTRA=()
+# libpng fetched and linked in, never the build machine's (the macOS runner's is Homebrew's, which a player's
+# Mac doesn't have: v0.90.0-standalone.1 linked /opt/homebrew/opt/libpng)
+EXTRA=(-DCMAKE_DISABLE_FIND_PACKAGE_PNG=ON)
 if [ "$(uname -s)" = Linux ]; then
   # Dawn's prebuilt needs GCC 13's libstdc++, linked in (CXX=g++-13 on Ubuntu 22.04: CMakeLists.txt)
   EXTRA+=(-DSKIES_STATIC_LIBSTDCXX=ON)
