@@ -1,5 +1,29 @@
 # Handoff: releases (Windows, Linux, macOS, Android)
 
+## Next test build: v0.90.0-standalone.5 (prepared 2026-11-19, local `aurora-backend`, not pushed)
+
+- **State:** local `aurora-backend` is 25+ commits ahead of `origin/aurora-backend` (fast-forwards from the
+  local branch `standalone-issues`, worktree `~/projects/skies-standalone-issues`). The push was refused by
+  Claude's permission rules, so the owner pushes: `git -C ~/projects/skies-aurora-backend push origin aurora-backend`.
+  PII sweep of the whole diff clean (no home paths, names, emails, serials, IPs); every author the noreply address.
+- **What it has** (`release/test-build-notes.md`, appended to the draft's notes by `release.yml`): the `issues`
+  branch (#25 Ship battle HUD, #19 DC music level, #18 60 fps texture-change pairing, #22 screen plane, #24 in
+  the Dolphin build only), game patch ws35 on all three discs (`release/*.dolpatch` regenerated, CI rebuilds the
+  modules from them), Android touch controls + the Touch controls setting (in-game menu and launcher,
+  `recompcore-touch-setting.patch`), dead zone / rumble read from the controller profile (the launchers' rows
+  did nothing in v0.90.0-standalone.4), the game clock in local time.
+- **Checked before the push:** WSL (ws35 Linux modules for US / EU / JP, a 47-start sweep: no errors, every start
+  repeatable; HANDOFF-emulator-free *Sweep (2026-11-19)*), Windows (MSVC runner + ws35 module in
+  `C:\dev\SkiesStandalone`: ship battle HUD, a battle, 60 fps, the clock), the Pocket 5's test app (ws35 APK:
+  re-patch, touch controls and their setting, the launcher rows, Continue / Quit). Not checked: macOS (CI builds
+  it), #22 in game (no state reaches Drachma's pose), two controllers / remapping by hand, #24 on a VRR display.
+- **To ship it:** push; wait for `validate` to go green (the codegen jobs regenerate the ws35 modules); tag
+  `v0.90.0-standalone.5` on that commit and push the tag; `release.yml` makes a draft; check the downloads as for
+  `.4` (SHA256SUMS, APK signer, PII scan, one Windows / Linux / Android run); approve `android-sign` (ask the
+  owner: their permission for `.4` was for that release only); the owner publishes. Then clear
+  `release/test-build-notes.md` for the build after.
+- If `v0.90.0-standalone.4` is still a draft by then, it can be deleted instead of published (the owner's call).
+
 ## Test prerelease of the standalone: v0.90.0-standalone.4 (2026-11-18, branch `aurora-backend`)
 
 - **A DRAFT, not published**: the owner reads the notes and publishes (Releases page, Edit -> Publish release).
