@@ -11,7 +11,7 @@
   the Dolphin build only), game patch ws35 on all three discs (`release/*.dolpatch` regenerated, CI rebuilds the
   modules from them), Android touch controls + the Touch controls setting (in-game menu and launcher,
   `recompcore-touch-setting.patch`), dead zone / rumble read from the controller profile (the launchers' rows
-  did nothing in v0.90.0-standalone.4), the game clock in local time.
+  did nothing in v0.90.0-standalone.4), the game clock in local time, F1 saves a state on desktop (#19).
 - **Checked before the push:** WSL (ws35 Linux modules for US / EU / JP, a 47-start sweep: no errors, every start
   repeatable; HANDOFF-emulator-free *Sweep (2026-11-19)*), Windows (MSVC runner + ws35 module in
   `C:\dev\SkiesStandalone`: ship battle HUD, a battle, 60 fps, the clock), the Pocket 5's test app (ws35 APK:
