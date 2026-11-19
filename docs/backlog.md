@@ -16,8 +16,13 @@ Requests and ideas not scheduled yet. Move an item to a handoff when work on it 
   development notes, *Issue pass #16-#25*). In local aurora-backend; checked on WSL, Windows and the Pocket 5.
   Left: the push and the #24 VRR test on the user's display. #19's F1 is in the standalone too (2026-11-19:
   saves to the menu's slot unless F1 is bound; checked on WSL with a real key event, the bound case not run).
-- **Patched Dawn** (MSAA 2x / 8x, the Windows swap chain fix): host the packages (`tools/build-dawn-package.sh`)
-  or build them in CI.
+- **Patched Dawn** (MSAA 2x / 8x, the Windows swap chain fix): decided 2026-11-19 (the owner left the call to
+  Claude): build the packages in CI, not hosted by hand: one step per platform job runs
+  `tools/build-dawn-package.sh` / `.bat` behind `actions/cache` keyed on the Dawn ref + `patches/dawn/**` + the
+  script, and `build-standalone-release.*` / `android-standalone-build.sh` pass
+  `-DAURORA_DAWN_PACKAGE_URL=file://...`. Not done yet: a cache miss is 1-2 h per platform and each CI mistake
+  costs a round after a push, for 2x / 8x only (Off and 4x work); worth it before a normal release, not for a
+  test build. The scripts themselves work (local Linux / Android / Windows packages, 2026-10-25/26).
 - **By hand:** two controllers and remapping with a pad (standalone); the desktop launcher's Continue click.
 - **Android:** touch controls done 2026-11-18 (`SkiesTouchControls.java`, branch `standalone-issues`; no layout
   editor or opacity setting yet); custom GPU drivers aren't used by the standalone.
