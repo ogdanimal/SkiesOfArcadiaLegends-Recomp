@@ -9,6 +9,7 @@
 #include <cctype>
 #include <chrono>
 #include <cstring>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -411,12 +412,66 @@ constexpr std::array PAD_CONTROLS{
     PadControl{"Trigger R", -1, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, AXIS_SIGN_POSITIVE},
 };
 
+// Dolphin's Android controls (InputCommon/ControllerInterface/Android: key names, "Axis N+/-" by Android's
+// MotionEvent axis), what the app's profile (jni/SkiesImport.cpp ensurePadProfile) and its Controls page write.
+// Without these an updated Android install lost the sticks, D-pad, Z and triggers (2026-11-18).
+constexpr std::array ANDROID_PAD_CONTROLS{
+    PadControl{"Button A", SDL_GAMEPAD_BUTTON_SOUTH, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Button B", SDL_GAMEPAD_BUTTON_EAST, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Button X", SDL_GAMEPAD_BUTTON_WEST, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Button Y", SDL_GAMEPAD_BUTTON_NORTH, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Button L1", SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Button R1", SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Button L3", SDL_GAMEPAD_BUTTON_LEFT_STICK, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Button R3", SDL_GAMEPAD_BUTTON_RIGHT_STICK, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Start", SDL_GAMEPAD_BUTTON_START, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Select", SDL_GAMEPAD_BUTTON_BACK, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Mode", SDL_GAMEPAD_BUTTON_GUIDE, -1, AXIS_SIGN_POSITIVE},
+    // The D-pad as the hat (AXIS_HAT_X 15, AXIS_HAT_Y 16; SDL makes it the D-pad buttons) or as keys
+    PadControl{"Axis 16-", SDL_GAMEPAD_BUTTON_DPAD_UP, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Axis 16+", SDL_GAMEPAD_BUTTON_DPAD_DOWN, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Axis 15-", SDL_GAMEPAD_BUTTON_DPAD_LEFT, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Axis 15+", SDL_GAMEPAD_BUTTON_DPAD_RIGHT, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Up", SDL_GAMEPAD_BUTTON_DPAD_UP, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Down", SDL_GAMEPAD_BUTTON_DPAD_DOWN, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Left", SDL_GAMEPAD_BUTTON_DPAD_LEFT, -1, AXIS_SIGN_POSITIVE},
+    PadControl{"Right", SDL_GAMEPAD_BUTTON_DPAD_RIGHT, -1, AXIS_SIGN_POSITIVE},
+    // Sticks: X 0 / Y 1, the right one Z 11 / RZ 14; Android's Y- is up, SDL's negative
+    PadControl{"Axis 0+", -1, SDL_GAMEPAD_AXIS_LEFTX, AXIS_SIGN_POSITIVE},
+    PadControl{"Axis 0-", -1, SDL_GAMEPAD_AXIS_LEFTX, AXIS_SIGN_NEGATIVE},
+    PadControl{"Axis 1-", -1, SDL_GAMEPAD_AXIS_LEFTY, AXIS_SIGN_NEGATIVE},
+    PadControl{"Axis 1+", -1, SDL_GAMEPAD_AXIS_LEFTY, AXIS_SIGN_POSITIVE},
+    PadControl{"Axis 11+", -1, SDL_GAMEPAD_AXIS_RIGHTX, AXIS_SIGN_POSITIVE},
+    PadControl{"Axis 11-", -1, SDL_GAMEPAD_AXIS_RIGHTX, AXIS_SIGN_NEGATIVE},
+    PadControl{"Axis 14-", -1, SDL_GAMEPAD_AXIS_RIGHTY, AXIS_SIGN_NEGATIVE},
+    PadControl{"Axis 14+", -1, SDL_GAMEPAD_AXIS_RIGHTY, AXIS_SIGN_POSITIVE},
+    // Triggers: BRAKE 23 / GAS 22 (the profile's), LTRIGGER 17 / RTRIGGER 18, or the L2 / R2 keys
+    PadControl{"Axis 23+", -1, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, AXIS_SIGN_POSITIVE},
+    PadControl{"Axis 22+", -1, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, AXIS_SIGN_POSITIVE},
+    PadControl{"Axis 17+", -1, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, AXIS_SIGN_POSITIVE},
+    PadControl{"Axis 18+", -1, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, AXIS_SIGN_POSITIVE},
+    PadControl{"Button L2", -1, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, AXIS_SIGN_POSITIVE},
+    PadControl{"Button R2", -1, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, AXIS_SIGN_POSITIVE},
+};
+
+// The platform's own names first: what a binding is written back as
+#if defined(__ANDROID__)
+constexpr std::array PAD_TABLES{std::span<const PadControl>(ANDROID_PAD_CONTROLS),
+                                std::span<const PadControl>(PAD_CONTROLS)};
+#else
+constexpr std::array PAD_TABLES{std::span<const PadControl>(PAD_CONTROLS),
+                                std::span<const PadControl>(ANDROID_PAD_CONTROLS)};
+#endif
+
 const PadControl* FindPadControl(std::string_view name)
 {
-  for (const PadControl& control : PAD_CONTROLS)
+  for (const auto table : PAD_TABLES)
   {
-    if (name == control.name)
-      return &control;
+    for (const PadControl& control : table)
+    {
+      if (name == control.name)
+        return &control;
+    }
   }
   return nullptr;
 }
@@ -424,7 +479,7 @@ const PadControl* FindPadControl(std::string_view name)
 // The name a binding is written with: the face buttons by their Xbox names, as the defaults
 std::string PadControlName(PADSignedNativeAxis axis, u32 button)
 {
-  for (const PadControl& control : PAD_CONTROLS)
+  for (const PadControl& control : PAD_TABLES[0])
   {
     if (axis.nativeAxis >= 0 ? control.axis == axis.nativeAxis && control.sign == axis.sign :
                                control.button >= 0 && static_cast<u32>(control.button) == button)

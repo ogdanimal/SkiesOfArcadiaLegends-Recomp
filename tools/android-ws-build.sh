@@ -20,6 +20,9 @@
 # APK, around a module built that way (CI: the job that decrypts the generated code builds the module,
 # and Gradle with its downloaded dependencies runs in a job of its own that never sees that code or the
 # key that decrypts it).
+# STANDALONE=1 plays the game on the emulator-free host instead of Dolphin's emulation: libskies.so + libpng16.so
+# (tools/android-standalone-build.sh LIB_ONLY=1, into build/android/standalone-lib) go beside the modules, and its
+# Java (-PskiesStandaloneJava) gives the app skies/SkiesGameActivity (skies/SkiesGame.kt picks it at run time).
 # AURORA=1 builds the Aurora (GXRuntime WebGPU / Dawn) video backend into the app (-PrecompAurora=1;
 # docs/handoffs/HANDOFF-aurora.md). AURORA_DEPS=DIR reuses its already-downloaded dependencies
 # (DIR/dawn-android-aarch64, and the FetchContent sources under DIR/src/<name>) instead of fetching.
@@ -172,6 +175,12 @@ rm -rf $ASSETS/Sys && mkdir -p $ASSETS && cp -r $V/Data/Sys $ASSETS/ && rm -rf $
 # The injected ABI builds arm64 only, but on its own it also marks the APK android:testOnly, which
 # only adb install -t accepts (players' installs failed with "App not installed"); testOnly=false undoes that
 AURORA_ARGS=()
+if [ "${STANDALONE:-0}" = 1 ]; then
+  LIB_ONLY=1 O=$A/standalone-lib tools/android-standalone-build.sh > $A/standalone-lib.log 2>&1 ||
+    { tail -20 $A/standalone-lib.log; exit 1; }
+  cp $A/standalone-lib/lib/*.so $A/jniLibs-$NAME/arm64-v8a/
+  AURORA_ARGS+=(-PskiesStandaloneJava=$A/standalone-lib/app-java)
+fi
 if [ "${AURORA:-0}" = 1 ]; then
   AURORA_ARGS+=(-PrecompAurora=1)
   if [ -n "${AURORA_DEPS:-}" ]; then

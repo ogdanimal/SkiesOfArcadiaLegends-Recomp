@@ -45,9 +45,13 @@ else()
   set(GXRUNTIME_ENABLE_AURORA_RECOMP OFF CACHE BOOL "" FORCE)
 endif()
 # Aurora's libpng is shared unless BUILD_SHARED_LIBS is defined. Windows ships the DLL
-# beside the exe and Android libpng16.so in the APK; on macOS it is static, so the app is one program
-# (a shared libpng was linked as @rpath/libpng16.16.dylib with an rpath into the build folder)
-if(APPLE)
+# beside the exe and Android libpng16.so in the APK; on macOS and desktop Linux it is static, so the program
+# needs no libpng of its own (a shared one was linked with an rpath into the build folder)
+set(_skies_static_png FALSE)
+if(APPLE OR (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT ANDROID))
+  set(_skies_static_png TRUE)
+endif()
+if(_skies_static_png)
   set(_skies_shared_defined FALSE)
   if(DEFINED BUILD_SHARED_LIBS)
     set(_skies_shared_defined TRUE)
@@ -56,7 +60,7 @@ if(APPLE)
   set(BUILD_SHARED_LIBS OFF)
 endif()
 add_subdirectory("${GXRUNTIME_DIR}" GXRuntime EXCLUDE_FROM_ALL)
-if(APPLE)
+if(_skies_static_png)
   if(_skies_shared_defined)
     set(BUILD_SHARED_LIBS ${_skies_shared})
   else()
@@ -119,12 +123,22 @@ set(SKIES_STANDALONE_SOURCES
   "${MODERNGEKKO_DIR}/tools/frontend_config.cpp"
 )
 if(ANDROID)
-  # The Android shell's native side: SDL's Java glue calls SDL_main in libmain.so
+  # The Android shell's native side: SDL's Java glue calls SDL_main in libskies.so (not libmain.so: the
+  # app's launcher loads Dolphin's libmain.so for its imports, in another process)
   add_library(skies-standalone SHARED ${SKIES_STANDALONE_SOURCES})
-  set_target_properties(skies-standalone PROPERTIES OUTPUT_NAME main)
+  set_target_properties(skies-standalone PROPERTIES OUTPUT_NAME skies)
   target_link_libraries(skies-standalone PRIVATE android log)
 else()
   add_executable(skies-standalone ${SKIES_STANDALONE_SOURCES})
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # Dawn's prebuilt wants glibc 2.38's C23 entry points (src/glibc_compat.c on an older glibc) and GCC 13's
+    # libstdc++: SKIES_STATIC_LIBSTDCXX links that in, so a release built on 22.04 needs only the system's glibc
+    target_sources(skies-standalone PRIVATE src/glibc_compat.c)
+    option(SKIES_STATIC_LIBSTDCXX "Linux: link libstdc++ and libgcc statically (release builds)" OFF)
+    if(SKIES_STATIC_LIBSTDCXX)
+      target_link_options(skies-standalone PRIVATE -static-libstdc++ -static-libgcc)
+    endif()
+  endif()
   # Windows: a GUI program, so no console window opens beside the game (as the release runner since
   # 2026-10-13), entered at main() all the same. Its log goes where the parent redirects stdout / stderr, else
   # to USER/Logs/skies-standalone.log (main.cpp). SKIES_STANDALONE_CONSOLE=ON keeps the console (debugging).

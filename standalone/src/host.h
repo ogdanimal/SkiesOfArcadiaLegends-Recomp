@@ -428,6 +428,7 @@ constexpr int CONTINUE_OFF = -2;  // none this boot (a state loads), and the key
 void MenuContinue(int file);
 // At each display copy: the Continue request and its progress (headless too)
 void MenuVideoFrame();
+void MenuRequestBack();  // Android's Back: open or close the menu, as Esc does
 int MenuVolume();  // percent
 // The emulated CPU's clock factor for the speed options (1 = the Gekko's; cpu.cpp divides the
 // cycles it charges by it)

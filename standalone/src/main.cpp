@@ -421,6 +421,16 @@ namespace
 std::vector<std::string> s_android_args;
 std::vector<char*> s_android_argv;
 
+}  // namespace
+
+// Android's Back (the app's SkiesGameActivity): the menu, as Esc on the desktop; Quit game in it ends the game
+extern "C" JNIEXPORT void JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesGameActivity_nativeBack(JNIEnv*, jclass)
+{
+  host::MenuRequestBack();
+}
+
+namespace
+{
 void AndroidSetup(int& argc, char**& argv)
 {
   const char* dir = SDL_GetAndroidExternalStoragePath();
@@ -621,7 +631,7 @@ int main(int argc, char** argv)
   setvbuf(stderr, nullptr, _IONBF, 0);
   // Aurora's info lines go to stdout: unbuffered too, so a crash doesn't lose the last of them
   setvbuf(stdout, nullptr, _IONBF, 0);
-  std::string game, module, dol, user, load_state, import_pack, import_dc, sys_dir, dsp_coef;
+  std::string game, module, dol, user, load_state, import_pack, import_dc, sys_dir, dsp_coef, state_dir;
   bool remove_packs = false;
   bool runner_form = false;  // --user-dir: the launchers' command line
   LaunchOptions::WindowSystem window_system = LaunchOptions::WindowSystem::Default;
@@ -700,11 +710,13 @@ int main(int argc, char** argv)
       import_dc = next();
     else if (a == "--sys")
       sys_dir = next();
+    else if (a == "--state-dir")
+      state_dir = next();  // the Android launcher's (a romhack's or another version's folder)
     else
     {
       Log("usage: %s --game DIR [--module FILE] [--headless] [--unthrottled] [--seconds N] "
           "[--mmio-log] [--idle-pc ADDR] [--dsp-coef FILE] [--user USERDIR] [--dol FILE] "
-          "[--load-state FILE] [--continue N|card] [--sys DIR]\n"
+          "[--load-state FILE] [--continue N|card] [--sys DIR] [--state-dir DIR]\n"
           "       %s --user USERDIR --import-texture-pack PACK | --remove-texture-packs\n"
           "       %s --user USERDIR --import-dc DREAMCAST_DISC [--game DIR] [--sys DIR]\n",
           argv[0], argv[0], argv[0]);
@@ -806,7 +818,16 @@ int main(int argc, char** argv)
 #endif
   ExiSetUserDir(user);
   SettingsInit(user);
-  StateSetUserDir(user, launch.state_dir);
+#if defined(__ANDROID__)
+  // The app's Graphics > Renderer row (the Dolphin build's [Core] GFXBackend): OpenGL ES is the way
+  // out of a Vulkan driver that misbehaves. DOL_AURORA_BACKEND (env.txt) still wins for tests.
+  if (!std::getenv("DOL_AURORA_BACKEND") && SettingGetString(SettingFile::Main, "Core", "GFXBackend") == "OGL")
+  {
+    setenv("DOL_AURORA_BACKEND", "gles", 1);
+    Log("[host] renderer: OpenGL ES (Settings)\n");
+  }
+#endif
+  StateSetUserDir(user, state_dir.empty() ? launch.state_dir : state_dir);
   // config.ini's resolution at every start, as the runner set it; its 60 fps for a first start
   // that has no Frame rate yet
   if (launch.efb_scale > 0)

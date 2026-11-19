@@ -1,0 +1,303 @@
+diff --git a/Source/Android/app/build.gradle.kts b/Source/Android/app/build.gradle.kts
+index d3539f1c7b..f630613b98 100644
+--- a/Source/Android/app/build.gradle.kts
++++ b/Source/Android/app/build.gradle.kts
+@@ -210,6 +210,12 @@ android {
+     providers.gradleProperty("recompJniLibs").orNull?.let {
+         sourceSets.getByName("main").jniLibs.srcDir(it)
+     }
++    // Skies Recomp: -PskiesStandaloneJava=DIR adds the emulator-free host's Java (SDL's glue and
++    // skies/SkiesGameActivity, from tools/android-ws-build.sh STANDALONE=1); its libskies.so comes with
++    // the jniLibs above. Without it the game runs on Dolphin's emulation (skies/SkiesGame.kt).
++    providers.gradleProperty("skiesStandaloneJava").orNull?.let {
++        sourceSets.getByName("main").java.srcDir(it)
++    }
+ }
+ 
+ dependencies {
+diff --git a/Source/Android/app/src/main/AndroidManifest.xml b/Source/Android/app/src/main/AndroidManifest.xml
+index f898de9968..f6320dd5f1 100644
+--- a/Source/Android/app/src/main/AndroidManifest.xml
++++ b/Source/Android/app/src/main/AndroidManifest.xml
+@@ -108,6 +108,17 @@
+             android:theme="@style/Theme.Dolphin.Main"
+             android:label="@string/cheats"/>
+ 
++        <!-- Skies Recomp: the game on the emulator-free host (skies/SkiesGame.kt), in a process of its own so
++             Dolphin's library never shares one with it; only in an APK built with it (-PskiesStandaloneJava) -->
++        <activity
++            android:name=".skies.SkiesGameActivity"
++            android:process=":game"
++            android:exported="false"
++            android:screenOrientation="userLandscape"
++            android:configChanges="layoutDirection|locale|grammaticalGender|fontScale|fontWeightAdjustment|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation"
++            android:preferMinimalPostProcessing="true"
++            android:theme="@android:style/Theme.NoTitleBar.Fullscreen"/>
++
+         <activity
+             android:name=".activities.EmulationActivity"
+             android:exported="false"
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/DolphinApplication.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/DolphinApplication.kt
+index 6b7596fa21..423ab7cbb8 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/DolphinApplication.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/DolphinApplication.kt
+@@ -17,6 +17,9 @@ class DolphinApplication : Application() {
+     override fun onCreate() {
+         super.onCreate()
+         instance = this
++        // Skies Recomp: the game's own process (skies/SkiesGameActivity, the emulator-free host) loads
++        // libskies.so, never Dolphin's library, its directories or its activity tracker (native calls)
++        if (android.os.Build.VERSION.SDK_INT >= 28 && getProcessName().endsWith(":game")) return
+         registerActivityLifecycleCallbacks(activityTracker)
+         System.loadLibrary("main")
+ 
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesGame.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesGame.kt
+new file mode 100644
+index 0000000000..d2339d8844
+--- /dev/null
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesGame.kt
+@@ -0,0 +1,81 @@
++package org.dolphinemu.dolphinemu.skies
++
++import android.app.Activity
++import android.app.ActivityManager
++import android.content.Context
++import android.content.Intent
++import android.os.Process
++import android.util.Log
++import org.dolphinemu.dolphinemu.DolphinApplication
++import org.dolphinemu.dolphinemu.NativeLibrary
++import java.io.File
++
++/**
++ * Which runtime plays the game: the emulator-free host (SkiesGameActivity, libskies.so in the ":game" process) when
++ * the APK has it (-PskiesStandaloneJava, tools/android-ws-build.sh STANDALONE=1), else Dolphin's emulation in this
++ * process as before. The launcher asks here instead of NativeLibrary, so both kinds of build keep working.
++ */
++object SkiesGame {
++    private const val ACTIVITY = "org.dolphinemu.dolphinemu.skies.SkiesGameActivity"
++    const val EXTRA_ARGS = "org.dolphinemu.dolphinemu.skies.GAME_ARGS"
++    const val ACTION_CLOSE = "org.dolphinemu.dolphinemu.skies.CLOSE_GAME"
++    /** SkiesGameActivity.RESULT_RESTART: the Language restart. */
++    const val RESULT_RESTART = Activity.RESULT_FIRST_USER + 1
++    private const val PROCESS_SUFFIX = ":game"
++
++    /** The emulator-free host is in this APK (built for Android 9 and later). */
++    val standalone: Boolean by lazy {
++        if (android.os.Build.VERSION.SDK_INT < 28) return@lazy false
++        try {
++            Class.forName(ACTIVITY, false, SkiesGame::class.java.classLoader)
++            true
++        } catch (e: ClassNotFoundException) {
++            false
++        }
++    }
++
++    private fun context(): Context = DolphinApplication.getAppContext()
++
++    /** The game process's pid, 0 when it isn't running. */
++    private fun gamePid(): Int {
++        val context = context()
++        val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
++        val name = context.packageName + PROCESS_SUFFIX
++        return manager.runningAppProcesses?.firstOrNull { it.processName == name }?.pid ?: 0
++    }
++
++    /** A game runs (or is still shutting down): imports and a new disc wait for it to end. */
++    fun isRunning(): Boolean = if (standalone) gamePid() != 0 else NativeLibrary.IsRunning()
++
++    /** Asks the game to quit (its memory card is flushed on the way out); isRunning turns false once it has. */
++    fun requestClose() {
++        if (!standalone) {
++            NativeLibrary.StopEmulation()
++            return
++        }
++        val context = context()
++        context.sendBroadcast(Intent(ACTION_CLOSE).setPackage(context.packageName))
++    }
++
++    /** The last resort after requestClose didn't end it in time. */
++    fun forceClose() {
++        val pid = gamePid()
++        if (standalone && pid != 0 && pid != Process.myPid()) {
++            Log.w("SkiesGame", "ending the game process")
++            Process.killProcess(pid)
++        }
++    }
++
++    /**
++     * The intent that starts the game: the host's command line (main.cpp) with the launcher's choices, [state] to
++     * load (Continue from a save state) or none. A memory card Continue goes through [Skies] AutoLoadCard as before.
++     */
++    fun intent(context: Context, user: File, game: File, stateDirectory: File?, state: File?): Intent {
++        val sys = File(context.filesDir, "Sys")
++        val args = arrayListOf("--game", game.absolutePath, "--user", user.absolutePath, "--sys", sys.absolutePath,
++            "--dsp-coef", File(sys, "GC/dsp_coef.bin").absolutePath)
++        if (stateDirectory != null) args += listOf("--state-dir", stateDirectory.absolutePath)
++        if (state != null) args += listOf("--load-state", state.absolutePath)
++        return Intent().setClassName(context, ACTIVITY).putExtra(EXTRA_ARGS, args.toTypedArray())
++    }
++}
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
+index 3268f90255..ca93c2cb80 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
+@@ -149,7 +149,7 @@ class SkiesLauncherActivity : FragmentActivity() {
+                 var imported = 0
+                 var failure = ""
+                 for ((i, entry) in entries.withIndex()) {
+-                    if (org.dolphinemu.dolphinemu.NativeLibrary.IsRunning()) {
++                    if (SkiesGame.isRunning()) {
+                         return arrayOf("The game started during the import, so it stopped: imported " +
+                             "$imported of ${entries.size} files from the backup.", "")
+                     }
+@@ -184,6 +184,20 @@ class SkiesLauncherActivity : FragmentActivity() {
+     private fun afterInit(block: () -> Unit) =
+         AfterDirectoryInitializationRunner().runWithLifecycle(this) { block() }
+ 
++    // The emulator-free host's game screen (SkiesGame): its Language restart comes back as a result, and the
++    // game starts again once its process has ended
++    private val playGame =
++        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
++            if (result.resultCode == SkiesGame.RESULT_RESTART) {
++                message.text = "Restarting the game…"
++                buttons.removeAllViews()
++                afterGameClosed {
++                    setAutoLoadCard(0)
++                    launch(null)
++                }
++            }
++        }
++
+     private val pickDisc =
+         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+             if (uri != null) afterInit { startImport(uri) }
+@@ -407,7 +421,7 @@ class SkiesLauncherActivity : FragmentActivity() {
+         if (driverDialog?.isShowing == true || importRunning) return
+         // Not while a session still runs (its marker isn't settled), nor during a data-folder move,
+         // when "Keep it" would save GFX.ini into the folder being moved (review D13, D14)
+-        if (dataMoveRunning || org.dolphinemu.dolphinemu.NativeLibrary.IsRunning()) return
++        if (dataMoveRunning || SkiesGame.isRunning()) return
+         driverDialog = when (val check = SkiesDriverGuard.check(this)) {
+             is SkiesDriverGuard.Check.Reverted -> padDialog(android.app.AlertDialog.Builder(this)
+                 .setTitle("Back on the device's own GPU driver")
+@@ -450,7 +464,7 @@ class SkiesLauncherActivity : FragmentActivity() {
+      * The prompt says what will be replaced before the picker opens, and Cancel has the focus.
+      */
+     private fun confirmImportSave() {
+-        if (org.dolphinemu.dolphinemu.NativeLibrary.IsRunning()) {
++        if (SkiesGame.isRunning()) {
+             // Only a game left running without its screen gets here (see refresh)
+             afterGameClosed { confirmImportSave() }
+             return
+@@ -487,7 +501,7 @@ class SkiesLauncherActivity : FragmentActivity() {
+                 resolver.openInputStream(uri)?.use { input ->
+                     copy.outputStream().use { output -> copyCapped(input, output) }
+                 }
+-                if (org.dolphinemu.dolphinemu.NativeLibrary.IsRunning()) {
++                if (SkiesGame.isRunning()) {
+                     arrayOf("The game started while the file was being chosen, so nothing was imported.", "")
+                 } else if (isZip(copy)) {
+                     importBackup(copy, cache, user)
+@@ -504,7 +518,7 @@ class SkiesLauncherActivity : FragmentActivity() {
+ 
+     /** Settings, Saves: Back up saves. With the game closed, as for Import: it holds the card in memory. */
+     private fun startExport() {
+-        if (org.dolphinemu.dolphinemu.NativeLibrary.IsRunning()) {
++        if (SkiesGame.isRunning()) {
+             afterGameClosed { startExport() }
+             return
+         }
+@@ -631,9 +645,23 @@ class SkiesLauncherActivity : FragmentActivity() {
+             .setPositiveButton("Close", null))
+     }
+ 
++    // Keys pressed while this screen had them: a release whose press went elsewhere (the game's A on Quit
++    // game, still held as the game's screen ends) must not press what has focus here, Continue
++    private val keysDown = HashSet<Int>()
++
++    override fun onPause() {
++        super.onPause()
++        keysDown.clear()
++    }
++
+     // A pad's A button confirms like the touch screen and the D-pad's centre; with nothing focused
+     // yet (touch mode: no focus until a D-pad press) it takes the first button.
+     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
++        if (event.action == KeyEvent.ACTION_DOWN) {
++            keysDown.add(event.keyCode)
++        } else if (event.action == KeyEvent.ACTION_UP && !keysDown.remove(event.keyCode)) {
++            return true
++        }
+         // The Settings window: A presses what has focus, B / Back closes a choice list or the window
+         val panel = settings
+         if (panel != null && panel.isShowing) {
+@@ -804,7 +832,7 @@ class SkiesLauncherActivity : FragmentActivity() {
+         // A romhack (its own state folder): said under Start Game, as the desktop launcher does
+         val modifiedDetail = if (stateDirectory?.name?.startsWith("romhack-") == true)
+             "Ready: Skies of Arcadia Legends [$gameId, modified]" else null
+-        if (gameReady() && org.dolphinemu.dolphinemu.NativeLibrary.IsRunning()) {
++        if (gameReady() && !SkiesGame.standalone && SkiesGame.isRunning()) {
+             // The game still runs (paused) without its screen: a frontend relaunched the app with
+             // its task cleared. Continue brings it back; what boots or changes files closes it first.
+             message.text = getString(R.string.skies_ready)
+@@ -941,23 +969,27 @@ class SkiesLauncherActivity : FragmentActivity() {
+      */
+     private fun afterGameClosed(action: () -> Unit) {
+         val native = org.dolphinemu.dolphinemu.NativeLibrary
+-        if (!native.IsRunning()) {
++        if (!SkiesGame.isRunning()) {
+             action()
+             return
+         }
+         message.text = "Closing the game…"
+         buttons.removeAllViews()
+-        native.StopEmulation()
++        SkiesGame.requestClose()
+         val deadline = android.os.SystemClock.uptimeMillis() + CLOSE_TIMEOUT_MS
+         handler.removeCallbacks(closePoll)
+         closePoll = object : Runnable {
+             override fun run() {
+-                val closed = native.IsUninitialized() && !EmulationActivity.isIgnoringLaunchRequests
++                val closed = if (SkiesGame.standalone) !SkiesGame.isRunning()
++                    else native.IsUninitialized() && !EmulationActivity.isIgnoringLaunchRequests
+                 if (!closed && android.os.SystemClock.uptimeMillis() < deadline) {
+                     handler.postDelayed(this, 100)
+                     return
+                 }
+-                if (!closed) Log.w("SkiesLauncher", "The game didn't close in time")
++                if (!closed) {
++                    Log.w("SkiesLauncher", "The game didn't close in time")
++                    SkiesGame.forceClose()
++                }
+                 refresh()
+                 action()
+             }
+@@ -987,6 +1019,13 @@ class SkiesLauncherActivity : FragmentActivity() {
+     }
+ 
+     private fun launch(state: File?) {
++        if (SkiesGame.standalone) {
++            // The game's own process; one still ending (a restart, a quick Play after Quit game) goes first
++            afterGameClosed {
++                playGame.launch(SkiesGame.intent(this, userDirectory, gameRoot, stateDirectory, state))
++            }
++            return
++        }
+         // Only for a launch that goes ahead: a stale driver marker would later read as a crash
+         EmulationActivity.launch(this, mainDol.absolutePath, false) {
+             SkiesDriverGuard.onLaunch(this)
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+index 2238348c3a..1cf124250f 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+@@ -261,7 +261,8 @@ class SkiesSettingsPanel(
+                 boolRow(rows, "Show FPS", gfx, "Settings", "ShowFPS",
+                     "Show the frame rate in a corner of the game screen.")
+                 backendRow(rows)
+-                if (SkiesDriverGuard.supported()) driverRows(rows)
++                // A driver package is Dolphin's loader's; the emulator-free host uses the system's Vulkan
++                if (SkiesDriverGuard.supported() && !SkiesGame.standalone) driverRows(rows)
+             }
+             "Gameplay" -> {
+                 configRow(rows, "Camera", CAMERA, dolphin, "Skies", "CameraControl", 1,

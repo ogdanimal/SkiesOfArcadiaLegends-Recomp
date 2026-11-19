@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <bit>
 #include <cfloat>
 #include <chrono>
@@ -102,9 +103,10 @@ enum class Option
   Language,
   Music,
   Uncensored,
+  Quit,
 };
 
-constexpr std::array SAVES_ROWS{Option::SaveState, Option::LoadState, Option::AutoSave};
+constexpr std::array SAVES_ROWS{Option::SaveState, Option::LoadState, Option::AutoSave, Option::Quit};
 constexpr std::array GRAPHICS_ROWS{Option::Picture,       Option::Hud,        Option::FrameRate,
                                    Option::Resolution,    Option::Antialiasing, Option::TextureFilter,
                                    Option::Anisotropy,    Option::Scaling,    Option::HdTextures,
@@ -299,6 +301,8 @@ int s_z_replay_polls = 0;
 int s_save_slot = 1;
 int s_load_slot = 0;  // 0 = the newest auto-save
 bool s_load_confirm = false;
+// Quit game takes a second A too (play since the last save is lost)
+bool s_quit_confirm = false;
 std::array<std::time_t, SAVE_SLOTS + 1> s_slot_time{};
 std::string s_newest_auto;
 
@@ -327,6 +331,8 @@ bool s_texture_pack = false;
 // The hotkeys outside the GameCube's buttons: the menu (Esc, a controller's Back / Select) and
 // Invincible (L3 / R3), from SDL directly.
 bool s_menu_key_down = false;
+// Android's Back (SkiesGameActivity.onBackPressed, any thread): counts as one menu key press
+std::atomic<bool> s_back_request{false};
 bool s_stick_click = false;
 
 enum class Region
@@ -677,6 +683,9 @@ void Change(Option option, int direction, bool wrap)
     s_load_slot = (s_load_slot + direction + SAVE_SLOTS + 1) % (SAVE_SLOTS + 1);
     s_load_confirm = false;
     break;
+  case Option::Quit:
+    s_quit_confirm = false;
+    break;
   case Option::AutoSave:
     v.auto_save = Step(AUTO_SAVE_MINUTES, v.auto_save, direction, wrap);
     break;
@@ -840,6 +849,7 @@ void Open()
   s_repeat_button = 0;
   s_load_confirm = false;
   s_restart_confirm = false;
+  s_quit_confirm = false;
   s_mapping = false;
   s_capturing = false;
   s_keyboard_hints = InputKeyboardInUse();
@@ -1436,6 +1446,7 @@ PadStatus FilterOpen(const PadStatus& raw)
     s_tab = (s_tab + direction + tab_count) % tab_count;
     s_load_confirm = false;
     s_restart_confirm = false;
+    s_quit_confirm = false;
   };
   if (pressed & (PAD_TRIGGER_L | PAD_TRIGGER_R))
   {
@@ -1464,6 +1475,7 @@ PadStatus FilterOpen(const PadStatus& raw)
   {
     s_load_confirm = false;
     s_restart_confirm = false;
+    s_quit_confirm = false;
   }
   // Up from the first setting and Down from the last reach the tab bar
   if (pressed & PAD_BUTTON_UP)
@@ -1500,6 +1512,17 @@ PadStatus FilterOpen(const PadStatus& raw)
       }
       s_load_confirm = !s_load_confirm;
     }
+  }
+  else if ((pressed & PAD_BUTTON_A) && option == Option::Quit)
+  {
+    // Back to the launcher (Android) or the desktop: the card is flushed on the way out
+    if (s_quit_confirm)
+    {
+      Close();
+      Log("[menu] quit\n");
+      RequestQuit();
+    }
+    s_quit_confirm = !s_quit_confirm;
   }
   else if ((pressed & PAD_BUTTON_A) && option == Option::Mapping)
     OpenMapping();
@@ -1717,9 +1740,21 @@ void ApplyDeadZone(u8& x, u8& y, int percent)
 // ---- the hotkeys, from SDL -------------------------------------------------------------------------
 struct Hotkeys
 {
-  bool menu = false;        // Esc, or a controller's Back / Select
+  bool menu = false;        // Esc / Android Back, or a controller's Back / Select
   bool stick_click = false;  // L3 or R3
 };
+
+#ifdef SKIES_STANDALONE_AURORA
+// Esc / Back latched as they go down (the video thread pumps SDL's events): polling the keyboard state missed a
+// tap shorter than a pad read (a quick Back, adb's input keyevent), and polling it as well would count a press twice.
+bool SDLCALL MenuKeyWatch(void*, SDL_Event* event)
+{
+  if (event->type == SDL_EVENT_KEY_DOWN && !event->key.repeat &&
+      (event->key.scancode == SDL_SCANCODE_ESCAPE || event->key.scancode == SDL_SCANCODE_AC_BACK))
+    s_back_request.store(true);
+  return true;
+}
+#endif
 
 Hotkeys ReadHotkeys()
 {
@@ -1727,8 +1762,11 @@ Hotkeys ReadHotkeys()
 #ifdef SKIES_STANDALONE_AURORA
   if (!VideoSurfaceSize(nullptr, nullptr))
     return keys;
-  if (const bool* state = SDL_GetKeyboardState(nullptr))
-    keys.menu = state[SDL_SCANCODE_ESCAPE];
+  static bool s_watching = false;
+  if (!s_watching)
+    s_watching = SDL_AddEventWatch(MenuKeyWatch, nullptr);
+  // Esc and Android's Back key (SDL's AC_BACK) count through MenuKeyWatch's latch only, once per press; a
+  // gesture Back comes through MenuRequestBack
   int count = 0;
   if (SDL_JoystickID* ids = SDL_GetGamepads(&count))
   {
@@ -1766,6 +1804,12 @@ float g_overclock = 1.0f;
 void MenuContinue(int file)
 {
   autoload::s_requested = file;
+}
+
+void MenuRequestBack()
+{
+  Log("[menu] Back pressed (Android)\n");
+  s_back_request.store(true);
 }
 
 void MenuVideoFrame()
@@ -1899,7 +1943,7 @@ void MenuApplyGame()
 void MenuFilterPad(PadStatus& pad)
 {
   const Hotkeys keys = ReadHotkeys();
-  const bool menu_key = keys.menu && !s_menu_key_down;
+  const bool menu_key = (keys.menu && !s_menu_key_down) || s_back_request.exchange(false);
   s_menu_key_down = keys.menu;
   if (keys.stick_click && !s_stick_click && s_mode == Mode::Closed)
     qol::ToggleInvincible();
@@ -2272,6 +2316,9 @@ void Draw(float scale)
               CanRestart() ? "Restart the game to use it now, or it changes when the game next starts." :
                              "Changes when the game next starts."};
     }
+    case Option::Quit:
+      return {"Quit game", s_quit_confirm ? "Press " + keys.a + " again to quit" : std::string("Quit..."),
+              "Ends the game: play since your last save is lost."};
     case Option::Mapping:
       return {"Button mapping", "Change...",
               s_keyboard_hints || !s_has_keyboard ?
@@ -2301,6 +2348,7 @@ void Draw(float scale)
       current == Option::SaveState ? tabs + "Up / Down: choose    Left / Right: slot    " + keys.a + ": save" + close :
       current == Option::LoadState ? tabs + "Up / Down: choose    Left / Right: slot    " + keys.a + ": load" + close :
       current == Option::Mapping   ? tabs + "Up / Down: choose    " + keys.a + ": open" + close :
+      current == Option::Quit      ? tabs + "Up / Down: choose    " + keys.a + ": quit" + close :
       current == Option::Language && v.language != s_current.language && CanRestart() ?
                                      tabs + "Up / Down: choose    Left / Right: change    " + keys.a + ": restart" + close :
                                      tabs + "Up / Down: choose    Left / Right or " + keys.a + ": change" + close;
@@ -2464,7 +2512,7 @@ void Draw(float scale)
     if (is_selected)
       draw->AddRect(box_a, box_b, gold, 6.0f * u, 0, std::max(1.0f, 2.0f * u));
     // Arrows where Left / Right change the value
-    if (is_selected && options[i] != Option::Mapping)
+    if (is_selected && options[i] != Option::Mapping && options[i] != Option::Quit)
     {
       const float mid = y + BOX_H * 0.5f, s = 5.0f;
       const float lx = PAD + LABEL_W + 10.0f, rx = PAD + LABEL_W + VALUE_W - 10.0f;
@@ -2472,7 +2520,8 @@ void Draw(float scale)
       draw->AddTriangleFilled(at(rx, mid), at(rx - s, mid - s), at(rx - s, mid + s), gold);
     }
     const bool confirm = (options[i] == Option::LoadState && s_load_confirm) ||
-                         (options[i] == Option::Language && s_restart_confirm);
+                         (options[i] == Option::Language && s_restart_confirm) ||
+                         (options[i] == Option::Quit && s_quit_confirm);
     draw->AddText(ui, px(TEXT), at(PAD + LABEL_W + 22.0f, text_y), confirm ? gold : white,
                   row.value.c_str());
     draw->AddText(ui, px(SMALL), at(PAD + LABEL_W, y + BOX_H + 3.0f), dim, row.description, nullptr,

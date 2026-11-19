@@ -21,6 +21,7 @@ git -C "$R/mg" apply "$P/moderngekko-local.patch"
 git -C "$R/mg" apply "$P/moderngekko-macos.patch"
 git -C "$R/mg" apply "$P/moderngekko-launcher-signal.patch"
 git -C "$R/mg" apply "$P/moderngekko-aurora.patch"
+git -C "$R/mg" apply "$P/moderngekko-standalone-launcher.patch"
 for p in $(grep -v '^#' "$P/recompcore.series"); do git -C "$R/mg/vendor/dolphin" apply "$P/recompcore-$p.patch"; done
 for p in mtmsr-entry gather-pipe llvm-cpu win64-sjlj-frame coff-uwtable halfword-byterev macho-sections; do
   git -C "$R/mg/vendor/dolphin/DolRecomp" apply "$P/dolrecomp-$p.patch"
