@@ -1,0 +1,17 @@
+**New in this test build** (since v0.90.0-standalone.4):
+
+- **Android: touch controls** for phones and tablets without a controller: stick, C-stick, D-pad,
+  A / B / X / Y, L / R, Z, Start and a menu button. They step aside when a controller is used and come
+  back when you touch the screen. Settings → Controls → Touch controls (also in the in-game menu): Auto,
+  Always or Off.
+- **Ship battle HUD** (#25): the Item list no longer runs off the bottom of the screen in widescreen, and a
+  new setting (Settings → Graphics → Ship battle HUD) keeps the game's own centred layout if you prefer it.
+- **60 fps** (#18): parts of a character that change texture between frames (a face changing expression)
+  now move with the rest of the model instead of jumping.
+- **Dreamcast music** (#19): a little quieter, level with the GameCube music now that it has its reverb.
+- **Battle screen effects in widescreen** (#22): the full-screen effect behind some poses (Drachma's victory
+  pose) now turns with the camera shake without shearing. Not yet seen in game: tell us how it looks.
+- **Stick dead zone and Rumble** set in the launcher now apply in the game (they only worked from the
+  in-game menu before).
+- The European and Japanese discs get the same game update as the USA one; your discs are patched again
+  the first time you start this build.

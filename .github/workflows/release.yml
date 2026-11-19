@@ -266,12 +266,17 @@ jobs:
             or later (older devices keep the Dolphin engine). Going back to v0.83 means uninstalling
             first, which deletes the app's data unless you moved the data folder: back up your saves.
             Without a controller the game shows touch controls (a controller's input hides them, a
-            touch on the screen brings them back; the button at the top opens the menu). In the game,
-          Back opens the menu; Saves → Quit game returns to the launcher. Custom GPU
-            drivers (Turnip) aren't used by the new engine.
+            touch on the screen brings them back; the button at the top opens the menu; Settings →
+            Controls → Touch controls: Auto, Always or Off). In the game, Back opens the menu;
+            Saves → Quit game returns to the launcher. Custom GPU drivers (Turnip) aren't used by
+            the new engine.
 
           Not in this build: anti-aliasing 2x / 8x (Off and 4x only).
           EOF
+            # What changed since the last test build, kept beside the code (release/test-build-notes.md)
+            if [ -f release/test-build-notes.md ]; then
+              { echo; cat release/test-build-notes.md; } >> notes.md
+            fi
           fi
           gh release create "$GITHUB_REF_NAME" out/* \
             --repo "$GITHUB_REPOSITORY" \
