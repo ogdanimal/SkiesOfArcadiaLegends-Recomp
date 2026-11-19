@@ -1917,6 +1917,32 @@ the static module replaces it).
   the reporter's card save), #23 (Valua fortress turrets: nothing wrong at the screenshot's size;
   the reporter saw it in Dolphin too). #16 needs an Exynos device.
 
+**On aurora-backend (2026-11-18, branch `standalone-issues`).** The nine commits cherry-picked onto
+aurora-backend; only the patch lists conflicted, and `recompcore-interp-pacing.patch` was rebased by
+hand onto the Aurora patch (both edit `PictureForRetrace`'s two-retrace branch: the Aurora `kind` and the
+pacing statistics' `s_last_picture_kind` side by side; `Present.cpp` already had its includes).
+`tools/check-patches.sh` passes. The standalone:
+- **#25** the Ship battle HUD row in its in-game menu and `ws_ship_hud` written beside `ws_hud_aspect`
+  (`menu.cpp`; the launcher and Android rows come from the cherry-picked patches, same `[Skies] ShipHud` key).
+  WSL, `17b-ship-battle-baltor-commands.sav`: spread out puts the pieces at the edges, centred keeps the
+  grid under the Spirit bar, the Item list box on screen in both.
+- **#19** gain 290 in its own `DCMusic.cpp` copy. F1 not ported: in the Dolphin build it's
+  `PlatformWin32`'s timestamped state file; the standalone has slot states and no keyboard state keys.
+- **#18** the texture-change pairing pass in `interp60.cpp` (`SKIES_INTERP_REPAIR=0` skips it, the
+  stats line counts it): first battle at 60 fps, 2.7-5.5 draws a blend paired, blend 0.4-0.8 ms.
+- **#24** nothing to port: the standalone presents each frame at its guest time plus an adaptive delay
+  (fork 0036) and doesn't slice the replay around the present.
+- **ws35 for Europe and Japan:** `tools/dolmatch.py` against the secrets' DOLs added `0x80002EEC`,
+  `njScale` (Europe `0x80294BCC`, Japan `0x80291E90`, same 0x58 bytes, every instruction aligned) and
+  the debug patch's words; additions only. All three `release/*.dolpatch` regenerated (the European
+  and Japanese ones with the earlier `input-fst-sha256` lines, matching the research discs' `fst.bin`);
+  each applied to its retail DOL gives the ws35 build byte for byte, the US one the `issues` branch's
+  `484fa202`. ws35 moves MetroTRK-area code by 0x18 from `ws_anchor_find` on (and the ws31 `UNWIDE`
+  wrappers by `ws_plane_widen`); no data moved, the cutscene stubs are pinned and `qol_frame` rewrites
+  the damage handler, so older states load. Checked on WSL with ws35 Linux modules (`tools/ci-codegen.sh
+  TARGETS=linux`): the first battle (an October state) fought to the win with A presses, the user's
+  2026-10-23 v0.83 state, Baltor's ship battle on the USA and European discs, the Japanese cabin scene.
+
 ### Battle screen plane: Drachma's victory pose (2026-10-22, ws31, issue #9)
 
 Sandbowl (v0.80.0-beta, with a video): in 16:9, Drachma's victory pose "reverts back to 4:3". The

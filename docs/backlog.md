@@ -11,8 +11,11 @@ Requests and ideas not scheduled yet. Move an item to a handoff when work on it 
   Both builds.
 - **#28 fix to dev** (`recompcore-tz-fallback.patch`, ordered before the aurora patches) for a Dolphin-build
   release, if one ships before the standalone replaces it.
-- **The `issues` branch** (#25 ShipHud, #19, #18, #24, #22; ws35 US only): its game patch for EU / JP, its 60 fps
-  changes ported to `standalone/src/interp60.cpp`, then onto aurora-backend.
+- **The `issues` branch** (#25 ShipHud, #19, #18, #24, #22): ported 2026-11-18 on the local branch
+  `standalone-issues` (ws35 on all three discs, the standalone's menu row, DC gain and #18 pass;
+  development notes, *Issue pass #16-#25*). Left: merge it into aurora-backend (user's go-ahead), the
+  Windows / Android checks of ws35 under the standalone, the #24 VRR test on the user's display, and
+  whether the standalone wants keyboard state keys (#19's F1).
 - **Patched Dawn** (MSAA 2x / 8x, the Windows swap chain fix): host the packages (`tools/build-dawn-package.sh`)
   or build them in CI.
 - **By hand:** two controllers and remapping with a pad (standalone); the desktop launcher's Continue click.
