@@ -96,6 +96,13 @@ bool Boot(const std::string& game_dir)
 
   // Time base from the real-time clock (seconds since 2000-01-01), as Dolphin presets it.
   const u64 seconds = RtcBase();
+  {
+    // The clock the game sees (local time; a state brings back its own), for the log
+    const std::time_t as_time = static_cast<std::time_t>(seconds + 946684800ull);
+    if (const std::tm* t = std::gmtime(&as_time))
+      Log("[boot] game clock %04d-%02d-%02d %02d:%02d:%02d\n", t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
+          t->tm_hour, t->tm_min, t->tm_sec);
+  }
   const u64 ticks = seconds * (CPU_HZ / TIMER_RATIO);
   g_cpu.timebase = ticks;
   Write32(0x800030D8, static_cast<u32>(ticks >> 32));
