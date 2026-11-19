@@ -1,5 +1,9 @@
 # Handoff: the emulator-free path (decided 2026-10-22)
 
+> **2026-11-19:** the Windows test folders this file names under `C:\dev` (`SkiesAuroraRun`, `SkiesUncensor`, `SkiesPal60`,
+> `SkiesLang`, `SkiesGfx`, `SkiesPerf`, `SkiesCI`, `fmabench`) were deleted; mentions of them are history.
+> `C:\dev\SkiesRecomp`, `SkiesRomhack`, `SkiesIssues`, `SkiesStandalone` and `SkiesAurora` remain.
+
 The goal: the port runs without Dolphin's core. The recompiled game (DolRecomp's output, the same
 modules the port builds today) runs on **GXRuntime**, ModernGekko's standalone runtime
 (`lib/ModernGekko/vendor/dolphin/GXRuntime`: CPU state, big-endian guest memory, boot, devices,

@@ -1,5 +1,9 @@
 # Handoff: Uncensored (the Japanese Dreamcast art; 2026-10-20)
 
+> **2026-11-19:** the Windows test folders this file names under `C:\dev` (`SkiesAuroraRun`, `SkiesUncensor`, `SkiesPal60`,
+> `SkiesLang`, `SkiesGfx`, `SkiesPerf`, `SkiesCI`, `fmabench`) were deleted; mentions of them are history.
+> `C:\dev\SkiesRecomp`, `SkiesRomhack`, `SkiesIssues`, `SkiesStandalone` and `SkiesAurora` remain.
+
 User request: "creating a setting that would allow you to uncensor the game" (GameCube and Dreamcast
 changes), then "finish the uncensored work before releasing", scope tiers 1+2 (every visual change
 that is an asset conversion) on the USA, European and Japanese discs; UI decided by the user: a

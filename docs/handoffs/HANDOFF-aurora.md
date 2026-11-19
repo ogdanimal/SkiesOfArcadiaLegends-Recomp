@@ -1,5 +1,9 @@
 # Handoff: the Aurora video backend on Android (2026-10-21, session 4)
 
+> **2026-11-19:** the Windows test folders this file names under `C:\dev` (`SkiesAuroraRun`, `SkiesUncensor`, `SkiesPal60`,
+> `SkiesLang`, `SkiesGfx`, `SkiesPerf`, `SkiesCI`, `fmabench`) were deleted; mentions of them are history.
+> `C:\dev\SkiesRecomp`, `SkiesRomhack`, `SkiesIssues`, `SkiesStandalone` and `SkiesAurora` remain.
+
 Aurora is GXRuntime's GX renderer (WebGPU through Dawn). Sessions 1-3 proved it draws the game
 correctly and, as an in-process Dolphin video backend (`moderngekko-run --graphics Aurora`), at
 93% of the Null ceiling on a Windows GPU; the research tree, scripts, scores and the fork live in

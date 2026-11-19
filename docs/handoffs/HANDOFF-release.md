@@ -30,10 +30,15 @@
   `aurora-backend`: at the cut-over merge keep `aurora-backend`'s README and carry the status section over.
 - **Next:** watch the issues for `.6` reports; the drafted issue replies (`build/issue-replies-standalone5.md`, written
   for `.5`: say `.6`) can be posted now that a build is public, with the owner's OK; the next test build = the
-  README / licence fixes plus whatever testers report. The test folders on C: (`C:\dev\SkiesRelTest6`, and
-  `build-reltest`, `build-cidawn`, `cidawn`, `unpack-test`, `host-out`, `user-cidawn`, `standalone-windows.tar.gz`,
-  `smoke*.log`, `tools\` in `C:\dev\SkiesStandalone`, `C:\Users\Public\skies-ws35t-test.apk`, ~1.3 GB) wait for the
-  owner's second deletion approval.
+  README / licence fixes plus whatever testers report. The test folders on C: were deleted with the owner's approval (2026-11-19), with the old Dolphin-era ones (below).
+
+- **C: cleanup (2026-11-19, the owner approved twice):** deleted `C:\dev\SkiesRelTest6` and this session's test
+  folders in `C:\dev\SkiesStandalone`, plus the Dolphin-era test folders `C:\dev\SkiesAuroraRun`, `SkiesUncensor`,
+  `SkiesPerf`, `SkiesLang`, `SkiesCI`, `SkiesPal60`, `SkiesGfx`, `apk`, `fmabench`, `skiesperf-src.tar` and old Skies
+  APKs in `C:\Users\Public` (~45 GB). Kept: `SkiesRecomp` and `SkiesRomhack` (the Dolphin side of the performance
+  comparison, for the cut-over's re-measurement), `SkiesIssues` (the owner's #24 VRR test), `SkiesStandalone`,
+  `SkiesAurora` (its build takes Dawn / libpng / zlib from there), `dawn-src`, the LLVM toolchain. Handoffs that
+  name the deleted folders describe past work.
 
 ## The .5 preparation (2026-11-19): review, fixes, CI (history; shipped as .6)
 

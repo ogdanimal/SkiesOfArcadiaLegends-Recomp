@@ -1,5 +1,9 @@
 # Handoff: the European disc at 60 Hz, and cutscene framing (2026-10-21)
 
+> **2026-11-19:** the Windows test folders this file names under `C:\dev` (`SkiesAuroraRun`, `SkiesUncensor`, `SkiesPal60`,
+> `SkiesLang`, `SkiesGfx`, `SkiesPerf`, `SkiesCI`, `fmabench`) were deleted; mentions of them are history.
+> `C:\dev\SkiesRecomp`, `SkiesRomhack`, `SkiesIssues`, `SkiesStandalone` and `SkiesAurora` remain.
+
 Two branches, stacked, rebased on 2026-10-21 onto the ws28 work (branch `smove` `fea664d`, on
 origin/dev `7587e66`). **All three are on `dev` since 2026-10-21 night** (fast-forward `7587e66..2200a73`,
 validate run 39701868565 green), and **released in v0.81.0-beta** (2026-10-22; with #11's ws30).
