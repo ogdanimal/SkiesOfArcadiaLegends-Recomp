@@ -293,6 +293,12 @@ void TouchPadSet(u16 buttons, s8 stick_x, s8 stick_y, s8 c_x, s8 c_y, u8 trigger
 // [Skies] TouchControls (the menu, any thread): 0 Auto, 1 Always, 2 Off; the touch controls read it
 void TouchModeSet(int mode);
 int TouchMode();
+// Cheat codes (cheats.cpp): GameSettings/<disc ID>.ini's enabled Action Replay / Gecko memory writes
+void CheatsApply();  // every frame end, while [Skies] Cheats is on
+void CheatsReload();
+int CheatsEnabledCount();
+int CheatsSkippedCount();
+std::string CheatsFileName();
 // A controller's motor: 0 stop, 1 rumble, 2 hard stop (the SDK's PAD_MOTOR_*)
 void VideoPadMotor(u32 channel, u32 command);
 // HD textures (video.cpp): USER/Load/Textures/ with its separator ("" without --user), where the

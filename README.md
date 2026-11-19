@@ -283,6 +283,24 @@ after the first normal session it asks whether to keep the new one.
 If 60 fps can't keep full speed for a while, the settings menu opens once by itself on Frame rate, so
 you can switch to 30 fps. Nothing changes unless you choose it.
 
+**Cheat codes (new engine):** memory-writing Action Replay and Gecko codes from your data folder's
+`GameSettings/<disc ID>.ini` (for example `GameSettings/GEAE8P.ini`), in Dolphin's own format, so a Dolphin
+cheat file works as it is. Codes listed under `[ActionReplay_Enabled]` / `[Gecko_Enabled]` are applied every
+frame while **Cheats** is on (in-game menu, Gameplay tab; off by default). An example that sets your gold to
+99,999,999 on the USA disc:
+
+```ini
+[ActionReplay]
+$Max gold
+0430BB40 05F5E0FF
+[ActionReplay_Enabled]
+$Max gold
+```
+
+Action Replay codes must be the decrypted kind (two 8-digit words per line, as Dolphin saves them). Codes that
+patch the game's code (Gecko C2 / 04 into the game's instructions, conditionals) can't work here, since the
+game runs as native code: they're skipped and named in the log.
+
 ## Known Issues
 
 - On Android, battles top out at about 2.5x speed on a Snapdragon 865; 3x and 4x settle at 2x.

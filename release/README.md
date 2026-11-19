@@ -163,6 +163,24 @@ item and magic tables, so they mustn't mix): Continue, the menu's slots and the 
 the disc you play. Its memory card saves sit beside the original game's (the romhack keeps the disc
 ID), which the romhack's author says is fine.
 
+**Cheat codes (new engine):** memory-writing Action Replay and Gecko codes from your data folder's
+`GameSettings/<disc ID>.ini` (for example `GameSettings/GEAE8P.ini`), in Dolphin's own format, so a Dolphin
+cheat file works as it is. Codes listed under `[ActionReplay_Enabled]` / `[Gecko_Enabled]` are applied every
+frame while **Cheats** is on (in-game menu, Gameplay tab; off by default). An example that sets your gold to
+99,999,999 on the USA disc:
+
+```ini
+[ActionReplay]
+$Max gold
+0430BB40 05F5E0FF
+[ActionReplay_Enabled]
+$Max gold
+```
+
+Action Replay codes must be the decrypted kind (two 8-digit words per line, as Dolphin saves them). Codes that
+patch the game's code (Gecko C2 / 04 into the game's instructions, conditionals) can't work here, since the
+game runs as native code: they're skipped and named in the log.
+
 ## Controls
 
 On Windows and Linux the keyboard and a controller both work, together or on their own. The game

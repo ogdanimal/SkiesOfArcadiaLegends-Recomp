@@ -1135,6 +1135,7 @@ void VideoFrameEnd()
 {
   ++s_frames;
   ApplyPokes();
+  CheatsApply();
   MenuVideoFrame();
   if ((s_frames % 600) == 1)
     Log("[video] frame %llu at %.2f s guest\n", static_cast<unsigned long long>(s_frames),

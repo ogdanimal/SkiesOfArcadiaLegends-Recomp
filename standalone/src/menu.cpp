@@ -97,6 +97,7 @@ enum class Option
   Gold,
   MagicExp,
   Invincible,
+  Cheats,
   Volume,
   DeadZone,
   Rumble,
@@ -115,7 +116,8 @@ constexpr std::array GRAPHICS_ROWS{Option::Picture,    Option::Hud,          Opt
                                    Option::HdTextures, Option::VSync,        Option::ShowFps};
 constexpr std::array GAMEPLAY_ROWS{Option::Camera,     Option::BattleSpeed, Option::FieldSpeed,
                                    Option::Encounters, Option::HoldB,       Option::Exp,
-                                   Option::Gold,       Option::MagicExp,    Option::Invincible};
+                                   Option::Gold,       Option::MagicExp,    Option::Invincible,
+                                   Option::Cheats};
 constexpr std::array LANGUAGE_ROWS{Option::Language};
 constexpr std::array SOUND_ROWS{Option::Volume};
 constexpr std::array DREAMCAST_ROWS{Option::Music, Option::Uncensored};
@@ -186,6 +188,8 @@ constexpr Key MAGIC_EXP{SettingFile::Main, "Skies", "MagicExp", 100};
 constexpr Key BATTLE_SPEED{SettingFile::Main, "Skies", "BattleSpeed", 1};
 constexpr Key FIELD_SPEED{SettingFile::Main, "Skies", "FieldSpeed", 100};
 constexpr Key INVINCIBLE{SettingFile::Main, "Skies", "Invincible", 0};
+// Cheat codes (cheats.cpp): the enabled ones of GameSettings/<disc ID>.ini, applied every frame while on
+constexpr Key CHEATS{SettingFile::Main, "Skies", "Cheats", 0};
 constexpr Key HOLD_B{SettingFile::Main, "Skies", "HoldB", 0};
 constexpr Key LAUNCHER_TEXT_SIZE{SettingFile::Main, "Skies", "LauncherTextSize", 100};
 constexpr Key AUTO_SAVE{SettingFile::Main, "Skies", "AutoSave", 10};
@@ -264,6 +268,7 @@ struct Values
   int battle_speed = 1;
   int field_speed = 100;
   int invincible = 0;
+  int cheats = 0;
   int volume = 100;
   int language = 0;
   int dead_zone = 0;
@@ -497,6 +502,7 @@ Values ReadValues()
   values.battle_speed = Get(BATTLE_SPEED);
   values.field_speed = std::clamp(Get(FIELD_SPEED), 100, FIELD_SPEEDS.back());
   values.invincible = Get(INVINCIBLE) != 0 ? 1 : 0;
+  values.cheats = Get(CHEATS) != 0 ? 1 : 0;
   values.volume = std::clamp(Get(VOLUME), 0, 100);
   values.language = std::clamp(Get(LANGUAGE), 0, 3);
   values.dead_zone = ReadDeadZone();
@@ -547,6 +553,7 @@ void Apply(const Values& values, const Values& before)
   set(BATTLE_SPEED, values.battle_speed, before.battle_speed);
   set(FIELD_SPEED, values.field_speed, before.field_speed);
   set(INVINCIBLE, values.invincible, before.invincible);
+  set(CHEATS, values.cheats, before.cheats);
   set(VOLUME, values.volume, before.volume);
   set(LANGUAGE, values.language, before.language);
   set(DEAD_ZONE, values.dead_zone, before.dead_zone);
@@ -821,6 +828,9 @@ void Change(Option option, int direction, bool wrap)
   case Option::Invincible:
     v.invincible = v.invincible ? 0 : 1;
     break;
+  case Option::Cheats:
+    v.cheats = v.cheats ? 0 : 1;
+    break;
   case Option::Volume:
     v.volume = std::clamp(v.volume + direction * 10, 0, 100);
     break;
@@ -906,6 +916,7 @@ void Open()
   s_has_keyboard = InputHasKeyboard();
   ReadHintKeys();
   ReadSlotTimes();
+  CheatsReload();  // an edited cheat file counts at the next open
   Log("[menu] open\n");
 }
 
@@ -2361,6 +2372,22 @@ void Draw(float scale)
     case Option::Invincible:
       return {"Invincible", v.invincible ? "On (L3 / R3)" : "Off (L3 / R3)",
               "Keeps the party's HP and MP full. L3 or R3 switches it in game."};
+    case Option::Cheats:
+    {
+      const int n = CheatsEnabledCount(), skipped = CheatsSkippedCount();
+      const std::string file = "GameSettings/" + CheatsFileName();
+      std::string value = v.cheats ? "On" : "Off";
+      if (n > 0)
+        value += " (" + std::to_string(n) + (n == 1 ? " code)" : " codes)");
+      static std::string s_text;  // Row keeps a pointer: the text must outlive this call
+      s_text = n == 0 && skipped == 0 ?
+                  "Action Replay / Gecko memory codes from " + file + " in the data folder, Dolphin's format "
+                  "(none enabled there yet)." :
+                  "The enabled Action Replay / Gecko memory codes in " + file +
+                      (skipped ? " (" + std::to_string(skipped) + " skipped: they patch game code or are encrypted; "
+                                 "see the log)." : ".");
+      return {"Cheats", value, s_text.c_str()};
+    }
     case Option::Volume:
       return {"Volume", v.volume == 0 ? std::string("0% (muted)") : std::to_string(v.volume) + "%",
               "Music and sound effects."};
