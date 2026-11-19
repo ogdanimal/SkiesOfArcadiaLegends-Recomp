@@ -1,0 +1,70 @@
+diff --git a/Source/Core/Core/HW/GCMemcard/GCMemcardDirectory.cpp b/Source/Core/Core/HW/GCMemcard/GCMemcardDirectory.cpp
+index 1d0ce28b1a..76586cf995 100644
+--- a/Source/Core/Core/HW/GCMemcard/GCMemcardDirectory.cpp
++++ b/Source/Core/Core/HW/GCMemcard/GCMemcardDirectory.cpp
+@@ -721,13 +721,65 @@ void GCMemcardDirectory::DoState(PointerWrap& p)
+   std::unique_lock l(m_write_mutex);
+   m_last_block = -1;
+   m_last_block_address = nullptr;
++  // A state carries the card's folder and each save's full path, which FlushToFile later writes to (or renames
++  // to .deleted). Those are the state's, so a crafted or moved one could point anywhere: a loaded state keeps
++  // the folder this card was opened on and only the file names, which must be plain names of .gci files.
++  // A state with any other name fails to load and leaves the card as it was: the undo that follows a failed
++  // load doesn't restore the card (Dolphin stores card contents only while a movie runs), so it is put back
++  // here.
++  if (!p.IsReadMode())
++  {
++    p.Do(m_save_directory);
++    p.Do(m_hdr);
++    p.Do(m_dir1);
++    p.Do(m_dir2);
++    p.Do(m_bat1);
++    p.Do(m_bat2);
++    p.DoEachElement(m_saves, [](PointerWrap& p_, Memcard::GCIFile& save) { save.DoState(p_); });
++    return;
++  }
++  const std::string open_directory = m_save_directory;
++  const Memcard::Header old_hdr = m_hdr;
++  const Memcard::Directory old_dir1 = m_dir1, old_dir2 = m_dir2;
++  const Memcard::BlockAlloc old_bat1 = m_bat1, old_bat2 = m_bat2;
++  std::vector<Memcard::GCIFile> old_saves = m_saves;
+   p.Do(m_save_directory);
++  m_save_directory = open_directory;
+   p.Do(m_hdr);
+   p.Do(m_dir1);
+   p.Do(m_dir2);
+   p.Do(m_bat1);
+   p.Do(m_bat2);
+   p.DoEachElement(m_saves, [](PointerWrap& p_, Memcard::GCIFile& save) { save.DoState(p_); });
++  bool refused = !p.IsReadMode();  // the state ended early
++  for (Memcard::GCIFile& save : m_saves)
++  {
++    if (refused || save.m_filename.empty())
++      continue;
++    std::string name = save.m_filename;
++    const size_t sep = name.find_last_of("/\\");
++    if (sep != std::string::npos)
++      name.erase(0, sep + 1);
++    const bool plain = name.size() > 4 && name.compare(name.size() - 4, 4, ".gci") == 0 &&
++                       name.find(':') == std::string::npos;
++    if (!plain)
++    {
++      ERROR_LOG_FMT(EXPANSIONINTERFACE, "Save state: card file name {} refused", save.m_filename);
++      refused = true;
++      continue;
++    }
++    save.m_filename = m_save_directory + name;
++  }
++  if (refused)
++  {
++    m_hdr = old_hdr;
++    m_dir1 = old_dir1;
++    m_dir2 = old_dir2;
++    m_bat1 = old_bat1;
++    m_bat2 = old_bat2;
++    m_saves = std::move(old_saves);
++    p.SetMeasureMode();  // fails the load
++  }
+ }
+ 
+ void MigrateFromMemcardFile(const std::string& directory_name, ExpansionInterface::Slot card_slot,

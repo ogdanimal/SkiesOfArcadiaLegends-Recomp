@@ -50,6 +50,17 @@ Android 11.6 MB, Linux 9.7 MB, macOS 5.1 MB), so the Windows `tar.exe` fix works
   the crafted state is refused ("the state's memory card names a file outside the card's folder") and the
   unmodified state loads as before. Not yet built on Windows, Android or macOS.
 
+- **The same flaw in the Dolphin build (v0.83 and earlier; found while answering question 1):**
+  `GCMemcardDirectory::DoState` stores the card folder and each save's full path, and a load takes both.
+  `CEXIMemoryCard::DoState` reads the card contents whenever the *state* says so (the flag is the state's, not
+  "a movie is running"), so any loaded or imported Dolphin state can carry them. **CONFIRMED** on the Dolphin
+  runner: a state saved with card contents, one save's path changed to a file outside the user folder and
+  marked dirty, wrote that file at exit. **Fixed in `recompcore-gci-state-paths.patch`:** a load keeps the open
+  card folder and only plain `.gci` names; anything else fails the load and restores the card (Dolphin's undo
+  after a failed load doesn't, since its own states carry no card contents). Checked: the outside `.gci` name
+  lands in the card folder, a `.bat` name is refused with every card file unchanged, a normal state loads. The
+  released Dolphin build needs the patch on `dev` and a release to reach players.
+
 ### S2. Medium: the Android test hooks are active in the release APK
 - **Where:** `standalone/src/main.cpp:530-604` (`AndroidSetup`): `env.txt` (`:551`), `SKIES_EXTRA_ARGS` (`:562`),
   `args.txt` (`:586`).
