@@ -273,7 +273,10 @@ tools\build-release-win.bat configure
   copies them all.
 - **Android**: `STANDALONE=1 tools/android-ws-build.sh` (with `BRAND=1`, ...) builds `libskies.so` with
   `tools/android-standalone-build.sh LIB_ONLY=1` and gives the app `skies/SkiesGameActivity` (the game in a
-  `:game` process); without it the app runs Dolphin's emulation. The stock Dawn package means MSAA Off / 4x.
+  `:game` process); without it the app runs Dolphin's emulation.
+- **Dawn**: the stock prebuilt package by default, which means MSAA Off / 4x. `DAWN_PACKAGE=<dawn-*.tar.gz>`
+  (from `tools/ci-dawn.sh` or `tools/build-dawn-package.sh` / `.bat`: Dawn with `patches/dawn/`) adds 2x / 8x on
+  every platform; CI's `dawn` job builds and caches these packages for the releases.
 
 ### Development builds
 

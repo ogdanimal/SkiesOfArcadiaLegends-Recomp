@@ -63,7 +63,8 @@ timing and the Dreamcast intro in the standalone (item 7). **Found and fixed: th
 title screen** (03d1dc8): disc reads finished far faster than a drive and the intro's script waited forever
 after its last model load; reads are now timed with Dolphin's drive model (item 7, *The USA intro stalled*).
 Test routes recorded before it need `SKIES_DI_FAST=1`. Patched Dawn packages (MSAA 2x / 8x) for Windows,
-Linux and Android with `tools/build-dawn-package.*` (546c002, item 2); where CI gets them is the user's call.
+Linux and Android with `tools/build-dawn-package.*` (546c002, item 2); since 2026-11-19 CI builds and caches
+them (`validate.yml` `dawn` job, `tools/ci-dawn.sh`) for the releases, the stock package the fallback.
 **Fixed (fork 0052, from the Mac session, integrated a2ce68f):** the "4x save-state bug" was the GX state's
 mapped viewport / scissor left at the old render size after a resolution change; the loaded picture was the
 right one (*HANDOFF-emulator-free.md* *macOS*, *Sweep*). **2026-10-27 evening: the branch's code review is done**

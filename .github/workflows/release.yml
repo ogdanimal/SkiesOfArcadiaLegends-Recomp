@@ -270,8 +270,6 @@ jobs:
             Controls → Touch controls: Auto, Always or Off). In the game, Back opens the menu;
             Saves → Quit game returns to the launcher. Custom GPU drivers (Turnip, Settings →
             Graphics → GPU driver) work with the new engine too.
-
-          Not in this build: anti-aliasing 2x / 8x (Off and 4x only).
           EOF
             # What changed since the last test build, kept beside the code (release/test-build-notes.md)
             if [ -f release/test-build-notes.md ]; then

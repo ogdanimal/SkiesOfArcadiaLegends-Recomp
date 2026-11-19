@@ -27,6 +27,10 @@ if [ "$(uname -s)" = Darwin ]; then
   EXTRA+=("-DCMAKE_IGNORE_PREFIX_PATH=/opt/homebrew;/usr/local" "-DCMAKE_MAKE_PROGRAM=$(command -v ninja)")
   EXTRA+=(-DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 "-DCMAKE_OBJCXX_FLAGS=$MAP")
 fi
+# DAWN_PACKAGE=<dawn-*.tar.gz>: Dawn with patches/dawn/ (tools/ci-dawn.sh; MSAA 2x / 8x) instead of the stock prebuilt
+if [ -n "${DAWN_PACKAGE:-}" ]; then
+  EXTRA+=("-DAURORA_DAWN_PACKAGE_URL=file://$(cd "$(dirname "$DAWN_PACKAGE")" && pwd)/$(basename "$DAWN_PACKAGE")")
+fi
 ${PKG[@]+"${PKG[@]}"} cmake -S standalone -B "$B" -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
   "-DSKIES_RELEASE_DISC_IDS=$IDS" "-DSKIES_RELEASE_DOL_PATCHES=$PATCHES" \
   "-DCMAKE_C_FLAGS=$MAP" "-DCMAKE_CXX_FLAGS=$MAP" "${EXTRA[@]}"

@@ -27,6 +27,8 @@
 - **Android: custom GPU drivers** (Mesa Turnip on Adreno, Settings → Graphics → GPU driver) now work with the
   new engine, with the same safeguard: if the game doesn't start with it, the app goes back to the device's
   own driver.
+- **Anti-aliasing 2x and 8x** (Settings → Graphics → Anti-aliasing) beside Off and 4x, as in the Dolphin build
+  (8x where the graphics chip has it).
 - **Laptops with two graphics chips** (#32): the game asks for the faster one on every graphics API, and the
   log (`Logs/skies-standalone.log`) names the graphics card, API and driver it used: include it in reports.
 - The European and Japanese discs get the same game update as the USA one; your discs are patched again

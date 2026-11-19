@@ -16,6 +16,17 @@
   `SKIES_EXTRA_ARGS` on Android), `highlytheoretical-dsp-shift-wrap.patch` (#26, not confirmed as its cause),
   cheat codes (#5: `Cheats/<disc ID>.ini`, a switch in the in-game menu and both launchers, the Android launcher's
   Cheat file import), the graphics adapter in every log and dual-GPU exports (#32), the READMEs.
+- **Parity pass (2026-11-19, after "do all of them except not worth it"):** the Dolphin build's features worth
+  bringing over, all on the branch: desktop **Renderer** choice (`[Skies] Renderer` → `DOL_AURORA_BACKEND`, in-game
+  menu + launcher, `moderngekko-renderer.patch`; Windows D3D12 / Vulkan / D3D11 and WSL GL ES checked), touch
+  controls **opacity / size** (`recompcore-touch-style.patch`), the **Menu / Invincible hotkeys** rebindable
+  (`[SkiesHotkeys]`, Button mapping's last rows; xdotool-checked), **custom GPU drivers** on Android (libadrenotools,
+  `libskiesvk.so`, `recompcore-aurora-vulkan-dir.patch`, `recompcore-standalone-driver.patch`; Pocket 5 Turnip
+  v26 R8 battles at 1.00x, keep prompt and crash safeguard work, test app back on the system driver), and
+  **MSAA 2x / 8x** from a CI-built patched Dawn (`validate.yml` `dawn` job, `tools/ci-dawn.sh`; falls back to the
+  stock package, Off / 4x, if it fails). Left out by the owner: Android 7 / 8, the Windows File menu. **The first
+  tag after this costs 1-2 h more** (the Dawn cache is empty); check in the release jobs' logs that each found
+  its `dawn-<target>` artifact (`DAWN_PACKAGE` set) and, after the draft, that Anti-aliasing offers 2x.
 - **What it has** (`release/test-build-notes.md`, appended to the draft's notes by `release.yml`): the `issues`
   branch (#25 Ship battle HUD, #19 DC music level, #18 60 fps texture-change pairing, #22 screen plane, #24 in
   the Dolphin build only), game patch ws35 on all three discs (`release/*.dolpatch` regenerated, CI rebuilds the

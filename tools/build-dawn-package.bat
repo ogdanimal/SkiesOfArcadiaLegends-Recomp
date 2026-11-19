@@ -25,7 +25,10 @@ findstr /c:"A device without VK_KHR_swapchain can't present" "%SRC%\src\dawn\nat
   || (echo %SRC% lacks patches\dawn\0002 & exit /b 1)
 if not exist "%DXC%\dxcompiler.dll" (echo %DXC% has no dxcompiler.dll & exit /b 1)
 if not exist "%DXC%\dxil.dll" (echo %DXC% has no dxil.dll & exit /b 1)
-call "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Auxiliary\Build\vcvars64.bat" >nul || exit /b 1
+rem MSVC: the CI job sets it up (ilammy/msvc-dev-cmd); locally the Build Tools' vcvars
+if not defined VCINSTALLDIR (
+  call "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Auxiliary\Build\vcvars64.bat" >nul || exit /b 1
+)
 set "BUILD=%OUT%\build-dawn-windows-amd64"
 set "INSTALL=%OUT%\install-dawn-windows-amd64"
 rem The -D after -C override dawn-ci.cmake's DAWN_USE_BUILT_DXC=ON

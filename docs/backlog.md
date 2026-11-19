@@ -16,13 +16,17 @@ Requests and ideas not scheduled yet. Move an item to a handoff when work on it 
   development notes, *Issue pass #16-#25*). In local aurora-backend; checked on WSL, Windows and the Pocket 5.
   Left: the push and the #24 VRR test on the user's display. #19's F1 is in the standalone too (2026-11-19:
   saves to the menu's slot unless F1 is bound; checked on WSL with a real key event, the bound case not run).
-- **Patched Dawn** (MSAA 2x / 8x, the Windows swap chain fix): decided 2026-11-19 (the owner left the call to
-  Claude): build the packages in CI, not hosted by hand: one step per platform job runs
-  `tools/build-dawn-package.sh` / `.bat` behind `actions/cache` keyed on the Dawn ref + `patches/dawn/**` + the
-  script, and `build-standalone-release.*` / `android-standalone-build.sh` pass
-  `-DAURORA_DAWN_PACKAGE_URL=file://...`. Not done yet: a cache miss is 1-2 h per platform and each CI mistake
-  costs a round after a push, for 2x / 8x only (Off and 4x work); worth it before a normal release, not for a
-  test build. The scripts themselves work (local Linux / Android / Windows packages, 2026-10-25/26).
+- **Patched Dawn** (MSAA 2x / 8x, the Windows swap chain fix): done 2026-11-19, built in CI (the owner left the
+  call to Claude). `validate.yml`'s `dawn` job (linux / android / darwin / windows) runs `tools/ci-dawn.sh` behind
+  `actions/cache` keyed on `patches/dawn/*`, the Dawn scripts and Aurora's CMakeLists.txt (its pinned Dawn) and
+  uploads `dawn-<target>`; the platform jobs download it and set `DAWN_PACKAGE` (`build-standalone-release.*`:
+  `-DAURORA_DAWN_PACKAGE_URL=file://...`; `android-standalone-build.sh`: the package unpacked). Every step after
+  the checkout may fail without failing the job, and the platform jobs run whatever its result: then the stock
+  prebuilt, anti-aliasing Off / 4x only, as before. A cache miss costs 1-2 h on the first tag. Checked locally:
+  Pocket 5 APK on the patched Android package (Anti-aliasing Off / 2x MSAA / 4x MSAA in the menu), Linux
+  standalone built through the `file://` path (the nox11 package, on Wayland): Aurora logs "MSAA modes: 1x, 4x, 8x"
+  on llvmpipe against the stock build's "1x, 4x"; MSVC build of the branch on Windows boots and plays. Not
+  proven in CI until the next tag.
 - **By hand:** two controllers and remapping with a pad (standalone); the desktop launcher's Continue click.
 - **Android:** touch controls done 2026-11-18, opacity and size 2026-11-19 (no layout editor). Custom GPU drivers
   done 2026-11-19: libadrenotools in `libskies.so`, Dawn reaches the driver through `libskiesvk.so`
@@ -132,7 +136,7 @@ for good. The fix is code signing (a certificate with reputation, e.g. Azure Tru
 Standalone sandbox test (`C:\dev\SkiesStandalone\sandbox`, `skies-sandbox-sa.wsb` + `in\test.ps1`, which turns
 Smart App Control off with `CiTool --refresh` first): D3D11 draws the game; D3D12 crashes the sandbox's kernel
 while Dawn enumerates adapters (a Windows GPU-PV bug); Vulkan's crash was Dawn calling a missing
-`vkCreateSwapchainKHR`, fixed by `patches/dawn/0002` (a source-built Dawn only). Details in
+`vkCreateSwapchainKHR`, fixed by `patches/dawn/0002` (in the CI-built Dawn since 2026-11-19). Details in
 `HANDOFF-feature-gaps.md`, *Items 8-10*.
 
 ## macOS release: signing, notarization — 2026-10-18
