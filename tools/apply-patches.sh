@@ -22,5 +22,8 @@ done
 for p in mtmsr-entry gather-pipe llvm-cpu win64-sjlj-frame coff-uwtable halfword-byterev macho-sections; do
   apply $DR dolrecomp-$p.patch
 done
-# Highly Theoretical (the Dreamcast music's AICA), both builds
-apply lib/HighlyTheoretical highlytheoretical-dsp-shift-wrap.patch
+# Highly Theoretical (the Dreamcast music's AICA), both builds; when it's checked out (CI's codegen jobs take
+# only ModernGekko, RecompCore and DolRecomp)
+if [ -f lib/HighlyTheoretical/Core/yam.c ]; then
+  apply lib/HighlyTheoretical highlytheoretical-dsp-shift-wrap.patch
+fi
