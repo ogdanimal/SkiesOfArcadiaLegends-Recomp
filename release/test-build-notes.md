@@ -3,7 +3,7 @@
 - **Android: touch controls** for phones and tablets without a controller: stick, C-stick, D-pad,
   A / B / X / Y, L / R, Z, Start and a menu button. They step aside when a controller is used and come
   back when you touch the screen. Settings → Controls → Touch controls (also in the in-game menu): Auto,
-  Always or Off.
+  Always or Off, with their opacity (25-100%) and size (75-110%).
 - **Ship battle HUD** (#25): the Item list no longer runs off the bottom of the screen in widescreen, and a
   new setting (Settings → Graphics → Ship battle HUD) keeps the game's own centred layout if you prefer it.
 - **60 fps** (#18): parts of a character that change texture between frames (a face changing expression)

@@ -1542,10 +1542,10 @@ void TouchPadSet(u16 buttons, s8 stick_x, s8 stick_y, s8 c_x, s8 c_y, u8 trigger
                     std::memory_order_relaxed);
 }
 
-static std::atomic<int> s_touch_mode{0};
-void TouchModeSet(int mode)
+static std::atomic<int> s_touch_mode{0 | 75 << 8 | 100 << 16};  // Auto, 75% opaque, 100% size
+void TouchModeSet(int mode, int opacity_percent, int size_percent)
 {
-  s_touch_mode.store(mode, std::memory_order_relaxed);
+  s_touch_mode.store(mode | opacity_percent << 8 | size_percent << 16, std::memory_order_relaxed);
 }
 int TouchMode()
 {

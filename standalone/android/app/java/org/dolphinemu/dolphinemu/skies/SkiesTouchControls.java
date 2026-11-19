@@ -31,24 +31,36 @@ public class SkiesTouchControls extends View implements InputManager.InputDevice
   /** buttons: the bits above; sticks -127..127 (up positive); triggers 0..255. */
   private static native void nativeTouchPad(int buttons, int stickX, int stickY, int cX, int cY, int trigL,
                                             int trigR);
-  /** [Skies] TouchControls as the in-game menu has it: 0 Auto, 1 Always, 2 Off. */
+  /** [Skies] TouchControls as the in-game menu has it: 0 Auto, 1 Always, 2 Off (low byte); TouchOpacity percent
+   *  (bits 8-15) and TouchSize percent (bits 16-23). */
   private static native int nativeTouchMode();
   private static final int MODE_AUTO = 0, MODE_ALWAYS = 1, MODE_OFF = 2;
   private int mMode = MODE_AUTO;
+  private int mOpacity = 75, mSize = 100;  // percent: 75% opacity is the look the alphas below were drawn at
   private boolean mAutoShown;  // Auto: whether no controller is in use
   /** The menu can change the mode while the game runs: read it twice a second. */
   private final Runnable mPollMode = new Runnable() {
     @Override
     public void run() {
-      int mode;
+      int packed;
       try {
-        mode = nativeTouchMode();
+        packed = nativeTouchMode();
       } catch (UnsatisfiedLinkError e) {
-        mode = MODE_AUTO;  // an older libskies.so
+        packed = MODE_AUTO | 75 << 8 | 100 << 16;  // an older libskies.so
       }
+      final int mode = packed & 0xFF, opacity = (packed >> 8) & 0xFF, size = (packed >> 16) & 0xFF;
       if (mode != mMode) {
         mMode = mode;
         applyShown();
+      }
+      if (opacity != mOpacity && opacity > 0) {
+        mOpacity = opacity;
+        invalidate();
+      }
+      if (size != mSize && size > 0) {
+        mSize = size;
+        layoutControls();
+        invalidate();
       }
       mHandler.postDelayed(this, 500);
     }
@@ -180,11 +192,20 @@ public class SkiesTouchControls extends View implements InputManager.InputDevice
 
   @Override
   protected void onSizeChanged(int w, int h, int oldw, int oldh) {
-    final float unit = Math.min(w, h);
+    layoutControls();
+  }
+
+  /** Each control's place: its offset from its edge and its radius scaled by the size setting. */
+  private void layoutControls() {
+    final int w = getWidth(), h = getHeight();
+    if (w == 0 || h == 0)
+      return;
+    final float unit = Math.min(w, h) * mSize / 100f;
     for (Control c : mControls) {
       c.r = c.ur * unit;
-      // y in units from the top; in portrait (the shorter side across) the lower controls go to the bottom
-      c.cy = c.uy < 0.3f ? c.uy * unit : c.uy * unit + (h - unit);
+      // y in units: the top row from the top edge, the rest from the bottom one (so in portrait, the shorter side
+      // across, they sit at the bottom), both scaled by the size
+      c.cy = c.uy < 0.3f ? c.uy * unit : h - (1f - c.uy) * unit;
       // the D-pad and C-stick no further in than 30% of the width, so on a squarer screen they don't meet
       final float in = c.kind == KIND_DPAD || c.kind == KIND_CSTICK ? Math.min(c.ux * unit, 0.3f * w) : c.ux * unit;
       c.cx = c.ux < 0 ? w / 2.0f : c.fromRight ? w - in : in;
@@ -347,7 +368,7 @@ public class SkiesTouchControls extends View implements InputManager.InputDevice
         drawCircle(canvas, c.cx, c.cy, c.r, false);
         // three lines
         final float w = c.r * 0.5f, gap = c.r * 0.28f;
-        mLine.setAlpha(170);
+        mLine.setAlpha(alpha(170));
         for (int i = -1; i <= 1; ++i)
           canvas.drawLine(c.cx - w, c.cy + i * gap, c.cx + w, c.cy + i * gap, mLine);
         break;
@@ -370,9 +391,9 @@ public class SkiesTouchControls extends View implements InputManager.InputDevice
           final float px = c.cx + at[i][0] * c.r * 0.64f, py = c.cy + at[i][1] * c.r * 0.64f;
           final RectF rect = new RectF(px - arm, py - arm, px + arm, py + arm);
           final boolean on = (mButtons & bits[i]) != 0;
-          mFill.setARGB(on ? 150 : 60, 255, 255, 255);
+          mFill.setARGB(alpha(on ? 150 : 60), 255, 255, 255);
           canvas.drawRoundRect(rect, arm * 0.3f, arm * 0.3f, mFill);
-          mLine.setAlpha(on ? 230 : 140);
+          mLine.setAlpha(alpha(on ? 230 : 140));
           canvas.drawRoundRect(rect, arm * 0.3f, arm * 0.3f, mLine);
         }
         break;
@@ -383,10 +404,15 @@ public class SkiesTouchControls extends View implements InputManager.InputDevice
     }
   }
 
+  /** An alpha drawn at 75% opacity, at the opacity setting's. */
+  private int alpha(int at75) {
+    return Math.min(255, at75 * mOpacity / 75);
+  }
+
   private void drawCircle(Canvas canvas, float x, float y, float r, boolean pressed) {
-    mFill.setARGB(pressed ? 150 : 50, 255, 255, 255);
+    mFill.setARGB(alpha(pressed ? 150 : 50), 255, 255, 255);
     canvas.drawCircle(x, y, r, mFill);
-    mLine.setARGB(pressed ? 230 : 140, 255, 255, 255);
+    mLine.setARGB(alpha(pressed ? 230 : 140), 255, 255, 255);
     canvas.drawCircle(x, y, r, mLine);
   }
 
@@ -395,7 +421,7 @@ public class SkiesTouchControls extends View implements InputManager.InputDevice
       return;
     final float size = mText.getTextSize();
     mText.setTextSize(label.length() > 1 ? size * 0.6f : size);
-    mText.setARGB(200, 255, 255, 255);
+    mText.setARGB(alpha(200), 255, 255, 255);
     canvas.drawText(label, x, y - (mText.descent() + mText.ascent()) / 2, mText);
     mText.setTextSize(size);
   }

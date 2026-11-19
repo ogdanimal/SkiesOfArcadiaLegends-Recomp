@@ -87,7 +87,7 @@ shows as "Steam Controller"). On Android the built-in controller, or
 the first one you connect, is set up for you, and the game also switches to whichever controller you
 press, so a Bluetooth controller works next to a handheld's own; without one, the game shows touch
 controls (a controller's input hides them, a touch on the screen brings them back; **Settings → Controls →
-Touch controls** or the in-game menu: Auto, Always or Off).
+Touch controls** or the in-game menu: Auto, Always or Off, and their opacity and size).
 
 | GameCube | Controller (Xbox / PlayStation) | Keyboard |
 |---|---|---|

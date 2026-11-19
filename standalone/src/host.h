@@ -292,8 +292,9 @@ const char* VideoRendererName();  // the graphics API in use ("Direct3D 12", ...
 // controller's, the sticks used while touched (-127..127), the triggers the further in of the two
 void TouchPadSet(u16 buttons, s8 stick_x, s8 stick_y, s8 c_x, s8 c_y, u8 trigger_l, u8 trigger_r);
 // [Skies] TouchControls (the menu, any thread): 0 Auto, 1 Always, 2 Off; the touch controls read it
-void TouchModeSet(int mode);
-int TouchMode();
+void TouchModeSet(int mode, int opacity_percent, int size_percent);
+int TouchMode();  // mode | opacity << 8 | size << 16, for the view
+
 // Cheat codes (cheats.cpp): GameSettings/<disc ID>.ini's enabled Action Replay / Gecko memory writes
 void CheatsApply();  // every frame end, while [Skies] Cheats is on
 void CheatsReload();

@@ -103,6 +103,8 @@ enum class Option
   DeadZone,
   Rumble,
   TouchControls,
+  TouchOpacity,
+  TouchSize,
   Mapping,
   Language,
   Music,
@@ -128,7 +130,8 @@ constexpr std::array LANGUAGE_ROWS{Option::Language};
 constexpr std::array SOUND_ROWS{Option::Volume};
 constexpr std::array DREAMCAST_ROWS{Option::Music, Option::Uncensored};
 #if defined(__ANDROID__)
-constexpr std::array CONTROLS_ROWS{Option::Mapping, Option::DeadZone, Option::Rumble, Option::TouchControls};
+constexpr std::array CONTROLS_ROWS{Option::Mapping,       Option::DeadZone,     Option::Rumble,
+                                   Option::TouchControls, Option::TouchOpacity, Option::TouchSize};
 #else
 constexpr std::array CONTROLS_ROWS{Option::Mapping, Option::DeadZone, Option::Rumble};
 #endif
@@ -233,6 +236,12 @@ int ReadRumble()
 // Android's touch controls: 0 Auto (hidden while a controller is in use), 1 Always, 2 Off
 constexpr Key TOUCH_CONTROLS{SettingFile::Main, "Skies", "TouchControls", 0};
 constexpr std::array TOUCH_MODES{0, 1, 2};
+// Their look, percent: how opaque, and how big (and how far in from the edges)
+constexpr Key TOUCH_OPACITY{SettingFile::Main, "Skies", "TouchOpacity", 75};
+constexpr Key TOUCH_SIZE{SettingFile::Main, "Skies", "TouchSize", 100};
+constexpr std::array TOUCH_OPACITIES{25, 50, 75, 100};
+// Up to 110%: the layout is as tall as a 16:9 screen allows (past ~112% the stick meets L, the face buttons Z / R)
+constexpr std::array TOUCH_SIZES{75, 90, 100, 110};
 constexpr Key VOLUME{SettingFile::Main, "DSP", "Volume", 100};
 // The European disc's language (0 English, 1 Deutsch, 2 Français, 3 Español): the IPL's, which the
 // game reads once at boot (hw_exi.cpp InitSram)
@@ -292,6 +301,8 @@ struct Values
   int dead_zone = 0;
   int rumble = 1;
   int touch = 0;  // TOUCH_CONTROLS
+  int touch_opacity = 75;
+  int touch_size = 100;
   int auto_save = 10;
   bool dc_music_installed = false;  // the Dreamcast disc's music is imported (dreamcast.cpp)
   bool uncensor_available = false;  // the running game has converted uncensored files
@@ -527,6 +538,8 @@ Values ReadValues()
   values.dead_zone = ReadDeadZone();
   values.rumble = ReadRumble();
   values.touch = std::clamp(Get(TOUCH_CONTROLS), 0, 2);
+  values.touch_opacity = std::clamp(Get(TOUCH_OPACITY), 25, 100);
+  values.touch_size = std::clamp(Get(TOUCH_SIZE), 75, 110);
   values.auto_save = std::max(0, Get(AUTO_SAVE));
 #ifdef SKIES_STANDALONE_AURORA
   values.dc_music_installed = DreamcastMusicInstalled();
@@ -586,7 +599,9 @@ void Apply(const Values& values, const Values& before)
   if (values.rumble != before.rumble)
     SettingSet(SettingFile::Pad, "GCPad1", "Rumble/Motor/Range", values.rumble ? 100 : 0);
   set(TOUCH_CONTROLS, values.touch, before.touch);
-  TouchModeSet(values.touch);
+  set(TOUCH_OPACITY, values.touch_opacity, before.touch_opacity);
+  set(TOUCH_SIZE, values.touch_size, before.touch_size);
+  TouchModeSet(values.touch, values.touch_opacity, values.touch_size);
   set(AUTO_SAVE, values.auto_save, before.auto_save);
   set(DC_MUSIC, values.music, before.music);
   set(UNCENSORED, values.uncensored, before.uncensored);
@@ -819,6 +834,12 @@ void Change(Option option, int direction, bool wrap)
     break;
   case Option::TouchControls:
     v.touch = Step(TOUCH_MODES, v.touch, direction, wrap);
+    break;
+  case Option::TouchOpacity:
+    v.touch_opacity = Step(TOUCH_OPACITIES, v.touch_opacity, direction, wrap);
+    break;
+  case Option::TouchSize:
+    v.touch_size = Step(TOUCH_SIZES, v.touch_size, direction, wrap);
     break;
   case Option::Mapping:
     break;
@@ -1942,7 +1963,8 @@ void MenuApplyGame()
     s_volume = std::clamp(Get(VOLUME), 0, 100);
     s_dead_zone = ReadDeadZone();
     s_rumble = ReadRumble() != 0;
-    TouchModeSet(std::clamp(Get(TOUCH_CONTROLS), 0, 2));
+    TouchModeSet(std::clamp(Get(TOUCH_CONTROLS), 0, 2), std::clamp(Get(TOUCH_OPACITY), 25, 100),
+                 std::clamp(Get(TOUCH_SIZE), 75, 110));
   }
   autosave::Poll();
   if (Read32(WS_CONFIG_ADDRESS) == WS_CONFIG_MAGIC)
@@ -2431,6 +2453,12 @@ void Draw(float scale)
       return {"Touch controls", v.touch == 1 ? "Always" : v.touch == 2 ? "Off" : "Auto",
               "Auto shows them while no controller is in use (a touch brings them back). Always keeps them "
               "on screen; Off hides them while a controller is connected."};
+    case Option::TouchOpacity:
+      return {"Touch controls opacity", std::to_string(v.touch_opacity) + "%",
+              "How solid the touch controls are drawn: lower shows more of the game through them."};
+    case Option::TouchSize:
+      return {"Touch controls size", std::to_string(v.touch_size) + "%",
+              "How big the touch controls are (and how far in from the screen's edges)."};
     case Option::Language:
     {
       static constexpr const char* LANGUAGES[] = {"English", "Deutsch", "Fran\xc3\xa7" "ais", "Espa\xc3\xb1ol"};

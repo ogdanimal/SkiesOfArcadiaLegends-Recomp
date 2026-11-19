@@ -1,0 +1,23 @@
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+@@ -67,6 +67,8 @@
+         fun choices(vararg pairs: Pair<Int, String>) = pairs.map { Choice(it.first, it.second) }
+         val ON_OFF = choices(1 to "On", 0 to "Off")
+         val TOUCH_CONTROLS = choices(0 to "Auto", 1 to "Always", 2 to "Off")
++        val TOUCH_OPACITY = choices(25 to "25%", 50 to "50%", 75 to "75%", 100 to "100%")
++        val TOUCH_SIZE = choices(75 to "75%", 90 to "90%", 100 to "100%", 110 to "110%")
+         // Dolphin's [Core] GFXBackend values, by index
+         val BACKEND_KEYS = listOf("Vulkan", "OGL")
+         val BACKEND = choices(0 to "Vulkan", 1 to "OpenGL ES")
+@@ -334,6 +336,10 @@
+                     configRow(rows, "Touch controls", TOUCH_CONTROLS, dolphin, "Skies", "TouchControls", 0,
+                         "Auto shows them while no controller is in use (a touch brings them back). Always " +
+                             "keeps them on screen; Off hides them while a controller is connected.")
++                    configRow(rows, "Touch controls opacity", TOUCH_OPACITY, dolphin, "Skies", "TouchOpacity", 75,
++                        "How solid the touch controls are drawn: lower shows more of the game through them.")
++                    configRow(rows, "Touch controls size", TOUCH_SIZE, dolphin, "Skies", "TouchSize", 100,
++                        "How big the touch controls are (and how far in from the screen's edges).")
+                 }
+             }
+             "Saves" -> {
