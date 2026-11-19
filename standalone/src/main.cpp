@@ -6,7 +6,8 @@
 // default the disc ID's, from the library path: Android's app libraries, or beside the executable).
 // USERDIR holds the memory card saves as the Dolphin build keeps them (GC/<region>/Card A/*.gci);
 // without it no card is inserted. --dol boots that DOL (a game-patched main.dol) instead of sys/main.dol.
-// --load-state starts from a save state (state.cpp); --seconds then counts the state's guest clock.
+// --load-state starts from a save state (state.cpp); --seconds then counts the state's guest clock
+// (--seconds +N: N seconds after the state's time).
 // --continue boots straight into card save file N (1-99) or the newest one ("card"), as the launchers'
 // Continue ([Skies] AutoLoadCard; needs a ws20+ game patch).
 // The launchers start it as they started the Dolphin build's runner (skies-run): --game G --user-dir U
@@ -100,6 +101,8 @@ namespace
 {
 bool s_throttle = true;
 u64 s_stop_cycles = 0;
+// --seconds +N: N seconds after the run's start (g_run_start_seconds: the state's time)
+double s_stop_relative = 0.0;
 // The menu asked for the game to start again (a new language): main runs itself again
 bool s_restart = false;
 std::chrono::steady_clock::time_point s_wall_start;
@@ -377,6 +380,9 @@ void Throttle()
     s_last_report_cycles = g_cycles;
     s_last_report_wall = now;
   }
+  // Relative: recomputed each time, since the state (and so the start) loads after the first fields
+  if (s_stop_relative > 0)
+    s_stop_cycles = static_cast<u64>((g_run_start_seconds + s_stop_relative) * CPU_HZ);
   if (s_stop_cycles && g_cycles >= s_stop_cycles)
     RequestQuit();
   if (VideoQuitRequested())
@@ -666,6 +672,7 @@ int main(int argc, char** argv)
   u32 idle_pc = ~0u;
   int continue_file = 0;
   double seconds = 0;
+  bool seconds_relative = false;  // --seconds +N
   for (int i = 1; i < argc; ++i)
   {
     const std::string a = argv[i];
@@ -686,7 +693,11 @@ int main(int argc, char** argv)
     else if (a == "--unthrottled")
       s_throttle = false;
     else if (a == "--seconds")
-      seconds = std::atof(next());
+    {
+      const std::string v = next();
+      seconds_relative = !v.empty() && v[0] == '+';
+      seconds = std::atof(v.c_str() + (seconds_relative ? 1 : 0));
+    }
     else if (a == "--mmio-log")
       g_log_mmio = true;
     else if (a == "--idle-pc")
@@ -890,8 +901,9 @@ int main(int argc, char** argv)
   MenuApplyGame();  // the picture's shape before the window opens at it
   if (!VideoInit(headless))
     return 1;
-  if (seconds > 0)
+  if (seconds > 0 && !seconds_relative)
     s_stop_cycles = static_cast<u64>(seconds * CPU_HZ);
+  s_stop_relative = seconds_relative ? seconds : 0.0;
 
   // The game on its own thread, this one the video thread (video.cpp)
   VideoRun([&] {

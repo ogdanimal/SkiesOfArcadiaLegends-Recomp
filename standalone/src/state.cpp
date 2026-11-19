@@ -32,6 +32,8 @@
 
 namespace host
 {
+double g_run_start_seconds = 0.0;
+
 bool g_state_request = false;
 
 namespace
@@ -228,6 +230,10 @@ bool Save(const std::string& path, std::string* error)
 void Loaded(const std::string& path, double guest_seconds, std::chrono::steady_clock::time_point start,
             const char* what)
 {
+  static bool s_first = true;
+  if (s_first)
+    g_run_start_seconds = guest_seconds;
+  s_first = false;
   CpuRestoreBootDol();
   DiscAdoptGuestFst();
   VideoStateLoaded();

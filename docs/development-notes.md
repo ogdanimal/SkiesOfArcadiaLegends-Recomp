@@ -1877,7 +1877,9 @@ the static module replaces it).
   projection), so the copy filled the picture, but the shake's rotation then happened in squeezed
   space and sheared the picture. ws35 keeps the wide projection and widens the plane itself:
   `WIDE_PLANE` wrappers (`fullwidth.S`) call `ws_plane_widen`, `njScale(0, 1 / factor, 1, 1)` on the
-  model matrix before the draw. **Not seen in game.** Only two battle script commands set the copy
+  model matrix before the draw. **Not seen in game.** (2026-11-19: setting the copy bit by hand,
+  `SKIES_POKE="8030A178|=40000000"` in a battle, crashes in `fn_80226D14` on a null pointer: the copy's buffer
+  comes from the script command that sets the bit, so only the game's own pose can show the plane.) Only two battle script commands set the copy
   bit: `SCREENSHOT` (0x30, `fn_8003A264` -> `fn_80056B6C`) and entry 0x42 (`fn_80039280` ->
   `fn_8005B648`, beside `TEXCOPYMODEL`), both behind a motion gate (`fn_8003DCF4`: the actor must
   still be in the script's motion). The debug patch logs both (`COPY_LOG` `0x8031AA10` / `14`) and can

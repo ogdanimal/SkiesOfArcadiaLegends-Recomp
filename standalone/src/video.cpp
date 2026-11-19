@@ -993,7 +993,8 @@ void VideoRun(const std::function<void()>& game)
 // (e.g. qol_input at 80002EA0: 'QOLC', encounter percent, ...). An entry as @SECONDS:ADDR=WORDS is
 // written once, at the first frame end at or after that guest time (tests: a map change is
 // "@110:80305CF0=6D65323938612E7363740000;@110:80311AEC=0000000F", the script name then field state
-// 0xF, USA addresses).
+// 0xF, USA addresses). ADDR|=WORDS ORs the words in instead (set a flag bit, keep the others); @+T is T
+// seconds after the run's start (the loaded state's time).
 void ApplyPokes()
 {
   struct Poke
@@ -1002,6 +1003,8 @@ void ApplyPokes()
     std::vector<u32> words;
     double at = -1;  // once, at this guest time; < 0: every frame
     bool done = false;
+    bool or_in = false;  // ADDR|=WORDS
+    bool relative = false;  // @+T: T seconds after the run's start
   };
   static std::vector<Poke> pokes = [] {
     std::vector<Poke> list;
@@ -1012,18 +1015,23 @@ void ApplyPokes()
       std::string one = rest.substr(0, semi);
       rest = semi == std::string::npos ? "" : rest.substr(semi + 1);
       double at = -1;
+      bool relative = false;
       if (!one.empty() && one[0] == '@')
       {
         const size_t colon = one.find(':');
         if (colon == std::string::npos)
           continue;
-        at = std::strtod(one.c_str() + 1, nullptr);
+        relative = one.size() > 1 && one[1] == '+';
+        at = std::strtod(one.c_str() + (relative ? 2 : 1), nullptr);
         one = one.substr(colon + 1);
       }
       const size_t eq = one.find('=');
       if (eq == std::string::npos)
         continue;
-      Poke p{static_cast<u32>(std::strtoul(one.substr(0, eq).c_str(), nullptr, 16)), {}, at};
+      const bool or_in = eq > 0 && one[eq - 1] == '|';
+      Poke p{static_cast<u32>(std::strtoul(one.substr(0, or_in ? eq - 1 : eq).c_str(), nullptr, 16)), {}, at};
+      p.or_in = or_in;
+      p.relative = relative;
       const std::string hex = one.substr(eq + 1);
       for (size_t i = 0; i + 8 <= hex.size(); i += 8)
         p.words.push_back(static_cast<u32>(std::strtoul(hex.substr(i, 8).c_str(), nullptr, 16)));
@@ -1036,13 +1044,16 @@ void ApplyPokes()
   {
     if (p.at >= 0)
     {
-      if (p.done || now < p.at)
+      if (p.done || now < (p.relative ? g_run_start_seconds + p.at : p.at))
         continue;
       p.done = true;
       Log("[video] poke %08x (%zu words) at %.3f s guest\n", p.address, p.words.size(), now);
     }
     for (size_t i = 0; i < p.words.size(); ++i)
-      Write32(p.address + static_cast<u32>(4 * i), p.words[i]);
+    {
+      const u32 at = p.address + static_cast<u32>(4 * i);
+      Write32(at, p.or_in ? Read32(at) | p.words[i] : p.words[i]);
+    }
   }
 }
 
@@ -1409,7 +1420,8 @@ bool VideoQuitRequested()
 #endif
 }
 
-// SKIES_PRESS="12.5:START,14:A,...": port 1 holds that button for 0.2 guest seconds from each time
+// SKIES_PRESS="12.5:START,14:A,...": port 1 holds that button for 0.2 guest seconds from each time ("+12.5:A":
+// seconds after the run's start, the loaded state's time)
 // (START A B X Y Z L R UP DOWN LEFT RIGHT; CUP CDOWN CLEFT CRIGHT push the C-stick fully over, LT RT
 // the analog triggers fully in), for unattended runs. The low 16 bits are buttons.
 // While a script is set the host's own controllers and keyboard are left out of port 1-4, so an
@@ -1424,6 +1436,7 @@ u32 ScriptedButtons()
   {
     double at;
     u32 button;
+    bool relative = false;  // "+T": T seconds after the run's start (g_run_start_seconds)
   };
   static std::vector<Press> s_presses;
   static bool s_parsed = false;
@@ -1463,7 +1476,8 @@ u32 ScriptedButtons()
     while (script && *script)
     {
       char* end = nullptr;
-      const double at = std::strtod(script, &end);
+      const bool relative = *script == '+';
+      const double at = std::strtod(script + (relative ? 1 : 0), &end);
       if (!end || *end != ':')
         break;
       std::string name;
@@ -1473,7 +1487,7 @@ u32 ScriptedButtons()
         ++script;
       for (const auto& n : kNames)
         if (name == n.name)
-          s_presses.push_back({at, n.bit});
+          s_presses.push_back({at, n.bit, relative});
     }
     if (!s_presses.empty())
     {
@@ -1486,8 +1500,11 @@ u32 ScriptedButtons()
   const double now = static_cast<double>(Now()) / CPU_HZ;
   u32 held = 0;
   for (const Press& p : s_presses)
-    if (now >= p.at && now < p.at + 0.2)
+  {
+    const double at = p.relative ? g_run_start_seconds + p.at : p.at;
+    if (now >= at && now < at + 0.2)
       held |= p.button;
+  }
   return held;
 }
 

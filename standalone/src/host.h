@@ -101,6 +101,9 @@ bool Throttled();
 void PinVideoThread();  // main.cpp: the video thread's cores (SKIES_PIN_VIDEO)
 // The run loop's clock: Advance() moves time by dispatched cycles; RunDue() fires due events.
 extern u64 g_cycles;
+// Where this run started on the guest clock: 0 from boot, the state's time after the first --load-state.
+// Test scripts give times relative to it: --seconds +N, SKIES_PRESS "+T:BUTTON", SKIES_POKE "@+T:...".
+extern double g_run_start_seconds;
 extern u64 g_next_event;
 void RunDue();
 
