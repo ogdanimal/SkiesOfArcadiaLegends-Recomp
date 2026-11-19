@@ -1488,6 +1488,35 @@ u32 ScriptedButtons()
   return held;
 }
 
+// The touch controls' state, packed: buttons (16 bits), stick x / y, C-stick x / y, L / R (8 bits each)
+static std::atomic<u64> s_touch_pad{0};
+
+void TouchPadSet(u16 buttons, s8 stick_x, s8 stick_y, s8 c_x, s8 c_y, u8 trigger_l, u8 trigger_r)
+{
+  s_touch_pad.store(u64{buttons} | u64{static_cast<u8>(stick_x)} << 16 | u64{static_cast<u8>(stick_y)} << 24 |
+                        u64{static_cast<u8>(c_x)} << 32 | u64{static_cast<u8>(c_y)} << 40 | u64{trigger_l} << 48 |
+                        u64{trigger_r} << 56,
+                    std::memory_order_relaxed);
+}
+
+// Port 1 with the touch controls added: their buttons to the controller's, their sticks over its own while
+// touched, each trigger the further in of the two
+static void AddTouchPad(u16& buttons, s8 sticks[4], u8 triggers[2])
+{
+  const u64 t = s_touch_pad.load(std::memory_order_relaxed);
+  if (t == 0)
+    return;
+  buttons |= static_cast<u16>(t);
+  const s8 sx = static_cast<s8>(t >> 16), sy = static_cast<s8>(t >> 24), cx = static_cast<s8>(t >> 32),
+           cy = static_cast<s8>(t >> 40);
+  if (sx != 0 || sy != 0)
+    sticks[0] = sx, sticks[1] = sy;
+  if (cx != 0 || cy != 0)
+    sticks[2] = cx, sticks[3] = cy;
+  triggers[0] = std::max(triggers[0], static_cast<u8>(t >> 48));
+  triggers[1] = std::max(triggers[1], static_cast<u8>(t >> 56));
+}
+
 void VideoPadRead(u16 buttons[4], s8 sticks[4][4], u8 triggers[4][2], bool connected[4])
 {
   for (int i = 0; i < 4; ++i)
@@ -1526,6 +1555,7 @@ void VideoPadRead(u16 buttons[4], s8 sticks[4][4], u8 triggers[4][2], bool conne
     triggers[i][0] = std::max(triggers[i][0], state[i].trigger_left);
     triggers[i][1] = std::max(triggers[i][1], state[i].trigger_right);
   }
+  AddTouchPad(buttons[0], sticks[0], triggers[0]);
 #endif
 }
 

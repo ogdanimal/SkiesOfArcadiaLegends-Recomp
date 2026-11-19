@@ -429,6 +429,16 @@ extern "C" JNIEXPORT void JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesGame
   host::MenuRequestBack();
 }
 
+// Android's touch controls (the app's SkiesTouchControls): controller 1, beside a real one
+extern "C" JNIEXPORT void JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesTouchControls_nativeTouchPad(
+    JNIEnv*, jclass, jint buttons, jint stick_x, jint stick_y, jint c_x, jint c_y, jint trigger_l, jint trigger_r)
+{
+  const auto s8_of = [](jint v) { return static_cast<s8>(v < -127 ? -127 : v > 127 ? 127 : v); };
+  const auto u8_of = [](jint v) { return static_cast<u8>(v < 0 ? 0 : v > 255 ? 255 : v); };
+  host::TouchPadSet(static_cast<u16>(buttons), s8_of(stick_x), s8_of(stick_y), s8_of(c_x), s8_of(c_y),
+                    u8_of(trigger_l), u8_of(trigger_r));
+}
+
 namespace
 {
 void AndroidSetup(int& argc, char**& argv)

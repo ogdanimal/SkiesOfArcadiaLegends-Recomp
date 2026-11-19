@@ -10,11 +10,16 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.Process;
 import android.util.Log;
+import android.view.InputDevice;
+import android.view.InputEvent;
+import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
+import android.widget.RelativeLayout;
 
 import org.libsdl.app.SDLActivity;
 
@@ -37,10 +42,12 @@ public class SkiesGameActivity extends SDLActivity {
   /** After a close request, how long main gets to return before the activity is finished anyway. */
   private static final long CLOSE_TIMEOUT_MS = 10000;
 
-  private static native void nativeBack();
+  /** The in-game menu (Back, and the touch controls' menu button). */
+  static native void nativeBack();
 
   private final Handler mHandler = new Handler(Looper.getMainLooper());
   private boolean mClosing = false;
+  private SkiesTouchControls mTouch;
 
   private final BroadcastReceiver mCloseReceiver = new BroadcastReceiver() {
     @Override
@@ -64,6 +71,12 @@ public class SkiesGameActivity extends SDLActivity {
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
     hideSystemBars();
+    // The touch controls over the game's surface (SDL's layout holds it; null when the libraries didn't load)
+    if (mLayout != null && !SDLActivity.mBrokenLibraries) {
+      mTouch = new SkiesTouchControls(this);
+      mLayout.addView(mTouch, new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.MATCH_PARENT,
+                                                              RelativeLayout.LayoutParams.MATCH_PARENT));
+    }
     final IntentFilter filter = new IntentFilter(ACTION_CLOSE);
     if (Build.VERSION.SDK_INT >= 33) {
       registerReceiver(mCloseReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
@@ -105,8 +118,30 @@ public class SkiesGameActivity extends SDLActivity {
     nativeBack();
   }
 
+  // A controller's buttons and sticks: the touch controls step aside until the screen is touched again
+  private static boolean FromController(InputEvent event) {
+    return (event.getSource() & InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD ||
+           (event.getSource() & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK;
+  }
+
+  @Override
+  public boolean dispatchKeyEvent(KeyEvent event) {
+    if (mTouch != null && FromController(event) && event.getKeyCode() != KeyEvent.KEYCODE_BACK)
+      mTouch.onControllerInput();
+    return super.dispatchKeyEvent(event);
+  }
+
+  @Override
+  public boolean dispatchGenericMotionEvent(MotionEvent event) {
+    if (mTouch != null && FromController(event))
+      mTouch.onControllerInput();
+    return super.dispatchGenericMotionEvent(event);
+  }
+
   @Override
   protected void onDestroy() {
+    if (mTouch != null)
+      mTouch.release();
     try {
       unregisterReceiver(mCloseReceiver);
     } catch (IllegalArgumentException e) {

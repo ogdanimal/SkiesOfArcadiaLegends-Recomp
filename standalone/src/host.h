@@ -284,6 +284,9 @@ void VideoRetrace();                          // a VI field
 s64 VideoRefreshPeriodNs();
 bool VideoQuitRequested();
 void VideoPadRead(u16 buttons[4], s8 sticks[4][4], u8 triggers[4][2], bool connected[4]);
+// Android's touch controls (SkiesTouchControls.java, any thread): controller 1's buttons added to a real
+// controller's, the sticks used while touched (-127..127), the triggers the further in of the two
+void TouchPadSet(u16 buttons, s8 stick_x, s8 stick_y, s8 c_x, s8 c_y, u8 trigger_l, u8 trigger_r);
 // A controller's motor: 0 stop, 1 rumble, 2 hard stop (the SDK's PAD_MOTOR_*)
 void VideoPadMotor(u32 channel, u32 command);
 // HD textures (video.cpp): USER/Load/Textures/ with its separator ("" without --user), where the
