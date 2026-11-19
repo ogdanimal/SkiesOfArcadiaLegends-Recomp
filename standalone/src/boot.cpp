@@ -48,7 +48,22 @@ u64 RtcBase()
   static const u64 base = []() -> u64 {
     if (const char* fixed = std::getenv("SKIES_RTC"))
       return static_cast<u64>(std::strtoull(fixed, nullptr, 0));
-    return static_cast<u64>(std::time(nullptr)) - 946684800ull;
+    // Local time, as Dolphin's GetLocalTimeSinceJan1970: the game shows it as the card files' save
+    // times (UTC was hours off away from UTC). The offset by the C library (mktime of the UTC broken-down
+    // time, with this moment's daylight saving), not std::chrono's zone database, which can throw on
+    // Windows (issue #28).
+    const std::time_t now = std::time(nullptr);
+    std::time_t local = now;
+    if (const std::tm* utc_tm = std::gmtime(&now))
+    {
+      std::tm utc = *utc_tm;
+      const std::tm* local_tm = std::localtime(&now);
+      utc.tm_isdst = local_tm ? local_tm->tm_isdst : 0;
+      const std::time_t as_local = std::mktime(&utc);
+      if (as_local != static_cast<std::time_t>(-1))
+        local = now + (now - as_local);
+    }
+    return static_cast<u64>(local) - 946684800ull;
   }();
   return base;
 }

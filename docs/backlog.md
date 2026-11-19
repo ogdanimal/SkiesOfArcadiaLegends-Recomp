@@ -21,7 +21,8 @@ Requests and ideas not scheduled yet. Move an item to a handoff when work on it 
 - **By hand:** two controllers and remapping with a pad (standalone); the desktop launcher's Continue click.
 - **Android:** touch controls done 2026-11-18 (`SkiesTouchControls.java`, branch `standalone-issues`; no layout
   editor or opacity setting yet); custom GPU drivers aren't used by the standalone.
-- The standalone's game clock is UTC (`std::time()`); the Dolphin build's was local time (card file dates).
+- The standalone's game clock was UTC (`std::time()`); local time since 2026-11-18 (`boot.cpp` `RtcBase`, as the
+  Dolphin build's), so card file dates read as the player's clock.
 
 ## Dual audio (Japanese voices) — requested 2026-10-17
 
