@@ -14,14 +14,20 @@ MAP="-ffile-prefix-map=$PWD/="
 # libpng fetched and linked in, never the build machine's (the macOS runner's is Homebrew's, which a player's
 # Mac doesn't have: v0.90.0-standalone.1 linked /opt/homebrew/opt/libpng)
 EXTRA=(-DCMAKE_DISABLE_FIND_PACKAGE_PNG=ON)
+PKG=()
 if [ "$(uname -s)" = Linux ]; then
   # Dawn's prebuilt needs GCC 13's libstdc++, linked in (CXX=g++-13 on Ubuntu 22.04: CMakeLists.txt)
   EXTRA+=(-DSKIES_STATIC_LIBSTDCXX=ON)
 fi
 if [ "$(uname -s)" = Darwin ]; then
+  # Nothing from Homebrew (v0.90.0-standalone.3 linked its libzstd: Aurora's find_package / pkg-config found it):
+  # its prefixes ignored and no .pc files (Linux keeps pkg-config: SDL3 finds X11 / Wayland through it). Ninja
+  # by its path, which the ignored prefixes would otherwise hide.
+  PKG=(env PKG_CONFIG_LIBDIR=/nonexistent PKG_CONFIG_PATH=)
+  EXTRA+=("-DCMAKE_IGNORE_PREFIX_PATH=/opt/homebrew;/usr/local" "-DCMAKE_MAKE_PROGRAM=$(command -v ninja)")
   EXTRA+=(-DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 "-DCMAKE_OBJCXX_FLAGS=$MAP")
 fi
-cmake -S standalone -B "$B" -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
+${PKG[@]+"${PKG[@]}"} cmake -S standalone -B "$B" -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
   "-DSKIES_RELEASE_DISC_IDS=$IDS" "-DSKIES_RELEASE_DOL_PATCHES=$PATCHES" \
   "-DCMAKE_C_FLAGS=$MAP" "-DCMAKE_CXX_FLAGS=$MAP" "${EXTRA[@]}"
 cmake --build "$B" --target skies-standalone
