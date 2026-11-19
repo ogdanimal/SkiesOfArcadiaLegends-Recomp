@@ -1942,6 +1942,11 @@ pacing statistics' `s_last_picture_kind` side by side; `Present.cpp` already had
   the damage handler, so older states load. Checked on WSL with ws35 Linux modules (`tools/ci-codegen.sh
   TARGETS=linux`): the first battle (an October state) fought to the win with A presses, the user's
   2026-10-23 v0.83 state, Baltor's ship battle on the USA and European discs, the Japanese cabin scene.
+  Windows (MSVC runner in `C:\dev\SkiesStandalone`, ws35 module from `ci-codegen.sh TARGETS=windows` linked by
+  `module-win.bat` with the prebuilt tables, game `games\GEAE8P-ws35`): the ship battle with ShipHud centred,
+  the first battle won with A presses, 60 fps (2.69 draws a blend paired, blend 0.46 ms). Android: the Pocket
+  5's test app (ws35 module, `PREGEN` from `ci-codegen.sh TARGETS=android`) re-patched its import to ws35 and
+  loaded its ws34 auto-save; the Graphics tab has the Ship battle HUD row.
 
 ### Battle screen plane: Drachma's victory pose (2026-10-22, ws31, issue #9)
 
