@@ -291,7 +291,7 @@ local branch `aurora-backend`, kept local on purpose (not rebased, merged or pus
 decrypted AR type 0 subtype 0 writes / fills and Gecko 00-05, every frame while `[Skies] Cheats` is on (Gameplay
 tab row, the file re-read when the menu opens); anything else skipped and logged. Checked on WSL: a 32-bit AR
 write to `0x8030BB40` showed 99999999 Gold in the field menu (83 without). Not done: a per-code list in the
-menu, encrypted AR codes, conditionals, a desktop launcher row (the Android one is there). The plan as written:
+menu, encrypted AR codes, conditionals (both launchers have the Cheats switch). The plan as written:
 
 doc-haz: optional cheats from the existing Action Replay / Gecko lists (gamehacking.org game 54824,
 USA): infinite gold, Moonberries, max party Spirit, ship HP, items, no random battles, save anywhere,

@@ -16,6 +16,7 @@ apply $MG moderngekko-launcher-signal.patch
 apply $MG moderngekko-aurora.patch
 apply $MG moderngekko-standalone-launcher.patch
 apply $MG moderngekko-ship-hud.patch
+apply $MG moderngekko-cheats.patch
 for p in $(grep -v '^#' "$P/recompcore.series"); do
   apply $RC recompcore-$p.patch
 done

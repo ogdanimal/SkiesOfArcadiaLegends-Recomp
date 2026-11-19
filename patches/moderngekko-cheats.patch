@@ -1,0 +1,24 @@
+diff --git a/tools/moderngekko_launcher.cpp b/tools/moderngekko_launcher.cpp
+--- a/tools/moderngekko_launcher.cpp
++++ b/tools/moderngekko_launcher.cpp
+@@ -1446,6 +1446,8 @@
+   SettingValue battle_speed = setting({"Dolphin.ini", "Skies", "BattleSpeed"}, 1);
+   SettingValue field_speed = setting({"Dolphin.ini", "Skies", "FieldSpeed"}, 100);
+   SettingValue invincible = setting({"Dolphin.ini", "Skies", "Invincible"}, 0);
++  // The emulator-free game's cheat codes (standalone/src/cheats.cpp: Cheats/<disc ID>.ini in the data folder)
++  SettingValue cheats = setting({"Dolphin.ini", "Skies", "Cheats"}, 0);
+   SettingValue hold_b = setting({"Dolphin.ini", "Skies", "HoldB"}, 0);
+   SettingValue auto_save = setting({"Dolphin.ini", "Skies", "AutoSave"}, 10);
+   SettingValue language = setting({"Dolphin.ini", "Skies", "Language"}, 0);
+@@ -3593,6 +3595,11 @@
+                             "Magic experience from battles, for learning new spells.");
+                 setting_row("Invincible", "##invincible", invincible, INVINCIBLE_CHOICES,
+                             "Keeps the party's HP and MP full. Press L3 or R3 in game to switch it.");
++#ifdef MODERNGEKKO_STANDALONE_RUNNER
++                setting_row("Cheats", "##cheats", cheats, ON_OFF,
++                            "Applies the enabled Action Replay / Gecko memory codes of Cheats/<disc ID>.ini "
++                            "in the data folder (Dolphin's format) every frame.");
++#endif
+               });
+           tab("Language", [&]
+               {
