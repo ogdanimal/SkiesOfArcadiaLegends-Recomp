@@ -32,7 +32,8 @@ section). Next after testers' reports: issue #26 (needs the reporter's state), t
 the Dolphin build. **Review (2026-11-19 afternoon):** `REVIEW-standalone-2026-11.md` (a Fable review; its *Fix
 status*): the High (a crafted state's card file names) and the Mediums fixed and pushed (`ceecbed`), the same card
 flaw found and fixed in the Dolphin build (`recompcore-gci-state-paths.patch`; the dev fix on a local branch,
-*HANDOFF-release.md*); `.4` must not be published.
+*HANDOFF-release.md*); `.4` must not be published. **Decided 2026-11-19: the Dolphin engine will be dropped**
+(the owner: supporting both isn't feasible); the plan and inventory are [HANDOFF-dolphin-removal.md](HANDOFF-dolphin-removal.md).
 
 **Parity (2026-11-19, after the owner's "do all of them except not worth it"):** the new engine now has every
 Dolphin-build feature the owner wanted: desktop Renderer choice, touch controls opacity / size, the Menu /

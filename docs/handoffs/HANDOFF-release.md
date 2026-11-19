@@ -8,7 +8,8 @@
   **and in the Dolphin build**, which had the same flaw in Dolphin's own card code
   (`recompcore-gci-state-paths.patch`): **the released v0.83.0 is exposed.** The Dolphin-build fix waits on a
   local dev-based branch `gci-state-fix` (`f427c65`, worktree `~/projects/skies-gcifix`, applies on dev's
-  chain): pushing dev and a v0.83.1 release are the owner's call (asked). The other Mediums and most Lows are
+  chain): pushing dev and a v0.83.1 release are the owner's call (asked). v0.83.1 would be the last Dolphin-engine
+  release (the owner decided 2026-11-19 to drop the Dolphin engine: `HANDOFF-dolphin-removal.md`). The other Mediums and most Lows are
   fixed too (Android test hooks for test builds only, crafted-file limits, log redaction, the Invincible key, ...).
   **Never publish the `.4` draft** (it has S1); `.5` from `aurora-backend` has every fix.
 - **CI since `ceecbed`:** `.github/workflows/standalone-host.yml`, called by `validate.yml` once per platform

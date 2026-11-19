@@ -2,6 +2,15 @@
 
 Requests and ideas not scheduled yet. Move an item to a handoff when work on it starts.
 
+## Drop the Dolphin engine — decided 2026-11-19
+
+The owner: supporting both engines isn't feasible; the port moves to the new engine alone. Plan, gates (a
+play-through, testers' reports, re-measured performance, Android 7 / 8) and the inventory of what goes and what
+stays: [handoffs/HANDOFF-dolphin-removal.md](handoffs/HANDOFF-dolphin-removal.md). Phase 0 is v0.83.1, the last
+Dolphin-engine release (the card-path security fix on the local branch `gci-state-fix`, waiting on the owner). Until
+the cut-over: no new Dolphin-engine-only features; items below marked "both builds" need only the new engine
+once it ships.
+
 
 ## After the standalone test prerelease (v0.90.0-standalone.4) — 2026-11-18
 

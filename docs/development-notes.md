@@ -3172,9 +3172,11 @@ rights: BUILDING *macOS*.
 The direction for the port: run the recompiled game on GXRuntime, ModernGekko's standalone runtime, with
 Aurora drawing, instead of inside Dolphin's core; the Dolphin build ships until the standalone build
 reaches parity. Survey, gaps (MusyX audio on the DSP, the 60 fps interpolator, an Android shell, the
-port's Dolphin-hosted features) and the phased plan: [handoffs/HANDOFF-emulator-free.md](handoffs/HANDOFF-emulator-free.md).
-All Aurora and emulator-free work lives on the local branch `aurora-backend` (kept local on purpose: not
-rebased, merged or pushed); dev and the releases don't carry it. Status 2026-10-25: the standalone host
+port's Dolphin-hosted features) and the phased plan: [handoffs/HANDOFF-emulator-free.md](handoffs/HANDOFF-emulator-free.md). Dropping the Dolphin engine afterwards
+(decided 2026-11-19): [handoffs/HANDOFF-dolphin-removal.md](handoffs/HANDOFF-dolphin-removal.md).
+All Aurora and emulator-free work lives on the branch `aurora-backend` (local until 2026-11-18, then dev
+merged in and pushed; opt-in test prereleases `v0.90.0-standalone.N` are built from it); dev and the normal
+releases don't carry it. Status 2026-10-25: the standalone host
 (`standalone/`) plays on desktop with no Dolphin core (audio, card saves, menu, save states); the goal is to
 run better than the Dolphin build, weak hardware included; the handoff has the numbers (ahead on CPU and
 GPU at the save point and in battle; `SKIES_PRESENT_PACING=1` logs frame pacing in the Dolphin build's
