@@ -13,8 +13,8 @@
   music breaking up (#26) but isn't confirmed as its cause: please report if it still happens.
 - **Battle screen effects in widescreen** (#22): the full-screen effect behind some poses (Drachma's victory
   pose) now turns with the camera shake without shearing. Not yet seen in game: tell us how it looks.
-- **Cheat codes** (#5): Action Replay / Gecko codes that write memory, from `GameSettings/<disc ID>.ini` in the
-  data folder (Dolphin's format: a Dolphin cheat file works as it is), with a **Cheats** switch in the in-game
+- **Cheat codes** (#5): Action Replay / Gecko codes that write memory, from `Cheats/<disc ID>.ini` in the data
+  folder (Dolphin's format: a Dolphin cheat file works as it is; on Android, Settings → Gameplay → Cheat file), with a **Cheats** switch in the in-game
   menu's Gameplay tab. See README.md, *Cheat codes*.
 - **F1 saves a state** (desktop, #19) to the slot chosen in the in-game menu (slot 1 by default), unless F1 is
   bound to a game button.

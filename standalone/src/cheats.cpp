@@ -1,5 +1,7 @@
-// Cheat codes (issue #5): the enabled Action Replay and Gecko codes of the data folder's GameSettings/<disc ID>.ini,
-// Dolphin's own format, so a player's Dolphin cheat file works as it is:
+// Cheat codes (issue #5): the enabled Action Replay and Gecko codes of the data folder's Cheats/<disc ID>.ini (the
+// Android launcher's import writes it) and GameSettings/<disc ID>.ini (where Dolphin keeps a game's codes, beside
+// its per-game settings, which the launchers also write: never written here), in Dolphin's own format, so a
+// player's Dolphin cheat file works as it is:
 //   [ActionReplay]            [Gecko]
 //   $Infinite gold            $Infinite gold [author]
 //   0430BB40 05F5E0FF         0430BB40 05F5E0FF
@@ -47,7 +49,7 @@ struct Code
 };
 
 std::vector<Code> s_codes;  // enabled and supported
-std::string s_file;         // the ini read
+std::string s_file;         // the cheat file (Cheats/<ID>.ini)
 int s_skipped = 0;          // enabled but unsupported
 bool s_loaded = false;
 
@@ -122,23 +124,21 @@ bool GeckoLine(u32 a, u32 b, std::vector<Write>* out)
   }
 }
 
-std::string GameSettingsPath()
+// <user folder>/<folder>/<disc ID>.ini
+std::string UserIni(const char* folder)
 {
   const std::string& config = SettingsConfigDir();
   if (config.empty())
     return {};
   const u8* header = DiscHeader();
   const std::string id(reinterpret_cast<const char*>(header), 6);
-  return (std::filesystem::path(config).parent_path() / "GameSettings" / (id + ".ini")).string();
+  return (std::filesystem::path(config).parent_path() / folder / (id + ".ini")).string();
 }
 
-void Load()
+// One file's enabled codes into s_codes (a name already there from an earlier file is left as it was)
+void LoadFile(const std::string& path)
 {
-  s_loaded = true;
-  s_codes.clear();
-  s_skipped = 0;
-  s_file = GameSettingsPath();
-  std::ifstream in(s_file);
+  std::ifstream in(path);
   if (!in)
     return;
   struct Raw
@@ -192,6 +192,11 @@ void Load()
       on |= e == r.name;
     if (!on)
       continue;
+    bool seen = false;
+    for (const Code& c : s_codes)
+      seen |= c.name == r.name;
+    if (seen)
+      continue;
     Code code{r.name, {}};
     bool ok = !r.lines.empty();
     for (const std::string& line : r.lines)
@@ -211,7 +216,17 @@ void Load()
     else
       ++s_skipped;
   }
-  Log("[cheats] %s: %zu code(s) enabled, %d skipped\n", s_file.c_str(), s_codes.size(), s_skipped);
+  Log("[cheats] %s: %zu code(s) enabled so far, %d skipped\n", path.c_str(), s_codes.size(), s_skipped);
+}
+
+void Load()
+{
+  s_loaded = true;
+  s_codes.clear();
+  s_skipped = 0;
+  s_file = UserIni("Cheats");
+  LoadFile(s_file);
+  LoadFile(UserIni("GameSettings"));
 }
 
 bool InRam(u32 address, u32 bytes)

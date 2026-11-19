@@ -2375,7 +2375,7 @@ void Draw(float scale)
     case Option::Cheats:
     {
       const int n = CheatsEnabledCount(), skipped = CheatsSkippedCount();
-      const std::string file = "GameSettings/" + CheatsFileName();
+      const std::string file = "Cheats/" + CheatsFileName();
       std::string value = v.cheats ? "On" : "Off";
       if (n > 0)
         value += " (" + std::to_string(n) + (n == 1 ? " code)" : " codes)");

@@ -1,0 +1,92 @@
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
+@@ -239,6 +239,53 @@
+             if (uri != null) afterInit { startMusicImport(uri) }
+         }
+ 
++    // A cheat file (Settings, Gameplay; the emulator-free game): a Dolphin GameSettings ini with the imported disc's
++    // codes, copied to the data folder's Cheats/<disc ID>.ini (the one there before kept as .ini.bak). Not into
++    // GameSettings/<disc ID>.ini: that's the game's settings for the Dolphin engine too (installDefaults).
++    private val pickCheats =
++        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
++            if (uri != null) afterInit { importCheats(uri) }
++        }
++
++    private fun importCheats(uri: Uri) {
++        val id = gameId
++        val message = if (id.isNullOrEmpty()) {
++            "Import a disc first: the cheat file is the disc's."
++        } else try {
++            val bytes = contentResolver.openInputStream(uri)?.use { input ->
++                val buffer = java.io.ByteArrayOutputStream()
++                val chunk = ByteArray(65536)
++                while (true) {
++                    val n = input.read(chunk)
++                    if (n < 0) break
++                    buffer.write(chunk, 0, n)
++                    if (buffer.size() > 1 shl 20) throw java.io.IOException("larger than 1 MB, not a cheat file")
++                }
++                buffer.toByteArray()
++            } ?: throw java.io.IOException("it couldn't be opened")
++            val text = String(bytes, Charsets.UTF_8)
++            if (!text.contains("[ActionReplay") && !text.contains("[Gecko")) {
++                "That file has no [ActionReplay] or [Gecko] section: not a Dolphin cheat file."
++            } else {
++                val dir = File(userDirectory, "Cheats").apply { mkdirs() }
++                val target = File(dir, "$id.ini")
++                if (target.exists()) target.copyTo(File(dir, "$id.ini.bak"), overwrite = true)
++                target.writeBytes(bytes)
++                var enabled = 0
++                var inEnabled = false
++                for (raw in text.lines()) {
++                    val line = raw.trim()
++                    if (line.startsWith("[")) inEnabled = line.endsWith("_Enabled]")
++                    else if (inEnabled && line.startsWith("$")) enabled++
++                }
++                "Cheat file imported for $id: $enabled code(s) enabled in it. Turn on Cheats to apply them."
++            }
++        } catch (e: Exception) {
++            "Could not import that file: ${e.message}"
++        }
++        android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_LONG).show()
++    }
++
+     // Settings, Disc, Data folder: another folder than the ones listed (a folder of the port's name
+     // goes inside it)
+     private val pickDataFolder =
+@@ -932,7 +979,7 @@
+             { afterGameClosed { chooseDataFolder() } },
+             { afterGameClosed { pickTexturePack.launch(arrayOf("*/*")) } },
+             { afterGameClosed { removeTexturePack() } }, { afterGameClosed { removeDreamcastMusic() } },
+-            { showLicences() }) {
++            { showLicences() }, { afterGameClosed { pickCheats.launch(arrayOf("*/*")) } }) {
+             column.descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
+             settings = null
+             buttons.getChildAt(buttons.childCount - 1)?.requestFocus()
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+@@ -47,6 +47,8 @@
+     private val onRemoveTexturePack: () -> Unit,
+     private val onRemoveDreamcastMusic: () -> Unit,
+     private val onLicences: () -> Unit,
++    /** Gameplay, Cheat file (the emulator-free game): a Dolphin GameSettings ini to copy to Cheats/<disc ID>.ini. */
++    private val onImportCheats: () -> Unit,
+     private val onClosed: () -> Unit
+ ) {
+     private class Choice(val value: Int, val text: String)
+@@ -290,6 +292,13 @@
+                     "Magic experience from battles, for learning new spells.")
+                 configRow(rows, "Invincible", INVINCIBLE, dolphin, "Skies", "Invincible", 0,
+                     "Keeps the party's HP and MP full. Press L3 or R3 in game to switch it.")
++                // Cheat codes (the emulator-free game's cheats.cpp): Cheats/<disc ID>.ini in the data folder
++                if (SkiesGame.standalone) {
++                    configRow(rows, "Cheats", ON_OFF, dolphin, "Skies", "Cheats", 0,
++                        "Applies the enabled codes of the cheat file every frame: Action Replay and Gecko " +
++                            "codes that write memory, in Dolphin's format.")
++                    rowLine(rows, "Cheat file").addView(button("Choose a cheat file…", BUTTON) { onImportCheats() })
++                }
+             }
+             "Language" -> {
+                 if (europe) {
