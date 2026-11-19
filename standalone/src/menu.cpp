@@ -189,11 +189,26 @@ constexpr Key INVINCIBLE{SettingFile::Main, "Skies", "Invincible", 0};
 constexpr Key HOLD_B{SettingFile::Main, "Skies", "HoldB", 0};
 constexpr Key LAUNCHER_TEXT_SIZE{SettingFile::Main, "Skies", "LauncherTextSize", 100};
 constexpr Key AUTO_SAVE{SettingFile::Main, "Skies", "AutoSave", 10};
-// The standalone's own: controller 1's stick dead zone (the Dolphin build keeps it in its
-// controller profile, GCPadNew.ini, which this host doesn't read)
+// The standalone's own keys from before it read the controller profile (ReadDeadZone / ReadRumble below):
+// controller 1's stick dead zone
 constexpr Key DEAD_ZONE{SettingFile::Main, "Skies", "StandaloneDeadZone", 0};
-// Controller vibration on / off (the Dolphin build's is the profile's Rumble/Motor binding)
+// Controller vibration on / off
 constexpr Key RUMBLE{SettingFile::Main, "Skies", "StandaloneRumble", 1};
+// The launchers (desktop and Android) keep the dead zone and rumble in controller 1's profile, as the
+// Dolphin build reads them: [GCPad1] Main Stick/Dead Zone (and C-Stick), Rumble/Motor/Range (percent).
+// Those come first; the standalone's own keys above are the fallback (states before 2026-11-18), and the
+// menu writes both, so the launchers' rows and this menu show the same choice.
+int ReadDeadZone()
+{
+  const int pad = SettingGet(SettingFile::Pad, "GCPad1", "Main Stick/Dead Zone", -1);
+  return std::clamp(pad >= 0 ? pad : SettingGet(DEAD_ZONE.file, DEAD_ZONE.section, DEAD_ZONE.name, DEAD_ZONE.fallback), 0,
+                    DEAD_ZONES.back());
+}
+int ReadRumble()
+{
+  const int pad = SettingGet(SettingFile::Pad, "GCPad1", "Rumble/Motor/Range", -1);
+  return pad >= 0 ? (pad > 0 ? 1 : 0) : (SettingGet(RUMBLE.file, RUMBLE.section, RUMBLE.name, RUMBLE.fallback) != 0 ? 1 : 0);
+}
 // Android's touch controls: 0 Auto (hidden while a controller is in use), 1 Always, 2 Off
 constexpr Key TOUCH_CONTROLS{SettingFile::Main, "Skies", "TouchControls", 0};
 constexpr std::array TOUCH_MODES{0, 1, 2};
@@ -482,8 +497,8 @@ Values ReadValues()
   values.invincible = Get(INVINCIBLE) != 0 ? 1 : 0;
   values.volume = std::clamp(Get(VOLUME), 0, 100);
   values.language = std::clamp(Get(LANGUAGE), 0, 3);
-  values.dead_zone = std::clamp(Get(DEAD_ZONE), 0, DEAD_ZONES.back());
-  values.rumble = Get(RUMBLE) != 0 ? 1 : 0;
+  values.dead_zone = ReadDeadZone();
+  values.rumble = ReadRumble();
   values.touch = std::clamp(Get(TOUCH_CONTROLS), 0, 2);
   values.auto_save = std::max(0, Get(AUTO_SAVE));
 #ifdef SKIES_STANDALONE_AURORA
@@ -534,6 +549,13 @@ void Apply(const Values& values, const Values& before)
   set(LANGUAGE, values.language, before.language);
   set(DEAD_ZONE, values.dead_zone, before.dead_zone);
   set(RUMBLE, values.rumble, before.rumble);
+  if (values.dead_zone != before.dead_zone)
+  {
+    SettingSet(SettingFile::Pad, "GCPad1", "Main Stick/Dead Zone", values.dead_zone);
+    SettingSet(SettingFile::Pad, "GCPad1", "C-Stick/Dead Zone", values.dead_zone);
+  }
+  if (values.rumble != before.rumble)
+    SettingSet(SettingFile::Pad, "GCPad1", "Rumble/Motor/Range", values.rumble ? 100 : 0);
   set(TOUCH_CONTROLS, values.touch, before.touch);
   TouchModeSet(values.touch);
   set(AUTO_SAVE, values.auto_save, before.auto_save);
@@ -1880,8 +1902,8 @@ void MenuApplyGame()
   {
     s_first = false;
     s_volume = std::clamp(Get(VOLUME), 0, 100);
-    s_dead_zone = std::clamp(Get(DEAD_ZONE), 0, DEAD_ZONES.back());
-    s_rumble = Get(RUMBLE) != 0;
+    s_dead_zone = ReadDeadZone();
+    s_rumble = ReadRumble() != 0;
     TouchModeSet(std::clamp(Get(TOUCH_CONTROLS), 0, 2));
   }
   autosave::Poll();
