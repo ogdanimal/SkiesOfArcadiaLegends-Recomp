@@ -254,9 +254,11 @@ jobs:
           works and what doesn't in the GitHub issues, with your device or PC, and the log
           (`Logs/skies-standalone.log` in the data folder on desktop).
 
-          **Back up your saves first** (Settings → Saves → Back up saves). Memory card saves and your
-          save states carry over: older save states are converted when they load. Save states made by
-          this build don't load in v0.83 or earlier.
+          **Back up your saves first** (Settings → Saves → Back up saves). Your data folder (moved or
+          portable too), settings, memory card saves and save states carry over: older save states are
+          converted when they load. Save states made by this build don't load in v0.83 or earlier: if you
+          go back to v0.83, load a memory card save (Continue may pick this build's newest state and
+          refuse it).
 
           **You need your own Skies of Arcadia Legends disc (GameCube, USA `GEAE8P`, European
           `GEAP8P` or Japanese `GEAJ8P`)**; nothing here contains game data.
