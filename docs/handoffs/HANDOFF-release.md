@@ -2,10 +2,11 @@
 
 ## Next test build: v0.90.0-standalone.5 (prepared 2026-11-19, local `aurora-backend`, not pushed)
 
-- **State:** local `aurora-backend` is 25+ commits ahead of `origin/aurora-backend` (fast-forwards from the
-  local branch `standalone-issues`, worktree `~/projects/skies-standalone-issues`). The push was refused by
-  Claude's permission rules, so the owner pushes: `git -C ~/projects/skies-aurora-backend push origin aurora-backend`.
-  PII sweep of the whole diff clean (no home paths, names, emails, serials, IPs); every author the noreply address.
+- **State (2026-11-19 morning):** pushed: `origin/aurora-backend` has everything below (the owner said to push).
+  The tag was refused by Claude's permission rules, so the owner tags the branch's newest commit:
+  `git tag v0.90.0-standalone.5 <commit> && git push origin v0.90.0-standalone.5`. Since the first push: test tools
+  (relative times, `tools/sa-run.sh`, `tools/sa-sweep.sh`) and `highlytheoretical-dsp-shift-wrap.patch` (#26, not
+  confirmed as its cause).
 - **What it has** (`release/test-build-notes.md`, appended to the draft's notes by `release.yml`): the `issues`
   branch (#25 Ship battle HUD, #19 DC music level, #18 60 fps texture-change pairing, #22 screen plane, #24 in
   the Dolphin build only), game patch ws35 on all three discs (`release/*.dolpatch` regenerated, CI rebuilds the

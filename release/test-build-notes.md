@@ -8,7 +8,9 @@
   new setting (Settings → Graphics → Ship battle HUD) keeps the game's own centred layout if you prefer it.
 - **60 fps** (#18): parts of a character that change texture between frames (a face changing expression)
   now move with the rest of the model instead of jumping.
-- **Dreamcast music** (#19): a little quieter, level with the GameCube music now that it has its reverb.
+- **Dreamcast music** (#19): a little quieter, level with the GameCube music now that it has its reverb. One
+  of the sound chip's reverb calculations now wraps the way the hardware does; it was looked at for the
+  music breaking up (#26) but isn't confirmed as its cause: please report if it still happens.
 - **Battle screen effects in widescreen** (#22): the full-screen effect behind some poses (Drachma's victory
   pose) now turns with the camera shake without shearing. Not yet seen in game: tell us how it looks.
 - **F1 saves a state** (desktop, #19) to the slot chosen in the in-game menu (slot 1 by default), unless F1 is
