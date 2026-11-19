@@ -53,10 +53,10 @@ index 6b7596fa21..423ab7cbb8 100644
  
 diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesGame.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesGame.kt
 new file mode 100644
-index 0000000000..d2339d8844
+index 0000000000..2755331a2f
 --- /dev/null
 +++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesGame.kt
-@@ -0,0 +1,81 @@
+@@ -0,0 +1,89 @@
 +package org.dolphinemu.dolphinemu.skies
 +
 +import android.app.Activity
@@ -137,12 +137,28 @@ index 0000000000..d2339d8844
 +        if (state != null) args += listOf("--load-state", state.absolutePath)
 +        return Intent().setClassName(context, ACTIVITY).putExtra(EXTRA_ARGS, args.toTypedArray())
 +    }
++
++    /**
++     * Back to the game left running behind a new launcher screen (a frontend or the system started the app
++     * again over it): its screen moved to the front, the game as it was. Only if that screen is gone does
++     * this start one, then from the title screen.
++     */
++    fun resumeIntent(context: Context, user: File, game: File, stateDirectory: File?): Intent =
++        intent(context, user, game, stateDirectory, null).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
 +}
 diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
-index 3268f90255..ca93c2cb80 100644
+index 3268f90255..90eb3bbb87 100644
 --- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
 +++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
-@@ -149,7 +149,7 @@ class SkiesLauncherActivity : FragmentActivity() {
+@@ -66,6 +66,7 @@ class SkiesLauncherActivity : FragmentActivity() {
+ 
+         /** How long the launcher waits for a game it stopped (afterGameClosed) to end. */
+         const val CLOSE_TIMEOUT_MS = 10_000L
++        const val GAME_WATCH_MS = 500L
+ 
+         /**
+          * The disc import's result for whichever launcher is showing when it ends: the import runs on
+@@ -149,7 +150,7 @@ class SkiesLauncherActivity : FragmentActivity() {
                  var imported = 0
                  var failure = ""
                  for ((i, entry) in entries.withIndex()) {
@@ -151,7 +167,7 @@ index 3268f90255..ca93c2cb80 100644
                          return arrayOf("The game started during the import, so it stopped: imported " +
                              "$imported of ${entries.size} files from the backup.", "")
                      }
-@@ -184,6 +184,20 @@ class SkiesLauncherActivity : FragmentActivity() {
+@@ -184,6 +185,34 @@ class SkiesLauncherActivity : FragmentActivity() {
      private fun afterInit(block: () -> Unit) =
          AfterDirectoryInitializationRunner().runWithLifecycle(this) { block() }
  
@@ -159,20 +175,42 @@ index 3268f90255..ca93c2cb80 100644
 +    // game starts again once its process has ended
 +    private val playGame =
 +        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
++            // Its process is still shutting down (the card written, ~0.5 s): this screen waits for that
++            // rather than offer the game as still in progress
++            gameEnding = true
 +            if (result.resultCode == SkiesGame.RESULT_RESTART) {
-+                message.text = "Restarting the game…"
-+                buttons.removeAllViews()
 +                afterGameClosed {
++                    gameEnding = false
 +                    setAutoLoadCard(0)
 +                    launch(null)
 +                }
++                message.text = "Restarting the game…"
++            } else {
++                afterGameClosed { gameEnding = false; refresh() }
 +            }
 +        }
++
++    /** The game screen has returned and its process is ending (see playGame). */
++    private var gameEnding = false
++
++    private val gameWatch = object : Runnable {
++        override fun run() {
++            if (SkiesGame.isRunning()) handler.postDelayed(this, GAME_WATCH_MS) else showState()
++        }
++    }
 +
      private val pickDisc =
          registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
              if (uri != null) afterInit { startImport(uri) }
-@@ -407,7 +421,7 @@ class SkiesLauncherActivity : FragmentActivity() {
+@@ -370,6 +399,7 @@ class SkiesLauncherActivity : FragmentActivity() {
+     /** The home menu, or the import's progress while one runs (started here or by an earlier
+      * instance of this Activity), then its result once. */
+     private fun showState() {
++        if (gameEnding) return
+         if (importRunning) {
+             showImporting()
+             return
+@@ -407,7 +437,7 @@ class SkiesLauncherActivity : FragmentActivity() {
          if (driverDialog?.isShowing == true || importRunning) return
          // Not while a session still runs (its marker isn't settled), nor during a data-folder move,
          // when "Keep it" would save GFX.ini into the folder being moved (review D13, D14)
@@ -181,7 +219,7 @@ index 3268f90255..ca93c2cb80 100644
          driverDialog = when (val check = SkiesDriverGuard.check(this)) {
              is SkiesDriverGuard.Check.Reverted -> padDialog(android.app.AlertDialog.Builder(this)
                  .setTitle("Back on the device's own GPU driver")
-@@ -450,7 +464,7 @@ class SkiesLauncherActivity : FragmentActivity() {
+@@ -450,7 +480,7 @@ class SkiesLauncherActivity : FragmentActivity() {
       * The prompt says what will be replaced before the picker opens, and Cancel has the focus.
       */
      private fun confirmImportSave() {
@@ -190,7 +228,7 @@ index 3268f90255..ca93c2cb80 100644
              // Only a game left running without its screen gets here (see refresh)
              afterGameClosed { confirmImportSave() }
              return
-@@ -487,7 +501,7 @@ class SkiesLauncherActivity : FragmentActivity() {
+@@ -487,7 +517,7 @@ class SkiesLauncherActivity : FragmentActivity() {
                  resolver.openInputStream(uri)?.use { input ->
                      copy.outputStream().use { output -> copyCapped(input, output) }
                  }
@@ -199,7 +237,7 @@ index 3268f90255..ca93c2cb80 100644
                      arrayOf("The game started while the file was being chosen, so nothing was imported.", "")
                  } else if (isZip(copy)) {
                      importBackup(copy, cache, user)
-@@ -504,7 +518,7 @@ class SkiesLauncherActivity : FragmentActivity() {
+@@ -504,7 +534,7 @@ class SkiesLauncherActivity : FragmentActivity() {
  
      /** Settings, Saves: Back up saves. With the game closed, as for Import: it holds the card in memory. */
      private fun startExport() {
@@ -208,7 +246,7 @@ index 3268f90255..ca93c2cb80 100644
              afterGameClosed { startExport() }
              return
          }
-@@ -631,9 +645,23 @@ class SkiesLauncherActivity : FragmentActivity() {
+@@ -631,9 +661,24 @@ class SkiesLauncherActivity : FragmentActivity() {
              .setPositiveButton("Close", null))
      }
  
@@ -219,6 +257,7 @@ index 3268f90255..ca93c2cb80 100644
 +    override fun onPause() {
 +        super.onPause()
 +        keysDown.clear()
++        handler.removeCallbacks(gameWatch)
 +    }
 +
      // A pad's A button confirms like the touch screen and the D-pad's centre; with nothing focused
@@ -232,16 +271,33 @@ index 3268f90255..ca93c2cb80 100644
          // The Settings window: A presses what has focus, B / Back closes a choice list or the window
          val panel = settings
          if (panel != null && panel.isShowing) {
-@@ -804,7 +832,7 @@ class SkiesLauncherActivity : FragmentActivity() {
+@@ -804,12 +849,23 @@ class SkiesLauncherActivity : FragmentActivity() {
          // A romhack (its own state folder): said under Start Game, as the desktop launcher does
          val modifiedDetail = if (stateDirectory?.name?.startsWith("romhack-") == true)
              "Ready: Skies of Arcadia Legends [$gameId, modified]" else null
 -        if (gameReady() && org.dolphinemu.dolphinemu.NativeLibrary.IsRunning()) {
-+        if (gameReady() && !SkiesGame.standalone && SkiesGame.isRunning()) {
++        if (gameReady() && SkiesGame.isRunning()) {
              // The game still runs (paused) without its screen: a frontend relaunched the app with
              // its task cleared. Continue brings it back; what boots or changes files closes it first.
              message.text = getString(R.string.skies_ready)
-@@ -941,23 +969,27 @@ class SkiesLauncherActivity : FragmentActivity() {
++            // The game's process can be ending (Quit game, seen from a launcher screen other than the one
++            // that started it): look again until it has
++            if (SkiesGame.standalone) {
++                handler.removeCallbacks(gameWatch)
++                handler.postDelayed(gameWatch, GAME_WATCH_MS)
++            }
+             addButton(getString(R.string.skies_continue), "Game in progress") {
+-                EmulationActivity.resumeSession(this, mainDol.absolutePath)
++                if (SkiesGame.standalone) {
++                    // Its screen, brought back where it is (a new one would start the game again)
++                    startActivity(SkiesGame.resumeIntent(this, userDirectory, gameRoot, stateDirectory))
++                } else {
++                    EmulationActivity.resumeSession(this, mainDol.absolutePath)
++                }
+             }
+             addButton(getString(R.string.skies_play), modifiedDetail) {
+                 afterGameClosed {
+@@ -941,23 +997,27 @@ class SkiesLauncherActivity : FragmentActivity() {
       */
      private fun afterGameClosed(action: () -> Unit) {
          val native = org.dolphinemu.dolphinemu.NativeLibrary
@@ -273,7 +329,7 @@ index 3268f90255..ca93c2cb80 100644
                  refresh()
                  action()
              }
-@@ -987,6 +1019,13 @@ class SkiesLauncherActivity : FragmentActivity() {
+@@ -987,6 +1047,13 @@ class SkiesLauncherActivity : FragmentActivity() {
      }
  
      private fun launch(state: File?) {
