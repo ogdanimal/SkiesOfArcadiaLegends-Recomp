@@ -75,7 +75,9 @@ jobs:
         run: |
           if [ "${{ inputs.target }}" = android ]; then
             sudo apt-get update && sudo apt-get install -y --no-install-recommends ninja-build
-            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;29.0.14206865" > /dev/null
+            # No `yes |`: under pipefail its SIGPIPE when sdkmanager ends fails the step (the runner's licenses are
+            # accepted, as validate.yml's android job relies on)
+            "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;29.0.14206865" > /dev/null
           else
             brew install ninja || true
           fi
