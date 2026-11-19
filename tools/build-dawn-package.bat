@@ -42,5 +42,6 @@ copy /y "%DXC%\dxcompiler.dll" "%INSTALL%\bin\" >nul || exit /b 1
 copy /y "%DXC%\dxil.dll" "%INSTALL%\bin\" >nul || exit /b 1
 findstr /c:"DAWN_NATIVE_EXTRA_SAMPLE_COUNTS" "%INSTALL%\include\dawn\native\DawnNative.h" >nul ^
   || (echo the installed headers lack DAWN_NATIVE_EXTRA_SAMPLE_COUNTS & exit /b 1)
-tar -czf "%OUT%\dawn-windows-amd64.tar.gz" -C "%INSTALL%" . || exit /b 1
+rem Windows' own tar (bsdtar): from Git Bash (tools/ci-dawn.sh) GNU tar comes first and reads D:\ as a host
+"%SystemRoot%\System32\tar.exe" -czf "%OUT%\dawn-windows-amd64.tar.gz" -C "%INSTALL%" . || exit /b 1
 echo %OUT%\dawn-windows-amd64.tar.gz

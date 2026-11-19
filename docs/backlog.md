@@ -25,7 +25,9 @@ Requests and ideas not scheduled yet. Move an item to a handoff when work on it 
   prebuilt, anti-aliasing Off / 4x only, as before, and the job adds a warning to the run's summary. First CI run
   (dispatch 44567700141 on aurora-backend, 2026-11-19): Linux 18 min and Android 13 min, both packages built and
   cached; Windows failed in configure (the .bat turns `DAWN_FETCH_DEPENDENCIES` off, which a fresh clone needs:
-  `ci-dawn.sh` now runs `fetch_dawn_dependencies.py` first); macOS never got a runner (GitHub's arm64 capacity).
+  `ci-dawn.sh` now runs `fetch_dawn_dependencies.py` first; the second run 44571866943 built and installed
+  it in 25 min, then the .bat's `tar` was Git Bash's GNU tar, which reads `D:\` as a host: now Windows' own
+  `tar.exe`); macOS never got a runner (GitHub's arm64 capacity).
   Caches made on a branch don't reach tag runs, so the first tag builds them again.
   CI's own packages checked: the Linux one (X11) under a local release build logs "MSAA modes: 1x, 4x, 8x", the
   Android one in the test APK offers 2x MSAA on the Pocket 5. Checked locally:
