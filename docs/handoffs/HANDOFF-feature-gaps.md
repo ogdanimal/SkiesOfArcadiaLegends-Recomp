@@ -1291,7 +1291,11 @@ installed over the ws34 Dolphin build with its data: Continue from a Dolphin aut
 from that slot, menu by Back and D-pad, Quit game back to the launcher (process gone), the launcher's close
 before a second Continue (~0.5 s). Testing tools: controller events with `sendevent /dev/input/event8`
 (BTN_SOUTH 304, KEY_BACK 158 from the controller = the menu; the D-pad is `ABS_HAT0Y` 3 17 +-1); `log.txt` in
-the app's external files folder is per game process (a relaunch overwrites it).
+the app's external files folder is per game process (a relaunch overwrites it). Since 2026-11-19 `env.txt`'s
+`SKIES_EXTRA_ARGS` is appended to the launcher's command line (the last `--load-state`, `--seconds +N`, `--user`
+win), and `tools/sa-device-sweep.sh` runs save states on a device that way (the launcher's Continue by the
+built-in controller's A, `sendevent` BTN_SOUTH: `input keyevent ENTER` doesn't press it; a throwaway user
+folder so the app's saves stay as they are).
 Later 2026-11-18 (d7db74b): a launcher started over the running game (a frontend, `am start -n`) offers
 Continue (game in progress), which moves the game's screen to the front (`FLAG_ACTIVITY_REORDER_TO_FRONT`, the
 same process); icon -> Home -> icon goes straight back to the game; after Quit game every launcher screen waits

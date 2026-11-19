@@ -493,8 +493,30 @@ void AndroidSetup(int& argc, char**& argv)
       return;
     setenv(name.c_str(), line.substr(eq + 1).c_str(), 1);
   });
+  // SKIES_EXTRA_ARGS (env.txt, device tests): words added after the launcher's command line, so a later
+  // --load-state or --seconds wins (e.g. "--load-state $FILES/sweep/a.sav --seconds +40"); not after a restart
+  const char* extra = restarted ? nullptr : std::getenv("SKIES_EXTRA_ARGS");
   if (argc > 1)
+  {
+    if (!extra || !*extra)
+      return;
+    for (int i = 0; i < argc; ++i)
+      s_android_args.push_back(argv[i]);
+    for (std::string rest = extra; !rest.empty();)
+    {
+      const size_t space = rest.find(' ');
+      const std::string word = rest.substr(0, space);
+      rest = space == std::string::npos ? "" : rest.substr(space + 1);
+      if (!word.empty())
+        s_android_args.push_back(word);
+    }
+    for (auto& arg : s_android_args)
+      s_android_argv.push_back(arg.data());
+    s_android_argv.push_back(nullptr);
+    argc = static_cast<int>(s_android_args.size());
+    argv = s_android_argv.data();
     return;
+  }
   s_android_args.push_back("skies-standalone");
   bool skip_next = false;
   lines("args.txt", [&](const std::string& line) {
