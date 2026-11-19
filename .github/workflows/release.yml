@@ -265,7 +265,8 @@ jobs:
           - **Android** (arm64): installs over the app as an update. The new engine needs Android 9
             or later (older devices keep the Dolphin engine). Going back to v0.83 means uninstalling
             first, which deletes the app's data unless you moved the data folder: back up your saves.
-            It needs a controller (built-in or Bluetooth / USB): no touch controls yet. In the game,
+            Without a controller the game shows touch controls (a controller's input hides them, a
+            touch on the screen brings them back; the button at the top opens the menu). In the game,
           Back opens the menu; Saves → Quit game returns to the launcher. Custom GPU
             drivers (Turnip) aren't used by the new engine.
 

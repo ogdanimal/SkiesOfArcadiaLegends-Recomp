@@ -19,8 +19,8 @@ Requests and ideas not scheduled yet. Move an item to a handoff when work on it 
 - **Patched Dawn** (MSAA 2x / 8x, the Windows swap chain fix): host the packages (`tools/build-dawn-package.sh`)
   or build them in CI.
 - **By hand:** two controllers and remapping with a pad (standalone); the desktop launcher's Continue click.
-- **Android:** touch controls (the standalone has none; phones without a pad can't play); custom GPU drivers
-  aren't used by the standalone.
+- **Android:** touch controls done 2026-11-18 (`SkiesTouchControls.java`, branch `standalone-issues`; no layout
+  editor or opacity setting yet); custom GPU drivers aren't used by the standalone.
 - The standalone's game clock is UTC (`std::time()`); the Dolphin build's was local time (card file dates).
 
 ## Dual audio (Japanese voices) — requested 2026-10-17

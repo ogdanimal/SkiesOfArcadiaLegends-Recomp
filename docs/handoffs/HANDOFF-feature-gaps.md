@@ -1297,6 +1297,18 @@ in French), and Dreamcast music from the app's import plays. Picker tests: a fil
 `am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file:///sdcard/...` before the picker lists it.
 The test app was left on the US game (pushed back as `Games/GEAE8P` with `main.dol.orig`; the launcher
 repatches) with the European game beside it, its language Spanish as before.
+Touch controls (later 2026-11-18, branch `standalone-issues`): `SkiesTouchControls.java` over SDL's surface in
+`SkiesGameActivity`: stick, C-stick, D-pad, A / B / X / Y, L / R (fully in with the click), Z, Start and a menu
+button (`nativeBack`). JNI `nativeTouchPad` -> `TouchPadSet` (`video.cpp`, one atomic word), added to controller 1
+in `VideoPadRead` (buttons OR'd, sticks over the pad's while touched, triggers the further in), so the in-game
+menu's filter sees them too. Shown while no controller is connected (`InputManager` listener); a gamepad or
+joystick event hides them, a touch on the screen shows them (the view stays VISIBLE, an invisible one gets no
+touches; hidden = not drawn). Landscape, sized by the shorter side; the D-pad and C-stick stay within 30% of
+the width. Checked on the Pocket 5's test app (ws35 APK, `-test`), from its 23:04 ws34 auto-save: a tap shows
+them, the menu button opens the menu, D-pad down moves, R changes tab, B closes, the stick turns the
+first-person view, a gamepad key hides them, Quit game by touch (A, A) back to the launcher. adb's `input
+gamepad keyevent` reaches the activity (it hides the overlay) but not SDL's controller, so it can't drive the
+game; `input swipe X Y X+1 Y MS` holds a touch. Open: a layout editor / opacity / an Always-Off setting.
 
 Today's shipping app is Dolphin's APK with `-PskiesBrand`: `SkiesLauncherActivity` (~720 lines: home menu,
 disc import, Continue, game in progress, picker, driver guard), `SkiesSettingsPanel` (~520), `SkiesDataFolder`,
