@@ -1,0 +1,40 @@
+diff --git a/Source/Core/Common/Timer.cpp b/Source/Core/Common/Timer.cpp
+index fcbbd7bbd2..88e3c6bfbb 100644
+--- a/Source/Core/Common/Timer.cpp
++++ b/Source/Core/Common/Timer.cpp
+@@ -69,11 +69,22 @@ u64 Timer::ElapsedMs() const
+ u64 Timer::GetLocalTimeSinceJan1970()
+ {
+ #ifdef _MSC_VER
+-  std::chrono::zoned_seconds seconds(
+-      std::chrono::current_zone(),
+-      std::chrono::time_point_cast<std::chrono::seconds>(std::chrono::system_clock::now()));
+-  return seconds.get_local_time().time_since_epoch().count();
+-#else
++  // MSVC's current_zone() maps Windows' time zone to an IANA one through the system's ICU and
++  // throws when it can't (Skies issue #28: British Columbia after its November 2026 change; the
++  // uncaught exception ended the game at boot with 0xC0000409). The C runtime's local time then.
++  try
++  {
++    std::chrono::zoned_seconds seconds(
++        std::chrono::current_zone(),
++        std::chrono::time_point_cast<std::chrono::seconds>(std::chrono::system_clock::now()));
++    return seconds.get_local_time().time_since_epoch().count();
++  }
++  catch (const std::exception& e)
++  {
++    WARN_LOG_FMT(COMMON, "No IANA time zone for this system's ({}): the C runtime's local time",
++                 e.what());
++  }
++#endif
+   time_t sysTime, tzDiff, tzDST;
+   time(&sysTime);
+   tm* gmTime = localtime(&sysTime);
+@@ -89,7 +100,6 @@ u64 Timer::GetLocalTimeSinceJan1970()
+   tzDiff = sysTime - mktime(gmTime);
+ 
+   return static_cast<u64>(sysTime + tzDiff + tzDST);
+-#endif
+ }
+ 
+ // This is requested by Timer::IncreaseResolution on Windows.
