@@ -1,4 +1,5 @@
-**New in this test build** (since v0.90.0-standalone.4):
+**Recent changes** (this is the first public test build of the new engine; the list is what changed in the last
+rounds of internal testing):
 
 - **Android: touch controls** for phones and tablets without a controller: stick, C-stick, D-pad,
   A / B / X / Y, L / R, Z, Start and a menu button. They step aside when a controller is used and come
