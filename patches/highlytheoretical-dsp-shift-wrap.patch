@@ -1,0 +1,17 @@
+diff --git a/Core/yam.c b/Core/yam.c
+index 6f57a23..8150a70 100644
+--- a/Core/yam.c
++++ b/Core/yam.c
+@@ -2453,6 +2453,12 @@ static void __fastcall dsp_sample_interpret(struct YAM_STATE *state) {
+     if((mpro->__kisxzbon) & 0x20) {
+       if(shifted > ( 0x7FFFFF)) { shifted = ( 0x7FFFFF); }
+       if(shifted < (-0x800000)) { shifted = (-0x800000); }
++    } else {
++      // SHIFT 2 / 3 don't saturate: the shifter's output is 24 bits, so it wraps (sign-extended, as MAME's
++      // SCSP / AICA DSP). Unwrapped, a value past 24 bits went into TEMP, the effect outputs and the reverb's
++      // ring buffer, and the reverb's feedback kept it there: the Dreamcast music's level stuck until the song
++      // restarted (Skies of Arcadia Legends: Recompiled issue #26). The x86 dynarec (32-bit builds) still lacks it.
++      shifted = ((sint32)(((uint32)shifted) << 8)) >> 8;
+     }
+     //
+     // Multiply and accumulate

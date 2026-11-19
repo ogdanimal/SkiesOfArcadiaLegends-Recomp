@@ -3230,6 +3230,12 @@ build (Dolphin's Vulkan backend on llvmpipe is right).
   no MLT puts a bank in SFPW (0x18000-0x28040), and the DSP's writes stay in 0x18000-0x27FFE (RBP 0x18000, RBL 2).
   Suspect: the reverb program's feedback stuck (a saturated value held in its loop) since the reverb (v0.80, #8).
   The standalone has the same code. Next: the reporter's save state at the scene, then the DSP's state there.
+  2026-11-19: Highly Theoretical's DSP interpreter left the shifter's SHIFT 2 / 3 output unwrapped (MAME wraps
+  it to 24 bits; SHIFT 0 / 1 saturate): `highlytheoretical-dsp-shift-wrap.patch` wraps it. Not shown to be #26:
+  the Valuan red alarm's song never runs a SHIFT 2 / 3 step (a probe counted 0 in 30 s) and 15 minutes of two
+  songs (red alarm 10 min, the first battle 5 min) have no stuck span; with the patch the red alarm's first 60 s
+  are byte-identical. A held last sample isn't it either (a non-looping sample outputs 0 after its end). The
+  reported songs (the Ramirez scenes, Vigoro in the cell, the Dark Rift's end, Yafutoma) still need a state.
 - **#32** 15-17 fps on a Ryzen 5 3550H + GTX 1650 laptop (v0.83): the Dolphin build takes Vulkan adapter 0 (on
   AMD APU + NVIDIA laptops that can be the integrated GPU); Aurora asks Dawn for HighPerformance. A good tester for
   the standalone.

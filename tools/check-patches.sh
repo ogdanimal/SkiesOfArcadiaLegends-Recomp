@@ -10,12 +10,14 @@ cleanup() {
   git -C "$DR" worktree remove --force "$R/mg/vendor/dolphin/DolRecomp" >/dev/null 2>&1 || true
   git -C "$RC" worktree remove --force "$R/mg/vendor/dolphin" >/dev/null 2>&1 || true
   git -C "$MG" worktree remove --force "$R/mg" >/dev/null 2>&1 || true
+  git -C lib/HighlyTheoretical worktree remove --force "$R/ht" >/dev/null 2>&1 || true
   rm -rf "$R"
 }
 trap cleanup EXIT
 git -C "$MG" worktree add -q --detach "$R/mg" HEAD
 git -C "$RC" worktree add -q --detach "$R/mg/vendor/dolphin" HEAD
 git -C "$DR" worktree add -q --detach "$R/mg/vendor/dolphin/DolRecomp" HEAD
+git -C lib/HighlyTheoretical worktree add -q --detach "$R/ht" HEAD
 P=$PWD/patches
 git -C "$R/mg" apply "$P/moderngekko-local.patch"
 git -C "$R/mg" apply "$P/moderngekko-macos.patch"
@@ -27,9 +29,10 @@ for p in $(grep -v '^#' "$P/recompcore.series"); do git -C "$R/mg/vendor/dolphin
 for p in mtmsr-entry gather-pipe llvm-cpu win64-sjlj-frame coff-uwtable halfword-byterev macho-sections; do
   git -C "$R/mg/vendor/dolphin/DolRecomp" apply "$P/dolrecomp-$p.patch"
 done
+git -C "$R/ht" apply "$P/highlytheoretical-dsp-shift-wrap.patch"
 status=0
 changed() { (cd "$1" && { git diff HEAD --name-only; git ls-files --others --exclude-standard; } | sort -u); }
-for pair in "$MG:$R/mg" "$RC:$R/mg/vendor/dolphin" "$DR:$R/mg/vendor/dolphin/DolRecomp"; do
+for pair in "$MG:$R/mg" "$RC:$R/mg/vendor/dolphin" "$DR:$R/mg/vendor/dolphin/DolRecomp" "lib/HighlyTheoretical:$R/ht"; do
   W=${pair%%:*} C=${pair#*:}
   changed "$W" > "$R/w"; changed "$C" > "$R/c"
   only_w=$(comm -23 "$R/w" "$R/c" | grep -v '\.profraw$' || true)
