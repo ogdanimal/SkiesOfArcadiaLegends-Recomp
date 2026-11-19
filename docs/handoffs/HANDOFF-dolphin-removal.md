@@ -21,7 +21,7 @@ Two separate things, done in this order:
 - **A play-through on the new engine** (at least the USA disc; the European and Japanese ones by spot checks).
   Checked so far: sweeps (47 starts on WSL, 31 on the Pocket 5, a 5-start A/B run after the review fixes), bench
   scenes, routes, short runs on Windows / macOS / Android. Each new scene has found something before.
-- **Testers' reports** from one or two opt-in test builds (`v0.90.0-standalone.5`, a `.6` with their fixes) with
+- **Testers' reports** from one or two opt-in test builds (`v0.90.0-standalone.6`, published 2026-11-19, and one with their fixes) with
   nothing serious open.
 - **Performance re-measured** on the current builds (the "ahead of Dolphin" numbers in `HANDOFF-emulator-free.md`
   are from 2026-10-25/27).
@@ -36,10 +36,11 @@ Two separate things, done in this order:
 pointless and will only deter people from using the standalone"). The card-path security fix for it
 (`recompcore-gci-state-paths.patch`) stays on the local dev-based branch `gci-state-fix` (`f427c65`, worktree
 `~/projects/skies-gcifix`), unreleased: v0.83.0 players keep the flaw (a crafted save state they load can write a
-file), and the remedy is moving them to the new engine, which has the fix.
+file), and the remedy is moving them to the new engine, which has the fix. The front-page README (main, `22d4398`) says
+so publicly: v0.83 recommended for now, the new engine in testing, no more Dolphin-engine releases.
 
-**Phase 1: test builds until the gates pass.** `v0.90.0-standalone.N` drafts from `aurora-backend`
-(`HANDOFF-release.md`, first section). Never publish `.4` (it has S1).
+**Phase 1: test builds until the gates pass.** `v0.90.0-standalone.N` from `aurora-backend`, published as
+prereleases (`HANDOFF-release.md`, first section). **Started 2026-11-19 with `.6`.**
 
 **Phase 2: the cut-over release** (a major version, e.g. v1.0.0): the new engine as the normal release.
 - Branches: `aurora-backend` already holds everything on dev (v0.83.0 merged 2026-11-18); it becomes the main line

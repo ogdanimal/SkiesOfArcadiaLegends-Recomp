@@ -1,6 +1,41 @@
 # Handoff: releases (Windows, Linux, macOS, Android)
 
-## Next test build: v0.90.0-standalone.5 (prepared 2026-11-19, NOT tagged, NOT built)
+## Released (2026-11-19): v0.90.0-standalone.6, the first public test build of the new engine
+
+- **Published** 2026-11-19 20:35 UTC as a **prerelease** at the owner's request ("we need to release something so
+  people can test the standalone"); tag on `ddff295`, release run 44597768457. "Latest" stays v0.83.0-beta (every
+  release is a prerelease, so GitHub's latest-release lookup returns none either way).
+- **How it got there:** `.5` was tagged on `3e03ed7`; its run failed in the Android Dawn job (`yes | sdkmanager`
+  under pipefail: the step had been `continue-on-error` before release mode, so it never showed) and was
+  cancelled before a release existed. The fix is `ddff295`; moving the `.5` tag needed a remote tag deletion the
+  permission rules refused, so the fixed build is `.6`. Afterwards the owner approved deleting the orphan `.5`
+  tag and the `.4` draft (which had review S1); the `.4` **tag** remains. The owner approved `android-sign` for
+  `.6` (done through the API's pending-deployments call); ask again for the next build.
+- **Checked on the draft before publishing:** SHA256SUMS; the APK's signer = `release/android-signer.sha256`
+  (the v0.83 key), no `testOnly` / `debuggable` (the v0.9.0 install bug), `libskies.so`, `libskiesvk.so` and the
+  three modules; a PII scan of all 14090 extracted files (only `/home/runner/` paths); the Linux package's
+  `skies-run` on a European Dolphin state (converted, patched Dawn: MSAA 1x / 4x / 8x); the Windows package in
+  portable mode (`portable.txt`: the launcher made `User\` beside it; `skies-run --user-dir` used its card
+  folder; MSAA 1x-8x; 2.33x; no user paths in the log). Android: the same code tested on the Pocket 5's test app
+  (the release app wasn't touched).
+- **Release notes:** rewritten in v0.83's layout (summary line, warning and disc callouts, New, Expected
+  performance with the measured table, Fixed with reporters thanked, Not in this build, Installing and updating);
+  `release/test-build-notes.md` is now the **whole** body of a test build's notes (`release.yml`, no generated
+  changelog): write it fresh for each build.
+- **After publishing:** README.md and `release/README.md` rewritten for the new engine, and the new engine's
+  third-party components credited with their licence texts shipped (`release/licenses/`, `d24c6ad`): the `.6`
+  downloads still carry the old READMEs and lack those licence files, so the next build should follow soon. The
+  front-page README (main / dev, `22d4398`, pushed to both at the owner's request) now has *Where the project
+  stands*: v0.83 recommended, `.6` in testing, no more Dolphin-engine releases. That commit is not on
+  `aurora-backend`: at the cut-over merge keep `aurora-backend`'s README and carry the status section over.
+- **Next:** watch the issues for `.6` reports; the drafted issue replies (`build/issue-replies-standalone5.md`, written
+  for `.5`: say `.6`) can be posted now that a build is public, with the owner's OK; the next test build = the
+  README / licence fixes plus whatever testers report. The test folders on C: (`C:\dev\SkiesRelTest6`, and
+  `build-reltest`, `build-cidawn`, `cidawn`, `unpack-test`, `host-out`, `user-cidawn`, `standalone-windows.tar.gz`,
+  `smoke*.log`, `tools\` in `C:\dev\SkiesStandalone`, `C:\Users\Public\skies-ws35t-test.apk`, ~1.3 GB) wait for the
+  owner's second deletion approval.
+
+## The .5 preparation (2026-11-19): review, fixes, CI (history; shipped as .6)
 
 - **Review and its fixes (2026-11-19 afternoon, `ceecbed` on origin/aurora-backend):** a Fable review
   (`HANDOFF-review-standalone.md` -> `REVIEW-standalone-2026-11.md`, its *Fix status* section) found a High: a

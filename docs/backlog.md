@@ -32,7 +32,14 @@ Simplifications, biggest first:
 - Build the patched Dawn once per Dawn version and publish the packages as release assets that CI downloads
   (small and independent: the suggested first step).
 
-## After the standalone test prerelease (v0.90.0-standalone.4) — 2026-11-18
+## After the first public test build (v0.90.0-standalone.6) — 2026-11-19
+
+- **The next test build soon:** the `.6` downloads carry the old READMEs and lack the new engine's licence texts
+  (fixed on `aurora-backend` in `d24c6ad`); plus whatever `.6`'s testers report.
+- **Issue replies** drafted for the test build (`build/issue-replies-standalone5.md` in the issues worktree; say
+  `.6`): post with the owner's OK.
+
+## After the standalone test prerelease (v0.90.0-standalone.4, never published) — 2026-11-18
 
 - **#26 Dreamcast music stuck at one level** in some songs (Ramirez / Valua scenes, the Dark Rift's end): a
   constant -9830 for over a second, then a slow drift back; not clipping, not the reverb writing over samples

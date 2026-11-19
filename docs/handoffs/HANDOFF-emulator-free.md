@@ -25,14 +25,14 @@ full speed p99 ~17.7 ms against 24.5-25.9, at 0.4-0.9 W less; with the PNG HD pa
 **Status (2026-11-18): the standalone is the runner of an opt-in test prerelease.** origin/dev merged in,
 the Android app plays on it (dev's launcher + `skies/SkiesGameActivity` in a `:game` process), CI packages it
 for all four platforms, `v0.90.0-standalone.4` is a verified draft (*HANDOFF-feature-gaps.md* items 9-10,
-*HANDOFF-release.md* first section). **2026-11-19:** `.4` was never published (still a draft, now out of date);
-the next one, `.5`, is prepared on `origin/aurora-backend` but not tagged (the `issues` branch with ws35 on all
-discs, Android touch controls, cheats, the sweeps below), waiting on the owner (*HANDOFF-release.md*, first
-section). Next after testers' reports: issue #26 (needs the reporter's state), then a normal release replacing
+*HANDOFF-release.md*). **2026-11-19: `v0.90.0-standalone.6` is published** as a prerelease, the first public
+test build (the `issues` branch with ws35 on all discs, touch controls, cheats, the parity features, the review
+fixes; *HANDOFF-release.md*, first section); `.4` was never published and its draft is deleted, and the
+front-page README says where the project stands (v0.83 recommended, the new engine in testing). Next after testers' reports: issue #26 (needs the reporter's state), then a normal release replacing
 the Dolphin build. **Review (2026-11-19 afternoon):** `REVIEW-standalone-2026-11.md` (a Fable review; its *Fix
 status*): the High (a crafted state's card file names) and the Mediums fixed and pushed (`ceecbed`), the same card
 flaw found and fixed in the Dolphin build (`recompcore-gci-state-paths.patch`; the dev fix on a local branch,
-*HANDOFF-release.md*); `.4` must not be published. **Decided 2026-11-19: the Dolphin engine will be dropped**
+*HANDOFF-release.md*); `.4`'s draft is deleted. **Decided 2026-11-19: the Dolphin engine will be dropped**
 (the owner: supporting both isn't feasible); the plan and inventory are [HANDOFF-dolphin-removal.md](HANDOFF-dolphin-removal.md).
 
 **Parity (2026-11-19, after the owner's "do all of them except not worth it"):** the new engine now has every
