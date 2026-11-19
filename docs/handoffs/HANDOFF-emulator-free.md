@@ -54,6 +54,11 @@ done at 6.21 s guest every time). **No crash or error line, and A = B on every f
 sheets by eye: battles (ground, deck, ship, a Japanese special move), cutscenes, the European title, the
 Japanese save screens, towns, the world map; nothing wrong. Scripts in the session's scratchpad (`sweep.sh`,
 `card-sweep.sh`, run by `ws35-run.sh`, a copy of `build/sa-runs/wsl-conv.sh` with relative press patterns).
+Now in the repo as `tools/sa-run.sh` and `tools/sa-sweep.sh` (times relative to the loaded state: `--seconds
++N`, `SKIES_PRESS "+T:A"`, `SKIES_POKE "@+T:..."`). **On the Pocket 5** (`tools/sa-device-sweep.sh`, the test
+app's ws35 APK, Turnip not used): 31 USA starts (the repo states, the user's release-app and test-app states)
+for 40 guest seconds each with the same presses, **all at 1.00x, no error line**; contact sheets by eye match
+the WSL frames' scenes (battles, ship battle, cutscenes, the world map, save screens, Pirate Isle).
 
 **2026-10-27:** a scene not run before found something again: on a fast emulated drive the USA intro
 never reached the title screen; disc reads now follow Dolphin's drive model (03d1dc8, feature-gaps item 7).

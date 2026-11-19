@@ -37,8 +37,10 @@ while k*6<secs:
     k+=1
 print(','.join(out))")
 d shell "mkdir -p $FILES/sweep"
+i=0
 for state in "$@"; do
-  name=$(basename "${state%.*}")
+  i=$((i + 1))
+  name=$(printf "%02d-%s" "$i" "$(basename "${state%.*}")")  # numbered: two states can share a file name
   cp "$state" "$STAGE/s.sav"
   d push "$(host_path "$STAGE/s.sav")" "$FILES/sweep/s.sav" > /dev/null
   d shell "rm -rf $FILES/sweep/frames; mkdir -p $FILES/sweep/frames"
