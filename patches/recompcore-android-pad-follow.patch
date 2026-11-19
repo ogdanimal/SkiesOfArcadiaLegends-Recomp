@@ -1,0 +1,43 @@
+diff --git a/Source/Core/Core/SkiesInput.cpp b/Source/Core/Core/SkiesInput.cpp
+index 6c1c95ec69..a0830f92d6 100644
+--- a/Source/Core/Core/SkiesInput.cpp
++++ b/Source/Core/Core/SkiesInput.cpp
+@@ -145,16 +145,27 @@ std::shared_ptr<ciface::Core::Device> FindKeyboard()
+   return android;
+ }
+ 
+-// The controllers controller 1 can move to: SDL's gamepads (the controls every profile names)
++// The controllers controller 1 can move to: SDL's gamepads on desktop (the controls every profile
++// names), and on Android its gamepads (a stick and face buttons on Android's names, which the Android
++// profile uses: ensurePadProfile), so a Bluetooth pad takes over from a handheld's built-in one
+ bool IsController(const ciface::Core::Device& device)
+ {
++  if (device.GetSource() == "Android")
++  {
++    return device.GetName() != "Virtual" && device.FindInput("Axis 0+") &&
++           device.FindInput("Button A");
++  }
+   return device.GetSource() == "SDL" && device.FindInput("Button S");
+ }
+ 
+-bool Pressed(const ciface::Core::Device& device)
++// buttons_only: an Android axis may rest away from 0 (some pads' triggers rest at -1), which would
++// count as held forever, so another Android pad takes over by its buttons only
++bool Pressed(const ciface::Core::Device& device, bool buttons_only = false)
+ {
+   for (const ciface::Core::Device::Input* input : device.Inputs())
+   {
++    if (buttons_only && input->GetName().starts_with("Axis "))
++      continue;
+     if (input->IsDetectable() && input->GetState() > PRESS_THRESHOLD)
+       return true;
+   }
+@@ -480,7 +491,7 @@ void Follow(Clock::time_point now)
+       continue;
+     if (!first)
+       first = device;
+-    if (!pressed && Pressed(*device))
++    if (!pressed && Pressed(*device, device->GetSource() == "Android"))
+       pressed = device;
+   }
+   // No controller on controller 1 (its device is gone, was never set, or is the keyboard): the

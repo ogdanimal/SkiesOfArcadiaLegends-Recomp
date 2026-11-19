@@ -5,7 +5,7 @@ static recompilation: the game's PowerPC code is translated ahead of time into n
 GameCube's graphics, sound and input come from [Dolphin](https://dolphin-emu.org/)'s hardware code.
 It adds widescreen, 60 fps, camera control, save states and quality-of-life options.
 
-**This is a beta (v0.81).** Please [report](../../issues/new/choose) what you run into.
+**This is a beta (v0.83).** Please [report](../../issues/new/choose) what you run into.
 
 No build contains the game. You need your own copy of the disc.
 
@@ -54,7 +54,7 @@ replaces it.
 
 | | |
 |---|---|
-| **Windows** | 64-bit Windows 10 or 11 |
+| **Windows** | 64-bit Windows 10 (version 1703 or later) or 11 |
 | **Linux** | 64-bit (x86_64), with a Vulkan or OpenGL driver |
 | **macOS** | macOS 13 or later on an Apple Silicon Mac (M1 or newer) |
 | **Android** | 7.0+, a 64-bit (`arm64-v8a`) device |
@@ -83,8 +83,9 @@ On Windows, Linux and macOS the keyboard and a controller both work, together or
 uses whichever controller you press, so a controller plugged in later or a second one needs no setup
 (started from Steam with Steam Input, Steam's controller works the same way; the Steam Controller
 shows as "Steam Controller"). On Android the built-in controller, or
-the first one you connect, is set up for you; without one, the game shows touch controls (the in-game
-**Back** menu turns them on and off).
+the first one you connect, is set up for you, and the game also switches to whichever controller you
+press, so a Bluetooth controller works next to a handheld's own; without one, the game shows touch
+controls (the in-game **Back** menu turns them on and off).
 
 | GameCube | Controller (Xbox / PlayStation) | Keyboard |
 |---|---|---|
@@ -141,7 +142,7 @@ press Start**), or in the launcher's **Settings** window.
   EXP (off to 4x), and Invincible.
 - **Romhacks** that change the game's data, such as Maeson's rebalance (see [Romhacks](#romhacks)).
 - **Keyboard and button mapping:** play with the keyboard on Windows and Linux, and change any
-  button or key (see [Controls](#controls)). On desktop, any controller you press is picked up without setup.
+  button or key (see [Controls](#controls)). Any controller you press is picked up without setup.
 - **Dreamcast music** (optional): the Dreamcast version's soundtrack, from your own Dreamcast disc
   (see [Dreamcast music](#dreamcast-music)).
 - **Uncensored** (optional): the original Japanese models and textures the Western releases changed

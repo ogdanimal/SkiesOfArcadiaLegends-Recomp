@@ -1,5 +1,29 @@
 # Handoff: Android build of the Skies recomp (2026-10-05, updated 2026-10-18)
 
+## Review section D on the Retroid Pocket 5 (2026-10-22, branch `review`, ws34 test APK)
+
+`skies-recomp-ws34-2026-10-22-test.apk` (`NAME=ws34 BRAND=1 TEST_ID=1`) is on the Pocket 5's `.test`
+app; the release apps (0.81) and the Nova (the Aurora session's build) weren't touched. Passed: Back
+up saves with its busy screen and result line (D7); Dreamcast Remove with the game running behind a
+task-clearing relaunch, which closes the game first (D8); a picker result after the app's process was
+killed (D11); the automation directory in app storage (D15); Continue at 1.002x. HANDOFF-review has
+each item's notes. Lessons:
+- **A picker result after process death:** open the picker, `adb shell am kill PKG` (it only kills a
+  background process, which the app is while the picker is up), then pick. The developer setting
+  "Don't keep activities" (`settings put global always_finish_activities 1`) didn't destroy the
+  launcher behind the picker here; `settings delete` it afterwards (it was unset).
+- **"Game in progress":** with the game running, Home, then `am start -f 0x10008000 -n
+  PKG/org.dolphinemu.dolphinemu.skies.SkiesLauncherActivity` (NEW_TASK | CLEAR_TASK, as a frontend
+  relaunches it); a plain `am start` just brings the game back.
+- **Remove resets settings:** the Dreamcast Remove sets `DreamcastMusic` and `Uncensored` to 0. To undo
+  a test, `adb pull` both folders first, push them back, and set the two values again with the app
+  force-stopped (it would save its in-memory 0 over an edit).
+- **`JNILIBS` must not be `build/android/jniLibs-NAME`:** the script deletes that folder before copying
+  from `JNILIBS`. To rebuild only the APK, strip `build/android/module-NAME-<ID>/g<ID>_recomp.so` into a
+  scratch folder (`llvm-strip --strip-debug`, as the script does) and point `JNILIBS` there.
+- The full build (`android-ws-build.sh`) compiles the C++ for Android, which the WSL build doesn't:
+  D4's `std::to_string` of a file time failed only there (`__int128`), fixed in `25aa1e9`.
+
 ## The Japanese disc (2026-10-20, branch `japan`): checked on both Retroids, no profile needed
 
 `build/android/apk/skies-recomp-jp26b-2026-10-20-test.apk` in `~/projects/skies-romhack` (test ID;

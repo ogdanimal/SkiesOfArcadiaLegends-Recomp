@@ -1,0 +1,60 @@
+diff --git a/tools/moderngekko_launcher.cpp b/tools/moderngekko_launcher.cpp
+index d46f66b..0110285 100644
+--- a/tools/moderngekko_launcher.cpp
++++ b/tools/moderngekko_launcher.cpp
+@@ -22,6 +22,10 @@
+ #endif
+ 
+ #include <SDL3/SDL.h>
++
++#include <cerrno>
++#include <cstring>
++#include <string_view>
+ #if defined(__APPLE__)
+ #include <mach-o/dyld.h>
+ #endif
+@@ -3791,9 +3795,31 @@ int RunLauncher(int argc, char** argv, LauncherRestart* restart)
+       {
+         SDL_HideWindow(window);
+         int exit_code = 1;
+-        const bool waited = SDL_WaitProcess(process, true, &exit_code);
+-        SDL_DestroyProcess(process);
+-        if (waited && exit_code == moderngekko::frontend::RUNNER_EXIT_EXPLAINED)
++        bool waited = SDL_WaitProcess(process, true, &exit_code);
++        // A signal interrupts the wait (SDL's SIGINT / SIGTERM handler has no SA_RESTART): closing
++        // the game from Steam signals the launcher too, while the game is still shutting down. Wait
++        // again (issue #14); a quit request the game didn't get goes on to it, once.
++        bool forwarded = false;
++        while (!waited && std::string_view(SDL_GetError()).ends_with(std::strerror(EINTR)))
++        {
++          SDL_PumpEvents();
++          if (!forwarded && SDL_HasEvent(SDL_EVENT_QUIT))
++          {
++            SDL_KillProcess(process, false);
++            forwarded = true;
++          }
++          waited = SDL_WaitProcess(process, true, &exit_code);
++        }
++        const std::string wait_error = waited ? std::string() : std::string(SDL_GetError());
++        SDL_DestroyProcess(process);  // clears SDL's error, so it's read first
++        // The system or Steam asked the launcher to quit meanwhile: leave without a message
++        SDL_PumpEvents();
++        const bool quit_requested = SDL_HasEvent(SDL_EVENT_QUIT);
++        if (quit_requested)
++        {
++          result = waited && exit_code == 0 ? 0 : 1;
++        }
++        else if (waited && exit_code == moderngekko::frontend::RUNNER_EXIT_EXPLAINED)
+         {
+           SDL_ShowWindow(window);  // the runner already showed the player why
+           result = 1;
+@@ -3803,8 +3829,7 @@ int RunLauncher(int argc, char** argv, LauncherRestart* restart)
+           SDL_ShowWindow(window);
+           if (!waited)
+           {
+-            launch_error =
+-                "The game process could not be monitored: " + std::string(SDL_GetError());
++            launch_error = "The game process could not be monitored: " + wait_error;
+           }
+           else if (launch_mode == LaunchMode::Join)
+           {

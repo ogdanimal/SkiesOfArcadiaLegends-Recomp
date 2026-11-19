@@ -6971,10 +6971,10 @@ index ff4d32dddc..3594ad21a8 100644
       * Settings, Dreamcast: copies the Dreamcast music from the player's Skies of Arcadia Dreamcast disc
       * ([image], a CHD path or content URI) into the user directory. Returns "" on success, else a
 diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
-index ea754e10b2..05cfbee384 100644
+index 489eac2aa9..2238348c3a 100644
 --- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
 +++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
-@@ -519,16 +519,26 @@ class SkiesSettingsPanel(
+@@ -513,16 +513,26 @@ class SkiesSettingsPanel(
          }
      }
  
@@ -8257,10 +8257,10 @@ index 643e6cfd0d..9bc3e92f81 100644
 +  target_compile_definitions(videocommon PRIVATE HAS_AURORA_BACKEND)
 +endif()
 diff --git a/Source/Core/VideoCommon/FrameInterpolator.cpp b/Source/Core/VideoCommon/FrameInterpolator.cpp
-index 3d18d7b56e..55680837ff 100644
+index 8f3e868800..6934397c8f 100644
 --- a/Source/Core/VideoCommon/FrameInterpolator.cpp
 +++ b/Source/Core/VideoCommon/FrameInterpolator.cpp
-@@ -238,6 +238,7 @@ struct Shown
+@@ -241,6 +241,7 @@ struct Shown
    u32 retraces = 0;         // how often this XFB has been presented
  };
  std::deque<Shown> s_shown;
@@ -8268,7 +8268,7 @@ index 3d18d7b56e..55680837ff 100644
  
  u64 s_frames = 0, s_interpolated = 0;
  u64 s_stat_loads = 0, s_stat_found = 0, s_stat_blended = 0;
-@@ -1412,6 +1413,12 @@ static void EndJob(bool drawn)
+@@ -1427,6 +1428,12 @@ static void EndJob(bool drawn)
        shown->interp = std::move(s_replay_xfb);
        DumpPictures(*shown);
      }
@@ -8281,7 +8281,7 @@ index 3d18d7b56e..55680837ff 100644
    }
    s_replay_xfb.reset();
    s_replay_copies.clear();
-@@ -1472,9 +1479,12 @@ static bool RunJob(bool whole)
+@@ -1490,9 +1497,12 @@ static bool RunJob(bool whole)
    // The first slice starts from the state the frame started with, not the game's state now: the
    // game writes only registers that changed, so the stream leaves out what an earlier frame set
    // (a projection, blending), and after a menu or a fade "now" is a different scene.
@@ -8294,7 +8294,7 @@ index 3d18d7b56e..55680837ff 100644
  
    const u8* const data = s_job.stream.data();
    const u8* const end = data + s_job.stream.size();
-@@ -1494,6 +1504,8 @@ static bool RunJob(bool whole)
+@@ -1512,6 +1522,8 @@ static bool RunJob(bool whole)
    s_replaying = false;
    s_job.position = static_cast<size_t>(stop - data);
    const bool finished = s_job.position >= s_job.stream.size() || stop == begin;
@@ -8303,7 +8303,7 @@ index 3d18d7b56e..55680837ff 100644
  
    if (!finished)
      s_job.state = SaveState();
-@@ -1649,8 +1661,24 @@ static void EndFrame(u32 dest_address)
+@@ -1670,8 +1682,24 @@ static void EndFrame(u32 dest_address)
                              static_cast<float>(bpmem.dispcopyyscale) / 256.0f;
    const u32 height = static_cast<u32>(1.0f + bpmem.copyTexSrcWH.y * y_scale);
    MathUtil::Rectangle<int> rect;
@@ -8330,7 +8330,7 @@ index 3d18d7b56e..55680837ff 100644
    if (cached && cached->texture)
    {
      const TextureConfig& config = cached->texture->GetConfig();
-@@ -1744,6 +1772,38 @@ bool OnGpuIdle()
+@@ -1765,6 +1793,38 @@ bool OnGpuIdle()
    return RunJob(false);
  }
  
@@ -8369,15 +8369,15 @@ index 3d18d7b56e..55680837ff 100644
  void AddReplayCopy(u32 address, RcTcacheEntry entry, bool is_xfb_copy)
  {
    if (Tracing())
-@@ -1879,6 +1939,7 @@ RcTcacheEntry FindReplayCopy(u32 address, TextureFormat format, u32 width, u32 h
- 
+@@ -1901,6 +1961,7 @@ RcTcacheEntry FindReplayCopy(u32 address, TextureFormat format, u32 width, u32 h
  void Shutdown()
  {
+   s_shutdown_pending = false;
 +  s_placeholder.reset();
    s_shown.clear();
    s_job = {};
    s_replay_copies.clear();
-@@ -1918,12 +1979,14 @@ RcTcacheEntry PictureForRetrace(u32 xfb_address, bool is_duplicate)
+@@ -1940,12 +2001,14 @@ RcTcacheEntry PictureForRetrace(u32 xfb_address, bool is_duplicate)
  
    RcTcacheEntry picture;
    const char* what = "real";
@@ -8392,7 +8392,7 @@ index 3d18d7b56e..55680837ff 100644
        what = "previous real";
      }
      else if (current->retraces == 2)
-@@ -1931,6 +1994,7 @@ RcTcacheEntry PictureForRetrace(u32 xfb_address, bool is_duplicate)
+@@ -1953,6 +2016,7 @@ RcTcacheEntry PictureForRetrace(u32 xfb_address, bool is_duplicate)
        if (current->interp_due && s_job.active && s_job.frame == current->frame)
          FinishJob();
        picture = current->interp ? current->interp : current->real;
@@ -8400,7 +8400,7 @@ index 3d18d7b56e..55680837ff 100644
        what = current->interp ? "in-between" : "real (no in-between)";
      }
      else
-@@ -1943,6 +2007,7 @@ RcTcacheEntry PictureForRetrace(u32 xfb_address, bool is_duplicate)
+@@ -1965,6 +2029,7 @@ RcTcacheEntry PictureForRetrace(u32 xfb_address, bool is_duplicate)
      if (current->retraces == 1 && current->interp)
      {
        picture = current->interp;
@@ -8408,7 +8408,7 @@ index 3d18d7b56e..55680837ff 100644
        what = "in-between";
      }
      else
-@@ -1956,6 +2021,8 @@ RcTcacheEntry PictureForRetrace(u32 xfb_address, bool is_duplicate)
+@@ -1978,6 +2043,8 @@ RcTcacheEntry PictureForRetrace(u32 xfb_address, bool is_duplicate)
      ++s_stat_real_shown;
    if (s_timeline_on)
      Timeline(what);

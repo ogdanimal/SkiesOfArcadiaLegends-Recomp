@@ -36,8 +36,11 @@ default. A module linked before the gather-pipe patches (late 2026-10-06), inclu
 rebuilt.
 
 The game with the recomp's features (widescreen, camera, options; *The player build*) runs from the
-patched DOL with a module built from that same DOL. Released: game patch **ws30**, in **v0.81.0-beta**
-(2026-10-22; `patches/game/README.md` has the history). Older notes for this paragraph: on `dev` since 2026-10-18 **ws24** (*HUD placement*, on top of ws23's Continue fix, *Memory card
+patched DOL with a module built from that same DOL. Released: game patch **ws32**, in **v0.82.0-beta**
+(2026-10-22; `patches/game/README.md` has the history): ws31 (Drachma's victory pose, issue #9, *Battle
+screen plane*) and ws32 (two more cutscene shots, issue #10, *Cutscene shots framed for widescreen*) on
+top of 0.81's ws30; `build/game/GEAE8P-ws32` / `GEAP8P-ws32` / `GEAJ8P-ws32` in the `pal60` worktree,
+WSL static module `build/ws32`. Older notes for this paragraph: on `dev` since 2026-10-18 **ws24** (*HUD placement*, on top of ws23's Continue fix, *Memory card
 auto-load*; `build/game/GEAE8P-ws24` / `GEAP8P-ws24`, WSL modules `../skies-aspect/build/us-genhud/module-linux`
 and `build/eu-gen24/module-linux`, no PGO); ws23 was built for Android (`build/game/GEAE8P-ws23` /
 `GEAP8P-ws23`, `build/android/apk/skies-ws23-2026-10-17.apk` on the debug test app); the desktop trees
@@ -150,6 +153,16 @@ the frontend side is `recompcore-skies-settings.patch` (`VideoCommon/SkiesMenu.c
 `Core/SkiesSettings.cpp`) and `moderngekko-local.patch` (launcher, runner). Plans and session logs:
 [handoffs/HANDOFF-settings.md](handoffs/HANDOFF-settings.md). Research: the decomp's `docs/widescreen.md`,
 `docs/camera.md`, `docs/qol_cheats.md`.
+
+### Android: a second controller (2026-10-22)
+
+The Android profile names one device (`ensurePadProfile`: the first gamepad with a stick, the built-in
+one on a handheld), and desktop's controller-follow (`SkiesInput::Follow`) took only SDL devices, so on
+Android a Bluetooth pad connected later did nothing (Reddit: an Odin 2 docked to a TV). `Follow` now
+takes Android gamepads too (`Axis 0+` and `Button A`, the names the profile's bindings use, which every
+standard Android gamepad reports), and switches to one by its buttons only, since some pads' axes rest
+away from 0. Checked on the Retroid Pocket 5 with a DualSense Edge: both ways. The D-pad is bound to the
+hat axes (`Axis 15` / `16`); a pad that reports its D-pad as keys (`Up`, `Down`, ...) would need those added.
 
 ### Controls the recomp adds
 
@@ -317,6 +330,27 @@ rooms have low ceilings and the game has no camera collision (a looser first ver
 Valuan ship cabin's ceiling); on the world map pitch -35 to +25 degrees, zoom 0.6-2x. First-person look
 and battles are untouched. Checked on Windows and the Retroid: `tools/camera-test-win.sh`, 60 fps at
 1.00x.
+
+**European and Japanese discs (ws33, 2026-10-22, review D1).** Until ws33 the patch's tilt, zoom and
+world-map orbit did nothing on those discs: `FIELD_CAMERA_EYE` was written `0x80302F94u`, and the suffix
+kept `gamepatch.py`'s address pattern from translating it, so `cam_view` compared the manager's eye
+source against the USA address (Europe `0x80306614`, Japan `0x80302A14`). The hook was installed, so the
+frontend's check passed. Turning with the C-stick still worked there: that is the game's own camera.
+`gamepatch.py`'s pattern now takes a suffix (and an untranslated address stops the build, so only the
+tables' identity entries pass through). Checked on WSL (JIT, European disc, a cold boot into a card
+save in P. Isle Underground, Z + C-stick up + L for 1.2 s): `cam_input.applied` 0 on ws32, 51 on ws33.
+The USA DOL is byte-identical to ws32; the Japanese one differs in the same halfword, by its table
+(not run: no Japanese module on WSL).
+
+**Japanese Continue's card work (ws34, 2026-10-22, review D9).** The Japanese `fn_801A4070` (at
+`0x801A4204`) stores the `EA_LEGEND_EXTRA #00`-`#02` probe's bit mask at work +0x270, and the Japanese
+load and save screens allocate 0x274 bytes of work (`li r4, 0x274` at `0x801A23BC` / `0x801A24D8`;
+USA and Europe 0x270). `autoload.c` allocated 0x270 on every disc, so a Japanese Continue wrote one
+word past its heap block (the earlier tests passed, likely on the allocator's rounding). The size is
+now 0x274 under `GAME_GEAJ8P`; `gamepatch.py` passes `-DGAME_<ID>` to every source. The USA and
+European DOLs are byte-identical to ws33; the Japanese one differs in two bytes. Checked on WSL (JIT,
+cold boot, `build/game/GEAJ8P-ws34`, the converted Japanese card files 2 and 3 in `build/user10`):
+Continue done in about 6 s both times, no invalid reads.
 
 ### QOL options and Invincible (DOL ws12, 2026-10-11)
 
@@ -555,7 +589,15 @@ the icon; `release/android-icon/drawable-xhdpi/skies_banner.png` from the launch
 own version: `versionCode` = minutes since 2026-01-01 at build time, `versionName` "dev build N" (a
 release: the tag's, `-PskiesVersionName`) (Dolphin's commit-count version was the same for every build, so launchers such as the Retroid's
 Radikal kept the cached icon). On every start it makes sure controller 1's profile uses Android's input
-names (`SkiesNative.ensurePadProfile`).
+names (`SkiesNative.ensurePadProfile`). The game screen turns with the device between both
+landscapes (`SCREEN_ORIENTATION_USER_LANDSCAPE`, so the system's rotation lock still holds it;
+`recompcore-android-orientation.patch`, issue #12, 2026-10-22): it took Dolphin's own setting before,
+plain landscape, which no Skies screen can change. A 180-degree turn keeps the configuration, so the
+Activity isn't recreated. On the Retroid Pocket Nova (ws31 test APK) the game Activity requests
+`SCREEN_ORIENTATION_USER_LANDSCAPE` (`dumpsys activity`), but the display stays at the normal landscape
+whatever the rotation lock says: the Retroid firmware keeps a 1x1 invisible overlay (`com.rp.settings`,
+`ty=MAGNIFICATION_OVERLAY`) that requests landscape and decides the orientation, so Retroids can't show
+it either way. Phones (the request came from a Pixel) have no such window.
 
 ### A missing game module (2026-10-17 night)
 
@@ -1822,6 +1864,41 @@ top right as before. A poke to `full_m00` as a test does nothing (`ws_apply` wri
 and the JIT can't test a new patch from an older state (the state brings its own code back; only
 the static module replaces it).
 
+### Battle screen plane: Drachma's victory pose (2026-10-22, ws31, issue #9)
+
+Sandbowl (v0.80.0-beta, with a video): in 16:9, Drachma's victory pose "reverts back to 4:3". The
+video at 60 fps: on about half the frames of the pose the picture is the whole 16:9 scene squeezed to
+0.75 of its width (landmarks 0.75 times as far apart as on the neighbouring full frames), in a box that
+slides left and right with the camera shake, black around it. Vyse's and Aika's poses are fine.
+
+Reproduced on WSL with the ws30 static module. No save had Drachma, so `shipdebug.c` gained a party
+request (`'PTY' << 8 | 3` to `0x8031AA20`: the game's own join, `fn_800FF6B4`, stats from his table);
+from `10-worldmap-android.sav` with Drachma joined, Encounters at 400 and flying forward, a deck battle
+starts; the victory pose is the game's random pick, steered by poking its rand seed (`lbl_803469A8`,
+`fn_8025ECC4`) before the last command. The projection trace has no chain only in Drachma's pose, and
+logging every 2D polygon that misses an edge showed none during it either. What it does have: the pose
+turns on the battle's screen copy (`lbl_8030A10C + 0x6C` bit `0x40000000`, set at `0x80056CA4` and
+`0x8005B7B0`); `fn_8002FF70` draws the task list in two passes with the copy in between
+(`fn_80226D14`: `GXCopyTex` with clear), and the only task drawn after it (a hook on the copy that
+listed the tasks) was `fn_8003484C`. That task draws the copy back on a model in front of the camera
+(unit matrix, `njTranslate` to the screen distance, rotate, scale: the shake), through `fn_801CEF30`,
+`fn_801CF020` or `fn_801CF0F8` by how the model is animated (the trace: `fn_8003484C+0x158` ->
+`fn_801CF0F8` -> `fn_80287B38`). The model is sized to the game's own field of view, so with the
+widened one it covered the middle 4:3, the copy squeezed into it, and the clear left black around it.
+Its 2D branch (no model, `fn_800333A0`) wasn't seen.
+
+ws31 sends those three calls (`0x8003497C`, `0x80034994`, `0x800349A0`) through `UNWIDE` wrappers
+(`fullwidth.S`), as the battle-entry shatters: the plane is drawn at the game's field of view and covers
+the whole picture. The wrappers are in a new input section, `.trkcave_late`, which `cave.ld` places
+after all other MetroTRK-area code, so no older symbol moved (the script VM's handler table holds
+pointers to the cutscene stubs, and a state brings the old table back). Checked on WSL: the same state
+and seeds on the ws30 and ws31 static modules, 9 shots each during the deck part of the pose: ws30 boxed
+on 4, ws31 on none; the rest of the pose and the results screen as before. Retroid Pocket Nova (local
+test APK `skies-recomp-ws31-2026-10-22-test.apk`, PGO from the main checkout's profile): the launcher
+re-patched the imported USA disc to ws31 on its own (`7ef9451c`); the same battle state, three seeds,
+9 shots across Drachma's pose: all full width. Retroid Pocket 5 (the same APK over the Aurora session's
+test build; its USA disc re-patched to ws31 too): three seeds, 12 shots, all full width.
+
 ### Match screen: ultrawide and any other shape (2026-10-17 night)
 
 The game patch takes any target aspect in `ws_config.display_aspect` (Hor+ 3D, HUD anchors as a
@@ -2028,6 +2105,34 @@ the next shots (Alfonso's bridge) are unzoomed from their first frame, 4:3 keeps
 and a state from ws24 picks the stubs up (the handler table is rewritten every frame). Not checked
 yet: Windows, Android, the European and Japanese games in play (they build), the rest of the game's
 cutscenes.
+
+**ws32 (2026-10-22, two more shots from #10's comments).** In the opening, Fina's ship heading for the
+horizon (`0xF62BE063`, 1.55): the Valuan ship's side waits at the right edge for about 8 s before it
+sweeps in. On the Moon Stone night (map 202, `me202a.sct`), after "Dinner is ready!", Aika and Vyse walk
+to the lookout's ladder (`0xA5940371`, 4:3 + `CS_TOP`, so Fina's head stays in frame when she walks in):
+the game removes each of them just past the 4:3 right edge, so 16:9 showed them vanish in view. Both
+keys, like the first two, are once each in the USA, European and Japanese scripts (FNV-1a over every
+word run of the decompressed `me201a` / `me202a`).
+
+A longer `cs_shot_aspect` would move the stubs, and the script VM's handler table in game data points at
+them: a state from ws29-ws31 brings that table back, and `cs_frame` rewrites it only at the end of the
+frame. So `cs_shot_aspect` is in `.trkcave_late` now, the stubs in `.trkcave_stubs`, pinned by `cave.ld`
+where ws29-ws31 had them (0x26F4 into the MetroTRK area, the same offset on every disc), with the code
+before them free to shrink (only `cs_note` and `cs_frame` moved, 0x5C down). Shot lists can now grow
+without moving anything older.
+
+Checked on WSL (USA, static ws32 module `build/ws32` in the `pal60` worktree, JIT for the first look):
+the horizon shot zooms 1.147 at 16:9 with no hull at the edge until the ship arrives; the lookout shot
+1.334, Aika and Vyse go out past the right edge, the shots after it unzoomed; a ws31 state at the start
+of the opening plays all three opening shots at their zooms (1.147, 1.307, 1.288); ws10-era states (world
+map, a deck battle, the Antonio fight) load and run at speed 1.00. States for the lookout:
+`build/savestates/20-pirate-isle-fina-meets-mom-ws32.sav` (card save #3 of the Retroid backup, in the
+house), `21-pirate-isle-before-lookout-ws32.sav`, `22-lookout-scene-ws32.sav` (the scene's first frame).
+Retroid Pocket 5 (local test APK `skies-recomp-ws32-2026-10-22-test.apk` over the Aurora session's
+test build; the launcher re-patched the USA disc to ws32 on its own): the lookout shot zooms 1.334 and its
+end matches WSL's frame; from the ws31 opening state the horizon shot zooms 1.147, the moon at the right
+edge and no hull 40 and 117 frames in (captures timed by the game's frame count, not adb polling, which
+lags by seconds). Not run: Windows, Linux, macOS (game code, the same on every platform).
 
 ### Widescreen 4:3 setting: identical to the unpatched game (2026-10-10 night, DOL `7cb9de68`, `GEAE8P-ws10`)
 
@@ -2559,6 +2664,47 @@ Upstream context: ModernGekko `8f7a642`/`ecd3188` show CPU-limited Mario Kart: D
 module ABI than our pin. PGO (`moderngekko-port pgo-run`) is untried; on the LLVM backend it needs
 `clang-20` to match.
 
+### CPUs without FMA3 (issue #13, 2026-10-22)
+
+Kaito0 (#13): 5-10 fps on an Ivy Bridge CPU with a GTX 1050 Ti, where Dolphin holds 30. The x86-64
+modules are built for the generic target, which has no fused multiply-add instruction, so every guest
+`fmadd` / `fmadds` / `ps_madd` family instruction became a call to the C runtime's `fma()` (the
+generated code's `llvm.experimental.constrained.fma`, and `ppc_fma` in the CPU runtime): about 13
+million calls per game second in the opening, 6 million in the first battle. The C runtime uses the
+FMA3 instruction where the CPU has one (Haswell, 2013, and later; AMD Piledriver and later) and a
+software routine where it doesn't: UCRT's took 26.5 ns a call against 2.2 ns on the i7-12700K
+(`_set_FMA3_enable(0)`), glibc's is similar. Dolphin's JIT avoids it by a separate multiply and add on
+such CPUs (`Config::SESSION_USE_FMA`, Jit64 `fmaddXX`), which rounds differently.
+
+Fix (`recompcore-module-fma.patch`, `module-template/host_fma.c`): the module defines `fma()` itself, so
+neither the generated code nor the runtime reaches the C runtime's. With FMA3 it is the instruction.
+Without, a call whose operands each have at most 26 significant bits (the low 27 stored bits clear),
+are finite, and whose product's exponent is well inside the normal range, has an exact product in a
+double, so `a * b + c` rounds once like the fused operation: same bits, rounding mode, flags, and
+denormals-are-zero / flush-to-zero behaviour. That is 94% of the game's calls (single-precision
+values, the 25-bit `ps_madd` multiplier); the rest still go to the C runtime's `fma` (`ucrtbase.dll`'s
+by `GetProcAddress`, glibc's by `dlsym(RTLD_DEFAULT)`). A NaN result may name either NaN input, as the
+C runtime's may; `ppc_fma` and DolRecomp's `preferPairedFMANaN` replace it with the PowerPC's choice.
+No code generation change, so the PGO profiles and the codegen cache stay valid. Empty on arm64
+(Android, macOS: the instruction is always there and inlined). `MODERNGEKKO_NO_FMA3=1` takes the
+no-FMA3 path on any CPU, for testing.
+
+Checks:
+
+- `tools/fma-exact-test.c`: 80 million cases on the no-FMA3 path and 24 million on the FMA3 one
+  against the instruction, all four rounding modes, DAZ/FTZ on and off: no difference in result or
+  flags (host_fma.c built with GCC and with clang).
+- WSL (ws32 module and game, i7-12700K, the calls that reach the C runtime slowed by 25 ns to stand in
+  for a CPU without FMA3): lookout scene 0.837 before, 1.569 after (1.569 with FMA3 before); Pirate
+  Isle 0.721 before, 1.322 after (1.323). With FMA3 the Linux module is 7-9% faster than before (no
+  call through glibc's `fma` PLT and resolver): 1.677 / 1.438.
+- Windows (v0.82 runtime, ws34 USA module relinked from the same objects, both scenes): with FMA3
+  2.483 / 2.290 against 2.462 / 2.279; the no-FMA3 path forced, 2.398 / 2.210 (its exactness test and
+  the 6% left to the C runtime, which on a real CPU without FMA3 still pays the software routine, 6% of
+  the old fma cost). `fallback=0` in every run; the DLL imports `fmaf` (never called) but not `fma`.
+- Not run: a real CPU without FMA3. The reporter's speed after the fix depends on the rest of their
+  CPU and GPU; the WSL figures say the fma cost is gone, not that an Ivy Bridge reaches full speed.
+
 ## Native Windows build
 
 Two separate limits showed up under WSL:
@@ -2982,6 +3128,30 @@ the normal runner is unchanged unless `--graphics Aurora` is passed); the fork's
 build (Dolphin's Vulkan backend on llvmpipe is right).
 
 ## Known issues
+
+- **"The game process could not be monitored:" when closing the game from Steam (fixed 2026-10-22,
+  issue #14, a Steam Machine):** Steam's close signals the launcher too; SDL installs its SIGINT /
+  SIGTERM handler without `SA_RESTART`, so the launcher's `waitpid` returned `EINTR` and it showed this
+  box, with an empty reason because `SDL_DestroyProcess` had cleared SDL's error first. The launcher
+  now waits again, passes a quit request on to the game once, and leaves without a message
+  (`moderngekko-launcher-signal.patch`).
+
+- **Second code review, section D (2026-10-22):** a cloud review of v0.82's code
+  (docs/handoffs/HANDOFF-review.md, section D: 10 Medium, 21 Low; no remote-exploitable issue). Fixed:
+  D1 camera control on the European and Japanese discs (ws33, *Camera control*), D6 a use after free in
+  the 60 fps replay when its second EFB can't be made, D5 the auto-save deleting a good save before a
+  failed write, D7 / D8 the Android launcher's save, backup, driver and Remove actions racing the game,
+  D2 texture packs writing outside their folder, D3 / D4 a damaged Dreamcast driver crashing or
+  halving the speed (`recompcore-review-d.patch`; D2-D4 on the local branch `review` until pushed),
+  D9 the Japanese Continue writing one word past its card work (ws34, *Japanese Continue's card work*).
+  Not fixed: D10 (netplay with differing gameplay options; the project doesn't use netplay). The Lows
+  D11-D26 and D28-D31 (HANDOFF-review, each item's notes; `recompcore-review-d.patch` for the
+  RecompCore ones): Android picker results and the driver guard, the Dreamcast import's names and
+  size, bank files read off the audio thread, cheaper and latched 60 Hz copies with a fallback to the
+  disc's file, the converters stopped at shutdown, a texture-pack size cap and safe replacement, menu
+  clamps and locking, the GPU drain wait (1 s), pinned CI image, signing-script pipefail; D27 a quit
+  from the Dock, a logout or a shutdown with the game running is answered "quit" after the runtime has
+  shut down (it used to report "refused to quit", aborting a logout; checked on the Mac).
 
 - **macOS: Left didn't register in the in-game settings menu (fixed 2026-10-19):** D-pad and stick
   Left did nothing in the Skies menu while Right / Up / Down worked. Without Input Monitoring macOS

@@ -1,0 +1,18 @@
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/activities/EmulationActivity.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/activities/EmulationActivity.kt
+index f764bdf241..096a53bd9e 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/activities/EmulationActivity.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/activities/EmulationActivity.kt
+@@ -395,7 +395,12 @@ class EmulationActivity : AppCompatActivity(), ThemeProvider {
+             window.attributes = attributes
+         }
+ 
+-        requestedOrientation = IntSetting.MAIN_EMULATION_ORIENTATION.int
++        // Skies Recomp: Dolphin's orientation setting can't be reached (no Dolphin settings), so the
++        // game turns with the device between both landscapes, unless the system's rotation lock is
++        // on (issue #12)
++        requestedOrientation = if (org.dolphinemu.dolphinemu.skies.isSkiesBrand(this))
++            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE
++        else IntSetting.MAIN_EMULATION_ORIENTATION.int
+     }
+ 
+     private fun closeSubmenu(): Boolean =

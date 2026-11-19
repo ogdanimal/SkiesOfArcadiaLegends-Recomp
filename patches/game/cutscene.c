@@ -66,14 +66,21 @@ __attribute__((section(".late_bss_ws29"), used)) struct cs_shot cs_shot;
  * low-memory gap, and a save state brings back old data. */
 #define CS_BOTTOM 10000
 #define CS_TOP 20000
-TRK_CAVE static int cs_shot_aspect(int map, u32 key) {
+/* In ".trkcave_late" since ws32, so a longer list moves no older code (cave.ld). */
+__attribute__((section(".trkcave_late"), noinline)) static int cs_shot_aspect(int map, u32 key) {
   if (cs_shot.test_aspect > 0 && map == cs_shot.test_map && key == cs_shot.test_key)
     return cs_shot.test_aspect;
   if (map == 201) { /* the opening (me201a.sct) */
+    if (key == 0xF62BE063)
+      return 1550; /* Fina's ship heads for the horizon: the Valuan ship's side waits at 1.6 */
     if (key == 0x90763369)
       return 1360 + CS_BOTTOM; /* up at the Valuan ship's bridge: its decks end at 1.38 */
     if (key == 0xE6946063)
       return 1380; /* Fina's ship by the moon: the Valuan ship waits just past the right at 1.40 */
+  }
+  if (map == 202) { /* the Moon Stone night on the lookout (me202a.sct) */
+    if (key == 0xA5940371)
+      return 1333 + CS_TOP; /* Aika and Vyse go down out of sight just past the 4:3 right edge */
   }
   return 0;
 }

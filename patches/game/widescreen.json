@@ -133,6 +133,24 @@
       "why": "fn_802297C4: the battle-entry shatter's 3D tiles, drawn at the game's own field of view so they cover the whole picture (found with trace2d)"
     },
     {
+      "site": "0x8003497C",
+      "target": "fn_801CEF30",
+      "to": "ws_unwide_801CEF30",
+      "why": "fn_8003484C: the battle's screen plane (the copied frame on a model in front of the camera), drawn at the game's own field of view so it covers the whole picture (issue #9, found with trace2d)"
+    },
+    {
+      "site": "0x80034994",
+      "target": "fn_801CF020",
+      "to": "ws_unwide_801CF020",
+      "why": "fn_8003484C: the screen plane, the same (issue #9)"
+    },
+    {
+      "site": "0x800349A0",
+      "target": "fn_801CF0F8",
+      "to": "ws_unwide_801CF0F8",
+      "why": "fn_8003484C: the screen plane, the same; Drachma's victory pose draws through this one (issue #9)"
+    },
+    {
       "site": "0x800AAF94",
       "target": "fn_800A1BA4",
       "to": "ws_squeezed_800A1BA4",

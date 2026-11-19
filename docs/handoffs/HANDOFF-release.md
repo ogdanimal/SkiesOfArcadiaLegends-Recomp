@@ -1,5 +1,89 @@
 # Handoff: releases (Windows, Linux, macOS, Android)
 
+## On dev after v0.82.0-beta (2026-10-22)
+
+- **Camera control on the European and Japanese discs** (code review D1): game patch **ws33**. Only
+  `release/skies-widescreen-eu.dolpatch` (output `6a246b64`) and `-jp` (`98a49ed7`) changed, each
+  checked with `tools/applydolpatch.py`; the USA patch is the same as 0.82's, so only European and
+  Japanese players get the disc update. Checked on WSL (European disc); the Japanese DOL offline.
+- **60 fps: no use after free when the second EFB can't be made** (review D6): new
+  `patches/recompcore-review-d.patch`, last in `recompcore.series`, for section D's RecompCore fixes.
+  Checked on WSL with the test switch `FrameInterpolation.failefb`.
+- **Auto-save keeps its earlier saves when a save fails** (review D5): `recompcore-review-d.patch`.
+  Checked on WSL (a working save prunes after writing; a read-only folder keeps all three).
+- **Android: save import / backup / driver install show the busy screen; Remove waits for the game**
+  (review D7, D8): `recompcore-review-d.patch`. Device-checked on the Retroid Pocket 5 (below).
+- Review section D (HANDOFF-review) is on `dev` up to D8 (D1, D5, D6, D7, D8).
+
+## On the local branch `review` (pal60 worktree, on `origin/dev` `fec46d6`, not pushed)
+
+The user pushes when ready; before that, read the whole PII sweep and check that every author is the
+noreply address. The rest of review section D, all of it but D10 (netplay, not used: not fixed):
+- **Game patch ws34** (`0dc57fe`, review D9): the Japanese Continue's card work at the Japanese load
+  screen's size (0x274; it wrote one word past 0x270). Only `release/skies-widescreen-jp.dolpatch`
+  changed (output `fdd1ce0f`); the USA and European DOLs are byte-identical to ws33, so their players
+  aren't asked again. `gamepatch.py` now defines `GAME_<ID>` for the sources. WSL: Japanese Continue
+  from files 2 and 3 from a cold boot.
+- **D2-D4** (texture-pack paths, damaged Dreamcast driver) and **the Lows D11-D31**, all in
+  `recompcore-review-d.patch` (22 files) or the repo's tools / CI / READMEs; each item's notes and
+  checks are in HANDOFF-review, and `patches/README.md`'s `review-d` row. D27 (macOS Dock / logout
+  quit) was fixed and tested by the Mac session.
+- **Android build fix** (`25aa1e9`): D4's file stamp didn't compile with libc++'s `__int128` file
+  times (Android, likely macOS).
+- **Devices:** the Retroid Pocket 5's `.test` app has `skies-recomp-ws34-2026-10-22-test.apk` (built
+  from this branch): D7 backup, D8 Dreamcast Remove with the game running, D11 a picker result after
+  the process was killed, D15 automation, Continue at 1.002x all pass (2026-10-22). Its Dreamcast
+  folders and Music / Uncensored settings were put back after the Remove test. The Nova keeps the
+  Aurora session's build; both release apps are on 0.81.
+- Not yet: a Dock > Quit by hand on the Mac (D27); the Japanese disc on a device with ws34.
+- **#13 CPUs without FMA3** (`192f0bf`, `recompcore-module-fma.patch`, last in the series): the module's
+  own `fma()`, exact (`tools/fma-exact-test.c`); development notes *CPUs without FMA3*. WSL simulation
+  0.84 -> 1.57; Windows (v0.82 runtime, relinked ws34 USA DLL in `C:\dev\fmabench`) unchanged on FMA3,
+  no-FMA3 path forced plays (`fallback=0`). No codegen change. Not run on a real non-FMA3 CPU; the #13
+  reply (asking for the CPU model and resolution) waits for the user.
+- Release notes draft: `build/notes-next.md` in the main checkout covers all of the above.
+
+## Released (2026-10-22 UTC): v0.82.0-beta
+
+**v0.82.0-beta is the current release** (prerelease, the user's version number; tag on `8bf2116`, `main`
+fast-forwarded to it from `1bd19c7`, release run 39838808411, published 19:59 UTC; `android-sign`
+approved by the user): https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/releases/tag/v0.82.0-beta.
+Notes: `build/notes-0.82.0-beta.md` in the main checkout (0.81 layout). Carries #12 (both landscapes),
+#9 (ws31) and #10's two new shots (ws32); game patch **ws32**, so desktop players may be asked for their
+disc once more and Android re-patches by itself.
+
+- Before the tag: validate 39829041151 green on `fb7e138` (ws32) and 39835670457 on `8bf2116` (started by
+  hand: the version bump is docs only); version strings bumped (README, release/README, BUILDING, the bug
+  template); PII sweep clean; `.github` unchanged since v0.81.0 apart from the bug template's version.
+- After: SHA256SUMS match all five downloads; every platform carries the ws32 dolpatches (USA output
+  `0886a47b`, Europe `baa96638`, Japan `cf86fb7b`); the APK has 2161 `Sys` assets and is signed with the
+  same certificate as before (`e2c00b0b…a92f`).
+- Issue replies (#9, #10, #12) and #13 wait for the user.
+
+## Shipped in v0.82.0-beta (was: on dev after v0.81.0-beta)
+
+For the release after v0.81.0-beta (shipped as v0.82.0-beta):
+
+- **#9 Drachma's victory pose squeezed into 4:3**: game patch **ws31** (`bb38213`; development notes
+  *Battle screen plane*). `release/*.dolpatch` are ws31 (outputs USA `7ef9451c`, Europe `b559fc7a`,
+  Japan `92d83c42`, each checked with `tools/applydolpatch.py`). The patch changes, so desktop players
+  are asked for their disc once more and Android re-patches by itself: the notes' *Updating* section
+  says so. ws31 only adds code at the end of the MetroTRK area (`.trkcave_late`), so ws30 states load.
+- **#10 two more cutscene shots**: game patch **ws32** (development notes *Cutscene shots framed for
+  widescreen*, ws32): the opening's horizon shot and the Moon Stone night's walk to the ladder, from
+  GLEclipseGaming's two comments. `release/*.dolpatch` are ws32 now (outputs USA `0886a47b`, Europe
+  `baa96638`, Japan `cf86fb7b`, each checked with `tools/applydolpatch.py`). The cutscene stubs are
+  pinned where ws29-ws31 had them, so ws31 states load and zoom.
+  Checked: WSL (static ws32 module) and the Retroid Pocket 5 (`skies-recomp-ws32-2026-10-22-test.apk`,
+  now on its `.test` app, USA disc re-patched to ws32; the Nova keeps the Aurora session's build).
+- **#12 Android: both landscapes**: `recompcore-android-orientation.patch` (`af2d899`). A Retroid's
+  firmware overlay forces landscape, so it can only be seen on a phone (development notes, Android app).
+- Checked: WSL (static modules, ws30 against ws31), Retroid Pocket Nova and Pocket 5 (local test APK
+  `skies-recomp-ws31-2026-10-22-test.apk`; both `.test` apps hold it now, their USA discs re-patched to
+  ws31, the Pocket 5's European disc still ws29 until it's started). Not run: Windows, Linux, macOS (the
+  change is game code, the same on every platform). Validate 39809242068 on `72bf7bf`.
+- Replies to #9 and #12 wait for the release, as before.
+
 ## Released (2026-10-22 UTC): v0.81.0-beta
 
 **v0.81.0-beta is the current release** (prerelease, the user's version number; tag on `1bd19c7`,
@@ -26,7 +110,7 @@ Android re-patches by itself.
   and left open for more shots. AppImage catalog PR #10524 is merged, so no retest is needed.
 - New open issues: **#9** "Drachma's winning animation breaks aspect ratio" (likely another
   full-screen picture or 2D drawn full width, as #11 was), **#12** Android: both landscape
-  orientations. Still open: #5 (cheats), #8 (DSF rips), #10.
+  orientations (both fixed on dev since: the section above). Still open: #5 (cheats), #8 (DSF rips), #10.
 
 ## Shipped in v0.81.0-beta (on dev after v0.80.0-beta, 2026-10-21)
 

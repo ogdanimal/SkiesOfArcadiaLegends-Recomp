@@ -1,8 +1,9 @@
 /* cutscene.c's camera commands: one 16-byte stub per opcode in the script VM's handler table
  * (redirect_pointers, and cs_frame every frame), which loads the game's handler and goes to
  * cs_camera_command. A stub's first instruction is li r11, opcode: cs_frame reads the opcode from
- * it, so the opcodes are listed once, here. */
-	.section .trkcave, "ax"
+ * it, so the opcodes are listed once, here. The script VM's handler table (game data, which a
+ * save state brings back) points at the stubs, so cave.ld keeps them at one address (ws32). */
+	.section .trkcave_stubs, "ax"
 
 	.macro STUB op, handler
 	.global cs_op_\op

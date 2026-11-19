@@ -65,7 +65,10 @@ the Dreamcast music. Details: development notes.
 5. **Known difference:** Continue (the patch's direct card load) skips the Japanese load screen's
    bonus-file check (`EA_LEGEND_EXTRA #00`-`#02` on the card set or clear event flags 2852, 1096,
    2850), so the flags stay as the save has them. Loading through the title's own Continue menu
-   (not the launcher's) does the check.
+   (not the launcher's) does the check. Up to ws33 that direct load also gave the card code 0x270
+   bytes of work where the Japanese load screen gives 0x274 (`fn_801A4070` stores the probe's mask at
+   +0x270): one word written past the block on every Japanese Continue. Fixed in ws34 (review D9,
+   `autoload.c` under `GAME_GEAJ8P`), checked on WSL only.
 6. **Fixed on the way (European, every release since 0.10.0-beta):** Import a save put European card
    saves in `GC/EUR` (`save_import.cpp`'s `RegionFolder`, by the disc ID's letter), but the European
    game runs as NTSC-U, so Dolphin reads its card from `GC/USA` (`CEXIMemoryCard::GetGCIFolderPath`

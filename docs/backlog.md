@@ -175,6 +175,22 @@ and publish the `.zsync` beside the AppImage, so AppImageUpdate works), and a "m
 screenshot shows the launcher without the background art, which loads within 3 s under Xvfb here
 (software GL), so likely the bot's sandbox; the launcher's own dark look is by design.
 
+## Drachma's victory pose squeezed into 4:3 — issue #9, fixed on dev (ws31), 2026-10-22
+
+Sandbowl, against v0.80.0-beta, with a video: in 16:9 Drachma's victory pose "reverts back to 4:3". It
+copies the screen and draws it back on a plane in front of the camera (a shake), sized to the game's
+own field of view, so the whole picture was squeezed into the middle 4:3 with black sides. Game patch
+ws31 draws that plane at the game's field of view (development notes *Battle screen plane*). Checked on
+WSL, the Retroid Pocket Nova and the Retroid Pocket 5; not released yet.
+
+## Both landscape orientations on Android — issue #12, done on dev, 2026-10-22
+
+MK13X (Pixel): the game is locked to one landscape; wanted the reverse one too. The game screen now
+follows the device between both landscapes, unless the system's rotation lock is on
+(`recompcore-android-orientation.patch`). On a Retroid the firmware's own landscape overlay
+(`com.rp.settings`) decides the orientation, so it can't be seen there; the Activity's request was
+checked with `dumpsys` on the Nova. Needs a phone to see it turn.
+
 ## ~~Ship battle command grid stretched in the first tutorial~~ — issue #11, FIXED in v0.81.0-beta (ws30)
 
 Sandbowl, against v0.80.0-beta: "The input command screen is still stretched in different aspect
@@ -187,7 +203,7 @@ full width; the real grid at command input was fine. Game patch ws30 keeps that 
 
 Renatodep: "Is there a way to edit models positions for the wide screen cutscenes? I.e. opening with
 Fina where you see the valuan ship on the side?" Branch `cutscene` frames listed shots (development
-notes *Cutscene shots framed for widescreen*); the opening's two are listed. The rest of the game's
+notes *Cutscene shots framed for widescreen*); the opening's two are listed (ws29), and since ws32 two more from GLEclipseGaming's comments: the opening's horizon shot and Aika and Vyse leaving the lookout on the Moon Stone night. The rest of the game's
 cutscenes (255 scripts, 5,493 distinct camera commands) aren't surveyed: list shots as players report
 them, or survey a scene at a time with the 16:9 / 4:3 shot log. Data-only alternative players can use
 today: SPICE (github.com/SoAModTools/SPICE) edits `.sct` camera poses, lens and object placement, and
