@@ -1,0 +1,25 @@
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+@@ -64,6 +64,7 @@
+ 
+         fun choices(vararg pairs: Pair<Int, String>) = pairs.map { Choice(it.first, it.second) }
+         val ON_OFF = choices(1 to "On", 0 to "Off")
++        val TOUCH_CONTROLS = choices(0 to "Auto", 1 to "Always", 2 to "Off")
+         // Dolphin's [Core] GFXBackend values, by index
+         val BACKEND_KEYS = listOf("Vulkan", "OGL")
+         val BACKEND = choices(0 to "Vulkan", 1 to "OpenGL ES")
+@@ -318,6 +319,13 @@
+                     "Ignores small stick movements. Raise it if a stick drifts.")
+                 padRow(rows, "Rumble", ON_OFF, arrayOf("Rumble/Motor/Range"), 100, 100,
+                     "Controller vibration.")
++                // The emulator-free game's on-screen controls (SkiesTouchControls; Dolphin's own overlay
++                // has its settings in Dolphin's emulation screen)
++                if (SkiesGame.standalone) {
++                    configRow(rows, "Touch controls", TOUCH_CONTROLS, dolphin, "Skies", "TouchControls", 0,
++                        "Auto shows them while no controller is in use (a touch brings them back). Always " +
++                            "keeps them on screen; Off hides them while a controller is connected.")
++                }
+             }
+             "Saves" -> {
+                 configRow(rows, "Auto-save", AUTO_SAVE, dolphin, "Skies", "AutoSave", 10,
