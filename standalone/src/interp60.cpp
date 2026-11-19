@@ -176,6 +176,7 @@ double Ms(Clock::time_point since)
 }
 u64 s_stat_loads = 0, s_stat_prims = 0, s_stat_loads_blended = 0, s_stat_prims_blended = 0,
     s_stat_words_changed = 0, s_stat_draws = 0, s_stat_prims_changed = 0;
+u64 s_stat_repaired = 0;  // draws paired across a texture change (issue #18)
 // The game's thread
 std::vector<size_t> s_unkeyed;  // loads in s_current still waiting for the draw that uses them
 bool s_on_game = false;         // recording
@@ -531,6 +532,75 @@ bool BuildBlendedStream(const Frame& cur_frame, const Frame& prev_frame, std::ve
       return std::isfinite(sum) ? sum : 1e30f;
     };
     Align(n_cur, n_prev, distance, [&](int i, int j) { set_partner(cur_list[i], prev_list[j]); });
+  }
+  // Draws still without a partner, paired again without the texture: a draw whose texture changed
+  // between the frames (Fina's face changing expression) has a new key, and drawn as it is while
+  // the rest of the model moved halfway, the model's edges showed around it (issue #18). It pairs
+  // with the nearest previous draw of the same shape (vertex format, count and size) and another
+  // texture that has no partner either, if their first vertices don't jump (VertexJumps). The
+  // Dolphin build's pass (recompcore-interp-pacing.patch).
+  {
+    static std::vector<u8> prev_taken;
+    prev_taken.assign(prev_frame.prims.size(), 0);
+    for (const Prim* p : partner)
+    {
+      if (p)
+        prev_taken[static_cast<size_t>(p - prev_frame.prims.data())] = 1;
+    }
+    const auto shape = [](const Prim& prim) { return prim.key ^ (u64{prim.texture} << 20); };
+    static std::vector<std::pair<u64, u32>> lone_prev;  // shape, index
+    lone_prev.clear();
+    for (u32 j = 0; j < prev_frame.prims.size(); ++j)
+    {
+      const Prim& prim = prev_frame.prims[j];
+      if (!prev_taken[j] && prim.pos_format == FORMAT_FLOAT)
+        lone_prev.emplace_back(shape(prim), j);
+    }
+    std::sort(lone_prev.begin(), lone_prev.end());
+    // A scene change leaves everything unpaired: only look at a few candidates per draw.
+    constexpr ptrdiff_t MAX_CANDIDATES = 64;
+    // SKIES_INTERP_REPAIR=0 skips this pass (to compare).
+    static const bool repair_on = [] {
+      const char* env = std::getenv("SKIES_INTERP_REPAIR");
+      return !env || env[0] != '0';
+    }();
+    u32 repaired = 0;
+    for (size_t index = 0; index < cur_frame.prims.size() && !lone_prev.empty(); ++index)
+    {
+      const Prim& prim = cur_frame.prims[index];
+      if (partner[index] || prim.pos_format != FORMAT_FLOAT)
+        continue;
+      const u64 key = shape(prim);
+      auto it = std::lower_bound(lone_prev.begin(), lone_prev.end(), std::make_pair(key, 0u));
+      const auto end = it + std::min(MAX_CANDIDATES, lone_prev.end() - it);
+      const u8* cur = cur_frame.stream.data() + prim.data_offset + prim.pos_offset;
+      int best = -1;
+      float best_distance = 1e30f;
+      for (; it != end && it->first == key; ++it)
+      {
+        const Prim& old = prev_frame.prims[it->second];
+        // Same texture: the alignment above already left it unpaired on purpose (a particle that
+        // went, another that came).
+        if (prev_taken[it->second] || old.texture == prim.texture)
+          continue;
+        const u8* prev = prev_frame.stream.data() + old.data_offset + old.pos_offset;
+        if (VertexJumps(cur, prev, prim.pos_count))
+          continue;
+        float distance = 0.0f;
+        for (u32 k = 0; k < prim.pos_count; ++k)
+          distance += std::fabs(ReadFloat(cur + k * 4) - ReadFloat(prev + k * 4));
+        if (distance < best_distance)
+          best_distance = distance, best = static_cast<int>(it->second);
+      }
+      if (best >= 0)
+      {
+        prev_taken[static_cast<size_t>(best)] = 1;
+        if (repair_on)
+          partner[index] = &prev_frame.prims[static_cast<size_t>(best)];
+        ++repaired;
+      }
+    }
+    s_stat_repaired += repaired;
   }
   // Which paired draws jump (VertexJumps; with the two added, a full-screen quad Skies moves from
   // z = 100 to 0.001 after a menu passed covered the scene halfway). When one draw jumps, every draw
@@ -1096,15 +1166,15 @@ void LogStats()
   if (s_stats)
   {
     Log("[interp] per blend %.1f draws, %.1f matrix loads (%.1f blended, %.1f changed), %.1f with "
-        "positions (%.1f blended, %.1f changed); ms per frame: keep real %.2f, blend %.2f, enter "
+        "positions (%.1f blended, %.1f changed, %.2f paired across a texture change); ms per frame: keep real %.2f, blend %.2f, enter "
         "%.2f, feed %.2f, keep in-between %.2f, leave %.2f\n",
         s_stat_draws / 600.0, s_stat_loads / 600.0, s_stat_loads_blended / 600.0,
         s_stat_words_changed / 600.0, s_stat_prims / 600.0, s_stat_prims_blended / 600.0,
-        s_stat_prims_changed / 600.0, s_ms[0] / 600, s_ms[1] / 600, s_ms[2] / 600, s_ms[3] / 600,
+        s_stat_prims_changed / 600.0, s_stat_repaired / 600.0, s_ms[0] / 600, s_ms[1] / 600, s_ms[2] / 600, s_ms[3] / 600,
         s_ms[4] / 600, s_ms[5] / 600);
   }
   s_stat_loads = s_stat_prims = s_stat_loads_blended = s_stat_prims_blended = s_stat_words_changed =
-      s_stat_draws = s_stat_prims_changed = 0;
+      s_stat_draws = s_stat_prims_changed = s_stat_repaired = 0;
   std::fill(std::begin(s_ms), std::end(s_ms), 0.0);
 }
 }  // namespace
