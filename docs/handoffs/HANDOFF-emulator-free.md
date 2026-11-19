@@ -39,7 +39,7 @@ unchanged and plays on Metal, ahead of the Dolphin build on the same M4, plus PG
 the end).
 
 **2026-10-27:** a scene not run before found something again: on a fast emulated drive the USA intro
-never reached the title screen; disc reads now follow Dolphin's drive model (62fe140, feature-gaps item 7).
+never reached the title screen; disc reads now follow Dolphin's drive model (03d1dc8, feature-gaps item 7).
 The Mac session's sweep found a save-state bug at internal resolutions other than 2x (*macOS*, *Sweep*).
 
 **Where it stands (2026-10-26):** as an engine it is ahead of the Dolphin build on every number measured
@@ -713,7 +713,7 @@ Uncapped, the same thread goes to cpu7 at 2.84 GHz (that's where the 1.8-2.0x co
 doesn't hit this because its CPU thread never sleeps (100% busy on a gold core, clocks pinned high; its Video
 thread is another ~60%). The device has no ADPF (`dumpsys performance_hint`: HAL Support false).
 
-**First fix, then replaced (43e5480):** the thread pinned to the fastest cores plus a busy wait of the last 6 ms
+**First fix, then replaced (673686e):** the thread pinned to the fastest cores plus a busy wait of the last 6 ms
 of each field's throttle wait. Its numbers were taken with a measuring mistake: the first `[present-drain]`
 read the clock twice per command chunk, which cost the Pocket 5 15% of its speed whenever
 `SKIES_PRESENT_PACING=1` was on (uncapped save point 1.46x with it, 1.70x without; now it times only the
@@ -761,7 +761,7 @@ untested.
 | Battle | p90 | p99 | max | power |
 |---|---|---|---|---|
 | Before (no pin, no spin, present at once) | 37.1-37.6 | 41.1-42.5 | 43-45 | ~2.2 W |
-| Pin + 6 ms spin (43e5480) | 34.6-34.7 | 35.7-35.9 | 37.5 | ~2.3 W |
+| Pin + 6 ms spin (673686e) | 34.6-34.7 | 35.7-35.9 | 37.5 | ~2.3 W |
 | Pin + spin the whole wait | 34.1 | 35.3 | 35.5 | ~2.9 W |
 | No pin, no spin, 18 ms delay | 34.2 | 35.2 | 35.5 | |
 | **Default: pin, no spin, auto delay (14-15 ms)** | 33.6-33.7 | 34.2-34.4 | 34.5-35.1 | ~2.05-2.2 W |
@@ -770,7 +770,7 @@ untested.
 | Save point | p90 | p99 | max | power |
 |---|---|---|---|---|
 | Before | 38.8-39.3 | 41.9-42.9 | 43-45 | ~2.6 W |
-| Pin + 6 ms spin (43e5480) | 37.3-37.6 | 39.0-39.3 | 40.0 | ~2.7 W |
+| Pin + 6 ms spin (673686e) | 37.3-37.6 | 39.0-39.3 | 40.0 | ~2.7 W |
 | Pin + spin the whole wait | 34.1 | 35.0 | 35.2 | ~3.1 W |
 | Pin + 6 ms spin + 12 ms delay | 34.2 | 34.6 | 35.5 | ~2.8 W |
 | **Default: pin, no spin, auto delay (16-19 ms)** | 34.3-34.4 | 34.7-35.0 | 35.5-36.6 | ~2.4 W |
@@ -889,13 +889,13 @@ resize recreates the EFB), and a launcher (disc import) instead of adb pushes.
 ## Feature gaps 0-2 (2026-10-25, late night): other discs, Continue, graphics options
 
 Following [HANDOFF-feature-gaps.md](HANDOFF-feature-gaps.md), which has each item's details, checks and
-test inputs. Commits on this branch: 56cc7a3 (item 0), d017920 + 18d37f5 (item 1), 1f0ab81 (item 2),
-a87e9be + af20d20 + 2d565dc (MSAA 2x / 8x).
+test inputs. Commits on this branch: 61e39f8 (item 0), 5e171c5 + 364a0d3 (item 1), 15e891f (item 2),
+3d96d5f + 1d0a459 + 4d9555a (MSAA 2x / 8x).
 
 - **European and Japanese discs:** idle PC per disc, the European disc runs as NTSC-U (60 Hz, card in
   `GC/USA`, `DiscRunsAsNtsc()`), `--module` optional (`g<disc ID>_recomp` from the disc ID; on Android
   `libg<ID>_recomp.so`, and `tools/android-standalone-build.sh` takes several in `MODULE`).
-- **The Japanese game could not mount its memory card at all** before d017920: VI register 0x6E (DTV status)
+- **The Japanese game could not mount its memory card at all** before 5e171c5: VI register 0x6E (DTV status)
   read 0, so the SDK's font encoding said ANSI against the card's Shift-JIS header.
 - **Continue:** `--continue N|card` or `[Skies] AutoLoadCard` (one shot), as the Dolphin build's autoload;
   `--load-state` wins and clears the key.
@@ -916,7 +916,7 @@ a87e9be + af20d20 + 2d565dc (MSAA 2x / 8x).
 
 ## Input (feature-gap item 3, 2026-10-25 late night)
 
-Commits d950049, 1caa857, 6b9abe1; fork 0040 (080ec53) and 0041. Details and checks in
+Commits 78386f8, 52db873, 86bf2e4; fork 0040 (080ec53) and 0041. Details and checks in
 *HANDOFF-feature-gaps.md* item 3.
 
 - **Keyboard:** the release layout (W A S D, I J K L, arrows, Space / Left Shift, F / R, Tab, Q / E, Enter;
@@ -937,12 +937,12 @@ Commits d950049, 1caa857, 6b9abe1; fork 0040 (080ec53) and 0041. Details and che
 
 The European disc's language from `[Skies] Language` into the IPL SRAM (`hw_exi.cpp`), a Language tab, and the
 Dolphin build's "A twice restarts" on desktop (the standalone execs itself without `--load-state` /
-`--continue`; on Android a restarter process ends the game's process and starts it again, fde8bf1). Checked on
+`--continue`; on Android a restarter process ends the game's process and starts it again, 00a8e24). Checked on
 WSL, Windows and the Pocket 5 (European disc); details in *HANDOFF-feature-gaps.md* item 4.
 
 ## HD textures (feature-gap item 5, 2026-10-26)
 
-Commit 2b6be40; fork 0042-0043. Details and checks in *HANDOFF-feature-gaps.md* item 5.
+Commit 4226b39; fork 0042-0043. Details and checks in *HANDOFF-feature-gaps.md* item 5.
 
 - **Import:** `--user USERDIR --import-texture-pack PACK` (.7z, .zip, folder, archives in a pack) /
   `--remove-texture-packs`, the Dolphin build's `TexturePackImport` word for word (`texture_pack.cpp`, its
@@ -961,7 +961,7 @@ Commit 2b6be40; fork 0042-0043. Details and checks in *HANDOFF-feature-gaps.md* 
 
 ## 60 fps (feature-gap item 6, 2026-10-26)
 
-Commit e88be2c; fork 0044. Details and checks in *HANDOFF-feature-gaps.md* item 6.
+Commit e91e704; fork 0044. Details and checks in *HANDOFF-feature-gaps.md* item 6.
 
 - `interp60.cpp` records each frame's GX stream as `hw_gpu.cpp` applies it, blends it with the previous
   frame's (the Dolphin build's logic) and replays it at the XFB copy into Aurora's replay context; the
@@ -976,7 +976,7 @@ Commit e88be2c; fork 0044. Details and checks in *HANDOFF-feature-gaps.md* item 
 
 ## The video thread (2026-10-26)
 
-Commit a4f4014; fork 0046 (`aurora_backend_set_event_poller`). Why: at 60 fps the Pocket 5 had lost the
+Commit d55317c; fork 0046 (`aurora_backend_set_event_poller`). Why: at 60 fps the Pocket 5 had lost the
 uncapped lead (save point 1.25x against the Dolphin build's 1.41x), because the replay ran on the one
 emulation thread while the Dolphin build interpolates on its GPU thread. A simpleperf profile of the
 emulation thread (the test app is now `profileable`; `simpleperf record --app com.skiesofarcadia.standalone
@@ -1028,7 +1028,7 @@ and rumble. On Android, Home pauses the main thread in the event poll holding th
 at its next pad read; Home and back checked (one 5.8 s interval, then normal, picture right).
 
 **Checks.** Windows D3D12, the fight route with `SKIES_RTC`, `AURORA_SYNC_PIPELINES=1`, 60 fps, 12 dumped
-frames: all 24 pictures (real and in-between) byte-identical to e88be2c's, with `SKIES_VIDEO_THREAD=0` and
+frames: all 24 pictures (real and in-between) byte-identical to e91e704's, with `SKIES_VIDEO_THREAD=0` and
 with the video thread; the same with a state saved at 60 s and loaded at 100 s; 30 fps real frames equal
 the 60 fps ones. Guest counts (frames, tokens, disc reads) identical in every mode. Menu overlay drawn
 (screenshot). WSL: the fight route completes in both modes.
@@ -1054,7 +1054,7 @@ present waits; Android reads it lazily, after `env.txt`), `SKIES_VIDEO_SPIN=auto
 
 ## Dreamcast features (feature-gap item 7, 2026-10-26)
 
-Commit 9862a64; details and measurements in *HANDOFF-feature-gaps.md* item 7.
+Commit d1ebb4b; details and measurements in *HANDOFF-feature-gaps.md* item 7.
 
 - **The Dolphin build's modules as they are** (`standalone/src/dreamcast/`, byte-identical to dev's patched
   tree): Uncensored, the Dreamcast music and its import, the Dreamcast streamed songs, the European disc's
@@ -1075,7 +1075,7 @@ Commit 9862a64; details and measurements in *HANDOFF-feature-gaps.md* item 7.
 ## macOS (2026-10-27): builds, plays on Metal, faster than the Dolphin build
 
 The Mac session (M4 Mac mini, 4 performance + 6 efficiency cores, macOS 26.3, Command Line Tools only) built
-aurora-backend 723ec15 from a bundle in the worktree `~/Projects/skies-aurora-backend`. **No source change was
+aurora-backend 452d860 from a bundle in the worktree `~/Projects/skies-aurora-backend`. **No source change was
 needed**: `cmake -S standalone -B build/standalone -G Ninja -DCMAKE_BUILD_TYPE=Release` + `ninja`, the prebuilt
 Dawn (darwin-arm64) on Metal ("Device: Apple M4"), 12 harmless warnings. The Apple branches (`.dylib`,
 `_NSGetExecutablePath`, `Contents/Resources` as the data folder in a bundle) work as written. Then two speed

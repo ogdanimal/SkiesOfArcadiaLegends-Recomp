@@ -13,22 +13,22 @@ restart; 5 = HD textures: import, menu row, files decoded off the render thread;
 checks and leftovers in its section below; the Japanese game's memory card fixed on the way (item 1). The
 Pocket 5 checks of items 5 and 6 are done too: HD textures as fast as without the pack after a loader-thread
 fix (fork 0045); 60 fps smoother than the Dolphin build's at full speed and at less power, and since the
-video thread (Aurora off the game's thread, a4f4014, fork 0046) ahead uncapped too (save point 1.70x
-against 1.41x; item 6, *The video thread*). Item 7 (Dreamcast) done too (9862a64): every output
+video thread (Aurora off the game's thread, d55317c, fork 0046) ahead uncapped too (save point 1.70x
+against 1.41x; item 6, *The video thread*). Item 7 (Dreamcast) done too (d1ebb4b): every output
 byte-identical to the Dolphin build's, the music level with it at the save point and ahead in battle.
-**2026-10-26 later (items 8-10 started):** the desktop runner contract is in (6e06979: `frontend.cpp`,
+**2026-10-26 later (items 8-10 started):** the desktop runner contract is in (3a84481: `frontend.cpp`,
 states under the Dolphin build's names, GCPadNew.ini bindings) and the Dolphin `.sav` converter works
-(f0c2131, 0a762c3, c27b402, fork 0047); see *Items 8-10* below, *Done so far*. **2026-10-26 evening:**
+(3d00056, c181943, 4fe4b04, fork 0047); see *Items 8-10* below, *Done so far*. **2026-10-26 evening:**
 converted states checked on WSL (15) and the Pocket 5 (8), a ten-minute play and card saves from one on
-Windows, the launcher leftovers as `patches/moderngekko-standalone-launcher.patch` (fb58a2b) and controller 1
-following GCPadNew.ini's Device (2d80f3f). **2026-10-26 late:** a window resize loses nothing visible
-(`SKIES_RESIZE_AT`, e5e673d); the WSL texture flicker is Mesa's d3d12 GL driver, not Dawn or Aurora (fork 0048
-`DOL_AURORA_BACKEND`, 6195e00); on Windows the Vulkan and D3D11 fallbacks start now (fork 0049) and a PC with
-no working API gets a "No graphics support" dialog (f3953d2); the manifest says `userLandscape` (039930d).
-Windows Sandbox (3319001): Smart App Control blocks the unsigned exe (backlog), D3D11 draws, D3D12 crashes the
+Windows, the launcher leftovers as `patches/moderngekko-standalone-launcher.patch` (ee91274) and controller 1
+following GCPadNew.ini's Device (c165ff4). **2026-10-26 late:** a window resize loses nothing visible
+(`SKIES_RESIZE_AT`, 665d4b8); the WSL texture flicker is Mesa's d3d12 GL driver, not Dawn or Aurora (fork 0048
+`DOL_AURORA_BACKEND`, e61b1b6); on Windows the Vulkan and D3D11 fallbacks start now (fork 0049) and a PC with
+no working API gets a "No graphics support" dialog (8dffb37); the manifest says `userLandscape` (6775acb).
+Windows Sandbox (67573df): Smart App Control blocks the unsigned exe (backlog), D3D11 draws, D3D12 crashes the
 sandbox's kernel (Windows' GPU-PV), Vulkan's crash fixed in Dawn (`patches/dawn/0002`). No console window on
-Windows, the log to `USER/Logs` (64ea652). The Language restart on Android, checked on the Pocket 5 with the
-European disc (fde8bf1). **2026-10-26 night:** a resize during the battle start's screen grab blacked the
+Windows, the log to `USER/Logs` (488dafe). The Language restart on Android, checked on the Pocket 5 with the
+European disc (00a8e24). **2026-10-26 night:** a resize during the battle start's screen grab blacked the
 grab out for a second; fork 0050 keeps EFB copies across a resize (WSL and Windows checked; item 9,
 *Lifecycle*). The desktop Language restart from a loaded state boots clean (item 4).
 **Battle speed while choosing commands (2026-10-26 night, the user):** at 2x-4x the command wheel turned too
@@ -42,17 +42,17 @@ turn, normal at the next input) and the EU / JP deck battles from a cold boot (t
 Ship battles not run. **Not in the Dolphin build yet** (dev's `field-speed` / `battle-specials` speed logic in
 SkiesMenu.cpp): the user's call.
 **2026-10-27:** the Mac (M4, Metal) builds and plays the standalone unchanged, ahead of the Dolphin build;
-the Mac session's PGO (6f0e31b: every Mac module had been built without one) and QoS (e102520) fixes,
-static libpng on macOS (a3d1311), its sweep of 18 starts (*HANDOFF-emulator-free.md* *macOS*; one open bug,
+the Mac session's PGO (c992fa1: every Mac module had been built without one) and QoS (d6c4c78) fixes,
+static libpng on macOS (ffad379), its sweep of 18 starts (*HANDOFF-emulator-free.md* *macOS*; one open bug,
 below). Closed here: the 4x-MSAA specks were llvmpipe's, a battle won after Continue on Windows, the romhack
 release path and the data-folder lookup (item 8), MSAA's cost (RTX 5080: none; Intel UHD 770 at 6x: 2x +20%,
 4x +15%, 8x +67% GPU per frame; item 2), MSAA through the menu on Windows (scripted), the European intro's
 timing and the Dreamcast intro in the standalone (item 7). **Found and fixed: the USA intro never reached the
-title screen** (62fe140): disc reads finished far faster than a drive and the intro's script waited forever
+title screen** (03d1dc8): disc reads finished far faster than a drive and the intro's script waited forever
 after its last model load; reads are now timed with Dolphin's drive model (item 7, *The USA intro stalled*).
 Test routes recorded before it need `SKIES_DI_FAST=1`. Patched Dawn packages (MSAA 2x / 8x) for Windows,
-Linux and Android with `tools/build-dawn-package.*` (1983051, item 2); where CI gets them is the user's call.
-**Fixed (fork 0052, from the Mac session, integrated a4d4c23):** the "4x save-state bug" was the GX state's
+Linux and Android with `tools/build-dawn-package.*` (546c002, item 2); where CI gets them is the user's call.
+**Fixed (fork 0052, from the Mac session, integrated a2ce68f):** the "4x save-state bug" was the GX state's
 mapped viewport / scissor left at the old render size after a resolution change; the loaded picture was the
 right one (*HANDOFF-emulator-free.md* *macOS*, *Sweep*). **2026-10-27 evening: the branch's code review is done**
 (*Code review of the branch* below): nine findings, none in the Aurora fork, **all nine fixed** the same evening
@@ -186,15 +186,15 @@ by ear (item 7); the old press files still on `SKIES_DI_FAST=1` (*Testing practi
   --headless --graphics Null --automation-dir DIR`) answers `read_memory` commands for the same comparisons.
 - **Test files on C: from this plan, for the user to keep or delete** (in `C:\dev\SkiesStandalone`;
   2026-10-26 evening adds `build\user-lp\` (a test card save, from a relative `--user` path), and
-  `standalone\src\input.cpp` synced to 2d80f3f with the build rebuilt):
+  `standalone\src\input.cpp` synced to c165ff4 with the build rebuilt):
   `user-in1\`, `user lang\`, `user-hd\`, `user-hd-png\` (texture packs imported), `in1.log` `in2.log`
   `in3.log`, `lang.log`, `langtest.bat`, `hd-on.log` `hd-off.log`, `time-hd.log` `time-hd-png.log`,
   `async-hd.log` `async-hd-png.log`, `menu-hd.log`, `menu-hd.png` `menu-hd2.png`, `shot-dpi.ps1` (a tool;
   worth keeping). Earlier: `skies-standalone-msaa.apk`, `user-msaa*`, `dumps-msaa*`, `dumps-cont*`,
   `msaa*.log`, `cont*.log`, `build-dawnsrc\`, `C:\dev\dawn-src`. 2026-10-27: `user-gpu-r{4,6}-m{1,2,4,8}\`, `gpu-r*-m*.log`,
   `gpucost.bat` (a failed first MSAA-cost run), `dawn-package\` (1.5 GB: the Windows Dawn package build, its
-  tarball, `test-pkg.bat` and `build-pkg\`), the rebuilt `build\` (synced to 62fe140), and
-  `C:\dev\SkiesRecomp\build\mac-transfer-sa\aurora-backend-723ec15.bundle` (the Mac's transfer).
+  tarball, `test-pkg.bat` and `build-pkg\`), the rebuilt `build\` (synced to 03d1dc8), and
+  `C:\dev\SkiesRecomp\build\mac-transfer-sa\aurora-backend-452d860.bundle` (the Mac's transfer).
 
 ## The gaps
 
@@ -478,7 +478,7 @@ Dolphin build; decide whether to translate `GCPadNew.ini` once on first run.
   writes the store); Windows `SendInput` scan codes; the Pocket 5's built-in pad (needs the user: press the
   buttons), a Bluetooth pad, rumble felt by hand.
 
-**Done (2026-10-25, late night; d950049, 1caa857, 6b9abe1; fork 0040 080ec53, 0041):**
+**Done (2026-10-25, late night; 78386f8, 52db873, 86bf2e4; fork 0040 080ec53, 0041):**
 
 - **Keyboard (step 1):** the release layout is Aurora's fallback (fork 0040; since 0041 the call
   `aurora_backend_pad_default_keys(port)`, which the keyboard reset uses too), still only when nothing was
@@ -758,7 +758,7 @@ back on Android. Then the head-to-head against the Dolphin build's 60 fps on the
 Size: ~1,800-2,200 lines (1,400 in `interp60.cpp`); 3-4 sessions (record + blend with dumps; replay +
 presents; menu + holds + states; devices).
 
-**Done on desktop (2026-10-26):** commit e88be2c, fork 0044.
+**Done on desktop (2026-10-26):** commit e91e704, fork 0044.
 
 - **Correction to the plan:** dev's `review-d` patch changes `FrameInterpolator.cpp` (D6 / D25: the test
   switch for a failed second EFB, `ReadEnabled` once, Shutdown deferred), so the vendored copy is not
@@ -807,7 +807,7 @@ presents; menu + holds + states; devices).
 - **Open:** the Nova; the scene list above (title clouds, the game's menu fade, the Valuan ladder,
   cloud sea, world-map flight, battle at speed with spells for the hold).
 
-**Pocket 5 (2026-10-26):** the APK of e88be2c (+ fork 0045) installed over the test app; IR 1, muted,
+**Pocket 5 (2026-10-26):** the APK of e91e704 (+ fork 0045) installed over the test app; IR 1, muted,
 lowest performance mode, `[Skies] FrameMode = 1` in both apps (`capture/android-ir-bench.sh`). The 30 fps
 baseline on this build is unchanged (battle p99 34.4, max 35.0).
 
@@ -835,7 +835,7 @@ baseline on this build is unchanged (battle p99 34.4, max 35.0).
   is now set from each retrace's lateness, and the retrace inside the heavy drawing field is late. Pacing
   holds anyway (nothing over 20 ms), so the cost is latency; worth a look with the parse thread.
 
-**The video thread (2026-10-26, a4f4014, fork 0046):** Aurora (the parse, the replay, the presents) on the
+**The video thread (2026-10-26, d55317c, fork 0046):** Aurora (the parse, the replay, the presents) on the
 main thread, the game on its own; details in *HANDOFF-emulator-free.md*, *The video thread*. The game waits
 at the frame's tokens only for commands that read guest RAM; the replay goes after the tokens; on Android
 the video thread polls while the game has no time to spare (its cluster's clock). Same Pocket 5 runs:
@@ -852,7 +852,7 @@ the video thread polls while the game has no time to spare (its cluster's clock)
 Ahead of the Dolphin build again in every column, 60 fps costing 4-5% of the uncapped speed (25% before).
 Home and back on Android checked with it (one 5.8 s interval, then normal). Windows uncapped: save point
 60 fps 2.07x -> 2.95x, battle 2.81x -> 3.84x; the fight route's 24 dumped pictures byte-identical to
-e88be2c's in both modes and after a state save + load.
+e91e704's in both modes and after a state save + load.
 
 ## 7. Dreamcast features and disc audio
 
@@ -904,7 +904,7 @@ Size: ~2,500 lines moved, 1,200-1,800 lines of glue. Risks: audio-thread timing 
 scheduler; the right song after a state load; first-run conversion time on weak Android hardware; the AICA
 engines' CPU cost against the performance goal (measure on the Pocket 5).
 
-**Done (2026-10-26, commit 9862a64; desktop + Pocket 5):**
+**Done (2026-10-26, commit d1ebb4b; desktop + Pocket 5):**
 
 - **The modules as they are on dev** (`standalone/src/dreamcast/`: `DiscIO/SkiesUncensor*`,
   `DiscIO/SkiesStreams.{h,cpp}` + `SkiesPal60Data.inc`, `AudioCommon/DCMusic*`, `AudioCommon/DCMusicImport*`,
@@ -1068,7 +1068,7 @@ started as players do, on an existing data folder.
   imports carry over as they are (shared formats and folders).
 
 **Done so far (2026-10-26, all local commits):**
-- **Runner contract (6e06979).** `standalone/src/frontend.cpp` does skies-run's pre-launch part with the
+- **Runner contract (3a84481).** `standalone/src/frontend.cpp` does skies-run's pre-launch part with the
   runner's own std-only code (`lib/ModernGekko/tools/{user_directory,dol_patch,frontend_config}.cpp`,
   `release_games.hpp`): the launchers' command line (`--game G --user-dir U [--load-state F] [-X11|--wayland]
   [--title T]`, or no arguments), data folder, `default-game.txt`, config.ini (resolution every start and
@@ -1085,19 +1085,19 @@ started as players do, on an existing data folder.
   build now loads (as the Dolphin build).
 - **Controller bindings:** GCPadNew.ini is the source of truth (dev's `Core/SkiesBindings.cpp` verbatim in
   `standalone/src/skies_bindings/`): keyboard applied at the first poll, a controller's when it takes port 1,
-  the mapping page writes back. Keyboard checked on WSL. 2d80f3f: controller 1 starts on the profile's
+  the mapping page writes back. Keyboard checked on WSL. c165ff4: controller 1 starts on the profile's
   `Device` (`SDL/<n>/<name>`, what the launcher's Controls page writes) when it's connected, and port 1's
   device goes back into the file when it changes (the Dolphin build's SwitchTo); checked on Windows with a
   DualSense Edge (bindings applied, `Device` written, nothing else in the file changed). **Still to do by
   hand: remapping with a pad, and two pads (the profile's one must win at start).**
-- **Converter (f0c2131, fork 0047).** `dolphin_state/dolphin_state_reader.cpp` walks the Dolphin stream
+- **Converter (3d00056, fork 0047).** `dolphin_state/dolphin_state_reader.cpp` walks the Dolphin stream
   (state 191; every marker checked, must end on the last byte; all 10 test states pass), `dolphin_state.cpp`
   applies it, each part has a `*FromDolphin`. Results: Windows room state matches the Dolphin build's frames
   at ~45 dB; audio bit-exact for 11.7 s after loading a battle state; battle, ship deck, Antonio intro/fight,
   JP cabin, EU and US intro states all play. Fork 0047 `aurora_backend_copy_restore_rgba` rebuilds the
   Dolphin build's EFB copies.
-- **Two fixes found by it:** (1) 0a762c3: after every load the DOL's code goes back over a state's older code
-  (the Dolphin build's restore-boot-dol): older-patch Retroid states were black. (2) c27b402: the Dolphin
+- **Two fixes found by it:** (1) c181943: after every load the DOL's code goes back over a state's older code
+  (the Dolphin build's restore-boot-dol): older-patch Retroid states were black. (2) 4fe4b04: the Dolphin
   build lays extracted games out with DirectoryBlob (other file offsets than sys/fst.bin); after every load
   files are served at the offsets of the game's FST in RAM. Without it any disc read after a converted load
   read the wrong file (intro states wrote through garbage pointers ~10 s in).
@@ -1118,7 +1118,7 @@ started as players do, on an existing data folder.
   spell), a battle won after it with the results screen. 1.00x throughout, no errors. A second run kept in
   the save room overwrote file #01 113 times over ten minutes (every one "Saving completed", game time
   0:13 to 0:22), and a cold boot's `--continue card` came up in the save room from that card.
-- **Launcher (fb58a2b, `patches/moderngekko-standalone-launcher.patch`, after dev's three moderngekko
+- **Launcher (ee91274, `patches/moderngekko-standalone-launcher.patch`, after dev's three moderngekko
   patches).** CMake `MODERNGEKKO_STANDALONE_RUNNER`: no Graphics backend row (Aurora picks D3D12 / Vulkan /
   Metal itself, GL ES as the fallback; the standalone ignores config.ini's `backend=`); Import a save also
   takes the standalone's own states ("SKST" at 24, version 2, unpacked size, one zstd frame to the end
@@ -1152,7 +1152,7 @@ started as players do, on an existing data folder.
   parent redirects still arrives (the test scripts); started without it (the launcher, a double click) the log
   goes to `USER/Logs/skies-standalone.log`, both streams unbuffered. Checked on Windows both ways; the
   swapped package (`build/sa-runs/pkg-win`) has this build as `skies-run.exe`.
-- **macOS (2026-10-27, the Mac session, Apple M4, macOS 26.3, Command Line Tools only).** 723ec15 builds unchanged
+- **macOS (2026-10-27, the Mac session, Apple M4, macOS 26.3, Command Line Tools only).** 452d860 builds unchanged
   (cmake + Ninja, Dawn's darwin-arm64 prebuilt; 12 harmless warnings) and runs on Metal ("Backend: Metal,
   Device: Apple M4"). libpng links dynamically (`@rpath/libpng16.16.dylib` in the build's `_deps`): the
   package must bundle it or link it static; the rest is system frameworks. Boot to the title and the
@@ -1197,7 +1197,7 @@ started as players do, on an existing data folder.
   `[DSP] DumpAudio` in the user dir's ini files.
 
 **Next for items 8-10:** by hand (the user): remapping with a pad and two pads; Continue in the launcher
-with the swapped package (`build/sa-runs/pkg-win`, `skies-run.exe` = the standalone as of 2d80f3f,
+with the swapped package (`build/sa-runs/pkg-win`, `skies-run.exe` = the standalone as of c165ff4,
 `skies-run-dolphin.exe` kept). macOS frontend checked 2026-10-27 (the standalone as `skies-run` in a copy of
 the release app; Play from the launcher still to do by hand; *HANDOFF-emulator-free.md* *macOS*). Then item 9 (Android shell) and 10 (packaging: the
 standalone in build-release-win.bat etc. with `SKIES_RELEASE_*`, Dawn DLLs, Sys, and the launcher built
@@ -1349,7 +1349,7 @@ The order above keeps the build playable and measurable after every step.
 
 ## Code review of the branch (2026-10-27)
 
-The whole branch against its merge base with dev (`4598e1d..4875f36`, 111 commits, ~44k added lines),
+The whole branch against its merge base with dev (`4598e1d..33147f3`, 111 commits, ~44k added lines),
 correctness first. Nine findings, none in `patches/recompcore-aurora.patch` or the fork. **All nine fixed
 2026-10-27 evening** (1-3 first, the user's call, then 4-9); *Fixes* at the end of this section says how each
 was checked.
@@ -1448,7 +1448,7 @@ folders deleted.
   | Dolphin bench app (2 runs) | 35.09-35.35 | 36.43-36.59 | 37.15-38.15 | ~3.2 W |
 
   Music on is level with music off now (the 10-26 measurement had 35.9-36.6 against 34.3, before the
-  snapped and display-paced presents of 889f191), and the standalone is ahead of the Dolphin build at the save
+  snapped and display-paced presents of 55013e6), and the standalone is ahead of the Dolphin build at the save
   point too. The device's performance mode was left as the user had it.
 
 ## Issue #10 and the standalone (2026-10-27, a question, no work started)
