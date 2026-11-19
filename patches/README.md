@@ -191,10 +191,10 @@ Not applied by `tools/apply-patches.sh`: Dawn is a FetchContent dependency of Au
 counts 2 and 8 valid where the adapter renders and resolves them (Vulkan framebuffer colour / depth sample
 counts, D3D12 multisample quality levels, Metal `supportsTextureSampleCount`, GL texture sample limits) and
 exports `dawn::native::SupportsSampleCount` with the macro `DAWN_NATIVE_EXTRA_SAMPLE_COUNTS`, which Aurora's
-fork 0039 checks. Releases get it from CI: `validate.yml`'s `dawn` job builds a package per platform with
+fork 0039 checks. Releases get it from CI: `standalone-host.yml` (called by `validate.yml` per platform) builds a package per platform with
 `tools/ci-dawn.sh` (`tools/build-dawn-package.sh` / `.bat`: encounter/dawn at `AURORA_DAWN_REF`, these patches
-applied with `git am`), cached by the patches and scripts, and the platform jobs pass it as `DAWN_PACKAGE`; when it
-fails they use the stock prebuilt (MSAA Off / 4x). Locally: the same scripts, then `DAWN_PACKAGE=<tar.gz>` for
+applied with `git am`), cached by the patches and scripts, and builds the standalone against it (`DAWN_PACKAGE`); a release fails
+without it, other runs use the stock prebuilt (MSAA Off / 4x). Locally: the same scripts, then `DAWN_PACKAGE=<tar.gz>` for
 `tools/build-standalone-release.*` / `tools/android-standalone-build.sh`, or build Dawn from a patched tree with
 `-DSKIES_DAWN_PROVIDER=vendor -DFETCHCONTENT_SOURCE_DIR_DAWN=DIR` (`docs/handoffs/HANDOFF-feature-gaps.md`, item 2).
 A patched tree with local git: `~/projects/skies-aurora/dawn-src/`.

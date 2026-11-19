@@ -276,7 +276,8 @@ tools\build-release-win.bat configure
   `:game` process); without it the app runs Dolphin's emulation.
 - **Dawn**: the stock prebuilt package by default, which means MSAA Off / 4x. `DAWN_PACKAGE=<dawn-*.tar.gz>`
   (from `tools/ci-dawn.sh` or `tools/build-dawn-package.sh` / `.bat`: Dawn with `patches/dawn/`) adds 2x / 8x on
-  every platform; CI's `dawn` job builds and caches these packages for the releases.
+  every platform. CI builds and caches them per platform (`.github/workflows/standalone-host.yml`, which also builds
+  the standalone against them, with no secrets); a release fails without them.
 
 ### Development builds
 

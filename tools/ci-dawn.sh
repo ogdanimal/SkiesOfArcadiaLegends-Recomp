@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # CI: Dawn with patches/dawn/ (MSAA 2x / 8x, the Vulkan swapchain check) as the package Aurora's
-# AURORA_DAWN_PROVIDER=package takes, for one platform, into OUT_DIR. validate.yml's `dawn` job runs it behind a
-# cache; the release jobs build the standalone against the package when there is one (DAWN_PACKAGE), the stock
-# prebuilt otherwise (then anti-aliasing is Off / 4x only), so a failure here never stops a release.
+# AURORA_DAWN_PROVIDER=package takes, for one platform, into OUT_DIR. .github/workflows/standalone-host.yml runs it behind
+# a cache and builds the standalone against the package (DAWN_PACKAGE); a release fails without it, other runs fall
+# back to the stock prebuilt (anti-aliasing Off / 4x only).
 #   tools/ci-dawn.sh linux|android|darwin|windows OUT_DIR
 # linux / android / darwin: tools/build-dawn-package.sh (it clones encounter/dawn at AURORA_DAWN_REF and applies
 # the patches). windows (Git Bash, MSVC set up by the job): the same tree prepared here, the DXC DLLs taken from

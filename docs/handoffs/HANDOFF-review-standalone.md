@@ -281,6 +281,9 @@ report one as a finding without a concrete scenario.
 
 ## 8. State at handoff (2026-11-19, ~12:40 EST)
 
+**Done (2026-11-19 afternoon):** the review ran; its report is `REVIEW-standalone-2026-11.md` and its *Fix status*
+lists what was fixed after it (pushed, `ceecbed`). A next review starts from that report, not from this file.
+
 - Everything is pushed: `origin/aurora-backend` = local `standalone-issues` (docs only after `2a50e0c`, the
   last code change).
 - CI run 44577309166 built all four Dawn packages (after the Windows fixes). Runs 44567700141 and 44571866943 built

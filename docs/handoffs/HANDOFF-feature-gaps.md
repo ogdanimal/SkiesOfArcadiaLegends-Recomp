@@ -13,7 +13,7 @@ Packaging and CI*, each with a *Done 2026-11-18* part); the branch pushed to ori
 history rewrite (a device serial in two 10-25 commits; old -> new hashes in the local
 `build/rewrite-2026-11-18-hashmap.txt`); `release.yml`'s guard takes prerelease tags on this branch, and
 **`v0.90.0-standalone.4` is a verified DRAFT prerelease** waiting for the owner to publish it
-(*HANDOFF-release.md*, first section). 2026-11-19: still a draft and superseded by `.5` (prepared, not tagged):
+(*HANDOFF-release.md*, first section). 2026-11-19: still a draft, superseded by `.5` (prepared, not tagged) and not to be published (review S1):
 touch controls and their setting, the controller-profile dead zone / rumble, cheats, F1, the local clock and the
 `SKIES_EXTRA_ARGS` device-test hook are described below under items 9 and 3. The Android Language restart through the launcher is checked
 (item 9). Left by hand: two pads and remapping with a pad, the desktop launcher's Continue click in a CI
@@ -64,7 +64,8 @@ title screen** (03d1dc8): disc reads finished far faster than a drive and the in
 after its last model load; reads are now timed with Dolphin's drive model (item 7, *The USA intro stalled*).
 Test routes recorded before it need `SKIES_DI_FAST=1`. Patched Dawn packages (MSAA 2x / 8x) for Windows,
 Linux and Android with `tools/build-dawn-package.*` (546c002, item 2); since 2026-11-19 CI builds and caches
-them (`validate.yml` `dawn` job, `tools/ci-dawn.sh`) for the releases, the stock package the fallback.
+them (`standalone-host.yml` per platform since `ceecbed`, `tools/ci-dawn.sh`) for the releases; a release fails
+without them, other runs fall back to the stock package.
 **Fixed (fork 0052, from the Mac session, integrated a2ce68f):** the "4x save-state bug" was the GX state's
 mapped viewport / scissor left at the old render size after a resolution change; the loaded picture was the
 right one (*HANDOFF-emulator-free.md* *macOS*, *Sweep*). **2026-10-27 evening: the branch's code review is done**

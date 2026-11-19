@@ -17,7 +17,8 @@ Requests and ideas not scheduled yet. Move an item to a handoff when work on it 
   Left: the push and the #24 VRR test on the user's display. #19's F1 is in the standalone too (2026-11-19:
   saves to the menu's slot unless F1 is bound; checked on WSL with a real key event, the bound case not run).
 - **Patched Dawn** (MSAA 2x / 8x, the Windows swap chain fix): done 2026-11-19, built in CI (the owner left the
-  call to Claude). `validate.yml`'s `dawn` job (linux / android / darwin / windows) runs `tools/ci-dawn.sh` behind
+  call to Claude). Since `ceecbed` (review B2-B4) `standalone-host.yml`, called per platform, builds the Dawn package and
+  the standalone against it without secrets, and a release fails without the patched Dawn. Before it, `validate.yml`'s `dawn` job (linux / android / darwin / windows) ran `tools/ci-dawn.sh` behind
   `actions/cache` keyed on `patches/dawn/*`, the Dawn scripts and Aurora's CMakeLists.txt (its pinned Dawn) and
   uploads `dawn-<target>`; the platform jobs download it and set `DAWN_PACKAGE` (`build-standalone-release.*`:
   `-DAURORA_DAWN_PACKAGE_URL=file://...`; `android-standalone-build.sh`: the package unpacked). Every step after

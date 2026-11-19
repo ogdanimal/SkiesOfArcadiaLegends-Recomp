@@ -2,6 +2,22 @@
 
 ## Next test build: v0.90.0-standalone.5 (prepared 2026-11-19, NOT tagged, NOT built)
 
+- **Review and its fixes (2026-11-19 afternoon, `ceecbed` on origin/aurora-backend):** a Fable review
+  (`HANDOFF-review-standalone.md` -> `REVIEW-standalone-2026-11.md`, its *Fix status* section) found a High: a
+  crafted save state makes the memory card write a file anywhere (S1). Fixed in the standalone (`hw_memcard.cpp`)
+  **and in the Dolphin build**, which had the same flaw in Dolphin's own card code
+  (`recompcore-gci-state-paths.patch`): **the released v0.83.0 is exposed.** The Dolphin-build fix waits on a
+  local dev-based branch `gci-state-fix` (`f427c65`, worktree `~/projects/skies-gcifix`, applies on dev's
+  chain): pushing dev and a v0.83.1 release are the owner's call (asked). The other Mediums and most Lows are
+  fixed too (Android test hooks for test builds only, crafted-file limits, log redaction, the Invincible key, ...).
+  **Never publish the `.4` draft** (it has S1); `.5` from `aurora-backend` has every fix.
+- **CI since `ceecbed`:** `.github/workflows/standalone-host.yml`, called by `validate.yml` once per platform
+  (`host-windows`, `host-linux`, `host-darwin`, `host-android`): the patched Dawn (cached) and the standalone
+  built against it with no secrets; each platform job waits for its own and unpacks the host before it decrypts
+  the game's code. In a release a missing patched Dawn fails the job. A `workflow_dispatch` of `validate` on
+  `aurora-backend` runs these jobs fully (the codegen jobs fail there by design: the `ci` environment takes dev
+  and tags), so the host build is proven before a tag; the first such run is 44590023832.
+
 - **Release status (2026-11-19, ~10:30 EST):** nothing published. `v0.90.0-standalone.4` is still a **draft**
   (the workflow makes every standalone test build a draft; the owner never published it), and it's out of date:
   built from `52bbf15`, before the touch controls, ws35, the launchers' dead zone / rumble fix and the rest
@@ -10,7 +26,7 @@
   why the draft isn't published; Claude recommended not publishing `.4` and offered either to tag + build `.5`
   and leave it a draft, or to tag, build, check and publish `.5` as a prerelease and delete the `.4` draft.
   **Waiting on the owner's choice.**
-- **Code:** all of it on `origin/aurora-backend` (newest `2a50e0c` at the time of writing; tag the branch's newest
+- **Code:** all of it on `origin/aurora-backend` (newest code `ceecbed`, then docs; tag the branch's newest
   commit): `git tag v0.90.0-standalone.5 origin/aurora-backend && git push origin v0.90.0-standalone.5`. Since
   the first push: test tools (relative times, `tools/sa-run.sh`, `tools/sa-sweep.sh`, `tools/sa-device-sweep.sh`,
   `SKIES_EXTRA_ARGS` on Android), `highlytheoretical-dsp-shift-wrap.patch` (#26, not confirmed as its cause),
@@ -23,7 +39,7 @@
   (`[SkiesHotkeys]`, Button mapping's last rows; xdotool-checked), **custom GPU drivers** on Android (libadrenotools,
   `libskiesvk.so`, `recompcore-aurora-vulkan-dir.patch`, `recompcore-standalone-driver.patch`; Pocket 5 Turnip
   v26 R8 battles at 1.00x, keep prompt and crash safeguard work, test app back on the system driver), and
-  **MSAA 2x / 8x** from a CI-built patched Dawn (`validate.yml` `dawn` job, `tools/ci-dawn.sh`; falls back to the
+  **MSAA 2x / 8x** from a CI-built patched Dawn (`standalone-host.yml` since `ceecbed`, `tools/ci-dawn.sh`; falls back to the
   stock package, Off / 4x, if it fails). Left out by the owner: Android 7 / 8, the Windows File menu. **The first
   tag after this builds Dawn again** (branch caches don't reach tags; Linux 18-28 min, Android 13 min; Windows 26 min, macOS 16 min:
   all four built in run 44577309166 after two Windows fixes; Windows checked locally with MSAA 1x-8x; macOS
@@ -47,7 +63,7 @@
   `.4` (SHA256SUMS, APK signer, PII scan, one Windows / Linux / Android run); approve `android-sign` (ask the
   owner: their permission for `.4` was for that release only); the owner publishes. Then clear
   `release/test-build-notes.md` for the build after.
-- `v0.90.0-standalone.4` is still a draft: delete it when `.5` ships (Claude's recommendation; the owner's call).
+- `v0.90.0-standalone.4` is still a draft and has the S1 flaw: delete it, never publish it (the owner's call when).
 
 ## Test prerelease of the standalone: v0.90.0-standalone.4 (2026-11-18, branch `aurora-backend`)
 

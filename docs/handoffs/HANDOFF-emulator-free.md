@@ -29,12 +29,15 @@ for all four platforms, `v0.90.0-standalone.4` is a verified draft (*HANDOFF-fea
 the next one, `.5`, is prepared on `origin/aurora-backend` but not tagged (the `issues` branch with ws35 on all
 discs, Android touch controls, cheats, the sweeps below), waiting on the owner (*HANDOFF-release.md*, first
 section). Next after testers' reports: issue #26 (needs the reporter's state), then a normal release replacing
-the Dolphin build.
+the Dolphin build. **Review (2026-11-19 afternoon):** `REVIEW-standalone-2026-11.md` (a Fable review; its *Fix
+status*): the High (a crafted state's card file names) and the Mediums fixed and pushed (`ceecbed`), the same card
+flaw found and fixed in the Dolphin build (`recompcore-gci-state-paths.patch`; the dev fix on a local branch,
+*HANDOFF-release.md*); `.4` must not be published.
 
 **Parity (2026-11-19, after the owner's "do all of them except not worth it"):** the new engine now has every
 Dolphin-build feature the owner wanted: desktop Renderer choice, touch controls opacity / size, the Menu /
 Invincible hotkeys rebindable, custom GPU drivers (Turnip) on Android with the crash safeguard, and MSAA 2x / 8x
-from a patched Dawn that CI builds (`validate.yml` `dawn` job, `tools/ci-dawn.sh`, cached; the stock package
+from a patched Dawn that CI builds (`standalone-host.yml` per platform since `ceecbed`, `tools/ci-dawn.sh`, cached; the stock package
 when it fails). Still only in the Dolphin build: Android 7 / 8 (the new engine needs 9+, older devices fall back
 to the Dolphin engine) and the Windows File menu (both left out by the owner), netplay (unused), and cheat codes
 beyond plain memory writes (encrypted Action Replay, conditionals, code-patching Gecko types). The gap that
