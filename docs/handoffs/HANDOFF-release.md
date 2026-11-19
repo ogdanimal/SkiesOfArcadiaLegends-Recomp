@@ -30,7 +30,8 @@
   `aurora-backend`: at the cut-over merge keep `aurora-backend`'s README and carry the status section over.
 - **Next:** watch the issues for `.6` reports; the drafted issue replies (`build/issue-replies-standalone5.md`, written
   for `.5`: say `.6`) can be posted now that a build is public, with the owner's OK; the next test build = the
-  README / licence fixes plus whatever testers report. The test folders on C: were deleted with the owner's approval (2026-11-19), with the old Dolphin-era ones (below).
+  README / licence fixes, the #16 FPCR.AH fix (`patches/recompcore-gxruntime-fpcr-no-ah.patch`, also needs the
+  modules rebuilt: check a release module's `msr fpcr` path no longer sets AH) plus whatever testers report. The test folders on C: were deleted with the owner's approval (2026-11-19), with the old Dolphin-era ones (below).
 
 - **C: cleanup (2026-11-19, the owner approved twice):** deleted `C:\dev\SkiesRelTest6` and this session's test
   folders in `C:\dev\SkiesStandalone`, plus the Dolphin-era test folders `C:\dev\SkiesAuroraRun`, `SkiesUncensor`,

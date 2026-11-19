@@ -36,6 +36,13 @@ Simplifications, biggest first:
 
 - **The next test build soon:** the `.6` downloads carry the old READMEs and lack the new engine's licence texts
   (fixed on `aurora-backend` in `d24c6ad`); plus whatever `.6`'s testers report.
+- **#16 damage numbers all 0 (Apple M4, Exynos 1580): fixed, ships in the next build.** On cores with FEAT_AFP,
+  FPCR.AH (set by GXRuntime's non-IEEE mode) makes FNEG keep a NaN's sign; clang builds `atoi`'s
+  0x80000000/0x7fffffff register pair with `movi` + `fneg`, so `__strtoul` got a max width of -1 and returned 0.
+  `patches/recompcore-gxruntime-fpcr-no-ah.patch` sets FZ only. Every game module compiles that file too (CI
+  rebuilds them each build); before tagging, check a release module's `msr fpcr` path no longer sets AH. Found with
+  the debug switches `SKIES_TRACE_PC`, `SKIES_TRACE_RANGE` and `SKIES_INTERP_RANGE` (native chunks interpreted
+  instead), uncommitted in `standalone/src/cpu.cpp`. Reply on #16 when the build is out.
 - **Issue replies** drafted for the test build (`build/issue-replies-standalone5.md` in the issues worktree; say
   `.6`): post with the owner's OK.
 
