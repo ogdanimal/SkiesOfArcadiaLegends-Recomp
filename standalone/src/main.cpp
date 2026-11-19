@@ -885,6 +885,25 @@ int main(int argc, char** argv)
     setenv("DOL_AURORA_BACKEND", "gles", 1);
     Log("[host] renderer: OpenGL ES (Settings)\n");
   }
+#else
+  // Desktop: [Skies] Renderer (the launcher's and the in-game menu's Renderer row): 0 Auto (Direct3D 12, then
+  // Vulkan, then Direct3D 11 on Windows; Vulkan, then OpenGL ES on Linux; Metal on macOS), 1 Direct3D 12,
+  // 2 Vulkan, 3 Direct3D 11, 4 OpenGL ES: tried first, the usual order after it if it can't start. The way
+  // out of a graphics driver that misbehaves with the automatic choice. DOL_AURORA_BACKEND still wins.
+  if (!std::getenv("DOL_AURORA_BACKEND"))
+  {
+    static const char* const apis[] = {nullptr, "d3d12", "vulkan", "d3d11", "gles"};
+    const int renderer = SettingGet(SettingFile::Main, "Skies", "Renderer", 0);
+    if (renderer > 0 && renderer < 5)
+    {
+#if defined(_WIN32)
+      _putenv_s("DOL_AURORA_BACKEND", apis[renderer]);
+#else
+      setenv("DOL_AURORA_BACKEND", apis[renderer], 1);
+#endif
+      Log("[host] renderer: %s first (Settings)\n", apis[renderer]);
+    }
+  }
 #endif
   StateSetUserDir(user, state_dir.empty() ? launch.state_dir : state_dir);
   // config.ini's resolution at every start, as the runner set it; its 60 fps for a first start

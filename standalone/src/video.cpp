@@ -1421,6 +1421,28 @@ bool VideoQuitRequested()
 #endif
 }
 
+// The graphics API Aurora started with, for the menu's Renderer row
+const char* VideoRendererName()
+{
+#ifdef SKIES_STANDALONE_AURORA
+  if (!s_active)
+    return "";
+  switch (aurora_get_backend())
+  {
+  case BACKEND_D3D12: return "Direct3D 12";
+  case BACKEND_D3D11: return "Direct3D 11";
+  case BACKEND_METAL: return "Metal";
+  case BACKEND_VULKAN: return "Vulkan";
+  case BACKEND_OPENGL: return "OpenGL";
+  case BACKEND_OPENGLES: return "OpenGL ES";
+  case BACKEND_NULL: return "none";
+  default: return "";
+  }
+#else
+  return "";
+#endif
+}
+
 // SKIES_PRESS="12.5:START,14:A,...": port 1 holds that button for 0.2 guest seconds from each time ("+12.5:A":
 // seconds after the run's start, the loaded state's time)
 // (START A B X Y Z L R UP DOWN LEFT RIGHT; CUP CDOWN CLEFT CRIGHT push the C-stick fully over, LT RT

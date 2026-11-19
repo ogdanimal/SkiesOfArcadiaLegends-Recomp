@@ -88,6 +88,7 @@ enum class Option
   HdTextures,
   VSync,
   ShowFps,
+  Renderer,
   Camera,
   BattleSpeed,
   FieldSpeed,
@@ -113,7 +114,12 @@ constexpr std::array SAVES_ROWS{Option::SaveState, Option::LoadState, Option::Au
 constexpr std::array GRAPHICS_ROWS{Option::Picture,    Option::Hud,          Option::ShipHud,
                                    Option::FrameRate,  Option::Resolution,   Option::Antialiasing,
                                    Option::TextureFilter, Option::Anisotropy, Option::Scaling,
+#if defined(__ANDROID__) || defined(__APPLE__)
                                    Option::HdTextures, Option::VSync,        Option::ShowFps};
+#else
+                                   Option::HdTextures, Option::VSync,        Option::ShowFps,
+                                   Option::Renderer};
+#endif
 constexpr std::array GAMEPLAY_ROWS{Option::Camera,     Option::BattleSpeed, Option::FieldSpeed,
                                    Option::Encounters, Option::HoldB,       Option::Exp,
                                    Option::Gold,       Option::MagicExp,    Option::Invincible,
@@ -190,6 +196,17 @@ constexpr Key FIELD_SPEED{SettingFile::Main, "Skies", "FieldSpeed", 100};
 constexpr Key INVINCIBLE{SettingFile::Main, "Skies", "Invincible", 0};
 // Cheat codes (cheats.cpp): the enabled ones of GameSettings/<disc ID>.ini, applied every frame while on
 constexpr Key CHEATS{SettingFile::Main, "Skies", "Cheats", 0};
+// Desktop: the graphics API tried first at the next start (main.cpp): 0 Auto, 1 D3D12, 2 Vulkan, 3 D3D11, 4 GL ES
+constexpr Key RENDERER{SettingFile::Main, "Skies", "Renderer", 0};
+#if defined(_WIN32)
+constexpr std::array RENDERERS{0, 1, 2, 3};
+#else
+constexpr std::array RENDERERS{0, 2, 4};
+#endif
+const char* RendererText(int r)
+{
+  return r == 1 ? "Direct3D 12" : r == 2 ? "Vulkan" : r == 3 ? "Direct3D 11" : r == 4 ? "OpenGL ES" : "Auto";
+}
 constexpr Key HOLD_B{SettingFile::Main, "Skies", "HoldB", 0};
 constexpr Key LAUNCHER_TEXT_SIZE{SettingFile::Main, "Skies", "LauncherTextSize", 100};
 constexpr Key AUTO_SAVE{SettingFile::Main, "Skies", "AutoSave", 10};
@@ -269,6 +286,7 @@ struct Values
   int field_speed = 100;
   int invincible = 0;
   int cheats = 0;
+  int renderer = 0;
   int volume = 100;
   int language = 0;
   int dead_zone = 0;
@@ -503,6 +521,7 @@ Values ReadValues()
   values.field_speed = std::clamp(Get(FIELD_SPEED), 100, FIELD_SPEEDS.back());
   values.invincible = Get(INVINCIBLE) != 0 ? 1 : 0;
   values.cheats = Get(CHEATS) != 0 ? 1 : 0;
+  values.renderer = Get(RENDERER);
   values.volume = std::clamp(Get(VOLUME), 0, 100);
   values.language = std::clamp(Get(LANGUAGE), 0, 3);
   values.dead_zone = ReadDeadZone();
@@ -554,6 +573,7 @@ void Apply(const Values& values, const Values& before)
   set(FIELD_SPEED, values.field_speed, before.field_speed);
   set(INVINCIBLE, values.invincible, before.invincible);
   set(CHEATS, values.cheats, before.cheats);
+  set(RENDERER, values.renderer, before.renderer);
   set(VOLUME, values.volume, before.volume);
   set(LANGUAGE, values.language, before.language);
   set(DEAD_ZONE, values.dead_zone, before.dead_zone);
@@ -784,6 +804,9 @@ void Change(Option option, int direction, bool wrap)
     break;
   case Option::ShowFps:
     v.show_fps = !v.show_fps;
+    break;
+  case Option::Renderer:
+    v.renderer = Step(RENDERERS, v.renderer, direction, wrap);
     break;
   case Option::Camera:
     v.camera = v.camera ? 0 : 1;
@@ -2347,6 +2370,14 @@ void Draw(float scale)
       return {"V-Sync", OnOff(v.vsync), "Stops screen tearing. Can add a little input delay."};
     case Option::ShowFps:
       return {"Show FPS", OnOff(v.show_fps), "Show the frame rate in a corner of the screen."};
+    case Option::Renderer:
+    {
+      static std::string s_text;  // Row keeps a pointer
+      s_text = std::string("The graphics API, from the next start. Auto picks the best that works; try another "
+                           "if the game crashes or draws wrong. In use now: ") +
+               VideoRendererName() + ".";
+      return {"Renderer", RendererText(v.renderer), s_text.c_str()};
+    }
     case Option::Camera:
       return {"Camera", v.camera ? "Hold Z to move" : "Original",
               "Hold Z, then tilt with the C-stick and zoom with L / R. Original keeps the game's "

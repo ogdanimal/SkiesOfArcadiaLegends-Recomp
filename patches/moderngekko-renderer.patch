@@ -1,0 +1,38 @@
+diff --git a/tools/moderngekko_launcher.cpp b/tools/moderngekko_launcher.cpp
+--- a/tools/moderngekko_launcher.cpp
++++ b/tools/moderngekko_launcher.cpp
+@@ -234,6 +234,13 @@
+   const char* text;
+ };
+ constexpr std::array<LauncherChoice, 2> ON_OFF{{{1, "On"}, {0, "Off"}}};
++// [Skies] Renderer (the standalone runner): what this platform's Aurora can start; macOS has only Metal
++#if defined(_WIN32)
++constexpr std::array<LauncherChoice, 4> RENDERER_CHOICES{
++    {{0, "Auto"}, {1, "Direct3D 12"}, {2, "Vulkan"}, {3, "Direct3D 11"}}};
++#else
++constexpr std::array<LauncherChoice, 3> RENDERER_CHOICES{{{0, "Auto"}, {2, "Vulkan"}, {4, "OpenGL ES"}}};
++#endif
+ constexpr std::array<LauncherChoice, 2> CAMERA_CHOICES{{{1, "Hold Z to move"}, {0, "Original"}}};
+ constexpr std::array<LauncherChoice, 6> ENCOUNTER_CHOICES{
+     {{0, "Off"}, {25, "1/4"}, {50, "1/2"}, {100, "Normal"}, {200, "2x"}, {400, "4x"}}};
+@@ -1448,6 +1455,8 @@
+   SettingValue invincible = setting({"Dolphin.ini", "Skies", "Invincible"}, 0);
+   // The emulator-free game's cheat codes (standalone/src/cheats.cpp: Cheats/<disc ID>.ini in the data folder)
+   SettingValue cheats = setting({"Dolphin.ini", "Skies", "Cheats"}, 0);
++  // The emulator-free game's graphics API, tried first at its next start (standalone/src/main.cpp)
++  SettingValue renderer_api = setting({"Dolphin.ini", "Skies", "Renderer"}, 0);
+   SettingValue hold_b = setting({"Dolphin.ini", "Skies", "HoldB"}, 0);
+   SettingValue auto_save = setting({"Dolphin.ini", "Skies", "AutoSave"}, 10);
+   SettingValue language = setting({"Dolphin.ini", "Skies", "Language"}, 0);
+@@ -3572,6 +3581,11 @@
+                             "Show the frame rate in a corner of the game screen.");
+                 title_fps_row();
+                 backend_row();
++#if defined(MODERNGEKKO_STANDALONE_RUNNER) && !defined(__APPLE__)
++                setting_row("Renderer", "##renderer", renderer_api, RENDERER_CHOICES,
++                            "The graphics API. Auto picks the best one that works; if the game crashes or "
++                            "draws things wrong, try another. Takes effect when the game starts.");
++#endif
+               });
+           tab("Gameplay", [&]
+               {

@@ -20,6 +20,8 @@
   bound to a game button.
 - **Stick dead zone and Rumble** set in the launcher now apply in the game (they only worked from the
   in-game menu before).
+- **Renderer** (desktop): Settings → Graphics → Renderer picks the graphics API (Auto, Direct3D 12 / Vulkan /
+  Direct3D 11 on Windows, Vulkan / OpenGL ES on Linux) if the automatic one crashes or draws things wrong.
 - **Laptops with two graphics chips** (#32): the game asks for the faster one on every graphics API, and the
   log (`Logs/skies-standalone.log`) names the graphics card, API and driver it used: include it in reports.
 - The European and Japanese discs get the same game update as the USA one; your discs are patched again
