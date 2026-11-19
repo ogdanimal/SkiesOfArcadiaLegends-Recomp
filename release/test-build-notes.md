@@ -1,3 +1,51 @@
+## How the new engine differs from v0.83
+
+**The same as v0.83:** the USA, European and Japanese discs, Continue, memory card saves, save states (older
+ones are converted when they load), widescreen and Match screen, the HUD options, 60 fps, HD texture packs, the
+Dreamcast music and Uncensored, Language, field and battle speed, the gameplay options, the camera, controls and
+button mapping, and the graphics options (resolution, anti-aliasing, texture filtering, anisotropic filtering,
+scaling).
+
+**New or better:**
+- **Faster and smoother**, most of all on weaker hardware (see *Expected performance*).
+- **Android touch controls of its own** (v0.83 used Dolphin's): Settings → Controls → Touch controls (Auto,
+  Always, Off), with opacity and size.
+- **Renderer** setting: the engine tries the graphics APIs in order (Windows: Direct3D 12, Vulkan, Direct3D 11;
+  Linux and Android: Vulkan, OpenGL ES; macOS: Metal) and you can pick the one tried first.
+- **The log names your graphics card and driver**, which makes reports easier to act on.
+
+**Different or not (yet) there:**
+- Dolphin's video backend settings are gone; the Renderer setting takes their place.
+- **Cheat codes:** Action Replay and Gecko codes that write memory work; codes that patch the game's code are
+  skipped (the game's code runs natively, not emulated).
+- **Android 9 or later.** On Android 7 and 8 the app keeps using the Dolphin engine.
+- **Save states made by this build don't load in v0.83.** Memory card saves work in both.
+- No netplay.
+
+## Expected performance
+
+Measured in October 2026 with the same game files on both engines, at the same scenes (the opening dungeon's
+save point, a battle). The speeds are uncapped: how fast the game *could* run, where 1.00x is full speed. In
+normal play the game is held at full speed, so the extra headroom shows up as steadier frame times, lower CPU
+and battery use, and room for a higher resolution or 60 fps on hardware that couldn't manage it before.
+
+| Hardware | New engine | v0.83 (Dolphin engine) |
+|---|---|---|
+| Desktop CPU (Intel i7-12700K), uncapped | **2.91x** | 2.33x |
+| CPU used at full speed | **0.45 cores** | 0.60 cores |
+| One low-power core (an i7-12700K E-core) | **1.46x** | 0.88x (below full speed) |
+| Integrated GPU (Intel UHD 770) at 6x resolution | **1.30x** (full speed) | 0.77x (below full speed) |
+| Retroid Pocket 5 (Snapdragon 865), save point | **1.77x** | 1.38x |
+| Retroid Pocket 5, battle | **2.15x** | 1.63x |
+| Retroid Pocket 5 at 60 fps, save point / battle | **1.70x / 2.05x** | 1.41x / 1.69x |
+| Retroid Pocket 5 at 60 fps, the slowest 1% of frames | **17.7 ms** (a steady 60) | 24.5-25.9 ms |
+| Retroid Pocket 5 at 6x resolution | **1.24x** (full speed) | 0.87x (below full speed) |
+
+Also on the Pocket 5: 0.4-0.9 W less power at full speed, and with an HD texture pack about half the memory.
+A fast PC that already runs v0.83 at full speed will mostly notice steadier frame pacing; laptops with
+integrated graphics, low-power CPUs and Android handhelds gain the most. Builds have changed since these
+measurements, so your numbers may differ a little: reports with your device and the log are welcome.
+
 **Recent changes** (this is the first public test build of the new engine; the list is what changed in the last
 rounds of internal testing):
 
