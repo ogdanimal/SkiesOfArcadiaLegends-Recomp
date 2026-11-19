@@ -9,7 +9,7 @@ diff --git a/Source/Core/VideoCommon/FrameInterpolator.cpp b/Source/Core/VideoCo
  #include "VideoCommon/TMEM.h"
  #include "VideoCommon/VertexLoaderManager.h"
  #include "VideoCommon/VertexLoader_Color.h"
-@@ -273,6 +274,8 @@
+@@ -274,6 +275,8 @@
  };
  Budget s_budget;
  u64 s_stat_skipped = 0;
@@ -18,7 +18,7 @@ diff --git a/Source/Core/VideoCommon/FrameInterpolator.cpp b/Source/Core/VideoCo
  u64 s_trace_indexed_prims = 0;
  u64 s_trace_big_loads = 0;  // loads traced in this blend
  u64 s_trace_pos_moved = 0;  // blended vertices that moved more than 5 units  // this frame's draws with an indexed attribute (trace)
-@@ -737,6 +740,77 @@
+@@ -738,6 +741,77 @@
        Log( "[interp-trace]   key %016llx: %d draws, previous %d, %d left unpaired\n",
                     static_cast<unsigned long long>(key), n_cur, n_prev, unpaired);
    }
@@ -96,7 +96,7 @@ diff --git a/Source/Core/VideoCommon/FrameInterpolator.cpp b/Source/Core/VideoCo
    // Which paired draws jump (VertexJumps: a coordinate moves more than half its value and more than
    // 50 units or a tenth of the vertex's distance; with the two added, a full-screen quad Skies moves from z = 100 to 0.001 after a menu passed, and
    // halfway it covered the scene). When one draw jumps, every draw with the same texture snaps
-@@ -1401,13 +1475,30 @@
+@@ -1402,13 +1476,30 @@
      File::CreateDir(dump_dir);
      return true;
    }();
@@ -128,7 +128,7 @@ diff --git a/Source/Core/VideoCommon/FrameInterpolator.cpp b/Source/Core/VideoCo
  }
  
  // The job's frame becomes the previous one, which the next frame is blended with.
-@@ -1566,6 +1657,8 @@
+@@ -1578,6 +1669,8 @@
                 (unsigned long long)s_stat_verts[2], (unsigned long long)s_stat_verts[3],
                 (unsigned long long)s_stat_indexed_loads,
                 (unsigned long long)s_stat_prims_blended);
@@ -137,7 +137,7 @@ diff --git a/Source/Core/VideoCommon/FrameInterpolator.cpp b/Source/Core/VideoCo
    Log(
                 "[interp] %llu of %llu frames interpolated; matrix loads %llu, matched %llu, "
                 "blended %llu (changed %llu); stream %zu bytes, %zu loads; shown %llu in-between, "
-@@ -1760,9 +1853,36 @@
+@@ -1788,9 +1881,36 @@
    return draw;
  }
  
@@ -174,8 +174,8 @@ diff --git a/Source/Core/VideoCommon/FrameInterpolator.cpp b/Source/Core/VideoCo
 +  return more;
  }
  
- void AddReplayCopy(u32 address, RcTcacheEntry entry, bool is_xfb_copy)
-@@ -1916,8 +2036,15 @@
+ BackendHooks g_backend_hooks;
+@@ -1977,8 +2097,15 @@
    s_recording = true;
  }
  
@@ -191,7 +191,7 @@ diff --git a/Source/Core/VideoCommon/FrameInterpolator.cpp b/Source/Core/VideoCo
    // The newest frame in this XFB, and the one before it.
    Shown* current = nullptr;
    Shown* before = nullptr;
-@@ -1951,8 +2078,15 @@
+@@ -2014,9 +2141,16 @@
      else if (current->retraces == 2)
      {
        if (current->interp_due && s_job.active && s_job.frame == current->frame)
@@ -200,6 +200,7 @@ diff --git a/Source/Core/VideoCommon/FrameInterpolator.cpp b/Source/Core/VideoCo
 +        s_last_picture_kind = 2;
 +      }
        picture = current->interp ? current->interp : current->real;
+       kind = current->interp ? 1 : 0;
 +      if (!current->interp)
 +        s_last_picture_kind = 0;
 +      else if (s_last_picture_kind == 0)
@@ -207,9 +208,9 @@ diff --git a/Source/Core/VideoCommon/FrameInterpolator.cpp b/Source/Core/VideoCo
        what = current->interp ? "in-between" : "real (no in-between)";
      }
      else
-@@ -1966,6 +2100,7 @@
-     {
+@@ -2031,6 +2165,7 @@
        picture = current->interp;
+       kind = 1;
        what = "in-between";
 +      s_last_picture_kind = 1;
      }
@@ -218,28 +219,20 @@ diff --git a/Source/Core/VideoCommon/FrameInterpolator.cpp b/Source/Core/VideoCo
 diff --git a/Source/Core/VideoCommon/FrameInterpolator.h b/Source/Core/VideoCommon/FrameInterpolator.h
 --- a/Source/Core/VideoCommon/FrameInterpolator.h
 +++ b/Source/Core/VideoCommon/FrameInterpolator.h
-@@ -120,4 +120,7 @@
+@@ -120,6 +120,9 @@
  // From the presenter, for each retrace that shows xfb_address: the picture to present instead of
  // the XFB cache's, if any.
  RcTcacheEntry PictureForRetrace(u32 xfb_address, bool is_duplicate);
 +// What the last PictureForRetrace picked (for present statistics): 0 a real picture, 1 an
 +// in-between, 2 an in-between whose replay had to be finished then.
 +int LastPictureKind();
- }  // namespace FrameInterpolator
+ 
+ // A host video backend that draws from the GP command sink (Aurora) follows the replay through
+ // these; all on the GPU thread.
 diff --git a/Source/Core/VideoCommon/Present.cpp b/Source/Core/VideoCommon/Present.cpp
 --- a/Source/Core/VideoCommon/Present.cpp
 +++ b/Source/Core/VideoCommon/Present.cpp
-@@ -3,6 +3,9 @@
- 
- #include "VideoCommon/Present.h"
- 
-+#include <cstdio>
-+#include <cstdlib>
-+
- #include "Common/ChunkFile.h"
- #include "Core/Config/GraphicsSettings.h"
- #include "Core/Config/MainSettings.h"
-@@ -1005,6 +1008,64 @@
+@@ -1066,6 +1066,64 @@
  TimePoint Presenter::GetUpdatedPresentationTime(TimePoint intended_presentation_time)
  {
    const auto now = Clock::now();
@@ -317,7 +310,7 @@ diff --git a/Source/Core/VideoCommon/Present.h b/Source/Core/VideoCommon/Present
    using ClearColor = std::array<float, 4>;
  
    Presenter();
-@@ -186,6 +189,13 @@
+@@ -187,6 +190,13 @@
  
    // Used by the SmoothEarlyPresentation setting.
    DT m_presentation_time_offset{};
