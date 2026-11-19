@@ -1499,6 +1499,16 @@ void TouchPadSet(u16 buttons, s8 stick_x, s8 stick_y, s8 c_x, s8 c_y, u8 trigger
                     std::memory_order_relaxed);
 }
 
+static std::atomic<int> s_touch_mode{0};
+void TouchModeSet(int mode)
+{
+  s_touch_mode.store(mode, std::memory_order_relaxed);
+}
+int TouchMode()
+{
+  return s_touch_mode.load(std::memory_order_relaxed);
+}
+
 // Port 1 with the touch controls added: their buttons to the controller's, their sticks over its own while
 // touched, each trigger the further in of the two
 static void AddTouchPad(u16& buttons, s8 sticks[4], u8 triggers[2])

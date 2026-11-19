@@ -1308,7 +1308,14 @@ the width. Checked on the Pocket 5's test app (ws35 APK, `-test`), from its 23:0
 them, the menu button opens the menu, D-pad down moves, R changes tab, B closes, the stick turns the
 first-person view, a gamepad key hides them, Quit game by touch (A, A) back to the launcher. adb's `input
 gamepad keyevent` reaches the activity (it hides the overlay) but not SDL's controller, so it can't drive the
-game; `input swipe X Y X+1 Y MS` holds a touch. Open: a layout editor / opacity / an Always-Off setting.
+game; `input swipe X Y X+1 Y MS` holds a touch. **Setting** `[Skies] TouchControls` (Controls tab, Android only;
+applied when the menu closes, like every row): 0 Auto, 1 Always (a controller's input doesn't hide them), 2 Off
+(hidden while a controller is connected; with none they stay, or a phone player couldn't reach the menu again).
+The view polls `nativeTouchMode` twice a second. Checked on the Pocket 5: Always kept them after a controller
+event, Off hid them and taps didn't bring them back; put back to Auto with the built-in controller through
+`sendevent /dev/input/event8` (D-pad = ABS 16 / 17 +-1, GameCube R = the right trigger ABS 9 32767, not BTN_TR;
+B 305, A 304). On a 16:9 screen the D-pad and C-stick sit at 30% of the width (x 576 / 1344 on 1920x1080; the
+D-pad's arms 83 px from its centre). Open: a layout editor, opacity, a row in the launcher's Android settings.
 
 Today's shipping app is Dolphin's APK with `-PskiesBrand`: `SkiesLauncherActivity` (~720 lines: home menu,
 disc import, Continue, game in progress, picker, driver guard), `SkiesSettingsPanel` (~520), `SkiesDataFolder`,

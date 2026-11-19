@@ -100,6 +100,7 @@ enum class Option
   Volume,
   DeadZone,
   Rumble,
+  TouchControls,
   Mapping,
   Language,
   Music,
@@ -118,7 +119,11 @@ constexpr std::array GAMEPLAY_ROWS{Option::Camera,     Option::BattleSpeed, Opti
 constexpr std::array LANGUAGE_ROWS{Option::Language};
 constexpr std::array SOUND_ROWS{Option::Volume};
 constexpr std::array DREAMCAST_ROWS{Option::Music, Option::Uncensored};
+#if defined(__ANDROID__)
+constexpr std::array CONTROLS_ROWS{Option::Mapping, Option::DeadZone, Option::Rumble, Option::TouchControls};
+#else
 constexpr std::array CONTROLS_ROWS{Option::Mapping, Option::DeadZone, Option::Rumble};
+#endif
 struct Tab
 {
   const char* name;
@@ -189,6 +194,9 @@ constexpr Key AUTO_SAVE{SettingFile::Main, "Skies", "AutoSave", 10};
 constexpr Key DEAD_ZONE{SettingFile::Main, "Skies", "StandaloneDeadZone", 0};
 // Controller vibration on / off (the Dolphin build's is the profile's Rumble/Motor binding)
 constexpr Key RUMBLE{SettingFile::Main, "Skies", "StandaloneRumble", 1};
+// Android's touch controls: 0 Auto (hidden while a controller is in use), 1 Always, 2 Off
+constexpr Key TOUCH_CONTROLS{SettingFile::Main, "Skies", "TouchControls", 0};
+constexpr std::array TOUCH_MODES{0, 1, 2};
 constexpr Key VOLUME{SettingFile::Main, "DSP", "Volume", 100};
 // The European disc's language (0 English, 1 Deutsch, 2 Français, 3 Español): the IPL's, which the
 // game reads once at boot (hw_exi.cpp InitSram)
@@ -245,6 +253,7 @@ struct Values
   int language = 0;
   int dead_zone = 0;
   int rumble = 1;
+  int touch = 0;  // TOUCH_CONTROLS
   int auto_save = 10;
   bool dc_music_installed = false;  // the Dreamcast disc's music is imported (dreamcast.cpp)
   bool uncensor_available = false;  // the running game has converted uncensored files
@@ -475,6 +484,7 @@ Values ReadValues()
   values.language = std::clamp(Get(LANGUAGE), 0, 3);
   values.dead_zone = std::clamp(Get(DEAD_ZONE), 0, DEAD_ZONES.back());
   values.rumble = Get(RUMBLE) != 0 ? 1 : 0;
+  values.touch = std::clamp(Get(TOUCH_CONTROLS), 0, 2);
   values.auto_save = std::max(0, Get(AUTO_SAVE));
 #ifdef SKIES_STANDALONE_AURORA
   values.dc_music_installed = DreamcastMusicInstalled();
@@ -524,6 +534,8 @@ void Apply(const Values& values, const Values& before)
   set(LANGUAGE, values.language, before.language);
   set(DEAD_ZONE, values.dead_zone, before.dead_zone);
   set(RUMBLE, values.rumble, before.rumble);
+  set(TOUCH_CONTROLS, values.touch, before.touch);
+  TouchModeSet(values.touch);
   set(AUTO_SAVE, values.auto_save, before.auto_save);
   set(DC_MUSIC, values.music, before.music);
   set(UNCENSORED, values.uncensored, before.uncensored);
@@ -750,6 +762,9 @@ void Change(Option option, int direction, bool wrap)
     break;
   case Option::Rumble:
     v.rumble = v.rumble ? 0 : 1;
+    break;
+  case Option::TouchControls:
+    v.touch = Step(TOUCH_MODES, v.touch, direction, wrap);
     break;
   case Option::Mapping:
     break;
@@ -1867,6 +1882,7 @@ void MenuApplyGame()
     s_volume = std::clamp(Get(VOLUME), 0, 100);
     s_dead_zone = std::clamp(Get(DEAD_ZONE), 0, DEAD_ZONES.back());
     s_rumble = Get(RUMBLE) != 0;
+    TouchModeSet(std::clamp(Get(TOUCH_CONTROLS), 0, 2));
   }
   autosave::Poll();
   if (Read32(WS_CONFIG_ADDRESS) == WS_CONFIG_MAGIC)
@@ -2320,6 +2336,10 @@ void Draw(float scale)
               "Ignores small stick movements. Raise it if a stick drifts."};
     case Option::Rumble:
       return {"Rumble", v.rumble ? "On" : "Off", "Controller vibration."};
+    case Option::TouchControls:
+      return {"Touch controls", v.touch == 1 ? "Always" : v.touch == 2 ? "Off" : "Auto",
+              "Auto shows them while no controller is in use (a touch brings them back). Always keeps them "
+              "on screen; Off hides them while a controller is connected."};
     case Option::Language:
     {
       static constexpr const char* LANGUAGES[] = {"English", "Deutsch", "Fran\xc3\xa7" "ais", "Espa\xc3\xb1ol"};

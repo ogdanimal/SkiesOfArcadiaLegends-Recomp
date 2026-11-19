@@ -31,6 +31,28 @@ public class SkiesTouchControls extends View implements InputManager.InputDevice
   /** buttons: the bits above; sticks -127..127 (up positive); triggers 0..255. */
   private static native void nativeTouchPad(int buttons, int stickX, int stickY, int cX, int cY, int trigL,
                                             int trigR);
+  /** [Skies] TouchControls as the in-game menu has it: 0 Auto, 1 Always, 2 Off. */
+  private static native int nativeTouchMode();
+  private static final int MODE_AUTO = 0, MODE_ALWAYS = 1, MODE_OFF = 2;
+  private int mMode = MODE_AUTO;
+  private boolean mAutoShown;  // Auto: whether no controller is in use
+  /** The menu can change the mode while the game runs: read it twice a second. */
+  private final Runnable mPollMode = new Runnable() {
+    @Override
+    public void run() {
+      int mode;
+      try {
+        mode = nativeTouchMode();
+      } catch (UnsatisfiedLinkError e) {
+        mode = MODE_AUTO;  // an older libskies.so
+      }
+      if (mode != mMode) {
+        mMode = mode;
+        applyShown();
+      }
+      mHandler.postDelayed(this, 500);
+    }
+  };
 
   private static final int KIND_BUTTON = 0, KIND_STICK = 1, KIND_CSTICK = 2, KIND_DPAD = 3, KIND_MENU = 4;
 
@@ -86,11 +108,14 @@ public class SkiesTouchControls extends View implements InputManager.InputDevice
     mInput = (InputManager) context.getSystemService(Context.INPUT_SERVICE);
     mInput.registerInputDeviceListener(this, mHandler);
     // Always VISIBLE (an invisible view gets no touches, and a touch shows them again): hidden just isn't drawn
-    mShown = !ControllerConnected();
+    mAutoShown = !ControllerConnected();
+    mShown = mAutoShown;
+    mHandler.postDelayed(mPollMode, 500);
   }
 
   public void release() {
     mInput.unregisterInputDeviceListener(this);
+    mHandler.removeCallbacks(mPollMode);
   }
 
   /** A real controller (not the touchscreen, not a keyboard), external or built in. */
@@ -112,11 +137,23 @@ public class SkiesTouchControls extends View implements InputManager.InputDevice
 
   /** From the activity: a controller was used, so the touch controls step aside until the screen is touched. */
   public void onControllerInput() {
-    if (mShown)
+    if (mAutoShown)
       setShown(false);
   }
 
+  /** Auto's state: shown while no controller is in use. Always and Off override it. */
   private void setShown(boolean shown) {
+    mAutoShown = shown;
+    applyShown();
+  }
+
+  private void applyShown() {
+    // Off with no controller connected still shows them: otherwise a phone player who picked Off couldn't reach
+    // the menu again to turn them back on
+    final boolean shown = mMode == MODE_ALWAYS || (mMode == MODE_AUTO && mAutoShown) ||
+                          (mMode == MODE_OFF && !ControllerConnected());
+    if (shown == mShown)
+      return;
     mShown = shown;
     if (!shown)
       releaseAll();
@@ -133,6 +170,8 @@ public class SkiesTouchControls extends View implements InputManager.InputDevice
   public void onInputDeviceRemoved(int deviceId) {
     if (!ControllerConnected())
       setShown(true);
+    else
+      applyShown();
   }
 
   @Override
@@ -173,8 +212,8 @@ public class SkiesTouchControls extends View implements InputManager.InputDevice
   @Override
   public boolean onTouchEvent(MotionEvent event) {
     if (!mShown) {
-      // the first touch after a controller shows the controls, and doesn't press anything
-      if (event.getActionMasked() == MotionEvent.ACTION_DOWN)
+      // the first touch after a controller shows the controls (Auto), and doesn't press anything
+      if (event.getActionMasked() == MotionEvent.ACTION_DOWN && mMode == MODE_AUTO)
         setShown(true);
       return true;
     }

@@ -429,6 +429,12 @@ extern "C" JNIEXPORT void JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesGame
   host::MenuRequestBack();
 }
 
+// The touch controls' setting ([Skies] TouchControls: 0 Auto, 1 Always, 2 Off), polled by the view
+extern "C" JNIEXPORT jint JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesTouchControls_nativeTouchMode(JNIEnv*, jclass)
+{
+  return host::TouchMode();
+}
+
 // Android's touch controls (the app's SkiesTouchControls): controller 1, beside a real one
 extern "C" JNIEXPORT void JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesTouchControls_nativeTouchPad(
     JNIEnv*, jclass, jint buttons, jint stick_x, jint stick_y, jint c_x, jint c_y, jint trigger_l, jint trigger_r)
