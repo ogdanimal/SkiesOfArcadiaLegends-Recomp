@@ -78,6 +78,7 @@ enum class Option
   AutoSave,
   Picture,
   Hud,
+  ShipHud,
   FrameRate,
   Resolution,
   Antialiasing,
@@ -107,10 +108,10 @@ enum class Option
 };
 
 constexpr std::array SAVES_ROWS{Option::SaveState, Option::LoadState, Option::AutoSave, Option::Quit};
-constexpr std::array GRAPHICS_ROWS{Option::Picture,       Option::Hud,        Option::FrameRate,
-                                   Option::Resolution,    Option::Antialiasing, Option::TextureFilter,
-                                   Option::Anisotropy,    Option::Scaling,    Option::HdTextures,
-                                   Option::VSync,         Option::ShowFps};
+constexpr std::array GRAPHICS_ROWS{Option::Picture,    Option::Hud,          Option::ShipHud,
+                                   Option::FrameRate,  Option::Resolution,   Option::Antialiasing,
+                                   Option::TextureFilter, Option::Anisotropy, Option::Scaling,
+                                   Option::HdTextures, Option::VSync,        Option::ShowFps};
 constexpr std::array GAMEPLAY_ROWS{Option::Camera,     Option::BattleSpeed, Option::FieldSpeed,
                                    Option::Encounters, Option::HoldB,       Option::Exp,
                                    Option::Gold,       Option::MagicExp,    Option::Invincible};
@@ -168,6 +169,8 @@ struct Key
 };
 constexpr Key WIDESCREEN{SettingFile::Main, "Skies", "Widescreen", -1};
 constexpr Key HUD{SettingFile::Main, "Skies", "Hud", -1};
+// 0 = the ship battle HUD spread out with the rest, 1 = centred (issue #25)
+constexpr Key SHIP_HUD{SettingFile::Main, "Skies", "ShipHud", 0};
 // -1 (unset) and 0: 30 fps, 1: 60 fps (interp60.cpp)
 constexpr Key FRAME_MODE{SettingFile::Main, "Skies", "FrameMode", -1};
 constexpr Key CAMERA_CONTROL{SettingFile::Main, "Skies", "CameraControl", 1};
@@ -217,6 +220,7 @@ struct Values
 {
   int widescreen = 1;
   int hud = 2;
+  int ship_hud = 0;  // 1 = the ship battle HUD centred (issue #25)
   int frame_mode = 0;
   int efb_scale = 0;
   int msaa = 1;
@@ -390,6 +394,8 @@ constexpr float WIDE_ASPECT = 16.0f / 9.0f;
 // The game patch's ws_hud_aspect: 0 = the HUD at the picture's edges, an aspect = at the edges of
 // a centred area that wide, < 0 = the original 4:3 layout.
 constexpr u32 WS_HUD_ASPECT_ADDRESS = 0x80002E9C;
+// The game patch's ws_ship_hud (ws35; free in earlier patches): 0 = spread out, 1 = centred.
+constexpr u32 WS_SHIP_HUD_ADDRESS = 0x80002EEC;
 constexpr int MATCH_SCREEN = 2;
 constexpr float MIN_SCREEN_ASPECT = 4.0f / 3.0f;
 constexpr float MAX_SCREEN_ASPECT = 32.0f / 9.0f;
@@ -441,6 +447,7 @@ Values ReadValues()
   values.widescreen = widescreen < 0 ? 1 : widescreen;
   const int hud = Get(HUD);
   values.hud = hud < 0 ? 2 : hud;
+  values.ship_hud = Get(SHIP_HUD) == 1 ? 1 : 0;
   values.frame_mode = Get(FRAME_MODE) >= 1 ? 1 : 0;
   values.efb_scale = Get(EFB_SCALE);
   values.msaa = MsaaRunning(Get(MSAA));
@@ -492,6 +499,7 @@ void Apply(const Values& values, const Values& before)
   };
   set(WIDESCREEN, values.widescreen, before.widescreen);
   set(HUD, values.hud, before.hud);
+  set(SHIP_HUD, values.ship_hud, before.ship_hud);
   set(FRAME_MODE, values.frame_mode, before.frame_mode);
   set(EFB_SCALE, values.efb_scale, before.efb_scale);
   if (values.efb_scale != before.efb_scale)
@@ -694,6 +702,9 @@ void Change(Option option, int direction, bool wrap)
     break;
   case Option::Hud:
     v.hud = Step(HUDS, v.hud, direction, wrap);
+    break;
+  case Option::ShipHud:
+    v.ship_hud = v.ship_hud ? 0 : 1;
     break;
   case Option::FrameRate:
     v.frame_mode = v.frame_mode ? 0 : 1;
@@ -1877,6 +1888,12 @@ void MenuApplyGame()
     const float hud_aspect = hud == 0 ? -1.0f : hud == 1 ? WIDE_ASPECT : hud == 3 ? 64.0f / 27.0f : 0.0f;
     if (Read32(WS_HUD_ASPECT_ADDRESS) != std::bit_cast<u32>(hud_aspect))
       Write32(WS_HUD_ASPECT_ADDRESS, std::bit_cast<u32>(hud_aspect));
+    const u32 ship_hud = Get(SHIP_HUD) == 1 ? 1 : 0;
+    if (Read32(WS_SHIP_HUD_ADDRESS) != ship_hud)
+    {
+      Write32(WS_SHIP_HUD_ADDRESS, ship_hud);
+      Log("[menu] ship battle HUD %s\n", ship_hud ? "centred" : "spread out");
+    }
   }
 #ifdef SKIES_STANDALONE_AURORA
   if (!VideoSurfaceSize(nullptr, nullptr))
@@ -2201,6 +2218,10 @@ void Draw(float scale)
                            "Screen edges",
               "Where the HUD sits on a wide picture: at the edges, or nearer the middle in a 16:9 "
               "or 21:9 area (easier to see on an ultrawide). Original keeps the GameCube's layout."};
+    case Option::ShipHud:
+      return {"Ship battle HUD", v.ship_hud ? "Centred" : "Spread out",
+              "Spread out moves the ship battle HUD to the sides with the rest. Centred keeps the "
+              "game's own layout, with the grid under the Spirit bar."};
     case Option::FrameRate:
       return {"Frame rate", v.frame_mode ? "60 fps (interpolated)" : "30 fps (original)",
               "60 fps adds in-between frames for smoother motion. 30 fps is the original."};

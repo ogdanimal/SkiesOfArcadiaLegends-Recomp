@@ -41,9 +41,12 @@ namespace
 {
 constexpr u32 AICA_RATE = 44100;
 // The Dreamcast driver at full master volume plays the same song about 1.4x (3 dB) quieter than
-// the GameCube's MusyX mix (battle theme m0459, 50 s from its start, RMS 2355 against 3412; peaks
-// 19839, so 1.4x still fits): played 1:1 the music would sit lower against the sound effects.
-constexpr int DEFAULT_GAIN = 358;
+// the GameCube's MusyX mix without its effects (battle theme m0459, 50 s from its start, RMS 2355
+// against 3412). With the reverb on (dcmusic-fx) that 1.4x made it louder than the GameCube music
+// (issue #19; the whole mix, Dreamcast against GameCube music: a deck battle 1.35x, Pirate Isle
+// 1.12x), so the gain is their geometric mean lower, 1.13x: within 1 dB of the GameCube music in
+// both, and the reverb's peaks (25.7k) fit.
+constexpr int DEFAULT_GAIN = 290;
 // After a stop the chip is rendered this much longer, for the notes' release.
 constexpr int TAIL_SAMPLES = 2 * AICA_RATE;
 
