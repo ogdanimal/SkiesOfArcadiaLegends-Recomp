@@ -1,92 +1,72 @@
-## How the new engine differs from v0.83
+The first public test build of the new engine: the game no longer runs inside Dolphin. Faster and smoother, most of all on weaker PCs, laptops and Android handhelds.
 
-**The same as v0.83:** the USA, European and Japanese discs, Continue, memory card saves, save states (older
-ones are converted when they load), widescreen and Match screen, the HUD options, 60 fps, HD texture packs, the
-Dreamcast music and Uncensored, Language, field and battle speed, the gameplay options, the camera, controls and
-button mapping, and the graphics options (resolution, anti-aliasing, texture filtering, anisotropic filtering,
-scaling).
+> [!WARNING]
+> **This is a test build.** [v0.83.0-beta](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/releases/tag/v0.83.0-beta) stays the recommended release. **Back up your saves first** (Settings → Saves → Back up saves): save states made by this build don't load in 0.83.
 
-**New or better:**
-- **Faster and smoother**, most of all on weaker hardware (see *Expected performance*).
-- **Android touch controls of its own** (v0.83 used Dolphin's): Settings → Controls → Touch controls (Auto,
-  Always, Off), with opacity and size.
-- **Renderer** setting: the engine tries the graphics APIs in order (Windows: Direct3D 12, Vulkan, Direct3D 11;
-  Linux and Android: Vulkan, OpenGL ES; macOS: Metal) and you can pick the one tried first.
-- **The log names your graphics card and driver**, which makes reports easier to act on.
+> [!IMPORTANT]
+> **You need your own Skies of Arcadia Legends disc** (GameCube: USA `GEAE8P`, European `GEAP8P` or Japanese `GEAJ8P`) as RVZ, ISO, GCM, GCZ, WIA or CISO.
+> Nothing here contains game data: the launcher imports your disc and patches it.
 
-**Different or not (yet) there:**
-- Dolphin's video backend settings are gone; the Renderer setting takes their place.
-- **Cheat codes:** Action Replay and Gecko codes that write memory work; codes that patch the game's code are
-  skipped (the game's code runs natively, not emulated).
-- **Android 9 or later.** On Android 7 and 8 the app keeps using the Dolphin engine.
-- **Save states made by this build don't load in v0.83.** Memory card saves work in both.
-- No netplay.
+## New
+
+- **A new engine**
+  - The recompiled game runs on its own GameCube graphics, sound and disc layer, drawing through Direct3D 12, Vulkan, Direct3D 11, Metal or OpenGL ES, instead of inside Dolphin. Everything you use in 0.83 is here: all three discs, Continue, card saves, save states, widescreen, 60 fps, HD textures, the Dreamcast features and every setting.
+- **Renderer setting** (Settings → Graphics → Renderer)
+  - The game tries the graphics APIs in order and falls back by itself; pick the one tried first if the automatic choice crashes or draws things wrong.
+- **Android: touch controls of the game's own** (Settings → Controls → Touch controls: Auto, Always or Off), with opacity and size.
+- **Cheat codes** ([#5](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/5))
+  - Action Replay and Gecko codes that write memory, from `Cheats/<disc ID>.ini` in your data folder (a Dolphin cheat file works as it is), with a **Cheats** switch in the in-game menu. Codes that patch the game's code are skipped: the code runs natively here.
+  - Thanks to [doc-haz](https://github.com/doc-haz) for asking for it.
+- **Ship battle HUD setting** (Settings → Graphics) ([#25](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/25))
+  - The Item list no longer runs off the bottom of the screen in widescreen; **Centred** keeps the game's own layout.
+  - Thanks to [Cawl87](https://github.com/Cawl87) for reporting it.
+- **F1 saves a state on desktop** to the slot chosen in the in-game menu, unless F1 is bound to a game button ([#19](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/19)).
+- **Laptops with two graphics chips use the faster one** ([#32](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/32))
+  - The log (`Logs/skies-standalone.log` in your data folder) names the graphics card and driver: please attach it to reports. It writes your home folder as `~`.
+  - Thanks to [workmax67-create](https://github.com/workmax67-create) for reporting it.
 
 ## Expected performance
 
-Measured with the same game files on both engines, at the same scenes (the opening dungeon's
-save point, a battle). The speeds are uncapped: how fast the game *could* run, where 1.00x is full speed. In
-normal play the game is held at full speed, so the extra headroom shows up as steadier frame times, lower CPU
-and battery use, and room for a higher resolution or 60 fps on hardware that couldn't manage it before.
+The same game files on both engines, at the same scenes. Uncapped speed shows how fast the game *could* run (1.00x is full speed); in normal play the game is held at full speed, so the headroom shows up as steadier frames, lower CPU and battery use, and higher settings on hardware that couldn't manage them before.
 
-| Hardware | New engine | v0.83 (Dolphin engine) |
+| Hardware | New engine | 0.83 |
 |---|---|---|
-| Desktop CPU (Intel i7-12700K), uncapped | **2.91x** | 2.33x |
+| Desktop CPU (Intel i7-12700K) | **2.91x** | 2.33x |
 | CPU used at full speed | **0.45 cores** | 0.60 cores |
-| One low-power core (an i7-12700K E-core) | **1.46x** | 0.88x (below full speed) |
-| Integrated GPU (Intel UHD 770) at 6x resolution | **1.30x** (full speed) | 0.77x (below full speed) |
-| Retroid Pocket 5 (Snapdragon 865), save point | **1.77x** | 1.38x |
-| Retroid Pocket 5, battle | **2.15x** | 1.63x |
-| Retroid Pocket 5 at 60 fps, save point / battle | **1.70x / 2.05x** | 1.41x / 1.69x |
-| Retroid Pocket 5 at 60 fps, the slowest 1% of frames | **17.7 ms** (a steady 60) | 24.5-25.9 ms |
-| Retroid Pocket 5 at 6x resolution | **1.24x** (full speed) | 0.87x (below full speed) |
+| One low-power core (an i7-12700K E-core) | **1.46x** | 0.88x |
+| Integrated graphics (Intel UHD 770) at 6x resolution | **1.30x** | 0.77x |
+| Retroid Pocket 5 (Snapdragon 865), field / battle | **1.77x / 2.15x** | 1.38x / 1.63x |
+| Retroid Pocket 5 at 60 fps, field / battle | **1.70x / 2.05x** | 1.41x / 1.69x |
+| Retroid Pocket 5 at 60 fps, slowest 1% of frames | **17.7 ms** | 24.5-25.9 ms |
+| Retroid Pocket 5 at 6x resolution | **1.24x** | 0.87x |
 
-Also on the Pocket 5: 0.4-0.9 W less power at full speed, and with an HD texture pack about half the memory.
-A fast PC that already runs v0.83 at full speed will mostly notice steadier frame pacing; laptops with
-integrated graphics, low-power CPUs and Android handhelds gain the most. Reports with your device
-and the log are welcome.
+On the Pocket 5 it also uses 0.4-0.9 W less at full speed, and about half the memory with an HD texture pack. A fast PC that already runs 0.83 at full speed mostly gains steadier frame pacing.
 
-**Recent changes** (this is the first public test build of the new engine; the list is what changed in the last
-rounds of internal testing):
+## Fixed
 
-- **Android: touch controls** for phones and tablets without a controller: stick, C-stick, D-pad,
-  A / B / X / Y, L / R, Z, Start and a menu button. They step aside when a controller is used and come
-  back when you touch the screen. Settings → Controls → Touch controls (also in the in-game menu): Auto,
-  Always or Off, with their opacity (25-100%) and size (75-110%).
-- **Ship battle HUD** (#25): the Item list no longer runs off the bottom of the screen in widescreen, and a
-  new setting (Settings → Graphics → Ship battle HUD) keeps the game's own centred layout if you prefer it.
-- **60 fps** (#18): parts of a character that change texture between frames (a face changing expression)
-  now move with the rest of the model instead of jumping.
-- **Dreamcast music** (#19): a little quieter, level with the GameCube music now that it has its reverb. One
-  of the sound chip's reverb calculations now wraps the way the hardware does; it was looked at for the
-  music breaking up (#26) but isn't confirmed as its cause: please report if it still happens.
-- **Battle screen effects in widescreen** (#22): the full-screen effect behind some poses (Drachma's victory
-  pose) now turns with the camera shake without shearing. Not yet seen in game: tell us how it looks.
-- **Cheat codes** (#5): Action Replay / Gecko codes that write memory, from `Cheats/<disc ID>.ini` in the data
-  folder (Dolphin's format: a Dolphin cheat file works as it is; on Android, Settings → Gameplay → Cheat file), with a **Cheats** switch in the in-game
-  menu's Gameplay tab. See README.md, *Cheat codes*.
-- **The Menu and Invincible hotkeys can be rebound** (Controls → Button mapping, last two rows), as in the
-  Dolphin build.
-- **F1 saves a state** (desktop, #19) to the slot chosen in the in-game menu (slot 1 by default), unless F1 is
-  bound to a game button.
-- **Stick dead zone and Rumble** set in the launcher now apply in the game (they only worked from the
-  in-game menu before).
-- **Renderer** (desktop): Settings → Graphics → Renderer picks the graphics API (Auto, Direct3D 12 / Vulkan /
-  Direct3D 11 on Windows, Vulkan / OpenGL ES on Linux) if the automatic one crashes or draws things wrong.
-- **Android: custom GPU drivers** (Mesa Turnip on Adreno, Settings → Graphics → GPU driver) now work with the
-  new engine, with the same safeguard: if the game doesn't start with it, the app goes back to the device's
-  own driver.
-- **Anti-aliasing 2x and 8x** (Settings → Graphics → Anti-aliasing) beside Off and 4x, as in the Dolphin build
-  (8x where the graphics chip has it).
-- **Laptops with two graphics chips** (#32): the game asks for the faster one on every graphics API, and the
-  log (`Logs/skies-standalone.log`) names the graphics card, API and driver it used: include it in reports.
-- **Security fixes:** a save state (either engine's) can no longer make the memory card write a file outside
-  its folder; damaged or crafted save states, disc file tables and texture-pack PNGs are refused instead of
-  crashing or filling memory; on Android, test files in the app's folder are ignored by this build and other
-  apps can't close the game. The log writes your home folder as `~`, so it's safe to attach to a report.
-- **Fixes:** a keyboard key bound to Invincible now works; cheat codes that patch the game's code (which runs
-  natively here) are listed as skipped in the log, and Action Replay float writes work; touch controls show on
-  phones that report a button-only "gamepad" and let go when a dialog opens; the game clock is right around a
-  daylight-saving change.
-- The European and Japanese discs get the same game update as the USA one; your discs are patched again
-  the first time you start this build.
+- **60 fps: a face changing expression no longer jumps** while the rest of the model moves ([#18](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/18))
+  - Thanks to [ghettowario](https://github.com/ghettowario) for reporting it.
+- **Dreamcast music is level with the GameCube music** now that it has its reverb ([#19](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/19))
+  - One of the sound chip's reverb steps now wraps as the hardware does. It may help with music breaking up ([#26](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/26)), which isn't confirmed: please tell us if you still hear it.
+  - Thanks to [Cawl87](https://github.com/Cawl87) for reporting both.
+- **Widescreen: the effect behind Drachma's victory pose turns with the camera shake** without shearing ([#22](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/22))
+  - Not yet seen in game: tell us how it looks. Thanks to [Cawl87](https://github.com/Cawl87) for reporting it.
+- **Security: a crafted save state can no longer make the memory card write a file outside its folder.** Damaged or crafted save states, disc files and texture-pack images are refused instead of crashing or filling memory.
+- **Stick dead zone and rumble set in the launcher apply in the game** (they only worked from the in-game menu).
+
+## Not in this build
+
+- **Android 7 and 8:** the new engine needs Android 9 or later; on 7 and 8 the app keeps using the Dolphin engine.
+- **Dolphin's video backend settings** (the Renderer setting replaces them) and **netplay**.
+
+## Installing and updating from 0.83
+
+Your data folder (moved or portable too), settings, memory card saves and save states carry over; 0.83's save states are converted when they load. The European and Japanese discs are patched again the first time you start this build.
+
+- **Windows / Linux / macOS:** unpack the new version and run it. macOS: allow it in System Settings → Privacy & Security the first time (not notarized).
+- **Android:** install the APK over 0.83 as an update.
+- **Going back to 0.83:** load a memory card save (0.83's Continue may pick this build's newest save state and refuse it). On Android, going back means uninstalling first, which deletes the app's data unless you moved the data folder: back up your saves.
+
+---
+
+Controls, settings and the rest are in the [README](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp#readme). Please [report problems](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/new/choose) with your platform, device and the log.

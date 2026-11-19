@@ -247,44 +247,15 @@ jobs:
           change it while choosing commands. See README.md in the download for controls and settings.
           EOF
           if [ "$STANDALONE" = "true" ]; then
-            cat > notes.md <<'EOF'
-          **Test build of the new engine.** The game no longer runs inside Dolphin: it runs on its own
-          engine (the recompiled game code with a GameCube graphics, sound and disc layer of its own,
-          drawing through WebGPU). Everything else is as in the latest release. Please report what
-          works and what doesn't in the GitHub issues, with your device or PC, and the log
-          (`Logs/skies-standalone.log` in the data folder on desktop).
-
-          **Back up your saves first** (Settings → Saves → Back up saves). Your data folder (moved or
-          portable too), settings, memory card saves and save states carry over: older save states are
-          converted when they load. Save states made by this build don't load in v0.83 or earlier: if you
-          go back to v0.83, load a memory card save (Continue may pick this build's newest state and
-          refuse it).
-
-          **You need your own Skies of Arcadia Legends disc (GameCube, USA `GEAE8P`, European
-          `GEAP8P` or Japanese `GEAJ8P`)**; nothing here contains game data.
-
-          - **Windows** (64-bit Windows 10 / 11): unzip into a new folder, or over your current one;
-            run `Skies of Arcadia Legends.exe`.
-          - **Linux** (x86_64): the `.AppImage`, or the `.tar.gz`.
-          - **macOS** (Apple Silicon, macOS 13+): unzip and open; allow it in Privacy & Security the
-            first time (not notarized).
-          - **Android** (arm64): installs over the app as an update. The new engine needs Android 9
-            or later (older devices keep the Dolphin engine). Going back to v0.83 means uninstalling
-            first, which deletes the app's data unless you moved the data folder: back up your saves.
-            Without a controller the game shows touch controls (a controller's input hides them, a
-            touch on the screen brings them back; the button at the top opens the menu; Settings →
-            Controls → Touch controls: Auto, Always or Off). In the game, Back opens the menu;
-            Saves → Quit game returns to the launcher. Custom GPU drivers (Turnip, Settings →
-            Graphics → GPU driver) work with the new engine too.
-          EOF
-            # What changed since the last test build, kept beside the code (release/test-build-notes.md)
+            # A test build's notes are release/test-build-notes.md as a whole (written per build, in the layout of
+            # the normal releases' notes)
             [ -f test-build-notes.md ] || { echo "::error::release/test-build-notes.md is missing."; exit 1; }
-            { echo; cat test-build-notes.md; } >> notes.md
+            cp test-build-notes.md notes.md
           fi
           gh release create "$GITHUB_REF_NAME" out/* \
             --repo "$GITHUB_REPOSITORY" \
             --title "Skies of Arcadia Legends: Recompiled $GITHUB_REF_NAME" \
             --notes "$(cat notes.md)" \
-            --generate-notes \
+            $([ "$STANDALONE" = "true" ] || echo --generate-notes) \
             --verify-tag \
             "${FLAGS[@]}"
