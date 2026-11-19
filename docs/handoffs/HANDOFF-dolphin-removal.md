@@ -32,10 +32,11 @@ Two separate things, done in this order:
 
 ## Phases
 
-**Phase 0: the last Dolphin-engine release.** v0.83.1 = v0.83.0 + `recompcore-gci-state-paths.patch` (the card-path
-security fix), on the local dev-based branch `gci-state-fix` (`f427c65`, worktree `~/projects/skies-gcifix`; it
-applies on dev's 41-patch chain). Push and release need the owner's OK. After it the Dolphin build is frozen:
-another release only for a severe security issue.
+**Phase 0: the Dolphin build is frozen at v0.83.0** (the owner, 2026-11-19: no Dolphin-engine fix release; "it's
+pointless and will only deter people from using the standalone"). The card-path security fix for it
+(`recompcore-gci-state-paths.patch`) stays on the local dev-based branch `gci-state-fix` (`f427c65`, worktree
+`~/projects/skies-gcifix`), unreleased: v0.83.0 players keep the flaw (a crafted save state they load can write a
+file), and the remedy is moving them to the new engine, which has the fix.
 
 **Phase 1: test builds until the gates pass.** `v0.90.0-standalone.N` drafts from `aurora-backend`
 (`HANDOFF-release.md`, first section). Never publish `.4` (it has S1).

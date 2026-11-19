@@ -6,8 +6,9 @@ Requests and ideas not scheduled yet. Move an item to a handoff when work on it 
 
 The owner: supporting both engines isn't feasible; the port moves to the new engine alone. Plan, gates (a
 play-through, testers' reports, re-measured performance, Android 7 / 8) and the inventory of what goes and what
-stays: [handoffs/HANDOFF-dolphin-removal.md](handoffs/HANDOFF-dolphin-removal.md). Phase 0 is v0.83.1, the last
-Dolphin-engine release (the card-path security fix on the local branch `gci-state-fix`, waiting on the owner). Until
+stays: [handoffs/HANDOFF-dolphin-removal.md](handoffs/HANDOFF-dolphin-removal.md). No more Dolphin-engine
+releases (the owner, 2026-11-19: not even the card-path security fix, which stays on the local branch
+`gci-state-fix`; the new engine is the remedy). Until
 the cut-over: no new Dolphin-engine-only features; items below marked "both builds" need only the new engine
 once it ships.
 
@@ -18,8 +19,7 @@ once it ships.
   constant -9830 for over a second, then a slow drift back; not clipping, not the reverb writing over samples
   (development notes, *Issues #26-#32*). Needs the reporter's save state; then the AICA DSP's state there.
   Both builds.
-- **#28 fix to dev** (`recompcore-tz-fallback.patch`, ordered before the aurora patches) for a Dolphin-build
-  release, if one ships before the standalone replaces it.
+- **#28 fix to dev**: not happening (no more Dolphin-engine releases, 2026-11-19); the new engine has it.
 - **The `issues` branch** (#25 ShipHud, #19, #18, #24, #22): ported 2026-11-18 on the local branch
   `standalone-issues` (ws35 on all three discs, the standalone's menu row, DC gain and #18 pass;
   development notes, *Issue pass #16-#25*). In local aurora-backend; checked on WSL, Windows and the Pocket 5.

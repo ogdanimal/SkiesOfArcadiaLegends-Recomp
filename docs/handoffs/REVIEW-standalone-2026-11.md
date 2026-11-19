@@ -92,7 +92,8 @@ the crafted inputs below re-run):
   card folder and only plain `.gci` names; anything else fails the load and restores the card (Dolphin's undo
   after a failed load doesn't, since its own states carry no card contents). Checked: the outside `.gci` name
   lands in the card folder, a `.bat` name is refused with every card file unchanged, a normal state loads. The
-  released Dolphin build needs the patch on `dev` and a release to reach players.
+  released Dolphin build would need the patch on `dev` and a release; the owner decided against one (2026-11-19):
+  the fix stays on the local branch `gci-state-fix`, and the new engine is the remedy.
 
 ### S2. Medium: the Android test hooks are active in the release APK
 - **Where:** `standalone/src/main.cpp:530-604` (`AndroidSetup`): `env.txt` (`:551`), `SKIES_EXTRA_ARGS` (`:562`),
