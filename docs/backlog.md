@@ -14,8 +14,8 @@ Requests and ideas not scheduled yet. Move an item to a handoff when work on it 
 - **The `issues` branch** (#25 ShipHud, #19, #18, #24, #22): ported 2026-11-18 on the local branch
   `standalone-issues` (ws35 on all three discs, the standalone's menu row, DC gain and #18 pass;
   development notes, *Issue pass #16-#25*). In local aurora-backend; checked on WSL, Windows and the Pocket 5.
-  Left: the push, the #24 VRR test on the user's display, and whether the standalone wants keyboard state keys
-  (#19's F1).
+  Left: the push and the #24 VRR test on the user's display. #19's F1 is in the standalone too (2026-11-19:
+  saves to the menu's slot unless F1 is bound; checked on WSL with a real key event, the bound case not run).
 - **Patched Dawn** (MSAA 2x / 8x, the Windows swap chain fix): host the packages (`tools/build-dawn-package.sh`)
   or build them in CI.
 - **By hand:** two controllers and remapping with a pad (standalone); the desktop launcher's Continue click.

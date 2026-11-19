@@ -833,6 +833,28 @@ void InputPoll()
 #endif
 }
 
+bool InputKeyBound(int scancode)
+{
+#ifdef SKIES_STANDALONE_AURORA
+  u32 count = 0;
+  const PADKeyButtonBinding* buttons = PADGetKeyButtonBindings(PAD_CHAN0, &count);
+  for (u32 i = 0; buttons && i < count; ++i)
+  {
+    if (buttons[i].scancode == scancode)
+      return true;
+  }
+  const PADKeyAxisBinding* axes = PADGetKeyAxisBindings(PAD_CHAN0, &count);
+  for (u32 i = 0; axes && i < count; ++i)
+  {
+    if (axes[i].scancode == scancode)
+      return true;
+  }
+#else
+  (void)scancode;
+#endif
+  return false;
+}
+
 int InputMappingRows()
 {
 #ifdef SKIES_STANDALONE_AURORA

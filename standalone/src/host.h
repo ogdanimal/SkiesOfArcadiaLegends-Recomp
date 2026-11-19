@@ -426,6 +426,7 @@ void InputClear(int row, InputSlot slot);
 bool InputResetDefaults(InputSlot slot);  // false (and a message) without the device
 bool InputKeyboardInUse();                // the keyboard was used after controller 1
 bool InputHasKeyboard();
+bool InputKeyBound(int scancode);         // an SDL scancode bound to any GameCube button or stick
 // Continue from a card save ([Skies] AutoLoadCard, one shot, as the launchers set it): file 1..99, or
 // CONTINUE_NEWEST for the game's newest save on card A; 0 leaves the key's value. The game patch
 // (autoload.c, ws20+) loads it at boot, straight into the field. Before the first frame.

@@ -361,6 +361,8 @@ bool s_texture_pack = false;
 bool s_menu_key_down = false;
 // Android's Back (SkiesGameActivity.onBackPressed, any thread): counts as one menu key press
 std::atomic<bool> s_back_request{false};
+// F1 (desktop): save a state to the menu's slot, as the Dolphin build's F1 (issue #19), unless F1 is bound
+std::atomic<bool> s_f1_request{false};
 bool s_stick_click = false;
 
 enum class Region
@@ -1800,6 +1802,8 @@ bool SDLCALL MenuKeyWatch(void*, SDL_Event* event)
   if (event->type == SDL_EVENT_KEY_DOWN && !event->key.repeat &&
       (event->key.scancode == SDL_SCANCODE_ESCAPE || event->key.scancode == SDL_SCANCODE_AC_BACK))
     s_back_request.store(true);
+  if (event->type == SDL_EVENT_KEY_DOWN && !event->key.repeat && event->key.scancode == SDL_SCANCODE_F1)
+    s_f1_request.store(true);
   return true;
 }
 #endif
@@ -2000,6 +2004,9 @@ void MenuFilterPad(PadStatus& pad)
   const Hotkeys keys = ReadHotkeys();
   const bool menu_key = (keys.menu && !s_menu_key_down) || s_back_request.exchange(false);
   s_menu_key_down = keys.menu;
+  // Taken every frame, so an F1 pressed in the menu or during a Continue doesn't save later
+  const bool f1 = s_f1_request.exchange(false);
+  (void)f1;  // used by the Aurora build only
   if (keys.stick_click && !s_stick_click && s_mode == Mode::Closed)
     qol::ToggleInvincible();
   s_stick_click = keys.stick_click;
@@ -2018,6 +2025,10 @@ void MenuFilterPad(PadStatus& pad)
       pad = Released(pad);
       break;
     }
+#ifdef SKIES_STANDALONE_AURORA
+    if (f1 && !InputKeyBound(SDL_SCANCODE_F1) && !StateDirectory().empty())
+      StateRequestSave(SlotPath(s_save_slot), "Saved to slot " + std::to_string(s_save_slot));
+#endif
     pad = FilterClosed(pad);
     break;
   case Mode::Open:

@@ -11,6 +11,8 @@
 - **Dreamcast music** (#19): a little quieter, level with the GameCube music now that it has its reverb.
 - **Battle screen effects in widescreen** (#22): the full-screen effect behind some poses (Drachma's victory
   pose) now turns with the camera shake without shearing. Not yet seen in game: tell us how it looks.
+- **F1 saves a state** (desktop, #19) to the slot chosen in the in-game menu (slot 1 by default), unless F1 is
+  bound to a game button.
 - **Stick dead zone and Rumble** set in the launcher now apply in the game (they only worked from the
   in-game menu before).
 - The European and Japanese discs get the same game update as the USA one; your discs are patched again
