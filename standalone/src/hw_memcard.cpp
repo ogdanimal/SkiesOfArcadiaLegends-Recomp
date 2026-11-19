@@ -512,7 +512,14 @@ void CardDoState(StateIO& p)
     p.Do(key);
     p.Do(name);
     p.Do(file.bytes);
-    file.path = s_folder / name;
+    // A file of the card's folder only: the name is the state's, and Flush writes to (or renames) this path
+    const fs::path leaf = fs::path(name).filename();
+    if (leaf.empty() || leaf != fs::path(name) || leaf == "." || leaf == "..")
+    {
+      p.Fail("the state's memory card names a file outside the card's folder");
+      break;
+    }
+    file.path = s_folder / leaf;
     s_files[key] = std::move(file);
   }
 }
