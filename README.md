@@ -1,11 +1,23 @@
 # Skies of Arcadia Legends: Recompiled
 
 A native port of **Skies of Arcadia Legends** (GameCube) to **Windows, Linux, macOS and Android**, made by
-static recompilation: the game's PowerPC code is translated ahead of time into native code, and the
-GameCube's graphics, sound and input come from [Dolphin](https://dolphin-emu.org/)'s hardware code.
-It adds widescreen, 60 fps, camera control, save states and quality-of-life options.
+static recompilation: the game's PowerPC code is translated ahead of time into native code. It adds
+widescreen, 60 fps, camera control, save states and quality-of-life options.
 
-**This is a beta (v0.83).** Please [report](../../issues/new/choose) what you run into.
+## Where the project stands
+
+- **[v0.83.0-beta](../../releases/tag/v0.83.0-beta)** is the recommended release. The recompiled game runs
+  inside a trimmed copy of [Dolphin](https://dolphin-emu.org/)'s core, which supplies the GameCube's
+  graphics, sound and input. The rest of this README describes it.
+- **A new engine is in testing:
+  [v0.90.0-standalone.6](../../releases/tag/v0.90.0-standalone.6)**. The game runs on its own GameCube
+  hardware layer instead of inside Dolphin, drawing through Direct3D 12, Vulkan, Direct3D 11, Metal or
+  OpenGL ES. It has v0.83's features (on Android it needs version 9 or later) and is faster and smoother, most
+  of all on weaker PCs, laptops and Android handhelds (the release notes compare the two). Your saves carry over; back them up first.
+  Please [report](../../issues/new/choose) what you run into, with the log.
+- **Next:** the new engine replaces the Dolphin engine once it has been tested; there will be no more
+  Dolphin-engine releases. Development happens on the
+  [`aurora-backend`](../../tree/aurora-backend) branch (its README describes the new engine).
 
 No build contains the game. You need your own copy of the disc.
 
@@ -20,7 +32,8 @@ Get a build from the **[Releases](../../releases)** page:
 | macOS (Apple Silicon) | `SkiesOfArcadiaLegends-<version>-macos.zip` |
 | Android | `SkiesOfArcadiaLegends-<version>-android.apk` |
 
-Versions ending in `-beta` (or `-rc1`, `-rc2`, ...) are published as prereleases.
+Versions ending in `-beta` (or `-rc1`, `-rc2`, ...) are published as prereleases; versions ending in
+`-standalone.N` are test builds of the new engine.
 
 ## Getting Started
 
