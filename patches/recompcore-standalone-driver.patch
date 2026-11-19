@@ -1,0 +1,25 @@
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
+@@ -1097,6 +1097,8 @@
+         if (SkiesGame.standalone) {
+             // The game's own process; one still ending (a restart, a quick Play after Quit game) goes first
+             afterGameClosed {
++                // The custom GPU driver's crash marker (SkiesGameActivity clears it; SkiesDriverGuard)
++                SkiesDriverGuard.onLaunch(this)
+                 playGame.launch(SkiesGame.intent(this, userDirectory, gameRoot, stateDirectory, state))
+             }
+             return
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+@@ -271,7 +271,8 @@
+                     "Show the frame rate in a corner of the game screen.")
+                 backendRow(rows)
+                 // A driver package is Dolphin's loader's; the emulator-free host uses the system's Vulkan
+-                if (SkiesDriverGuard.supported() && !SkiesGame.standalone) driverRows(rows)
++                // The emulator-free game loads the driver too (libadrenotools, standalone/src/main.cpp)
++                if (SkiesDriverGuard.supported()) driverRows(rows)
+             }
+             "Gameplay" -> {
+                 configRow(rows, "Camera", CAMERA, dolphin, "Skies", "CameraControl", 1,

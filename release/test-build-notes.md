@@ -24,6 +24,9 @@
   in-game menu before).
 - **Renderer** (desktop): Settings → Graphics → Renderer picks the graphics API (Auto, Direct3D 12 / Vulkan /
   Direct3D 11 on Windows, Vulkan / OpenGL ES on Linux) if the automatic one crashes or draws things wrong.
+- **Android: custom GPU drivers** (Mesa Turnip on Adreno, Settings → Graphics → GPU driver) now work with the
+  new engine, with the same safeguard: if the game doesn't start with it, the app goes back to the device's
+  own driver.
 - **Laptops with two graphics chips** (#32): the game asks for the faster one on every graphics API, and the
   log (`Logs/skies-standalone.log`) names the graphics card, API and driver it used: include it in reports.
 - The European and Japanese discs get the same game update as the USA one; your discs are patched again

@@ -24,8 +24,11 @@ Requests and ideas not scheduled yet. Move an item to a handoff when work on it 
   costs a round after a push, for 2x / 8x only (Off and 4x work); worth it before a normal release, not for a
   test build. The scripts themselves work (local Linux / Android / Windows packages, 2026-10-25/26).
 - **By hand:** two controllers and remapping with a pad (standalone); the desktop launcher's Continue click.
-- **Android:** touch controls done 2026-11-18 (`SkiesTouchControls.java`, branch `standalone-issues`; no layout
-  editor or opacity setting yet); custom GPU drivers aren't used by the standalone.
+- **Android:** touch controls done 2026-11-18, opacity and size 2026-11-19 (no layout editor). Custom GPU drivers
+  done 2026-11-19: libadrenotools in `libskies.so`, Dawn reaches the driver through `libskiesvk.so`
+  (`android_vkshim.c`) and `AURORA_VULKAN_LIBRARY_DIR` (`recompcore-aurora-vulkan-dir.patch`), the launcher's rows
+  and crash safeguard (`recompcore-standalone-driver.patch`, SkiesGameActivity). Pocket 5 with Turnip v26.0.0 R8:
+  `vulkan.ad07xx.so` mapped, `vulkan.adreno.so` not, the first battle and Baltor's ship battle at 1.00x.
 - The standalone's game clock was UTC (`std::time()`); local time since 2026-11-18 (`boot.cpp` `RtcBase`, as the
   Dolphin build's), so card file dates read as the player's clock.
 

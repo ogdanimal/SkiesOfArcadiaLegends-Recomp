@@ -1,0 +1,31 @@
+diff --git a/GXRuntime/graphics/aurora/lib/webgpu/gpu.cpp b/GXRuntime/graphics/aurora/lib/webgpu/gpu.cpp
+--- a/GXRuntime/graphics/aurora/lib/webgpu/gpu.cpp
++++ b/GXRuntime/graphics/aurora/lib/webgpu/gpu.cpp
+@@ -1,3 +1,4 @@
++#include <cstdlib>
+ #include <atomic>
+ #include "gpu.hpp"
+ 
+@@ -900,10 +901,19 @@
+     // bare name, is refused by LoadLibraryEx (error 87) under the search flags it passes, so on Windows
+     // neither was ever found and only D3D12 could start. System32 as a search path makes them fallbacks.
+     const std::string systemDirectory = utils::SystemLibraryDirectory();
+-    const char* const searchPaths[] = {systemDirectory.c_str()};
++    // AURORA_VULKAN_LIBRARY_DIR: a folder searched first, for a host that hands Dawn another libvulkan (the Skies
++    // Recomp Android host's custom GPU driver shim)
++    const char* const vulkanDirectory = std::getenv("AURORA_VULKAN_LIBRARY_DIR");
++    std::vector<const char*> searchPaths;
++    if (vulkanDirectory != nullptr && vulkanDirectory[0] != '\0') {
++      searchPaths.push_back(vulkanDirectory);
++    }
+     if (!systemDirectory.empty()) {
+-      dawnInstanceDescriptor.additionalRuntimeSearchPathsCount = 1;
+-      dawnInstanceDescriptor.additionalRuntimeSearchPaths = searchPaths;
++      searchPaths.push_back(systemDirectory.c_str());
++    }
++    if (!searchPaths.empty()) {
++      dawnInstanceDescriptor.additionalRuntimeSearchPathsCount = searchPaths.size();
++      dawnInstanceDescriptor.additionalRuntimeSearchPaths = searchPaths.data();
+     }
+     instanceDescriptor.nextInChain = &dawnInstanceDescriptor;
+ #endif

@@ -419,6 +419,70 @@ void Throttle()
 }
 }  // namespace host
 
+#if defined(__ANDROID__) && defined(SKIES_ADRENOTOOLS)
+#include <adrenotools/driver.h>
+#include <dlfcn.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+namespace
+{
+// A custom GPU driver (Mesa Turnip on Adreno) the player installed in the launcher (Settings, Graphics, GPU driver:
+// GFX.ini [Settings] DriverLibName, extracted to files/GPUDrivers/Extracted), opened through libadrenotools as the
+// Dolphin build's VulkanLoader does; Dawn then gets its vkGetInstanceProcAddr through libskiesvk.so
+// (android_vkshim.c), which a libvulkan.so symlink in GPUDrivers/Shim names and Aurora searches first
+// (AURORA_VULKAN_LIBRARY_DIR). SkiesGameActivity passes the two folders (SKIES_NATIVE_LIB_DIR,
+// SKIES_GPU_DRIVER_DIR). Anything that fails leaves the device's own driver.
+void LoadCustomGpuDriver()
+{
+  const std::string name = host::SettingGetString(host::SettingFile::Gfx, "Settings", "DriverLibName");
+  if (name.empty())
+    return;
+  if (const char* api = std::getenv("DOL_AURORA_BACKEND"); api && std::string(api) == "gles")
+  {
+    host::Log("[host] GPU driver %s: not used with OpenGL ES\n", name.c_str());
+    return;
+  }
+  const char* lib_dir = std::getenv("SKIES_NATIVE_LIB_DIR");
+  const char* driver_dir = std::getenv("SKIES_GPU_DRIVER_DIR");
+  if (!lib_dir || !driver_dir)
+  {
+    host::Log("[host] GPU driver %s: the app didn't pass its folders, the device's own driver\n", name.c_str());
+    return;
+  }
+  const std::string base = driver_dir, hooks = std::string(lib_dir) + "/";
+  const std::string tmp = base + "/Tmp/", extracted = base + "/Extracted/", redirect = base + "/FileRedirect/";
+  void* vulkan = adrenotools_open_libvulkan(RTLD_NOW, ADRENOTOOLS_DRIVER_FILE_REDIRECT | ADRENOTOOLS_DRIVER_CUSTOM,
+                                            tmp.c_str(), hooks.c_str(), extracted.c_str(), name.c_str(),
+                                            redirect.c_str(), nullptr);
+  void* get_proc = vulkan ? dlsym(vulkan, "vkGetInstanceProcAddr") : nullptr;
+  const std::string shim_lib = hooks + "libskiesvk.so";
+  void* shim = get_proc ? dlopen(shim_lib.c_str(), RTLD_NOW) : nullptr;
+  using SetFn = void (*)(void*);
+  const auto set = shim ? reinterpret_cast<SetFn>(dlsym(shim, "skies_vkshim_set")) : nullptr;
+  if (!set)
+  {
+    host::Log("[host] GPU driver %s didn't load (%s): the device's own driver\n", name.c_str(),
+              !vulkan ? "libadrenotools" : !get_proc ? "no vkGetInstanceProcAddr" : "no shim");
+    return;
+  }
+  set(get_proc);
+  const std::string shim_dir = base + "/Shim";
+  mkdir(shim_dir.c_str(), 0700);
+  const std::string link = shim_dir + "/libvulkan.so";
+  unlink(link.c_str());
+  if (symlink(shim_lib.c_str(), link.c_str()) != 0)
+  {
+    host::Log("[host] GPU driver %s: no shim link, the device's own driver\n", name.c_str());
+    return;
+  }
+  // With the slash: Dawn joins its search paths and the file name as they are (DynamicLib::Open)
+  setenv("AURORA_VULKAN_LIBRARY_DIR", (shim_dir + "/").c_str(), 1);
+  host::Log("[host] GPU driver %s (custom, through libadrenotools)\n", name.c_str());
+}
+}  // namespace
+#endif
+
 #if defined(__ANDROID__) && defined(SKIES_STANDALONE_AURORA)
 #include <SDL3/SDL_main.h>
 #include <SDL3/SDL_system.h>
@@ -885,6 +949,9 @@ int main(int argc, char** argv)
     setenv("DOL_AURORA_BACKEND", "gles", 1);
     Log("[host] renderer: OpenGL ES (Settings)\n");
   }
+#if defined(SKIES_ADRENOTOOLS)
+  LoadCustomGpuDriver();
+#endif
 #else
   // Desktop: [Skies] Renderer (the launcher's and the in-game menu's Renderer row): 0 Auto (Direct3D 12, then
   // Vulkan, then Direct3D 11 on Windows; Vulkan, then OpenGL ES on Linux; Metal on macOS), 1 Direct3D 12,

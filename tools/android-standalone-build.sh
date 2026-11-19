@@ -104,6 +104,8 @@ STRIP=$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip
 mkdir -p $O/lib
 $STRIP --strip-debug -o $O/lib/libskies.so $B/libskies.so
 $STRIP --strip-debug -o $O/lib/libpng16.so $B/_deps/png-build/libpng16.so
+# the custom GPU driver shim (standalone/src/android_vkshim.c)
+if [ -f $B/libskiesvk.so ]; then $STRIP --strip-debug -o $O/lib/libskiesvk.so $B/libskiesvk.so; fi
 if [ "${LIB_ONLY:-0}" = 1 ]; then
   mkdir -p $O/app-java/org/libsdl/app
   cp $O/sdl-java/*.java $O/app-java/org/libsdl/app/

@@ -268,8 +268,8 @@ jobs:
             Without a controller the game shows touch controls (a controller's input hides them, a
             touch on the screen brings them back; the button at the top opens the menu; Settings →
             Controls → Touch controls: Auto, Always or Off). In the game, Back opens the menu;
-            Saves → Quit game returns to the launcher. Custom GPU drivers (Turnip) aren't used by
-            the new engine.
+            Saves → Quit game returns to the launcher. Custom GPU drivers (Turnip, Settings →
+            Graphics → GPU driver) work with the new engine too.
 
           Not in this build: anti-aliasing 2x / 8x (Off and 4x only).
           EOF

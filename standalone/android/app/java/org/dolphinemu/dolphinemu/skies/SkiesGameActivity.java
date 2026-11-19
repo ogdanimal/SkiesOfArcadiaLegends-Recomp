@@ -67,9 +67,61 @@ public class SkiesGameActivity extends SDLActivity {
     return args != null ? args : new String[0];
   }
 
+  // The custom GPU driver's crash safeguard (SkiesDriverGuard's marker files; its NativeConfig isn't loaded in
+  // this process): the launcher writes PENDING when the game starts with a custom driver; it goes after 30 s
+  // for a driver the player kept, and at a normal exit, after which the launcher asks to keep a new driver.
+  // A PENDING still there when the launcher comes back reads as a crash, and it goes back to the system driver.
+  private static final String DRIVER_PENDING = "skies-driver-boot-pending";
+  private static final String DRIVER_KEPT = "skies-driver-kept";
+  private static final String DRIVER_SESSION_DONE = "skies-driver-session-done";
+  private static final long DRIVER_SURVIVED_MS = 30000;
+
+  private String readMarker(String name) {
+    final java.io.File f = new java.io.File(getFilesDir(), name);
+    if (!f.isFile())
+      return null;
+    try {
+      return new String(java.nio.file.Files.readAllBytes(f.toPath()), java.nio.charset.StandardCharsets.UTF_8);
+    } catch (java.io.IOException e) {
+      return null;
+    }
+  }
+
+  private boolean driverKept(String pending) {
+    return pending != null && pending.equals(readMarker(DRIVER_KEPT));
+  }
+
+  private void driverCleanExit() {
+    final String pending = readMarker(DRIVER_PENDING);
+    if (pending == null)
+      return;
+    new java.io.File(getFilesDir(), DRIVER_PENDING).delete();
+    if (!driverKept(pending)) {
+      try {
+        java.nio.file.Files.write(new java.io.File(getFilesDir(), DRIVER_SESSION_DONE).toPath(),
+                                  pending.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+      } catch (java.io.IOException e) {
+        // the launcher then just won't ask to keep it
+      }
+    }
+  }
+
   @Override
   protected void onCreate(Bundle savedInstanceState) {
+    // For the custom GPU driver (main.cpp LoadCustomGpuDriver): where libadrenotools' hook libraries and the shim
+    // are, and the launcher's driver folder (Dolphin's DirectoryInitialization: files/GPUDrivers)
+    try {
+      android.system.Os.setenv("SKIES_NATIVE_LIB_DIR", getApplicationInfo().nativeLibraryDir, true);
+      android.system.Os.setenv("SKIES_GPU_DRIVER_DIR", new java.io.File(getFilesDir(), "GPUDrivers").getPath(), true);
+    } catch (android.system.ErrnoException e) {
+      Log.w(TAG, "couldn't pass the GPU driver folders", e);
+    }
     super.onCreate(savedInstanceState);
+    mHandler.postDelayed(() -> {
+      final String pending = readMarker(DRIVER_PENDING);
+      if (driverKept(pending))
+        new java.io.File(getFilesDir(), DRIVER_PENDING).delete();
+    }, DRIVER_SURVIVED_MS);
     hideSystemBars();
     // The touch controls over the game's surface (SDL's layout holds it; null when the libraries didn't load)
     if (mLayout != null && !SDLActivity.mBrokenLibraries) {
@@ -150,6 +202,7 @@ public class SkiesGameActivity extends SDLActivity {
     super.onDestroy();
     // SDL can't run main a second time in this process: end it with the activity
     if (isFinishing()) {
+      driverCleanExit();
       Log.i(TAG, "game ended");
       Process.killProcess(Process.myPid());
     }
