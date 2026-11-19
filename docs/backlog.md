@@ -281,7 +281,11 @@ a loader-thread hitch) and 60 fps (frame interpolation), and the Japanese memory
 a video thread beside the game (fork 0046, `HANDOFF-emulator-free.md`, *The video thread*): Pocket 5 uncapped
 1.77x / 1.70x at the save point at 30 / 60 fps (Dolphin 1.38x / 1.41x), 2.15x / 2.05x in battle (1.63x /
 1.69x); 60 fps at full speed p99 ~17.7 ms against Dolphin's 24.5-25.9, at less power. Ahead as an engine, not
-yet a replacement (features 7-10 missing, not played through; `HANDOFF-emulator-free.md`, *Where it stands*).
+yet a replacement (`HANDOFF-emulator-free.md`, *Where it stands*). **2026-11-19:** items 7-10 done, the
+opt-in test prereleases ship it, and the parity pass brought over the rest the owner wanted (Renderer choice,
+touch opacity / size, rebindable hotkeys, Turnip, CI-built Dawn for MSAA 2x / 8x); left in the Dolphin build
+only: Android 7 / 8, the Windows File menu, netplay, non-memory-write cheats. What's missing is a play-through
+(`HANDOFF-emulator-free.md`, *Parity (2026-11-19)*).
 Item 7 since (2026-10-26): the Dreamcast features (Uncensored, the Dreamcast music and streams, the
 European 60 Hz audio) from the Dolphin build's modules copied as they are behind shimmed Dolphin headers;
 every output byte-identical to the Dolphin build's. Item 8 (2026-10-26): the Dolphin build's save states load

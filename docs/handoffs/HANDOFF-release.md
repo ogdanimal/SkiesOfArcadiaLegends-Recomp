@@ -10,7 +10,7 @@
   why the draft isn't published; Claude recommended not publishing `.4` and offered either to tag + build `.5`
   and leave it a draft, or to tag, build, check and publish `.5` as a prerelease and delete the `.4` draft.
   **Waiting on the owner's choice.**
-- **Code:** all of it on `origin/aurora-backend` (newest `5dd7c22` at the time of writing; tag the branch's newest
+- **Code:** all of it on `origin/aurora-backend` (newest `2a50e0c` at the time of writing; tag the branch's newest
   commit): `git tag v0.90.0-standalone.5 origin/aurora-backend && git push origin v0.90.0-standalone.5`. Since
   the first push: test tools (relative times, `tools/sa-run.sh`, `tools/sa-sweep.sh`, `tools/sa-device-sweep.sh`,
   `SKIES_EXTRA_ARGS` on Android), `highlytheoretical-dsp-shift-wrap.patch` (#26, not confirmed as its cause),
@@ -25,8 +25,9 @@
   v26 R8 battles at 1.00x, keep prompt and crash safeguard work, test app back on the system driver), and
   **MSAA 2x / 8x** from a CI-built patched Dawn (`validate.yml` `dawn` job, `tools/ci-dawn.sh`; falls back to the
   stock package, Off / 4x, if it fails). Left out by the owner: Android 7 / 8, the Windows File menu. **The first
-  tag after this builds Dawn again** (branch caches don't reach tags; Linux 18 min, Android 13 min in the first
-  run, Windows and macOS not yet seen through, backlog *Patched Dawn*); check in the release jobs' logs that each found
+  tag after this builds Dawn again** (branch caches don't reach tags; Linux 18-28 min, Android 13 min; Windows ~25 min to
+  build after two fixes, packing fixed in 2a50e0c, run 44577309166 pending; macOS never got a GitHub arm64 runner
+  in two runs, so the macOS build may fall back to the stock Dawn; backlog *Patched Dawn*); check in the release jobs' logs that each found
   its `dawn-<target>` artifact (`DAWN_PACKAGE` set) and, after the draft, that Anti-aliasing offers 2x.
 - **What it has** (`release/test-build-notes.md`, appended to the draft's notes by `release.yml`): the `issues`
   branch (#25 Ship battle HUD, #19 DC music level, #18 60 fps texture-change pairing, #22 screen plane, #24 in

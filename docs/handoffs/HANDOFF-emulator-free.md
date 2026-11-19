@@ -28,8 +28,21 @@ for all four platforms, `v0.90.0-standalone.4` is a verified draft (*HANDOFF-fea
 *HANDOFF-release.md* first section). **2026-11-19:** `.4` was never published (still a draft, now out of date);
 the next one, `.5`, is prepared on `origin/aurora-backend` but not tagged (the `issues` branch with ws35 on all
 discs, Android touch controls, cheats, the sweeps below), waiting on the owner (*HANDOFF-release.md*, first
-section). Next after testers' reports: issue #26 (needs the reporter's state), the patched Dawn (MSAA 2x / 8x,
-decided: built in CI), then a normal release replacing the Dolphin build.
+section). Next after testers' reports: issue #26 (needs the reporter's state), then a normal release replacing
+the Dolphin build.
+
+**Parity (2026-11-19, after the owner's "do all of them except not worth it"):** the new engine now has every
+Dolphin-build feature the owner wanted: desktop Renderer choice, touch controls opacity / size, the Menu /
+Invincible hotkeys rebindable, custom GPU drivers (Turnip) on Android with the crash safeguard, and MSAA 2x / 8x
+from a patched Dawn that CI builds (`validate.yml` `dawn` job, `tools/ci-dawn.sh`, cached; the stock package
+when it fails). Still only in the Dolphin build: Android 7 / 8 (the new engine needs 9+, older devices fall back
+to the Dolphin engine) and the Windows File menu (both left out by the owner), netplay (unused), and cheat codes
+beyond plain memory writes (encrypted Action Replay, conditionals, code-patching Gecko types). The gap that
+matters now is play time, not features: checked on sweeps (47 starts on WSL, 31 on the Pocket 5), bench scenes and
+routes, not yet played through. CI Dawn state: Linux and Android packages built (13-28 min) and checked (Linux
+"MSAA modes: 1x, 4x, 8x", the Pocket 5 menu offers 2x); Windows fixed twice (dependencies fetch 61aed3d, Windows'
+`tar.exe` 2a50e0c), its third run 44577309166 pending; macOS never got a GitHub arm64 runner in two runs. The
+Performance goal paragraph above holds; its numbers are from 2026-10-25/27.
 
 **Status (2026-10-26):** phases 1-3 done (title screen, audio bit-exact with Dolphin's AX HLE, first
 battle at full speed, card saves); phase 4 under way: in-game menu, save states and auto-save, and the
