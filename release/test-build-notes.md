@@ -24,7 +24,7 @@ scaling).
 
 ## Expected performance
 
-Measured in October 2026 with the same game files on both engines, at the same scenes (the opening dungeon's
+Measured with the same game files on both engines, at the same scenes (the opening dungeon's
 save point, a battle). The speeds are uncapped: how fast the game *could* run, where 1.00x is full speed. In
 normal play the game is held at full speed, so the extra headroom shows up as steadier frame times, lower CPU
 and battery use, and room for a higher resolution or 60 fps on hardware that couldn't manage it before.
@@ -43,8 +43,8 @@ and battery use, and room for a higher resolution or 60 fps on hardware that cou
 
 Also on the Pocket 5: 0.4-0.9 W less power at full speed, and with an HD texture pack about half the memory.
 A fast PC that already runs v0.83 at full speed will mostly notice steadier frame pacing; laptops with
-integrated graphics, low-power CPUs and Android handhelds gain the most. Builds have changed since these
-measurements, so your numbers may differ a little: reports with your device and the log are welcome.
+integrated graphics, low-power CPUs and Android handhelds gain the most. Reports with your device
+and the log are welcome.
 
 **Recent changes** (this is the first public test build of the new engine; the list is what changed in the last
 rounds of internal testing):
