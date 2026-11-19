@@ -227,8 +227,8 @@ report one as a finding without a concrete scenario.
     SHA-256?
   - `fetch_dawn_dependencies.py` pulls DEPS at pinned commits. Is that trustworthy enough?
   - `git am` of `patches/dawn/` onto a clone at `AURORA_DAWN_REF`, a full SHA.
-  - the third run, 44577309166, was testing the Windows `tar.exe` fix when this was written. Check its result:
-    a job's "success" means nothing; look at the Upload step or the run's artifacts.
+  - the third run, 44577309166, built and uploaded all four packages (Windows checked locally: MSAA 1x-8x on
+    D3D12). A job's "success" alone still means nothing: look at the Upload step or the run's artifacts.
 - `release.yml`: the test-build notes. Do they match what ships now (MSAA, touch, Turnip, renderer)?
 
 **Code that could be better**
@@ -283,7 +283,7 @@ report one as a finding without a concrete scenario.
 
 - Everything is pushed: `origin/aurora-backend` = local `standalone-issues` (docs only after `2a50e0c`, the
   last code change).
-- CI run 44577309166 (the Windows Dawn `tar.exe` fix) is in progress. Runs 44567700141 and 44571866943 built
+- CI run 44577309166 built all four Dawn packages (after the Windows fixes). Runs 44567700141 and 44571866943 built
   the Linux and Android Dawn packages; macOS never got a GitHub arm64 runner in either.
 - The Pocket 5's test app holds the ws35t APK built on CI's Android Dawn package. Its settings are restored.
 - Known open items that are **not** review findings:

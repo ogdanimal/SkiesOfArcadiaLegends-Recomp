@@ -30,7 +30,10 @@ Requests and ideas not scheduled yet. Move an item to a handoff when work on it 
   `tar.exe`); macOS never got a runner (GitHub's arm64 capacity).
   Caches made on a branch don't reach tag runs, so the first tag builds them again.
   CI's own packages checked: the Linux one (X11) under a local release build logs "MSAA modes: 1x, 4x, 8x", the
-  Android one in the test APK offers 2x MSAA on the Pocket 5. Checked locally:
+  Android one in the test APK offers 2x MSAA on the Pocket 5.
+  **Third run 44577309166 (2a50e0c): all four packages built and uploaded** (Android 12 min, macOS 16, Linux 22,
+  Windows 26). CI's Windows package under an MSVC build of the standalone on the RTX 5080 (D3D12): "MSAA modes:
+  1x, 2x, 4x, 8x", 2x applied. The macOS package is built but not yet run on a Mac. Checked locally:
   Pocket 5 APK on the patched Android package (Anti-aliasing Off / 2x MSAA / 4x MSAA in the menu), Linux
   standalone built through the `file://` path (the nox11 package, on Wayland): Aurora logs "MSAA modes: 1x, 4x, 8x"
   on llvmpipe against the stock build's "1x, 4x"; MSVC build of the branch on Windows boots and plays. Not

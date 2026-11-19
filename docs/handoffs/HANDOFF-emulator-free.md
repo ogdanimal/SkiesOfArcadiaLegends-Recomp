@@ -41,7 +41,8 @@ beyond plain memory writes (encrypted Action Replay, conditionals, code-patching
 matters now is play time, not features: checked on sweeps (47 starts on WSL, 31 on the Pocket 5), bench scenes and
 routes, not yet played through. CI Dawn state: Linux and Android packages built (13-28 min) and checked (Linux
 "MSAA modes: 1x, 4x, 8x", the Pocket 5 menu offers 2x); Windows fixed twice (dependencies fetch 61aed3d, Windows'
-`tar.exe` 2a50e0c), its third run 44577309166 pending; macOS never got a GitHub arm64 runner in two runs. The
+`tar.exe` 2a50e0c); run 44577309166 built all four, and CI's Windows package gives "MSAA modes: 1x, 2x, 4x, 8x" on
+the RTX 5080 (D3D12); macOS built, not yet run on a Mac. The
 Performance goal paragraph above holds; its numbers are from 2026-10-25/27.
 
 **Status (2026-10-26):** phases 1-3 done (title screen, audio bit-exact with Dolphin's AX HLE, first
