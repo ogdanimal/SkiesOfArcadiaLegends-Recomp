@@ -191,6 +191,9 @@ target_include_directories(skies-standalone PRIVATE
   "${DOLPHIN_DIR}/DolRecomp/src/frontend")
 # GXRuntime's CPU core: the bit-exact FP / paired-single helpers the fallback interpreter calls
 target_link_libraries(skies-standalone PRIVATE GXRuntime::runtime zstd::libzstd ${CMAKE_DL_LIBS})
+# Windows: Dawn's webgpu_dawn.dll and the DXC DLLs it loads (dxil, dxcompiler), libpng16 / zlib1 beside the exe
+include("${GXRUNTIME_DIR}/graphics/aurora/cmake/AuroraCopyRuntimeDLLs.cmake")
+aurora_copy_runtime_dlls(skies-standalone)
 # The AX resampler's DSP ROM coefficients (Dolphin ships them; not game data): the source tree's for test
 # builds; a release has none built in (no build machine path in the binary: the launchers' runner form takes
 # Sys/GC/dsp_coef.bin beside the program, the Android app and test app pass --dsp-coef)
@@ -332,9 +335,14 @@ if(SKIES_STANDALONE_AURORA)
   set_source_files_properties(src/dreamcast.cpp PROPERTIES INCLUDE_DIRECTORIES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/dreamcast;${CMAKE_CURRENT_SOURCE_DIR}/src/dolphin_shim")
   # The Sys folder with Skies/uncensor-manifest.json (names and hashes, no game data): --sys DIR
-  # overrides it (the Android app is given a copy)
-  target_compile_definitions(skies-standalone PRIVATE
-    SKIES_SYS_DEFAULT="${CMAKE_CURRENT_SOURCE_DIR}/data/Sys")
+  # overrides it (the Android app passes its own). Releases and Android have none built in (no build machine
+  # path in the binary): the launchers' runner form takes Sys beside the program.
+  if(SKIES_RELEASE_DISC_IDS OR ANDROID)
+    target_compile_definitions(skies-standalone PRIVATE SKIES_SYS_DEFAULT="")
+  else()
+    target_compile_definitions(skies-standalone PRIVATE
+      SKIES_SYS_DEFAULT="${CMAKE_CURRENT_SOURCE_DIR}/data/Sys")
+  endif()
   target_link_libraries(skies-standalone PRIVATE skies-dreamcast)
 endif()
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")

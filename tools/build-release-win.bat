@@ -105,7 +105,8 @@ for %%F in ("Skies of Arcadia Legends.exe" skies-run.exe gGEAE8P_recomp.dll laun
 )
 if defined STANDALONE (
   copy /y "%STANDALONE%\skies-standalone.exe" %P%\skies-run.exe >nul || exit /b 1
-  for %%F in (webgpu_dawn.dll dxil.dll dxcompiler.dll libpng16.dll zlib1.dll) do copy /y "%STANDALONE%\%%F" %P%\ >nul || exit /b 1
+  rem every DLL the build put beside it (Dawn, DXC, libpng and its zlib)
+  for %%F in ("%STANDALONE%\*.dll") do copy /y "%%~F" %P%\ >nul || exit /b 1
 )
 if defined MODULE_EU copy /y %B%\gGEAP8P_recomp.dll %P%\ >nul || exit /b 1
 if defined MODULE_JP copy /y %B%\gGEAJ8P_recomp.dll %P%\ >nul || exit /b 1

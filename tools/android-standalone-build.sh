@@ -42,7 +42,7 @@ else
   O=${O:-build/standalone-apk}
   DAWN_ARGS=""
 fi
-D=$PWD/build/standalone/_deps
+D=${STANDALONE_DEPS:-$PWD/build/standalone/_deps}
 MODULE=${MODULE:-build/android/jniLibs-sa26/arm64-v8a/libgGEAE8P_recomp.so}
 export PATH=/usr/lib/llvm-20/bin:$PATH
 if [ "${LIB_ONLY:-0}" != 1 ]; then
@@ -64,7 +64,8 @@ fi
 [ -d "$D/sdl-src" ] && [ -d "$AD/src" ] && SRC_ARGS+=(-DFETCHCONTENT_FULLY_DISCONNECTED=ON)
 
 if [ ! -f $B/build.ninja ]; then
-  cmake -S standalone -B $B -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
+  # No host pkg-config files: a cross build would take the build machine's libzstd (CI: zstd.h not found)
+  PKG_CONFIG_LIBDIR=/nonexistent PKG_CONFIG_PATH= cmake -S standalone -B $B -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
     -DCMAKE_TOOLCHAIN_FILE=$NDK/build/cmake/android.toolchain.cmake -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28 \
     "-DCMAKE_C_FLAGS=-ffile-prefix-map=$PWD/=" "-DCMAKE_CXX_FLAGS=-ffile-prefix-map=$PWD/=" \
     $DAWN_ARGS "${SRC_ARGS[@]}" ${STANDALONE_CMAKE_ARGS:-} > $B-configure.log 2>&1 ||
