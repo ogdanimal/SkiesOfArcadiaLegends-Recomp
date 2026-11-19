@@ -1365,6 +1365,12 @@ wants GCC 13's libstdc++ and glibc 2.38's `__isoc23_strto*`: `src/glibc_compat.c
 static libpng), pip's CMake 3.31 in `/opt/cmake-pip` only for it; checked in the same container image with
 podman (needs glibc <= 2.35, libm, libz only). Release and Android binaries have no built-in `dsp_coef.bin`
 path. `release.yml`: a prerelease tag on aurora-backend publishes a draft with the test build's notes.
+First CI runs (tags `v0.90.0-standalone.1`, `.2`; no release made): Windows had none of the stock package's DLLs
+beside the exe (`aurora_copy_runtime_dlls`; the package step copies every DLL there); the Android cross build took
+the Ubuntu runner's libzstd through pkg-config (`PKG_CONFIG_LIBDIR=/nonexistent`); macOS linked Homebrew's
+libpng (`CMAKE_DISABLE_FIND_PACKAGE_PNG=ON`; the Homebrew check now looks at the shipped `skies-run`). The `.1`
+Linux package was run on WSL as the launcher starts it (fresh US game: DOL patched to the release's, the CI module
+5461 / 5461 chunks, 1.00x).
 
 - `release.yml` already checks one module per region in every package and refuses anything game-shaped;
   `validate.yml` generates the modules in a codegen matrix (`tools/codegen-targets.txt`, PGO profiles
