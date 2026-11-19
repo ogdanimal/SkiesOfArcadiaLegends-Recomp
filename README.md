@@ -85,7 +85,8 @@ uses whichever controller you press, so a controller plugged in later or a secon
 shows as "Steam Controller"). On Android the built-in controller, or
 the first one you connect, is set up for you, and the game also switches to whichever controller you
 press, so a Bluetooth controller works next to a handheld's own; without one, the game shows touch
-controls (the in-game **Back** menu turns them on and off).
+controls (a controller's input hides them, a touch on the screen brings them back; **Settings → Controls →
+Touch controls** or the in-game menu: Auto, Always or Off).
 
 | GameCube | Controller (Xbox / PlayStation) | Keyboard |
 |---|---|---|
@@ -150,8 +151,8 @@ press Start**), or in the launcher's **Settings** window.
   from your own Eternal Arcadia discs (see [Uncensored](#uncensored)).
 - **HD textures** (optional): a texture pack you downloaded, imported in Settings (see
   [HD textures](#hd-textures)).
-- **Save states:** five slots, plus an auto-save every 10 minutes on the field (the newest three are
-  kept). Your memory card saves are never touched by a state. Each version of the game keeps its own
+- **Save states:** five slots (**F1** on the keyboard saves to the chosen one), plus an auto-save every
+  10 minutes on the field (the newest three are kept). Your memory card saves are never touched by a state. Each version of the game keeps its own
   (the European and Japanese ones in `StateSaves/GEAP8P` and `StateSaves/GEAJ8P`), so Continue and
   the slots only show the disc you play.
 - **Continue** in the launcher starts from your newest save state or memory card save, whichever is

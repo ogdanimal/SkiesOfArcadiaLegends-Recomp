@@ -171,7 +171,8 @@ uses whichever controller you press, so a controller plugged in later or a secon
 shows as "Steam Controller"). On Android the built-in controller, or
 the first one you connect, is set up for you, and the game also switches to whichever controller you
 press, so a Bluetooth controller works next to a handheld's own; without one, the game shows touch
-controls (the in-game **Back** menu turns them on and off).
+controls (a controller's input hides them, a touch on the screen brings them back; **Settings → Controls →
+Touch controls** or the in-game menu: Auto, Always or Off).
 
 | GameCube | Controller (Xbox / PlayStation) | Keyboard |
 |---|---|---|
@@ -194,6 +195,7 @@ The game's own controls are unchanged; on top of them:
 | Input | What it does |
 |---|---|
 | Esc, the controller's Back / View (Create) / Select, or hold Z and press Start | the settings menu (L / R switch tabs; B, Start or Esc close it). Its Saves tab saves and loads states |
+| F1 (keyboard) | save a state to the slot chosen in the menu's Save state row (slot 1 unless changed); not when F1 is bound to a game button |
 | Hold Z + C-stick up / down | tilt the camera |
 | Hold Z + R / L | zoom out / in |
 | Tap Z in battle | battle speed: Normal, 2x, 3x, 4x |
