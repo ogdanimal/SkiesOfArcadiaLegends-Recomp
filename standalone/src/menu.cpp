@@ -961,6 +961,7 @@ void Open()
   ReadHintKeys();
   ReadSlotTimes();
   CheatsReload();  // an edited cheat file counts at the next open
+  InputHotkeysReload();  // and hotkeys the launcher rebound
   Log("[menu] open\n");
 }
 
@@ -1854,8 +1855,9 @@ struct Hotkeys
 // tap shorter than a pad read (a quick Back, adb's input keyevent), and polling it as well would count a press twice.
 bool SDLCALL MenuKeyWatch(void*, SDL_Event* event)
 {
+  // The Menu hotkey's key (Escape unless rebound) and Android's Back key
   if (event->type == SDL_EVENT_KEY_DOWN && !event->key.repeat &&
-      (event->key.scancode == SDL_SCANCODE_ESCAPE || event->key.scancode == SDL_SCANCODE_AC_BACK))
+      (static_cast<int>(event->key.scancode) == InputHotkeyKey(0) || event->key.scancode == SDL_SCANCODE_AC_BACK))
     s_back_request.store(true);
   if (event->type == SDL_EVENT_KEY_DOWN && !event->key.repeat && event->key.scancode == SDL_SCANCODE_F1)
     s_f1_request.store(true);
@@ -1882,9 +1884,9 @@ Hotkeys ReadHotkeys()
       SDL_Gamepad* pad = SDL_GetGamepadFromID(ids[i]);
       if (!pad)
         continue;
-      keys.menu |= SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_BACK);
-      keys.stick_click |= SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_LEFT_STICK) ||
-                          SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_RIGHT_STICK);
+      // As the profile binds them (InputHotkeyHeld: Back and the stick clicks unless rebound)
+      keys.menu |= InputHotkeyHeld(pad, 0);
+      keys.stick_click |= InputHotkeyHeld(pad, 1);
     }
     SDL_free(ids);
   }

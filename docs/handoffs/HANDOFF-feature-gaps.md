@@ -528,8 +528,11 @@ Dolphin build; decide whether to translate `GCPadNew.ini` once on first run.
   (`PADSerializeMappings`). Labels: the face buttons as printed (SDL's button labels: Cross / Circle /
   Square / Triangle, or A / B / X / Y), PlayStation pads L1 / R1 / L2 / R2 / L3 / Options / Create, others LB /
   RB / LT / RT / LS / Start / Back; keys by SDL's names (Return shown as Enter). The hints name the keyboard's
-  keys while the keyboard was used last. **Not done:** the Menu and Invincible hotkeys stay fixed (Esc / Back,
-  L3 / R3); the Dolphin build lets them be rebound (`[SkiesHotkeys]`), Aurora's store has no slot for them.
+  keys while the keyboard was used last. The Menu and Invincible hotkeys were fixed (Esc / Back,
+  L3 / R3) until 2026-11-19; now `input.cpp` reads `[SkiesHotkeys]` itself (Aurora's store has no slot for them):
+  their controller terms as SDL buttons, the keyboard term as a scancode, the defaults for a slot without a term;
+  the mapping page has the two rows (capture, clear = back to the defaults, Reset). WSL: Menu bound to F2 opened
+  the menu with F2 and not with Esc; without the entry Esc opened it.
   **Fork 0041:** Aurora averaged a stick's two directions (`(pos - neg) / 2`), so a direction bound to a button
   gave half deflection; now `max(0, pos) - max(0, neg)` (the default mapping reads the same); a cleared axis
   reads 0 instead of asserting.

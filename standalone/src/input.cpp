@@ -630,6 +630,162 @@ void WritePadFile(int row, InputSlot slot)
   SettingsSave();
 }
 
+// ---- the two hotkeys: [SkiesHotkeys] Menu and Invincible ----------------------------------------
+// Not GameCube inputs, so not in Aurora's mapping store: the profile's expressions are read here (the Dolphin
+// build's and the launchers' format), their controller terms as SDL gamepad buttons and their keyboard term as
+// a scancode. A slot with no term means its defaults (SkiesBindings: Menu = Back / Select and Escape,
+// Invincible = the stick clicks, no key). The menu (menu.cpp) asks through InputHotkey*.
+struct HotkeyBinding
+{
+  std::vector<int> buttons;  // SDL_GamepadButton
+  s32 key = PAD_KEY_INVALID;
+};
+std::array<HotkeyBinding, 2> s_hotkeys;
+bool s_hotkeys_loaded = false;
+constexpr const char* HOTKEY_KEYS[2] = {"Menu", "Invincible"};
+
+const SkiesBindings::Input* HotkeyInput(int h)
+{
+  return SkiesBindings::FindInput(HOTKEY_KEYS[h]);
+}
+
+std::string HotkeyExpression(int h)
+{
+  return SettingGetString(SettingFile::Pad, SkiesBindings::HOTKEY_SECTION, HOTKEY_KEYS[h]);
+}
+
+void LoadHotkeys()
+{
+  s_hotkeys_loaded = true;
+  for (int h = 0; h < 2; ++h)
+  {
+    HotkeyBinding b;
+    bool controller_term = false, keyboard_term = false;
+    for (const SkiesBindings::Term& term : SkiesBindings::SplitExpression(HotkeyExpression(h)))
+    {
+      SkiesBindings::Slot slot;
+      if (!term.simple || !SkiesBindings::TermSlot(term, &slot))
+        continue;
+      if (slot == SkiesBindings::Slot::Controller)
+      {
+        controller_term = true;
+        if (const PadControl* c = FindPadControl(term.control); c && c->button >= 0)
+          b.buttons.push_back(c->button);
+      }
+      else
+      {
+        keyboard_term = true;
+        b.key = PadFileScancode(term.control);
+      }
+    }
+    const SkiesBindings::Input* input = HotkeyInput(h);
+    if (!controller_term && input && input->controller)
+    {
+      for (std::string rest = input->controller; !rest.empty();)
+      {
+        const size_t bar = rest.find('|');
+        if (const PadControl* c = FindPadControl(rest.substr(0, bar)); c && c->button >= 0)
+          b.buttons.push_back(c->button);
+        rest = bar == std::string::npos ? "" : rest.substr(bar + 1);
+      }
+    }
+    if (!keyboard_term && input && input->keyboard && *input->keyboard)
+    {
+      const SDL_Scancode s = SDL_GetScancodeFromName(input->keyboard);
+      b.key = s == SDL_SCANCODE_UNKNOWN ? PAD_KEY_INVALID : static_cast<s32>(s);
+    }
+    s_hotkeys[h] = std::move(b);
+  }
+}
+
+const HotkeyBinding& Hotkey(int h)
+{
+  if (!s_hotkeys_loaded)
+    LoadHotkeys();
+  return s_hotkeys[h];
+}
+
+// A hotkey row of the mapping page (after the GameCube rows): which hotkey, or -1
+int HotkeyRow(int row)
+{
+  const int h = row - static_cast<int>(MAP_ROWS.size());
+  return h >= 0 && h < 2 ? h : -1;
+}
+
+// One slot of a hotkey into the profile (control "": the slot's terms removed, so its defaults again)
+void WriteHotkey(int h, SkiesBindings::Slot slot, const std::string& control)
+{
+  if (SettingsConfigDir().empty())
+    return;
+  std::string device;
+  if (slot == SkiesBindings::Slot::Keyboard)
+  {
+    SkiesBindings::SlotControl(HotkeyExpression(h), slot, &device);
+    if (device.empty())
+      device = SkiesBindings::DefaultKeyboardDevice();
+  }
+  SettingSetString(SettingFile::Pad, SkiesBindings::HOTKEY_SECTION, HOTKEY_KEYS[h],
+                   SkiesBindings::SetSlot(HotkeyExpression(h), slot, control.empty() ? "" : device, control));
+  SettingsSave();
+  LoadHotkeys();
+}
+
+// A hotkey capture: the first button (or key) pressed after being seen let go, as the GameCube rows'
+Seen CaptureHotkey(int h)
+{
+  if (s_capture.slot == InputSlot::Controller)
+  {
+    SDL_Gamepad* pad = Port1Gamepad();
+    if (!pad)
+      return Seen::Cancelled;
+    for (int b = 0; b < SDL_GAMEPAD_BUTTON_COUNT; ++b)
+    {
+      const bool down = SDL_GetGamepadButton(pad, static_cast<SDL_GamepadButton>(b));
+      if (!down)
+      {
+        s_capture.button_armed[b] = true;
+        continue;
+      }
+      if (!s_capture.button_armed[b])
+        continue;
+      // Guide stays the system's; Back cancels, except as the Menu hotkey itself
+      if (b == SDL_GAMEPAD_BUTTON_GUIDE || (b == SDL_GAMEPAD_BUTTON_BACK && h != 0))
+        return Seen::Cancelled;
+      WriteHotkey(h, SkiesBindings::Slot::Controller, PadControlName({-1, AXIS_SIGN_POSITIVE}, static_cast<u32>(b)));
+      Log("[input] %s (controller) bound to %s\n", HOTKEY_KEYS[h], ButtonLabel(pad, b).c_str());
+      return Seen::Bound;
+    }
+    return Seen::Nothing;
+  }
+  int count = 0;
+  const bool* keys = SDL_GetKeyboardState(&count);
+  if (!keys)
+    return Seen::Nothing;
+  if (static_cast<int>(s_capture.key_armed.size()) < count)
+    s_capture.key_armed.resize(count, false);
+  for (int k = SDL_SCANCODE_A; k < count; ++k)
+  {
+    if (!keys[k])
+    {
+      s_capture.key_armed[k] = true;
+      continue;
+    }
+    if (!s_capture.key_armed[k])
+      continue;
+    // Esc cancels, except as the Menu hotkey itself
+    if (k == SDL_SCANCODE_ESCAPE && h != 0)
+      return Seen::Cancelled;
+    const SkiesBindings::KeyName* key = SkiesBindings::FindKey(SDL_GetScancodeName(static_cast<SDL_Scancode>(k)));
+    const std::string control = key ? SkiesBindings::PlatformKeyName(*key) : std::string();
+    if (control.empty())
+      return Seen::Cancelled;
+    WriteHotkey(h, SkiesBindings::Slot::Keyboard, control);
+    Log("[input] %s (keyboard) bound to %s\n", HOTKEY_KEYS[h], KeyLabel(k).c_str());
+    return Seen::Bound;
+  }
+  return Seen::Nothing;
+}
+
 // Controller 1's device in GCPadNew.ini ([GCPad1] Device, "SDL/<n>/<name>": the n-th controller of
 // that name, as the Dolphin build's SDL backend and the launcher's Controls page name them): its
 // index in Aurora's list, or one with the same label (Steam's virtual gamepad for the controller
@@ -833,6 +989,27 @@ void InputPoll()
 #endif
 }
 
+bool InputHotkeyHeld(void* sdl_gamepad, int h)
+{
+  SDL_Gamepad* pad = static_cast<SDL_Gamepad*>(sdl_gamepad);
+  for (const int b : Hotkey(h).buttons)
+  {
+    if (SDL_GetGamepadButton(pad, static_cast<SDL_GamepadButton>(b)))
+      return true;
+  }
+  return false;
+}
+
+int InputHotkeyKey(int h)
+{
+  return Hotkey(h).key;
+}
+
+void InputHotkeysReload()
+{
+  s_hotkeys_loaded = false;
+}
+
 bool InputKeyBound(int scancode)
 {
 #ifdef SKIES_STANDALONE_AURORA
@@ -858,7 +1035,7 @@ bool InputKeyBound(int scancode)
 int InputMappingRows()
 {
 #ifdef SKIES_STANDALONE_AURORA
-  return static_cast<int>(MAP_ROWS.size());
+  return static_cast<int>(MAP_ROWS.size()) + 2;  // + the Menu and Invincible hotkeys
 #else
   return 0;
 #endif
@@ -867,6 +1044,8 @@ int InputMappingRows()
 const char* InputMappingName(int row)
 {
 #ifdef SKIES_STANDALONE_AURORA
+  if (const int h = HotkeyRow(row); h >= 0)
+    return HotkeyInput(h) ? HotkeyInput(h)->label : HOTKEY_KEYS[h];
   if (row >= 0 && row < InputMappingRows())
     return MAP_ROWS[row].label;
 #endif
@@ -879,6 +1058,19 @@ std::string InputBindingLabel(int row, InputSlot slot)
 #ifdef SKIES_STANDALONE_AURORA
   if (row < 0 || row >= InputMappingRows())
     return {};
+  if (const int h = HotkeyRow(row); h >= 0)
+  {
+    const HotkeyBinding& b = Hotkey(h);
+    if (slot == InputSlot::Keyboard)
+      return KeyLabel(b.key);
+    SDL_Gamepad* hotkey_pad = Port1Gamepad();
+    if (!hotkey_pad)
+      return "-";
+    std::string text;
+    for (const int button : b.buttons)
+      text += (text.empty() ? "" : " / ") + ButtonLabel(hotkey_pad, static_cast<u32>(button));
+    return text.empty() ? "-" : text;
+  }
   const MapRow& r = MAP_ROWS[row];
   if (slot == InputSlot::Keyboard)
     return KeyLabel(KeyFor(r));
@@ -911,6 +1103,9 @@ bool InputClearable(int row, InputSlot slot)
 {
   if (row < 0 || row >= InputMappingRows())
     return false;
+  // A hotkey slot clears back to its defaults (so the menu can always be opened)
+  if (HotkeyRow(row) >= 0)
+    return true;
   // Not the controller's A and B, without which a controller (on Android often the only input)
   // could no longer work the mapping page
   return slot == InputSlot::Keyboard || row > 1;
@@ -943,6 +1138,14 @@ bool InputPollCapture()
 #ifdef SKIES_STANDALONE_AURORA
   if (s_capture.row < 0)
     return false;
+  if (const int h = HotkeyRow(s_capture.row); h >= 0)
+  {
+    const Seen hotkey_seen = CaptureHotkey(h);
+    if (hotkey_seen == Seen::Nothing && Clock::now() < s_capture.until)
+      return true;
+    s_capture.row = -1;
+    return false;
+  }
   const MapRow& row = MAP_ROWS[s_capture.row];
   const Seen seen = s_capture.slot == InputSlot::Keyboard ? CaptureKeyboard(row) : CaptureController(row);
   if (seen == Seen::Nothing && Clock::now() < s_capture.until)
@@ -965,6 +1168,12 @@ void InputClear(int row, InputSlot slot)
 #ifdef SKIES_STANDALONE_AURORA
   if (!InputClearable(row, slot))
     return;
+  if (const int h = HotkeyRow(row); h >= 0)
+  {
+    WriteHotkey(h, slot == InputSlot::Keyboard ? SkiesBindings::Slot::Keyboard : SkiesBindings::Slot::Controller, "");
+    Log("[input] %s (%s) back to its defaults\n", HOTKEY_KEYS[h], slot == InputSlot::Keyboard ? "keyboard" : "controller");
+    return;
+  }
   const MapRow& r = MAP_ROWS[row];
   if (slot == InputSlot::Keyboard)
   {
@@ -1007,8 +1216,10 @@ bool InputResetDefaults(InputSlot slot)
     }
     PADRestoreDefaultMapping(PAD_CHAN0);
   }
-  for (int row = 0; row < InputMappingRows(); ++row)
+  for (int row = 0; row < static_cast<int>(MAP_ROWS.size()); ++row)
     WritePadFile(row, slot);
+  for (int h = 0; h < 2; ++h)
+    WriteHotkey(h, slot == InputSlot::Keyboard ? SkiesBindings::Slot::Keyboard : SkiesBindings::Slot::Controller, "");
   PADSerializeMappings();
   Log("[input] %s defaults restored\n", slot == InputSlot::Keyboard ? "keyboard" : "controller");
   return true;

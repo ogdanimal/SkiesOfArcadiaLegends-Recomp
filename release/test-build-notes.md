@@ -16,6 +16,8 @@
 - **Cheat codes** (#5): Action Replay / Gecko codes that write memory, from `Cheats/<disc ID>.ini` in the data
   folder (Dolphin's format: a Dolphin cheat file works as it is; on Android, Settings → Gameplay → Cheat file), with a **Cheats** switch in the in-game
   menu's Gameplay tab. See README.md, *Cheat codes*.
+- **The Menu and Invincible hotkeys can be rebound** (Controls → Button mapping, last two rows), as in the
+  Dolphin build.
 - **F1 saves a state** (desktop, #19) to the slot chosen in the in-game menu (slot 1 by default), unless F1 is
   bound to a game button.
 - **Stick dead zone and Rumble** set in the launcher now apply in the game (they only worked from the
