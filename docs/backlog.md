@@ -2,6 +2,24 @@
 
 Requests and ideas not scheduled yet. Move an item to a handoff when work on it starts.
 
+
+## After the standalone test prerelease (v0.90.0-standalone.4) — 2026-11-18
+
+- **#26 Dreamcast music stuck at one level** in some songs (Ramirez / Valua scenes, the Dark Rift's end): a
+  constant -9830 for over a second, then a slow drift back; not clipping, not the reverb writing over samples
+  (development notes, *Issues #26-#32*). Needs the reporter's save state; then the AICA DSP's state there.
+  Both builds.
+- **#28 fix to dev** (`recompcore-tz-fallback.patch`, ordered before the aurora patches) for a Dolphin-build
+  release, if one ships before the standalone replaces it.
+- **The `issues` branch** (#25 ShipHud, #19, #18, #24, #22; ws35 US only): its game patch for EU / JP, its 60 fps
+  changes ported to `standalone/src/interp60.cpp`, then onto aurora-backend.
+- **Patched Dawn** (MSAA 2x / 8x, the Windows swap chain fix): host the packages (`tools/build-dawn-package.sh`)
+  or build them in CI.
+- **By hand:** two controllers and remapping with a pad (standalone); the desktop launcher's Continue click.
+- **Android:** touch controls (the standalone has none; phones without a pad can't play); custom GPU drivers
+  aren't used by the standalone.
+- The standalone's game clock is UTC (`std::time()`); the Dolphin build's was local time (card file dates).
+
 ## Dual audio (Japanese voices) — requested 2026-10-17
 
 A player asked for dual audio: a choice of English or Japanese voices with the English text kept.

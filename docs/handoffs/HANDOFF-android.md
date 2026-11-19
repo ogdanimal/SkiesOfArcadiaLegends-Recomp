@@ -1,5 +1,9 @@
 # Handoff: Android build of the Skies recomp (2026-10-05, updated 2026-10-18)
 
+**2026-11-18 (branch `aurora-backend`):** with `STANDALONE=1` the app plays the game on the emulator-free host
+(`skies/SkiesGame.kt`, `skies/SkiesGameActivity` in a `:game` process, `libskies.so`; Dolphin's `libmain.so` only in the
+launcher process). Details, device checks and test tricks: *HANDOFF-feature-gaps.md*, item 9.
+
 ## Review section D on the Retroid Pocket 5 (2026-10-22, branch `review`, ws34 test APK)
 
 `skies-recomp-ws34-2026-10-22-test.apk` (`NAME=ws34 BRAND=1 TEST_ID=1`) is on the Pocket 5's `.test`

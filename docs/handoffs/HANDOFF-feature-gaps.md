@@ -11,9 +11,11 @@ architecture: *In-game menu*, *Save states*, *The Android shell*, *Pacing on the
 (v0.83) merged in (a0211c8; the hold lifted); items 9 and 10 done as below (*9. Android launcher*, *10.
 Packaging and CI*, each with a *Done 2026-11-18* part); the branch pushed to origin/aurora-backend after a
 history rewrite (a device serial in two 10-25 commits; old -> new hashes in the local
-`build/rewrite-2026-11-18-hashmap.txt`); tag `v0.90.0-standalone.1` builds a DRAFT prerelease
-(`release.yml`'s guard takes prerelease tags on this branch). Left by hand: two pads and remapping with a
-pad, the desktop launcher's Continue in a CI package, the Language restart through the Android launcher.
+`build/rewrite-2026-11-18-hashmap.txt`); `release.yml`'s guard takes prerelease tags on this branch, and
+**`v0.90.0-standalone.4` is a verified DRAFT prerelease** waiting for the owner to publish it
+(*HANDOFF-release.md*, first section). The Android Language restart through the launcher is checked
+(item 9). Left by hand: two pads and remapping with a pad, the desktop launcher's Continue click in a CI
+package (its command line was run as the launcher builds it).
 
 **Progress (2026-10-26):** items 0-6 done on desktop (2 including MSAA 2x / 8x through a Dawn patch;
 3 = input: rumble, release keyboard layout, names, Button mapping, controller follow; 4 = Language with the

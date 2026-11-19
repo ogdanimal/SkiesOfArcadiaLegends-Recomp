@@ -247,6 +247,34 @@ app keeps 3.22.1). The build fetches Dawn's prebuilt `android-aarch64` package a
 The output is dated (`build/android/apk/skies-recomp-NAME-<date>[-test].apk`), so a build after
 midnight is a new file; install the newest one.
 
+### The standalone runner (branch `aurora-backend`)
+
+On `aurora-backend` the release's runner is the emulator-free host (`standalone/`: the recompiled game on
+GXRuntime + Aurora, no Dolphin core; `docs/handoffs/HANDOFF-emulator-free.md`). The launcher and the
+Android app's launcher, imports and settings stay as above. Build the host first, then pass its folder as
+`STANDALONE=` to the package steps (configure too: the launcher gets `MODERNGEKKO_STANDALONE_RUNNER=ON`):
+
+```sh
+tools/build-standalone-release.sh build/standalone-release        # Linux, macOS
+STANDALONE=build/standalone-release tools/build-release-linux.sh configure   # then build / package as above
+```
+
+```bat
+tools\build-standalone-release.bat build\standalone-release
+set STANDALONE=%CD%\build\standalone-release
+tools\build-release-win.bat configure
+```
+
+- **Linux** (as CI, on Ubuntu 22.04): GCC 13 (`ppa:ubuntu-toolchain-r/test`; Dawn's prebuilt needs its
+  libstdc++, linked in statically), CMake 3.25+ (`pip install cmake`), SDL3's X11 headers (`libxtst-dev` and
+  the rest in `validate.yml`). The host then needs only glibc 2.35, libm and libz.
+- **macOS**: Homebrew's prefixes are ignored for the host (no Homebrew library may end up in the app).
+- **Windows**: Dawn's, DXC's, libpng's and zlib's DLLs land beside `skies-standalone.exe`; the package step
+  copies them all.
+- **Android**: `STANDALONE=1 tools/android-ws-build.sh` (with `BRAND=1`, ...) builds `libskies.so` with
+  `tools/android-standalone-build.sh LIB_ONLY=1` and gives the app `skies/SkiesGameActivity` (the game in a
+  `:game` process); without it the app runs Dolphin's emulation. The stock Dawn package means MSAA Off / 4x.
+
 ### Development builds
 
 For working on the port rather than packaging it, the `Makefile` drives the generic ModernGekko
@@ -294,6 +322,11 @@ GitHub Actions builds every platform the same way:
   with a suffix (`v0.83.0-beta`) is a prerelease.
 
 Neither runs on pull requests, so code from forks never reaches the secrets.
+
+On the `aurora-backend` branch only, `release.yml` also takes a **prerelease tag on that branch**
+(`vX.Y.Z-suffix`, e.g. `v0.90.0-standalone.4`): it builds the standalone packages and publishes a **draft**
+prerelease with the test build's notes, which the owner reads and publishes by hand. `main`'s guard is
+unchanged.
 
 Secrets (in the `ci` environment, and `release` for signing; none at repository level):
 

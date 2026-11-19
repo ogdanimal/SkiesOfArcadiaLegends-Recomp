@@ -22,6 +22,13 @@ thread*: Aurora off the game's thread) the Pocket 5 runs uncapped 1.77x / 2.15x 
 battle) and 1.70x / 2.05x at 60 fps, against the Dolphin build's 1.38x / 1.63x and 1.41x / 1.69x; 60 fps at
 full speed p99 ~17.7 ms against 24.5-25.9, at 0.4-0.9 W less; with the PNG HD pack, half its memory.
 
+**Status (2026-11-18): the standalone is the runner of an opt-in test prerelease.** origin/dev merged in,
+the Android app plays on it (dev's launcher + `skies/SkiesGameActivity` in a `:game` process), CI packages it
+for all four platforms, `v0.90.0-standalone.4` is a verified draft (*HANDOFF-feature-gaps.md* items 9-10,
+*HANDOFF-release.md* first section). Next after testers' reports: issue #26 (Dreamcast reverb stuck level),
+the patched Dawn (MSAA 2x / 8x), the `issues` branch (ws35) ported, then a normal release replacing the
+Dolphin build.
+
 **Status (2026-10-26):** phases 1-3 done (title screen, audio bit-exact with Dolphin's AX HLE, first
 battle at full speed, card saves); phase 4 under way: in-game menu, save states and auto-save, and the
 feature-gap plan's items 0-6 done on desktop (European / Japanese discs, Continue, graphics options with

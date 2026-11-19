@@ -1,5 +1,31 @@
 # Handoff: releases (Windows, Linux, macOS, Android)
 
+## Test prerelease of the standalone: v0.90.0-standalone.4 (2026-11-18, branch `aurora-backend`)
+
+- **A DRAFT, not published**: the owner reads the notes and publishes (Releases page, Edit -> Publish release).
+  It is a prerelease, so "Latest" stays v0.83.0-beta. Built by run 44441854078 from `52bbf15` (the branch has
+  moved on since: the #28 time zone fix and docs; a later test build takes them).
+- **How it was made:** `release.yml` on `aurora-backend` accepts a `vX.Y.Z-suffix` tag on that branch and
+  publishes a draft with the test notes (`STANDALONE=true` in the publish step). Tags `.1`-`.3` were deleted
+  (no releases): `.1` Windows had no Dawn DLLs and Android took the host's libzstd; `.3` macOS linked Homebrew's
+  zstd (caught by the Homebrew check, now run on the shipped `skies-run`); `.2` cancelled. `.4`'s Android job
+  failed once with no output (likely memory at `-j8`; rerun passed; now `-j$(nproc)` and the log's tail).
+- **Signing:** `android-sign` waits for the `release` environment's reviewer (the owner). The owner gave
+  explicit permission to approve it for this prerelease only; ask again for others.
+- **Checked on the downloads:** SHA256SUMS; the APK's signer = `release/android-signer.sha256`,
+  `com.skiesofarcadia.recomp` versionName `0.90.0-standalone.4`, `libskies.so` + the three modules; macOS links
+  only system libraries; a PII scan of all 11377 files (only Dawn's own `/home/runner/work/dawn` paths). The
+  same code's Windows package ran a Dolphin-build state from a Dolphin-era data folder (C:\dev\SkiesCI, 1.00x)
+  and the Linux package a fresh US game (DOL patched, module 5461/5461, 1.00x); Android on the Pocket 5's test
+  app (installed over the ws34 Dolphin build: Continue, Quit game, Back, D-pad, game in progress, the Language
+  restart, Dreamcast music).
+- **Players going back:** Android needs an uninstall to return to v0.83 (versionCode = build time); states made
+  by the test build don't load in v0.83; the notes say to back up saves.
+- **Open by hand:** the desktop launcher's Continue click (my scripts can't take focus while the owner uses the
+  PC), two controllers / remapping with a pad.
+- **Issue replies drafted, not posted** (#26, #27, #28, #32): in the 2026-11-18 session's handoff; #28 / #32
+  point at the test build, so after publishing.
+
 ## On dev after v0.82.0-beta (2026-10-22)
 
 - **Camera control on the European and Japanese discs** (code review D1): game patch **ws33**. Only
