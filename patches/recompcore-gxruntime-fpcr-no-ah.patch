@@ -1,0 +1,18 @@
+diff --git a/GXRuntime/src/core/cpu_interpreter_float.c b/GXRuntime/src/core/cpu_interpreter_float.c
+index a73f961a03..c62bb1e23b 100644
+--- a/GXRuntime/src/core/cpu_interpreter_float.c
++++ b/GXRuntime/src/core/cpu_interpreter_float.c
+@@ -89,8 +89,12 @@ static void ppc_arm_host_fp_mode(CPUState* cpu) {
+     __asm__ __volatile__("mrs %0, fpcr" : "=r"(fpcr));
+     fpcr &= ~(flush_mask | rmode_mask);
+     fpcr |= rmode_table[cpu->fpscr & FPSCR_RN_MASK];
++    /* Non-IEEE mode sets FZ only, never AH. With AH = 1 (cores with FEAT_AFP, such as the Apple M4 and
++     * the Cortex-A720) FNEG and FABS leave a NaN's sign alone, and compiled code is free to
++     * use them on integer data: clang builds 0x80000000/0x7fffffff register pairs in recompiled code
++     * with movi + fneg v.2s, so under AH atoi("30") returned 0 (Skies issue #16, damage numbers all 0). */
+     if (cpu->fpscr & FPSCR_NI_BIT)
+-        fpcr |= FPCR_FZ | FPCR_AH;
++        fpcr |= FPCR_FZ;
+     __asm__ __volatile__("msr fpcr, %0" : : "r"(fpcr));
+ #elif defined(__x86_64__) || defined(_M_X64)
+     static const u32 rmode_table[4] = {
