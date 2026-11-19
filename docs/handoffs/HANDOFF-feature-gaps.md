@@ -7,6 +7,14 @@ each one is, where its code lives, what the standalone has, the port steps, how 
 (so the port is checked the same way), and size. Read *HANDOFF-emulator-free.md* first (the standalone's
 architecture: *In-game menu*, *Save states*, *The Android shell*, *Pacing on the Pocket 5*).
 
+**2026-11-18: the opt-in test prerelease (the user: "we need user testing and feedback").** origin/dev
+(v0.83) merged in (a0211c8; the hold lifted); items 9 and 10 done as below (*9. Android launcher*, *10.
+Packaging and CI*, each with a *Done 2026-11-18* part); the branch pushed to origin/aurora-backend after a
+history rewrite (a device serial in two 10-25 commits; old -> new hashes in the local
+`build/rewrite-2026-11-18-hashmap.txt`); tag `v0.90.0-standalone.1` builds a DRAFT prerelease
+(`release.yml`'s guard takes prerelease tags on this branch). Left by hand: two pads and remapping with a
+pad, the desktop launcher's Continue in a CI package, the Language restart through the Android launcher.
+
 **Progress (2026-10-26):** items 0-6 done on desktop (2 including MSAA 2x / 8x through a Dawn patch;
 3 = input: rumble, release keyboard layout, names, Button mapping, controller follow; 4 = Language with the
 restart; 5 = HD textures: import, menu row, files decoded off the render thread; 6 = 60 fps), each with its
@@ -1260,6 +1268,25 @@ Most of this is already Dolphin-free in `lib/ModernGekko/tools/` (std-only or `m
 
 ## 9. Android launcher
 
+**Done 2026-11-18, not as recommended below: dev's app kept, the game in a process of its own.** The
+launcher, imports and settings stay dev's (Dolphin's `libmain.so` loads in the launcher process only, as the
+desktop launcher links Dolphin's DiscIO); the game runs in `skies/SkiesGameActivity` (SDL, `libskies.so`,
+`android:process=":game"`). `patches/recompcore-standalone-app.patch` (`SkiesGame.kt`: which runtime, running =
+the `:game` process, close = a not-exported broadcast then the process ended after 10 s, the host's command line
+`--game --user --sys --dsp-coef [--state-dir] [--load-state]`; the launcher through it; no driver rows;
+`DolphinApplication` skips Dolphin's library and activity tracker in `:game`), `standalone/android/app/java`
+(`SkiesGameActivity`), `tools/android-ws-build.sh STANDALONE=1`. An APK built without it runs Dolphin's
+emulation as before (and Android 7-8, which the host doesn't support, falls back to it). Found on the Pocket 5
+and fixed: Dolphin's Android control names were unknown to `input.cpp` (the app's profile lost the sticks,
+D-pad, Z and triggers); SDL takes Android's Back key as AC_BACK (now latched like Esc: the menu; a gesture Back
+reaches `onBackPressed` -> `nativeBack`); the A that confirms Quit game was released over the launcher and
+pressed Continue (the launcher ignores releases it never saw pressed). Checked on the Pocket 5's test app
+installed over the ws34 Dolphin build with its data: Continue from a Dolphin auto-save, slot save, Continue
+from that slot, menu by Back and D-pad, Quit game back to the launcher (process gone), the launcher's close
+before a second Continue (~0.5 s). Testing tools: controller events with `sendevent /dev/input/event8`
+(BTN_SOUTH 304, KEY_BACK 158 from the controller = the menu; the D-pad is `ABS_HAT0Y` 3 17 +-1); `log.txt` in
+the app's external files folder is per game process (a relaunch overwrites it).
+
 Today's shipping app is Dolphin's APK with `-PskiesBrand`: `SkiesLauncherActivity` (~720 lines: home menu,
 disc import, Continue, game in progress, picker, driver guard), `SkiesSettingsPanel` (~520), `SkiesDataFolder`,
 `SkiesDriverGuard`, `SkiesNative.kt`, JNI `SkiesImport.cpp`, and Dolphin's `EmulationActivity` for the game.
@@ -1318,6 +1345,17 @@ Size: ~1.5-2 weeks (launcher and settings mostly reuse; DiscIO for Android 2-4 d
 checks 3-5 days).
 
 ## 10. Packaging and CI
+
+**Done 2026-11-18 (stock Dawn: MSAA Off / 4x only).** `tools/build-standalone-release.sh` / `.bat` build the host
+with the three discs' patches as its release table; `STANDALONE=DIR` in `build-release-{win,linux,macos}` ships
+it as `skies-run` (Windows with `webgpu_dawn.dll`, `dxil.dll`, `dxcompiler.dll`, `libpng16.dll`, `zlib1.dll`) and
+builds the launcher with `MODERNGEKKO_STANDALONE_RUNNER=ON` (`moderngekko-standalone-launcher.patch` is in the
+patch chain now, default OFF). `validate.yml` has a *Build the standalone* step per desktop job and
+`STANDALONE=1` for the APK. Linux builds on Ubuntu 22.04 with GCC 13 from the toolchain PPA (Dawn's prebuilt
+wants GCC 13's libstdc++ and glibc 2.38's `__isoc23_strto*`: `src/glibc_compat.c`, `SKIES_STATIC_LIBSTDCXX`,
+static libpng), pip's CMake 3.31 in `/opt/cmake-pip` only for it; checked in the same container image with
+podman (needs glibc <= 2.35, libm, libz only). Release and Android binaries have no built-in `dsp_coef.bin`
+path. `release.yml`: a prerelease tag on aurora-backend publishes a draft with the test build's notes.
 
 - `release.yml` already checks one module per region in every package and refuses anything game-shaped;
   `validate.yml` generates the modules in a codegen matrix (`tools/codegen-targets.txt`, PGO profiles
