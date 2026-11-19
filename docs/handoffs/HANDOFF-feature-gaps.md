@@ -215,6 +215,10 @@ music, `[Skies] DreamcastIntro`), **Controls** (Button mapping, Stick dead zone,
 when this plan began (`standalone/src/menu.cpp`): Saves, Graphics (Picture, HUD, Resolution, V-Sync, Show
 FPS), Gameplay, Sound (Volume), Controls (Stick dead zone, its own key `StandaloneDeadZone`). Now (items 2-6):
 the Dolphin build's tabs and rows but the Dreamcast tab (Rumble on its own key `StandaloneRumble`).
+Since 2026-11-18 the dead zone and rumble come from controller 1's profile first (`GCPadNew.ini` `[GCPad1]`
+`Main Stick/Dead Zone`, `Rumble/Motor/Range`, which both launchers' rows write; before that the launchers'
+rows did nothing in the standalone), `StandaloneDeadZone` / `StandaloneRumble` as the fallback; the menu writes
+both. Android adds Touch controls (`[Skies] TouchControls`) in the menu and the launcher's Controls tab.
 
 | # | Gap | Dolphin source (dev) | Standalone today | Size |
 |---|---|---|---|---|
