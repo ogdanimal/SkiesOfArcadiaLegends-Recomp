@@ -47,6 +47,16 @@
 #if defined(__linux__)
 #include <sched.h>
 #endif
+
+#if defined(_WIN32)
+// Laptops with two GPUs (NVIDIA Optimus, AMD switchable graphics): their drivers read these exports and put the
+// program on the discrete GPU. Dawn's D3D12 / Vulkan adapter already asks for high performance; this covers
+// the D3D11 fallback and drivers' own profiles too (issue #32: 15-17 fps on a GTX 1650 laptop).
+extern "C" {
+__declspec(dllexport) unsigned long NvOptimusEnablement = 1;
+__declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
+}
+#endif
 #if defined(__APPLE__)
 #include <pthread.h>
 #endif

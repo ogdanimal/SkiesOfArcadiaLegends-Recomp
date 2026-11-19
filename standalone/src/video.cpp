@@ -764,7 +764,10 @@ bool VideoInit(bool headless)
       .vsync = std::getenv("SKIES_VSYNC") != nullptr ||
                SettingGet(SettingFile::Gfx, "Hardware", "VSync", 0) != 0,
       .allow_texture_dumps = false,
-      .info_logging = std::getenv("SKIES_AURORA_LOG") != nullptr,
+      // Aurora's info lines are a few at startup (OS, CPU, the graphics adapter, API and driver): in every
+      // log, so a player's report says which GPU ran the game (issue #32, a laptop with two). Its graphics
+      // logging is per frame: SKIES_AURORA_LOG only.
+      .info_logging = true,
       .graphics_logging = std::getenv("SKIES_AURORA_LOG") != nullptr,
       .force_untextured = false,
       .native_window = nullptr,

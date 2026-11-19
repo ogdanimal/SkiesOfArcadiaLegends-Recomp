@@ -15,5 +15,7 @@
   bound to a game button.
 - **Stick dead zone and Rumble** set in the launcher now apply in the game (they only worked from the
   in-game menu before).
+- **Laptops with two graphics chips** (#32): the game asks for the faster one on every graphics API, and the
+  log (`Logs/skies-standalone.log`) names the graphics card, API and driver it used: include it in reports.
 - The European and Japanese discs get the same game update as the USA one; your discs are patched again
   the first time you start this build.
