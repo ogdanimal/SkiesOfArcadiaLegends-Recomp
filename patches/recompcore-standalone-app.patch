@@ -16,10 +16,23 @@ index d3539f1c7b..f630613b98 100644
  
  dependencies {
 diff --git a/Source/Android/app/src/main/AndroidManifest.xml b/Source/Android/app/src/main/AndroidManifest.xml
-index f898de9968..f6320dd5f1 100644
+index f898de9968..dc313acdfd 100644
 --- a/Source/Android/app/src/main/AndroidManifest.xml
 +++ b/Source/Android/app/src/main/AndroidManifest.xml
-@@ -108,6 +108,17 @@
+@@ -34,6 +34,12 @@
+     <uses-permission android:name="android.permission.VIBRATE"/>
+     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+ 
++    <!-- The launcher asks the emulator-free game (its :game process) to quit with a broadcast; this permission,
++         held only by apps signed with this app's key, keeps other apps from sending it (before Android 13 a
++         receiver can't be registered as not exported) -->
++    <permission android:name="${applicationId}.permission.CLOSE_GAME" android:protectionLevel="signature"/>
++    <uses-permission android:name="${applicationId}.permission.CLOSE_GAME"/>
++
+     <application
+         android:name=".DolphinApplication"
+         android:label="@string/app_name_suffixed"
+@@ -108,6 +114,17 @@
              android:theme="@style/Theme.Dolphin.Main"
              android:label="@string/cheats"/>
  
@@ -53,10 +66,10 @@ index 6b7596fa21..423ab7cbb8 100644
  
 diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesGame.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesGame.kt
 new file mode 100644
-index 0000000000..2755331a2f
+index 0000000000..cd64262e62
 --- /dev/null
 +++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesGame.kt
-@@ -0,0 +1,89 @@
+@@ -0,0 +1,90 @@
 +package org.dolphinemu.dolphinemu.skies
 +
 +import android.app.Activity
@@ -113,7 +126,8 @@ index 0000000000..2755331a2f
 +            return
 +        }
 +        val context = context()
-+        context.sendBroadcast(Intent(ACTION_CLOSE).setPackage(context.packageName))
++        context.sendBroadcast(Intent(ACTION_CLOSE).setPackage(context.packageName),
++            context.packageName + ".permission.CLOSE_GAME")
 +    }
 +
 +    /** The last resort after requestClose didn't end it in time. */

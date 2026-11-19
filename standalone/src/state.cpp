@@ -27,6 +27,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 
@@ -252,6 +253,8 @@ void Loaded(const std::string& path, double guest_seconds, std::chrono::steady_c
 bool LoadDolphin(const std::string& path, const std::vector<u8>& bytes,
                  std::chrono::steady_clock::time_point start, std::string* error)
 {
+  // The video thread finishes the frames it has (they read guest RAM) before the RAM changes
+  VideoSync([] {});
   std::vector<u8> backup;
   {
     StateIO w(&backup, false);
@@ -322,6 +325,8 @@ bool Load(const std::string& path, std::string* error)
   }
   bytes = {};
 
+  // The video thread finishes the frames it has (they read guest RAM) before the RAM changes
+  VideoSync([] {});
   // What to go back to if the state doesn't fit
   std::vector<u8> backup;
   backup.reserve(raw.size());
@@ -331,7 +336,15 @@ bool Load(const std::string& path, std::string* error)
     DoAll(w);
   }
   StateIO r(&raw, true);
-  DoAll(r);
+  // A damaged or crafted state may also throw (a list the memory can't hold): back to the state before it
+  try
+  {
+    DoAll(r);
+  }
+  catch (const std::exception& e)
+  {
+    r.Fail(std::string("a damaged save state (") + e.what() + ")");
+  }
   if (!r.Ok())
   {
     *error = r.Error();

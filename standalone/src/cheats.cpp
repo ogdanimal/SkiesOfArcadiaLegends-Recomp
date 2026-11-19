@@ -18,9 +18,11 @@
 
 #include <cctype>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace host
@@ -45,8 +47,37 @@ struct Write
 struct Code
 {
   std::string name;
+  bool gecko;
   std::vector<Write> writes;
 };
+
+// The DOL's text sections: the game's code, which runs natively here, so a write there changes nothing
+std::vector<std::pair<u32, u32>> CodeRanges()
+{
+  std::vector<std::pair<u32, u32>> ranges;
+  const std::vector<u8>& dol = DiscDol();
+  if (dol.size() < 0x100)
+    return ranges;
+  for (int i = 0; i < 7; ++i)
+  {
+    const u32 address = BE32(&dol[0x48 + i * 4]), size = BE32(&dol[0x90 + i * 4]);
+    if (size)
+      ranges.emplace_back(address, address + size);
+  }
+  return ranges;
+}
+
+bool InCode(const std::vector<std::pair<u32, u32>>& ranges, const Write& w)
+{
+  const u32 unit = w.op == Op::Write8 ? 1 : w.op == Op::Write16 ? 2 : 4;
+  const u64 end = u64{w.address} + u64{unit} * w.count;
+  for (const auto& [begin, stop] : ranges)
+  {
+    if (w.address < stop && end > begin)
+      return true;
+  }
+  return false;
+}
 
 std::vector<Code> s_codes;  // enabled and supported
 std::string s_file;         // the cheat file (Cheats/<ID>.ini)
@@ -96,6 +127,7 @@ bool ArLine(u32 address_word, u32 data, std::vector<Write>* out)
     out->push_back({Op::Write16, address, data & 0xFFFF, (data >> 16) + 1});
     return true;
   case 2:
+  case 3:  // a float: the same 32-bit write (Dolphin's DATATYPE_32BIT_FLOAT)
     out->push_back({Op::Write32, address, data, 1});
     return true;
   default:
@@ -184,6 +216,7 @@ void LoadFile(const std::string& path)
       }
     }
   }
+  const std::vector<std::pair<u32, u32>> code_ranges = CodeRanges();
   for (const Raw& r : raw)
   {
     const auto& list = r.gecko ? enabled_gecko : enabled_ar;
@@ -192,12 +225,13 @@ void LoadFile(const std::string& path)
       on |= e == r.name;
     if (!on)
       continue;
+    // A code of the same kind and name from an earlier file stays (Cheats/ comes before GameSettings/)
     bool seen = false;
     for (const Code& c : s_codes)
-      seen |= c.name == r.name;
+      seen |= c.gecko == r.gecko && c.name == r.name;
     if (seen)
       continue;
-    Code code{r.name, {}};
+    Code code{r.name, r.gecko, {}};
     bool ok = !r.lines.empty();
     for (const std::string& line : r.lines)
     {
@@ -209,6 +243,19 @@ void LoadFile(const std::string& path)
             r.name.c_str(), line.c_str());
         ok = false;
         break;
+      }
+    }
+    if (ok)
+    {
+      for (const Write& w : code.writes)
+      {
+        if (InCode(code_ranges, w))
+        {
+          Log("[cheats] \"%s\" skipped: it writes the game's code at %08x, which runs natively here\n",
+              r.name.c_str(), w.address);
+          ok = false;
+          break;
+        }
       }
     }
     if (ok)
@@ -274,6 +321,14 @@ void CheatsApply()
       const u32 unit = w.op == Op::Write8 ? 1 : w.op == Op::Write16 ? 2 : 4;
       if (!InRam(w.address, unit * w.count))
         continue;
+      if (w.op == Op::Write8 && w.count > 1)
+      {
+        if (u8* p = RamPtr(w.address, w.count))
+        {
+          std::memset(p, static_cast<int>(w.value & 0xFF), w.count);
+          continue;
+        }
+      }
       for (u32 i = 0; i < w.count; ++i)
       {
         const u32 at = w.address + i * unit;

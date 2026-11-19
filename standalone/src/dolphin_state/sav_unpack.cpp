@@ -71,6 +71,10 @@ std::vector<uint8_t> unpack_sav_data(const std::vector<uint8_t>& d, SavInfo* inf
   if (comp != 1) throw ParseError("unknown compression type " + std::to_string(comp));
   // A GameCube state is about 90-150 MB; more is a damaged header
   if (us > (512ull << 20)) throw ParseError("implausible state size " + std::to_string(us));
+  // LZ4 expands at most 255:1, so the chunks that follow bound the size (before zero-filling it)
+  need(o, 0, "payload");
+  if (us > (static_cast<uint64_t>(d.size() - o) + 1) * 255)
+    throw ParseError("state size " + std::to_string(us) + " larger than its data can hold");
   out.resize(us);
   uint64_t got = 0;
   while (got < us)

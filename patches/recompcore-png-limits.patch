@@ -1,0 +1,33 @@
+diff --git a/GXRuntime/graphics/aurora/lib/gfx/png_io.cpp b/GXRuntime/graphics/aurora/lib/gfx/png_io.cpp
+index ea3ac62237..d91c7accce 100644
+--- a/GXRuntime/graphics/aurora/lib/gfx/png_io.cpp
++++ b/GXRuntime/graphics/aurora/lib/gfx/png_io.cpp
+@@ -65,6 +65,10 @@ load_png_file(const std::filesystem::path& path) noexcept {
+   }
+ 
+   png_set_read_fn(structs.pStruct, &structs, readPngData);
++  // A texture is at most 8192 x 8192 (256 MiB as RGBA8): a header that claims more (a damaged or crafted file
++  // in a texture pack) is refused by libpng instead of an allocation that fails and is then written through
++  constexpr png_uint_32 kMaxSide = 8192;
++  png_set_user_limits(structs.pStruct, kMaxSide, kMaxSide);
+   png_read_info(structs.pStruct, structs.pInfo);
+ 
+   if (!png_get_IHDR(structs.pStruct, structs.pInfo, &width, &height, &bit_depth, &color_type, &interlace_type, &compression_type, &filter_type)) {
+@@ -80,9 +84,17 @@ load_png_file(const std::filesystem::path& path) noexcept {
+ 
+   png_read_update_info(structs.pStruct, structs.pInfo);
+   rowBytes = png_get_rowbytes(structs.pStruct, structs.pInfo);
++  if (width == 0 || height == 0 || width > kMaxSide || height > kMaxSide || rowBytes > size_t{kMaxSide} * 8) {
++    Log.error("PNG size {}x{} refused", width, height);
++    return std::nullopt;
++  }
+   rowPointers.resize(height);
+ 
+   imageData.append_zeroes(rowBytes * height);
++  if (imageData.data() == nullptr) {
++    Log.error("PNG {}x{}: out of memory", width, height);
++    return std::nullopt;
++  }
+ 
+   for (i = 0; i < height; i++) {
+     rowPointers[i] = imageData.data() + i * rowBytes;

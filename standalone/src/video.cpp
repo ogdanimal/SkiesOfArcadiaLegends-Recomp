@@ -236,10 +236,14 @@ void UpdateSurfaceSize()
   s_surface_height.store(h, std::memory_order_relaxed);
 }
 
-// The window's events, polled by the present where it would (fork 0046), under the input lock
+// The window's events, polled by the present where it would (fork 0046), under the input lock. Not waited for:
+// the game's thread can hold it while it waits for room in this thread's queue (VideoFrameEnd's menu), so a busy
+// lock skips this poll and the next present's takes them
 void PollEvents()
 {
-  std::lock_guard lock(s_input_mutex);
+  std::unique_lock lock(s_input_mutex, std::try_to_lock);
+  if (!lock.owns_lock())
+    return;
   aurora_backend_poll_events();
   s_quit.store(aurora_backend_should_quit(), std::memory_order_relaxed);
 }
@@ -776,6 +780,7 @@ bool VideoInit(bool headless)
       .native_window_scale = 0.f,
       .user_path = s_aurora_user.empty() ? nullptr : s_aurora_user.c_str(),
       .cache_path = nullptr,
+      .log_sink = [](const char* line) { Log("%s", line); },  // through the host's log (paths redacted)
   };
   char arg0[] = "skies-standalone";
   char* argv[] = {arg0, nullptr};

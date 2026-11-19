@@ -130,13 +130,17 @@ public class SkiesTouchControls extends View implements InputManager.InputDevice
     mHandler.removeCallbacks(mPollMode);
   }
 
-  /** A real controller (not the touchscreen, not a keyboard), external or built in. */
+  /**
+   * A real controller (not the touchscreen, not a keyboard), external or built in: a joystick with a stick. Phones
+   * report button-only devices as gamepads too (headset and fingerprint keys), which would hide the controls with
+   * nothing to play on.
+   */
   private static boolean IsController(InputDevice device) {
     if (device == null || device.isVirtual())
       return false;
     final int sources = device.getSources();
-    return (sources & InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD ||
-           (sources & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK;
+    return (sources & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK &&
+           device.getMotionRange(MotionEvent.AXIS_X, InputDevice.SOURCE_JOYSTICK) != null;
   }
 
   private boolean ControllerConnected() {
@@ -326,6 +330,11 @@ public class SkiesTouchControls extends View implements InputManager.InputDevice
     }
     update(buttons, sx, sy, cx, cy);
     return true;
+  }
+
+  /** From the activity: the window lost focus (a dialog, the shade), which may not send the touches' cancel. */
+  public void onFocusLost() {
+    releaseAll();
   }
 
   private void releaseAll() {

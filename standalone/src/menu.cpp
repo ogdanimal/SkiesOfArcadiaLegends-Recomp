@@ -197,7 +197,7 @@ constexpr Key MAGIC_EXP{SettingFile::Main, "Skies", "MagicExp", 100};
 constexpr Key BATTLE_SPEED{SettingFile::Main, "Skies", "BattleSpeed", 1};
 constexpr Key FIELD_SPEED{SettingFile::Main, "Skies", "FieldSpeed", 100};
 constexpr Key INVINCIBLE{SettingFile::Main, "Skies", "Invincible", 0};
-// Cheat codes (cheats.cpp): the enabled ones of GameSettings/<disc ID>.ini, applied every frame while on
+// Cheat codes (cheats.cpp): the enabled ones of Cheats/<disc ID>.ini (then GameSettings/), applied every frame while on
 constexpr Key CHEATS{SettingFile::Main, "Skies", "Cheats", 0};
 // Desktop: the graphics API tried first at the next start (main.cpp): 0 Auto, 1 D3D12, 2 Vulkan, 3 D3D11, 4 GL ES
 constexpr Key RENDERER{SettingFile::Main, "Skies", "Renderer", 0};
@@ -397,6 +397,8 @@ bool s_menu_key_down = false;
 std::atomic<bool> s_back_request{false};
 // F1 (desktop): save a state to the menu's slot, as the Dolphin build's F1 (issue #19), unless F1 is bound
 std::atomic<bool> s_f1_request{false};
+// The Invincible hotkey's keyboard key (none unless bound), latched as it goes down like the menu key
+std::atomic<bool> s_invincible_request{false};
 bool s_stick_click = false;
 
 enum class Region
@@ -961,7 +963,7 @@ void Open()
   ReadHintKeys();
   ReadSlotTimes();
   CheatsReload();  // an edited cheat file counts at the next open
-  InputHotkeysReload();  // and hotkeys the launcher rebound
+  InputHotkeysReload();  // and the hotkeys as the settings now hold them (the mapping page writes them)
   Log("[menu] open\n");
 }
 
@@ -1861,6 +1863,9 @@ bool SDLCALL MenuKeyWatch(void*, SDL_Event* event)
     s_back_request.store(true);
   if (event->type == SDL_EVENT_KEY_DOWN && !event->key.repeat && event->key.scancode == SDL_SCANCODE_F1)
     s_f1_request.store(true);
+  if (event->type == SDL_EVENT_KEY_DOWN && !event->key.repeat &&
+      static_cast<int>(event->key.scancode) == InputHotkeyKey(1))
+    s_invincible_request.store(true);
   return true;
 }
 #endif
@@ -1871,6 +1876,8 @@ Hotkeys ReadHotkeys()
 #ifdef SKIES_STANDALONE_AURORA
   if (!VideoSurfaceSize(nullptr, nullptr))
     return keys;
+  // The bindings MenuKeyWatch reads (loaded here, on the game thread)
+  InputHotkeysRefresh();
   static bool s_watching = false;
   if (!s_watching)
     s_watching = SDL_AddEventWatch(MenuKeyWatch, nullptr);
@@ -2065,7 +2072,9 @@ void MenuFilterPad(PadStatus& pad)
   // Taken every frame, so an F1 pressed in the menu or during a Continue doesn't save later
   const bool f1 = s_f1_request.exchange(false);
   (void)f1;  // used by the Aurora build only
-  if (keys.stick_click && !s_stick_click && s_mode == Mode::Closed)
+  // Taken every frame too, so a key pressed in the menu doesn't toggle after it closes
+  const bool invincible_key = s_invincible_request.exchange(false);
+  if (((keys.stick_click && !s_stick_click) || invincible_key) && s_mode == Mode::Closed)
     qol::ToggleInvincible();
   s_stick_click = keys.stick_click;
   ApplyDeadZone(pad.stick_x, pad.stick_y, s_dead_zone);

@@ -65,7 +65,8 @@ public:
     Do(count);
     if (m_reading)
     {
-      if (!m_ok || count * sizeof(T) > m_buffer->size() - m_pos)
+      // count > bytes left / sizeof(T): count * sizeof(T) would wrap for a huge count
+      if (!m_ok || count > (m_buffer->size() - m_pos) / sizeof(T))
       {
         Fail("a list longer than the state");
         values.clear();

@@ -209,6 +209,11 @@ else
 fi
 # The Gradle + Kotlin daemons keep ~2.5 GB resident for hours; on the 12 GB WSL VM that
 # starved later game runs into a global OOM (2026-10-11). Release them after each build.
-./gradlew --stop >/dev/null 2>&1 || true; pkill -u "$USER" -f KotlinCompileDaemon || true
+./gradlew --stop >/dev/null 2>&1 || true
+# Kotlin's compile daemon (a java process; matched by name, then its command line: pkill -f would also match any
+# shell whose command line names it)
+for pid in $(pgrep -u "$USER" -x java || true); do
+  grep -qa KotlinCompileDaemon "/proc/$pid/cmdline" 2>/dev/null && kill "$pid" 2>/dev/null || true
+done
 unzip -l $APK | grep recomp
 echo DONE

@@ -209,7 +209,9 @@ public:
     return v != 0;
   }
   // u32 element count preceding a list
-  uint32_t count(const std::string& n)
+  // A u32 element count; min_item: the fewest bytes one element takes in the stream, so a count the rest of
+  // the state can't hold fails here instead of looping (each element costs far more memory than stream bytes)
+  uint32_t count(const std::string& n, uint64_t min_item = 1)
   {
     need(4, n);
     uint32_t v;
@@ -218,6 +220,9 @@ public:
     f.has_value = true;
     f.raw = v;
     pos_ += 4;
+    if (static_cast<uint64_t>(v) * (min_item ? min_item : 1) > size_ - pos_)
+      throw ParseError("implausible count " + std::to_string(v) + " for \"" + prefix_ + n + "\" at offset " +
+                       std::to_string(pos_ - 4) + ": only " + std::to_string(size_ - pos_) + " bytes remain");
     return v;
   }
   void blob(const std::string& name, uint64_t n)
@@ -242,7 +247,7 @@ public:
   uint32_t vec(const std::string& name, uint64_t elem)
   {
     Scope s(*this, name);
-    uint32_t n = count("count");
+    uint32_t n = count("count", elem);
     blob("data", static_cast<uint64_t>(n) * elem);
     return n;
   }
@@ -320,11 +325,15 @@ private:
       while (out_.index.count(key + "#" + std::to_string(n))) n++;
       f.path = key + "#" + std::to_string(n);
     }
+    // A real state has tens of thousands of fields; this many means a crafted one (each costs ~300 bytes)
+    if (out_.fields.size() >= kMaxFields)
+      throw ParseError("more than " + std::to_string(kMaxFields) + " fields: not a state this reader takes");
     out_.index[f.path] = out_.fields.size();
     out_.fields.push_back(std::move(f));
     return out_.fields.back();
   }
 
+  static constexpr size_t kMaxFields = 2'000'000;
   const uint8_t* data_;
   uint64_t size_;
   uint64_t pos_ = 0;
@@ -496,7 +505,7 @@ void do_texture_cache(R& r)  // TextureCacheBase::DoState / DoSaveState
 {
   Scope s(r, "texture_cache");
   r.u64("last_entry_id");
-  uint32_t n = r.count("entry_count");
+  uint32_t n = r.count("entry_count", sz::TEXCONFIG + 4);
   for (uint32_t i = 0; i < n; i++)
   {
     Scope e(r, R::idx("entry", i));
@@ -532,7 +541,7 @@ void do_texture_cache(R& r)  // TextureCacheBase::DoState / DoSaveState
   for (const L& l : lists)
   {
     Scope ls(r, l.name);
-    uint32_t c = r.count("count");
+    uint32_t c = r.count("count", l.a + l.b);
     for (uint32_t i = 0; i < c; i++)
     {
       Scope p(r, R::idx("item", i));
@@ -638,7 +647,7 @@ void do_coretiming(R& r)
   r.f32("last_oc_factor");
   r.u64("event_fifo_id");
   r.marker("CoreTimingData");
-  uint32_t n = r.count("event_count");  // DoEachElement(m_event_queue): u32 size + elements
+  uint32_t n = r.count("event_count", 24);  // DoEachElement(m_event_queue): u32 size + elements
   for (uint32_t i = 0; i < n; i++)
   {
     Scope e(r, R::idx("event", i));
@@ -862,7 +871,7 @@ void do_dsp_hle(R& r)  // DSPHLE::DoState                          Core/HW/DSPHL
   if (last_crc != 0xFFFFFFFFu) do_ucode(r, "last_ucode", last_crc);
   {
     Scope m(r, "mail_handler");  // CMailHandler::DoState
-    uint32_t n = r.count("pending_count");  // deque<pair<u32,bool>>
+    uint32_t n = r.count("pending_count", 5);  // deque<pair<u32,bool>>
     for (uint32_t i = 0; i < n; i++)
     {
       Scope p(r, R::idx("mail", i));
@@ -957,7 +966,7 @@ void do_dvd(R& r)  // DVDInterface::DoState + DVDThread::DoState + ADPCMDecoder
   r.str("disc_path_to_insert");
   {
     Scope t(r, "thread");  // DVDThread::DoState
-    uint32_t n = r.count("result_count");  // map<u64, pair<ReadRequest, vector<u8>>>
+    uint32_t n = r.count("result_count", 8 + sz::READREQ + 4);  // map<u64, pair<ReadRequest, vector<u8>>>
     for (uint32_t i = 0; i < n; i++)
     {
       Scope e(r, R::idx("result", i));

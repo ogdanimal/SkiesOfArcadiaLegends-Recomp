@@ -49,21 +49,25 @@ u64 RtcBase()
     if (const char* fixed = std::getenv("SKIES_RTC"))
       return static_cast<u64>(std::strtoull(fixed, nullptr, 0));
     // Local time, as Dolphin's GetLocalTimeSinceJan1970: the game shows it as the card files' save
-    // times (UTC was hours off away from UTC). The offset by the C library (mktime of the UTC broken-down
-    // time, with this moment's daylight saving), not std::chrono's zone database, which can throw on
-    // Windows (issue #28).
+    // times (UTC was hours off away from UTC). The C library's local broken-down time read back as if it
+    // were UTC (timegm: exact on either side of a daylight-saving change), not std::chrono's zone
+    // database, which can throw on Windows (issue #28).
     const std::time_t now = std::time(nullptr);
     std::time_t local = now;
-    if (const std::tm* utc_tm = std::gmtime(&now))
+    if (const std::tm* local_tm = std::localtime(&now))
     {
-      std::tm utc = *utc_tm;
-      const std::tm* local_tm = std::localtime(&now);
-      utc.tm_isdst = local_tm ? local_tm->tm_isdst : 0;
-      const std::time_t as_local = std::mktime(&utc);
-      if (as_local != static_cast<std::time_t>(-1))
-        local = now + (now - as_local);
+      std::tm copy = *local_tm;
+#if defined(_WIN32)
+      const std::time_t as_utc = _mkgmtime(&copy);
+#else
+      const std::time_t as_utc = timegm(&copy);
+#endif
+      if (as_utc != static_cast<std::time_t>(-1))
+        local = as_utc;
     }
-    return static_cast<u64>(local) - 946684800ull;
+    // Seconds since 2000-01-01, the GameCube's epoch; a clock set before it starts the game at it
+    constexpr std::time_t EPOCH_2000 = 946684800;
+    return local > EPOCH_2000 ? static_cast<u64>(local - EPOCH_2000) : 0;
   }();
   return base;
 }

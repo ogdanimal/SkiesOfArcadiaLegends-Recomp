@@ -27,6 +27,39 @@ CI run 44577309166 finished its `dawn` job: all four packages were built and upl
 Android 11.6 MB, Linux 9.7 MB, macOS 5.1 MB), so the Windows `tar.exe` fix works. Its platform jobs didn't run
 (see B4).
 
+## Fix status (2026-11-19, after the review)
+
+Done on `standalone-issues` (Linux build, a 5-start A/B sweep US / EU / JP with no error and every frame repeated;
+the crafted inputs below re-run):
+- **S1** `f51b34a` (the reviewer's), and the **same flaw in the Dolphin build**, found while checking question 1
+  (`recompcore-gci-state-paths.patch`, see S1). Both checked with crafted states.
+- **S2** the Android test hooks (`env.txt`, `args.txt`, `SKIES_EXTRA_ARGS`) are read only by the test app
+  (package ending `.test`) and the bare shell; the release app logs that it ignored them.
+- **S3** each count needs the bytes its elements take (`count(name, min_item)`), plus a 2,000,000-field cap; the
+  crafted `event_count` / `entry_count` states are refused at once (0.7 s, was 5 GB); real states still convert.
+- **S4** the list check divides (no wrap) and an own-format load catches exceptions and restores the state before.
+- **S5** `recompcore-png-limits.patch`: libpng's limits 8192 x 8192, the size and the allocation checked.
+- **S6** the disc's file table: 64-bit count, names inside the table, plain names only.
+- **S7** the close broadcast needs the app's signature permission (`${applicationId}.permission.CLOSE_GAME`).
+- **S8** `Log()` writes the home folder as `~`; Aurora's lines (a `log_sink` in GXRuntime's backend config) and
+  the DSP's go through it too: no `/home/...` left in a run's log.
+- **S10** the `.sav` size bounded by LZ4's 255:1 before zero-filling; saved copies' sizes in 64 bits and capped.
+  The Dreamcast importer's re-reads (a stall) are left.
+- **B1** `efa2fdf` (the reviewer's). **B2 / B3 / B4**: `standalone-host.yml`, called once per platform: Dawn and
+  the standalone built without secrets (so a dispatch run on any branch builds and links them), each platform job
+  waiting for its own; a release fails without the patched Dawn. The platform jobs unpack the host before they
+  decrypt the game's code (also S9's install order for Linux).
+- **B5** the Invincible key latched like the menu key (xdotool: P on, P off); **B6** the key watch reads atomic
+  copies, the game thread loads; **B7** a state load waits for the video thread first; **B8** the video thread's
+  event poll doesn't wait for the input lock; **B9** no usable button falls back to the defaults; **B10** AR size 3,
+  code writes reported as skipped (by address), AR / Gecko names kept apart, byte fills as one `memset`;
+  **B11** only devices with a stick count as controllers, touches released when the window loses focus;
+  **B12** local time by `timegm(localtime())`, a clock before 2000 starts at 2000; **B14** the unused Dawn flag,
+  `pkill -f` replaced by `pgrep -x java`, Dawn artifacts kept 7 days, the cache key has the workflow and runner OS.
+- **Q5** the stale comments.
+- Not done: S9's checksums (stock Dawn tarball, Aurora's own downloads), B13 (settings read once), Q1-Q4, the
+  feature ideas.
+
 ---
 
 ## Security

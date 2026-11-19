@@ -10,17 +10,23 @@
 #include "core/types.h"
 #include "dsphle/dsp_hle.h"
 
+namespace host
+{
+void Log(const char* fmt, ...);  // host.h
+}
+
 namespace host::dsphle
 {
 // Warnings, errors and notices always print; debug-level messages (Dolphin's DEBUG_LOG_FMT and
 // the per-mail traces) only when this is set.
 inline bool g_debug_log = false;
 
+// Through the host's log (host::Log: the home folder redacted, as players attach the log to reports)
 #define DSPHLE_NOTICE(...)                      \
   do                                            \
   {                                             \
-    std::fprintf(stderr, "[dsphle] " __VA_ARGS__); \
-    std::fputc('\n', stderr);                   \
+    ::host::Log("[dsphle] " __VA_ARGS__);       \
+    ::host::Log("\n");                          \
   } while (0)
 #define DSPHLE_WARN(...) DSPHLE_NOTICE(__VA_ARGS__)
 #define DSPHLE_ERROR(...) DSPHLE_NOTICE(__VA_ARGS__)

@@ -130,10 +130,13 @@ public class SkiesGameActivity extends SDLActivity {
                                                               RelativeLayout.LayoutParams.MATCH_PARENT));
     }
     final IntentFilter filter = new IntentFilter(ACTION_CLOSE);
+    // Only the launcher may send it: the sender must hold the app's signature permission (AndroidManifest.xml),
+    // and from Android 13 the receiver isn't exported at all
+    final String permission = getPackageName() + ".permission.CLOSE_GAME";
     if (Build.VERSION.SDK_INT >= 33) {
-      registerReceiver(mCloseReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+      registerReceiver(mCloseReceiver, filter, permission, null, Context.RECEIVER_NOT_EXPORTED);
     } else {
-      registerReceiver(mCloseReceiver, filter);
+      registerReceiver(mCloseReceiver, filter, permission, null);
     }
   }
 
@@ -215,6 +218,8 @@ public class SkiesGameActivity extends SDLActivity {
     super.onWindowFocusChanged(hasFocus);
     if (hasFocus) {
       hideSystemBars();
+    } else if (mTouch != null) {
+      mTouch.onFocusLost();  // no button stays held
     }
   }
 

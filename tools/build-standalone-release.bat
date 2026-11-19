@@ -12,7 +12,7 @@ set "SB=%~1"
 if "%SB%"=="" set SB=build\standalone-release
 set "R=%CD:\=/%/release"
 rem DAWN_PACKAGE=<dawn-windows-amd64.tar.gz>: Dawn with patches\dawn\ (tools/ci-dawn.sh; MSAA 2x / 8x), not the stock one
-set "DAWNARG=-DSKIES_STOCK_DAWN=1"
+set "DAWNARG=-DSKIES_DAWN_PROVIDER=package"
 if defined DAWN_PACKAGE set "DAWNARG=-DAURORA_DAWN_PACKAGE_URL=file:///%DAWN_PACKAGE:\=/%"
 cmake -S standalone -B %SB% -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF "%DAWNARG%" ^
   "-DSKIES_RELEASE_DISC_IDS=GEAE8P;GEAP8P;GEAJ8P" ^

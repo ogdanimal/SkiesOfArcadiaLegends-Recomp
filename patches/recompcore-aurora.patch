@@ -144,10 +144,10 @@ index f25215d3ab..30f6b51fd9 100644
  } // extern "C"
 +#endif // AURORA_NO_SDL
 diff --git a/GXRuntime/backends/aurora/aurora_backend.cpp b/GXRuntime/backends/aurora/aurora_backend.cpp
-index 4b7454f19c..7efb4544b8 100644
+index 4b7454f19c..5757476942 100644
 --- a/GXRuntime/backends/aurora/aurora_backend.cpp
 +++ b/GXRuntime/backends/aurora/aurora_backend.cpp
-@@ -3,10 +3,16 @@
+@@ -3,10 +3,17 @@
  #include <aurora/aurora.h>
  #include <aurora/event.h>
  #include <aurora/gfx.h>
@@ -156,6 +156,7 @@ index 4b7454f19c..7efb4544b8 100644
 +#endif
  #include <cstdio>
  #include <cstdlib>
++#include <string>
 +#include <string_view>
  #include <cstring>
 +#ifdef __ANDROID__
@@ -164,7 +165,7 @@ index 4b7454f19c..7efb4544b8 100644
  
  namespace gx_aurora {
  
-@@ -29,6 +35,7 @@ SDL_AudioStream* g_audio_stream = nullptr;
+@@ -29,6 +36,7 @@ SDL_AudioStream* g_audio_stream = nullptr;
  bool g_audio_playing = false;
  int g_audio_prebuffer_ms = 40;
  int g_audio_max_queue_ms = 250;
@@ -172,10 +173,29 @@ index 4b7454f19c..7efb4544b8 100644
  DolPlatformGuestAddressResolverFn g_guest_address_resolver = nullptr;
  void* g_guest_address_resolver_user = nullptr;
  
-@@ -131,6 +138,13 @@ void log_callback(AuroraLogLevel level, const char* module, const char* message,
+@@ -119,6 +127,8 @@ long long_env(const char* name, long fallback) {
+     return end == text ? fallback : value;
+ }
+ 
++void (*g_log_sink)(const char* line) = nullptr;
++
+ void log_callback(AuroraLogLevel level, const char* module, const char* message,
+                   unsigned int) {
+     const char* level_name = "info";
+@@ -129,8 +139,21 @@ void log_callback(AuroraLogLevel level, const char* module, const char* message,
+     case LOG_ERROR:   level_name = "error"; break;
+     case LOG_FATAL:   level_name = "fatal"; break;
      }
-     std::fprintf(level >= LOG_ERROR ? stderr : stdout, "[aurora:%s:%s] %s\n",
-                  level_name, module ? module : "core", message ? message : "");
+-    std::fprintf(level >= LOG_ERROR ? stderr : stdout, "[aurora:%s:%s] %s\n",
+-                 level_name, module ? module : "core", message ? message : "");
++    if (g_log_sink) {
++        const std::string line = std::string("[aurora:") + level_name + ":" + (module ? module : "core") + "] " +
++                                 (message ? message : "") + "\n";
++        g_log_sink(line.c_str());
++    } else {
++        std::fprintf(level >= LOG_ERROR ? stderr : stdout, "[aurora:%s:%s] %s\n",
++                     level_name, module ? module : "core", message ? message : "");
++    }
 +#ifdef __ANDROID__
 +    // Android drops stdio: the same line to logcat (tag "aurora").
 +    __android_log_print(level >= LOG_ERROR ? ANDROID_LOG_ERROR
@@ -186,7 +206,7 @@ index 4b7454f19c..7efb4544b8 100644
      if (level == LOG_FATAL)
          std::abort();
  }
-@@ -179,6 +193,10 @@ void install_platform_ops() {
+@@ -179,6 +202,10 @@ void install_platform_ops() {
  
  } // namespace gx_aurora
  
@@ -197,7 +217,7 @@ index 4b7454f19c..7efb4544b8 100644
  extern "C" {
  
  bool aurora_backend_should_quit(void) {
-@@ -189,6 +207,9 @@ bool dol_aurora_initialize(int argc, char** argv,
+@@ -189,6 +216,9 @@ bool dol_aurora_initialize(int argc, char** argv,
                             const AuroraBackendConfig* backend_config) {
      if (gx_aurora::g_initialized)
          return true;
@@ -207,7 +227,7 @@ index 4b7454f19c..7efb4544b8 100644
  
      const AuroraBackendConfig defaults = {
          .app_name = "GXRuntime",
-@@ -199,6 +220,12 @@ bool dol_aurora_initialize(int argc, char** argv,
+@@ -199,6 +229,12 @@ bool dol_aurora_initialize(int argc, char** argv,
          .info_logging = false,
          .graphics_logging = false,
          .force_untextured = false,
@@ -220,7 +240,7 @@ index 4b7454f19c..7efb4544b8 100644
      };
      if (backend_config == nullptr)
          backend_config = &defaults;
-@@ -208,6 +235,29 @@ bool dol_aurora_initialize(int argc, char** argv,
+@@ -208,6 +244,29 @@ bool dol_aurora_initialize(int argc, char** argv,
          backend_config->app_name != nullptr ? backend_config->app_name
                                              : defaults.app_name;
      config.desiredBackend = BACKEND_AUTO;
@@ -250,7 +270,12 @@ index 4b7454f19c..7efb4544b8 100644
      config.vsync = backend_config->vsync;
      config.windowWidth = backend_config->window_width != 0
                               ? backend_config->window_width
-@@ -220,6 +270,13 @@ bool dol_aurora_initialize(int argc, char** argv,
+@@ -216,10 +275,18 @@ bool dol_aurora_initialize(int argc, char** argv,
+                               ? backend_config->window_height
+                               : defaults.window_height;
+     config.allowTextureDumps = backend_config->allow_texture_dumps;
++    gx_aurora::g_log_sink = backend_config->log_sink;
+     config.logCallback = gx_aurora::log_callback;
      config.logLevel = backend_config->info_logging ? LOG_INFO : LOG_ERROR;
      config.mem1Size = 0;
      config.mem2Size = 0;
@@ -264,7 +289,7 @@ index 4b7454f19c..7efb4544b8 100644
  
      const AuroraInfo info = aurora_initialize(argc, argv, &config);
      gx_aurora::g_initialized = info.window != nullptr;
-@@ -356,11 +413,20 @@ bool dol_aurora_initialize(int argc, char** argv,
+@@ -356,11 +423,20 @@ bool dol_aurora_initialize(int argc, char** argv,
      gx_aurora::g_audio_prebuffer_ms = gx_aurora::audio_ms_env("DOL_AUDIO_PREBUFFER_MS", 40, 20, 500);
      gx_aurora::g_audio_max_queue_ms =
          gx_aurora::audio_ms_env("DOL_AUDIO_MAX_QUEUE_MS", 250, gx_aurora::g_audio_prebuffer_ms, 1000);
@@ -285,7 +310,7 @@ index 4b7454f19c..7efb4544b8 100644
      if (SDL_InitSubSystem(SDL_INIT_AUDIO)) {
          SDL_AudioSpec spec{};
          spec.format = SDL_AUDIO_S16;
-@@ -376,6 +442,7 @@ bool dol_aurora_initialize(int argc, char** argv,
+@@ -376,6 +452,7 @@ bool dol_aurora_initialize(int argc, char** argv,
      } else {
          std::fprintf(stderr, "[audio] SDL audio initialization failed: %s\n", SDL_GetError());
      }
@@ -293,7 +318,7 @@ index 4b7454f19c..7efb4544b8 100644
  
      gx_aurora::poll_events();
      gx_aurora::g_frame_open = !gx_aurora::g_should_quit && aurora_begin_frame();
-@@ -383,14 +450,23 @@ bool dol_aurora_initialize(int argc, char** argv,
+@@ -383,14 +460,23 @@ bool dol_aurora_initialize(int argc, char** argv,
      return true;
  }
  
@@ -318,7 +343,7 @@ index 4b7454f19c..7efb4544b8 100644
  #if GXRUNTIME_HAS_AURORA_RECOMP
      gx_aurora::trace_close_and_log();
      if (gx_aurora::g_gx_core_enabled) {
-@@ -401,11 +477,13 @@ void dol_aurora_shutdown(void) {
+@@ -401,11 +487,13 @@ void dol_aurora_shutdown(void) {
                       gx_aurora::g_shadow_frontend_failed ? 1 : 0);
      }
  #endif
@@ -377,7 +402,7 @@ index 47c60b1038..55b40c1411 100644
  
  bool aurora_backend_pad_init(void);
 diff --git a/GXRuntime/backends/aurora/aurora_graphics.cpp b/GXRuntime/backends/aurora/aurora_graphics.cpp
-index 24367bf568..813a94dc47 100644
+index 24367bf568..f021780aaa 100644
 --- a/GXRuntime/backends/aurora/aurora_graphics.cpp
 +++ b/GXRuntime/backends/aurora/aurora_graphics.cpp
 @@ -8,11 +8,23 @@
@@ -442,7 +467,7 @@ index 24367bf568..813a94dc47 100644
  #if GXRUNTIME_HAS_AURORA_RECOMP
          gx_aurora::g_shadow_transform_next_draw_index = 0;
  #endif
-@@ -852,6 +884,458 @@ void aurora_backend_call_display_list(const void* data, u32 size) {
+@@ -852,6 +884,461 @@ void aurora_backend_call_display_list(const void* data, u32 size) {
      gx_aurora::g_fifo_bytes += size;
  }
  
@@ -759,7 +784,10 @@ index 24367bf568..813a94dc47 100644
 +            return -1;
 +        std::memcpy(&h, bytes + at, sizeof(SavedCopy));
 +        at += sizeof(SavedCopy);
-+        if (h.data_size > size - at || h.data_size != h.width * h.height * h.bytes_per_texel)
++        // In 64 bits (a crafted size whose 32-bit product wraps would pass), and no larger than a copy at the
++        // highest internal resolution
++        if (h.data_size > size - at || h.width > 16384 || h.height > 16384 || h.bytes_per_texel > 16 ||
++            uint64_t{h.data_size} != uint64_t{h.width} * h.height * h.bytes_per_texel)
 +            return -1;
 +        const uint8_t* texels = bytes + at;
 +        at += h.data_size;
@@ -6814,7 +6842,7 @@ index ca511a7ab6..e5b40abc03 100644
  
  int dolgx_replay_pixels_main(const char* trace_path,
 diff --git a/GXRuntime/include/gxruntime/aurora_backend.h b/GXRuntime/include/gxruntime/aurora_backend.h
-index c9ec4b9a42..4fe87575a4 100644
+index c9ec4b9a42..0778b13ab6 100644
 --- a/GXRuntime/include/gxruntime/aurora_backend.h
 +++ b/GXRuntime/include/gxruntime/aurora_backend.h
 @@ -3,6 +3,7 @@
@@ -6825,7 +6853,7 @@ index c9ec4b9a42..4fe87575a4 100644
  
  #include <stdbool.h>
  
-@@ -19,14 +20,67 @@ typedef struct AuroraBackendConfig {
+@@ -19,14 +20,70 @@ typedef struct AuroraBackendConfig {
      bool info_logging;
      bool graphics_logging;
      bool force_untextured;
@@ -6839,6 +6867,9 @@ index c9ec4b9a42..4fe87575a4 100644
 +     * own default (SDL's pref path, or the working directory without SDL). */
 +    const char* user_path;
 +    const char* cache_path;
++    /* Where Aurora's log lines go ("[aurora:level:module] message\n"); NULL: stdout / stderr. The host's
++     * own log, so its handling (a redacted home folder) applies to them too. */
++    void (*log_sink)(const char* line);
  } AuroraBackendConfig;
  
  bool dol_aurora_initialize(int argc, char** argv,

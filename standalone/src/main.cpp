@@ -527,6 +527,23 @@ extern "C" JNIEXPORT void JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesTouc
 
 namespace
 {
+// The test hooks below (env.txt, SKIES_EXTRA_ARGS, args.txt) are files in the app's external folder, which on
+// Android 9-10 any app with the storage permission can write; they set variables (library folders among them) and
+// add arguments (states to load). Only test builds read them: the test app (package ending in ".test") and the
+// bare shell (com.skiesofarcadia.standalone). The package is the process name, less the ":game" suffix.
+bool AndroidTestHooks()
+{
+  std::ifstream in("/proc/self/cmdline", std::ios::binary);
+  std::string name;
+  std::getline(in, name, '\0');
+  if (const size_t colon = name.find(':'); colon != std::string::npos)
+    name.resize(colon);
+  const auto ends_with = [&](const std::string& tail) {
+    return name.size() >= tail.size() && name.compare(name.size() - tail.size(), tail.size(), tail) == 0;
+  };
+  return ends_with(".test") || name == "com.skiesofarcadia.standalone";
+}
+
 void AndroidSetup(int& argc, char**& argv)
 {
   const char* dir = SDL_GetAndroidExternalStoragePath();
@@ -535,6 +552,15 @@ void AndroidSetup(int& argc, char**& argv)
   const std::string files = dir;
   std::freopen((files + "/log.txt").c_str(), "w", stderr);
   const bool restarted = std::remove((files + "/restart.flag").c_str()) == 0;
+  if (!AndroidTestHooks())
+  {
+    for (const char* hook : {"env.txt", "args.txt"})
+    {
+      if (std::ifstream(files + "/" + hook))
+        std::fprintf(stderr, "[host] %s ignored: test builds only\n", hook);
+    }
+    return;
+  }
   const auto lines = [&](const char* name, auto&& each) {
     std::ifstream in(files + "/" + name);
     for (std::string line; std::getline(in, line);)

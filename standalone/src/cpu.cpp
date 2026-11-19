@@ -8,9 +8,12 @@
 #include "StaticRecompABI.h"
 #include "interp/interp.h"
 
+#include <cstdarg>
 #include <cstddef>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -25,11 +28,65 @@ CPUState g_cpu;
 u8* g_ram = nullptr;
 bool g_log_mmio = false;
 
+namespace
+{
+// Players attach the log to reports: the home folder (which names the user) is written as "~"
+std::string Redact(std::string text)
+{
+#if defined(_WIN32)
+  const char* home_env = std::getenv("USERPROFILE");
+#else
+  const char* home_env = std::getenv("HOME");
+#endif
+  std::string home = home_env ? home_env : "";
+  while (home.size() > 1 && (home.back() == '/' || home.back() == '\\'))
+    home.pop_back();
+  if (home.size() < 2)
+    return text;
+  std::string other = home;  // Windows paths are logged with either separator
+  for (char& c : other)
+    c = c == '\\' ? '/' : c == '/' ? '\\' : c;
+  for (const std::string& from : {home, other})
+  {
+    for (size_t at = 0; (at = text.find(from, at)) != std::string::npos;)
+    {
+      text.replace(at, from.size(), "~");
+      at += 1;
+    }
+  }
+  return text;
+}
+
+void VLog(const char* fmt, va_list args)
+{
+  char small[1024];
+  va_list copy;
+  va_copy(copy, args);
+  const int n = std::vsnprintf(small, sizeof(small), fmt, copy);
+  va_end(copy);
+  if (n < 0)
+    return;
+  std::string text;
+  if (static_cast<size_t>(n) < sizeof(small))
+  {
+    text.assign(small, static_cast<size_t>(n));
+  }
+  else
+  {
+    text.resize(static_cast<size_t>(n) + 1);
+    std::vsnprintf(text.data(), text.size(), fmt, args);
+    text.resize(static_cast<size_t>(n));
+  }
+  text = Redact(std::move(text));
+  std::fwrite(text.data(), 1, text.size(), stderr);
+}
+}  // namespace
+
 void Log(const char* fmt, ...)
 {
   va_list args;
   va_start(args, fmt);
-  std::vfprintf(stderr, fmt, args);
+  VLog(fmt, args);
   va_end(args);
 }
 
@@ -38,7 +95,7 @@ void Fatal(const char* fmt, ...)
   va_list args;
   va_start(args, fmt);
   std::fprintf(stderr, "[fatal] ");
-  std::vfprintf(stderr, fmt, args);
+  VLog(fmt, args);
   va_end(args);
   std::fprintf(stderr, "[fatal] pc=%08x lr=%08x r1=%08x msr=%08x srr0=%08x srr1=%08x cycles=%llu\n",
                g_cpu.pc, g_cpu.lr, g_cpu.gpr[1], g_cpu.msr, g_cpu.srr0, g_cpu.srr1,

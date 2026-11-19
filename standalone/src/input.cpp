@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "host.h"
 
+#include <atomic>
 #include <array>
 #include <cstdlib>
 #include <cctype>
@@ -640,8 +641,11 @@ struct HotkeyBinding
   std::vector<int> buttons;  // SDL_GamepadButton
   s32 key = PAD_KEY_INVALID;
 };
-std::array<HotkeyBinding, 2> s_hotkeys;
+std::array<HotkeyBinding, 2> s_hotkeys;  // the game thread's (LoadHotkeys, Hotkey)
 bool s_hotkeys_loaded = false;
+// Each hotkey's key, copied for the key watch (menu.cpp MenuKeyWatch), which runs on the thread that pumps SDL's
+// events (the video thread; Android's UI thread) and so never loads the bindings itself
+std::array<std::atomic<s32>, 2> s_hotkey_keys{PAD_KEY_INVALID, PAD_KEY_INVALID};
 constexpr const char* HOTKEY_KEYS[2] = {"Menu", "Invincible"};
 
 const SkiesBindings::Input* HotkeyInput(int h)
@@ -679,7 +683,9 @@ void LoadHotkeys()
       }
     }
     const SkiesBindings::Input* input = HotkeyInput(h);
-    if (!controller_term && input && input->controller)
+    // The defaults when the profile names no controller button (none, or only a trigger or an axis, which a
+    // hotkey can't use): the menu must stay reachable from a controller
+    if (b.buttons.empty() && input && input->controller)
     {
       for (std::string rest = input->controller; !rest.empty();)
       {
@@ -694,6 +700,7 @@ void LoadHotkeys()
       const SDL_Scancode s = SDL_GetScancodeFromName(input->keyboard);
       b.key = s == SDL_SCANCODE_UNKNOWN ? PAD_KEY_INVALID : static_cast<s32>(s);
     }
+    s_hotkey_keys[h].store(b.key);
     s_hotkeys[h] = std::move(b);
   }
 }
@@ -1002,7 +1009,12 @@ bool InputHotkeyHeld(void* sdl_gamepad, int h)
 
 int InputHotkeyKey(int h)
 {
-  return Hotkey(h).key;
+  return s_hotkey_keys[h].load();
+}
+
+void InputHotkeysRefresh()
+{
+  Hotkey(0);
 }
 
 void InputHotkeysReload()

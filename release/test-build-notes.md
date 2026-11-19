@@ -31,5 +31,13 @@
   (8x where the graphics chip has it).
 - **Laptops with two graphics chips** (#32): the game asks for the faster one on every graphics API, and the
   log (`Logs/skies-standalone.log`) names the graphics card, API and driver it used: include it in reports.
+- **Security fixes:** a save state (either engine's) can no longer make the memory card write a file outside
+  its folder; damaged or crafted save states, disc file tables and texture-pack PNGs are refused instead of
+  crashing or filling memory; on Android, test files in the app's folder are ignored by this build and other
+  apps can't close the game. The log writes your home folder as `~`, so it's safe to attach to a report.
+- **Fixes:** a keyboard key bound to Invincible now works; cheat codes that patch the game's code (which runs
+  natively here) are listed as skipped in the log, and Action Replay float writes work; touch controls show on
+  phones that report a button-only "gamepad" and let go when a dialog opens; the game clock is right around a
+  daylight-saving change.
 - The European and Japanese discs get the same game update as the USA one; your discs are patched again
   the first time you start this build.

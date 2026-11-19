@@ -11,6 +11,8 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <string>
+#include <string_view>
 #include <vector>
 
 namespace host
@@ -149,12 +151,13 @@ bool DiscOpen(const std::string& game_dir, const std::string& dol_path)
   // FST: 12-byte entries (flags/name offset, file offset or parent, size or next index), then the
   // name table. Directory entries nest until their "next" index.
   const u32 count = BE32(&fst[8]);
-  if (count * 12 > fst.size())
+  if (count < 1 || u64{count} * 12 > fst.size())
   {
     Log("[disc] fst.bin is truncated\n");
     return false;
   }
   const char* names = reinterpret_cast<const char*>(fst.data() + count * 12);
+  const size_t names_size = fst.size() - size_t{count} * 12;
   std::vector<std::pair<u32, fs::path>> dirs{{count, files}};
   u32 added = 0;
   for (u32 i = 1; i < count; ++i)
@@ -163,7 +166,16 @@ bool DiscOpen(const std::string& game_dir, const std::string& dol_path)
       dirs.pop_back();
     const u8* entry = &fst[i * 12];
     const u32 name_offset = BE32(entry) & 0x00FFFFFF;
-    const fs::path path = dirs.back().second / (names + name_offset);
+    // A name inside the table, ended in it, and a plain name (the files are read from files/ by these paths)
+    const char* name = names + name_offset;
+    const void* end = name_offset < names_size ? std::memchr(name, 0, names_size - name_offset) : nullptr;
+    const std::string_view text = end ? std::string_view(name, static_cast<const char*>(end) - name) : "";
+    if (text.empty() || text == "." || text == ".." || text.find_first_of("/\\:") != std::string_view::npos)
+    {
+      Log("[disc] fst.bin entry %u has a bad name: not a disc this host takes\n", i);
+      return false;
+    }
+    const fs::path path = dirs.back().second / fs::path(std::string(text));
     if (entry[0] & 1)
     {
       dirs.push_back({BE32(entry + 8), path});
