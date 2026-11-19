@@ -139,6 +139,7 @@ jobs:
             release/skies-widescreen.dolpatch
             release/skies-widescreen-eu.dolpatch
             release/skies-widescreen-jp.dolpatch
+            release/test-build-notes.md
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -203,6 +204,9 @@ jobs:
                    '-macos\.zip/[^/]+/Skies of Arcadia Legends\.app/Contents/MacOS/gGEAJ8P_recomp\.dylib'; do
             grep -qE -e "$m\$" list.txt || { echo "::error::A package is missing its recompiled module ($m)."; exit 1; }
           done
+          # The test build's notes (the release step appends them), out of src before it goes; a
+          # branch without the file (main) has none
+          cp src/release/test-build-notes.md test-build-notes.md 2>/dev/null || true
           rm -rf x list.txt sums.txt nested other src
           echo "No disc image, DOL or generated code in any package (module allowed by name)."
 
@@ -272,9 +276,8 @@ jobs:
             Graphics → GPU driver) work with the new engine too.
           EOF
             # What changed since the last test build, kept beside the code (release/test-build-notes.md)
-            if [ -f release/test-build-notes.md ]; then
-              { echo; cat release/test-build-notes.md; } >> notes.md
-            fi
+            [ -f test-build-notes.md ] || { echo "::error::release/test-build-notes.md is missing."; exit 1; }
+            { echo; cat test-build-notes.md; } >> notes.md
           fi
           gh release create "$GITHUB_REF_NAME" out/* \
             --repo "$GITHUB_REPOSITORY" \
