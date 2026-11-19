@@ -3127,6 +3127,26 @@ the normal runner is unchanged unless `--graphics Aurora` is passed); the fork's
 `~/projects/skies-aurora/HANDOFF.md`. Open on the desktop: WSL's llvmpipe tints the ship interior blue with every
 build (Dolphin's Vulkan backend on llvmpipe is right).
 
+## Issues #26-#32 (looked at 2026-11-18, aurora-backend)
+
+- **#28** "The game process exited with code -1073740791" (0xC0000409) since 2026-11-01 in British Columbia:
+  Dolphin's `Common::Timer::GetLocalTimeSinceJan1970` calls MSVC's `std::chrono::current_zone()`, which throws
+  when the system's ICU has no IANA name for Windows' zone; uncaught at boot (the RTC). `recompcore-tz-fallback.patch`
+  catches it and uses the C runtime's local time (MSVC /WX compile checked; the zone not reproduced). The standalone
+  never had it (its RTC is `std::time()`). Dev needs the patch for a Dolphin-build release.
+- **#26** Dreamcast music breaks in some songs (Ramirez / Valua scenes, Vigoro in the cell, the Dark Rift's end):
+  the reporter's first video's audio sits at a constant -9830 on both channels (AC ~2) for over a second, then
+  drifts back to 0 over seconds: a stuck level, not clipping. A 70 s battle with the music
+  (`SKIES_DC_MUSIC_SYNC=1 SKIES_WAV`) peaks at 28668, nothing at full scale. Not a bank in the reverb's memory:
+  no MLT puts a bank in SFPW (0x18000-0x28040), and the DSP's writes stay in 0x18000-0x27FFE (RBP 0x18000, RBL 2).
+  Suspect: the reverb program's feedback stuck (a saturated value held in its loop) since the reverb (v0.80, #8).
+  The standalone has the same code. Next: the reporter's save state at the scene, then the DSP's state there.
+- **#32** 15-17 fps on a Ryzen 5 3550H + GTX 1650 laptop (v0.83): the Dolphin build takes Vulkan adapter 0 (on
+  AMD APU + NVIDIA laptops that can be the integrated GPU); Aurora asks Dawn for HighPerformance. A good tester for
+  the standalone.
+- **#27** "not the pinned patched release" at import: needs the reporter's disc (ID, revision, image hash).
+- #29 (high-res fonts), #30 (Switch), #31 (uncensored English text): requests, no code.
+
 ## Known issues
 
 - **"The game process could not be monitored:" when closing the game from Steam (fixed 2026-10-22,
