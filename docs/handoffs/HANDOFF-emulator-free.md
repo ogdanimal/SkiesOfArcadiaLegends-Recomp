@@ -45,6 +45,16 @@ the built-in pad and audio on the device untested by hand; no launcher yet). **m
 unchanged and plays on Metal, ahead of the Dolphin build on the same M4, plus PGO and QoS fixes (*macOS* at
 the end).
 
+**Sweep (2026-11-19, ws35, WSL, Vulkan on llvmpipe):** 47 starts, each run twice from the same start
+with the same presses (A, D-pad, B every second for 40-50 guest seconds; `SKIES_RTC=847000789`), frames every
+300 compared by hash: the Dolphin build's repo states (USA 01-22, European 05 / 07 / 10 / 17), the user's own
+release-app states from the Pocket 5 (Oct 11-17, hours in: later towns and the save screen) and its test app's
+(USA, European, Japanese), and Continue from each of the release app's 7 card saves (`--continue N`; auto-load
+done at 6.21 s guest every time). **No crash or error line, and A = B on every frame of every start.** Contact
+sheets by eye: battles (ground, deck, ship, a Japanese special move), cutscenes, the European title, the
+Japanese save screens, towns, the world map; nothing wrong. Scripts in the session's scratchpad (`sweep.sh`,
+`card-sweep.sh`, run by `ws35-run.sh`, a copy of `build/sa-runs/wsl-conv.sh` with relative press patterns).
+
 **2026-10-27:** a scene not run before found something again: on a fast emulated drive the USA intro
 never reached the title screen; disc reads now follow Dolphin's drive model (03d1dc8, feature-gaps item 7).
 The Mac session's sweep found a save-state bug at internal resolutions other than 2x (*macOS*, *Sweep*).
