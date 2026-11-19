@@ -68,7 +68,7 @@ found no remote-exploitable issue. Hold the new code to the same bar.
   - `~/projects/skies-standalone-issues`, branch `standalone-issues`: the work happens here;
   - `~/projects/skies-aurora-backend`, branch `aurora-backend`: fast-forwarded from it and pushed.
 
-  They are the same commits (newest `db49447` locally; `2a50e0c` on `origin/aurora-backend`). Review in a
+  They are the same commits, all pushed to `origin/aurora-backend`. Review in a
   **new worktree** of your own: `git worktree add ~/projects/skies-review standalone-issues`, then
   `git checkout -b review-standalone`.
 - **Patches, not submodule commits:** our changes to the submodules (`lib/ModernGekko`, its
@@ -281,8 +281,8 @@ report one as a finding without a concrete scenario.
 
 ## 8. State at handoff (2026-11-19, ~12:40 EST)
 
-- `origin/aurora-backend` = `2a50e0c`. Local `standalone-issues` = `db49447` (one docs commit ahead,
-  unpushed).
+- Everything is pushed: `origin/aurora-backend` = local `standalone-issues` (docs only after `2a50e0c`, the
+  last code change).
 - CI run 44577309166 (the Windows Dawn `tar.exe` fix) is in progress. Runs 44567700141 and 44571866943 built
   the Linux and Android Dawn packages; macOS never got a GitHub arm64 runner in either.
 - The Pocket 5's test app holds the ws35t APK built on CI's Android Dawn package. Its settings are restored.
