@@ -223,6 +223,10 @@ Since 2026-11-18 the dead zone and rumble come from controller 1's profile first
 `Main Stick/Dead Zone`, `Rumble/Motor/Range`, which both launchers' rows write; before that the launchers'
 rows did nothing in the standalone), `StandaloneDeadZone` / `StandaloneRumble` as the fallback; the menu writes
 both. Android adds Touch controls (`[Skies] TouchControls`) in the menu and the launcher's Controls tab.
+Since 2026-11-19 the menu also takes taps and left clicks (`MenuTap`): `Draw` records the tabs, rows and value
+boxes as fractions of the screen; a hit selects, and on a value box acts as Left / A / Right by thirds (so the
+confirm steps stay), outside the window as B. Android's touch controls pass a touch that misses them (or comes
+while they're hidden) to `nativeMenuTap`; the desktop's clicks come through the SDL event watch.
 
 | # | Gap | Dolphin source (dev) | Standalone today | Size |
 |---|---|---|---|---|
