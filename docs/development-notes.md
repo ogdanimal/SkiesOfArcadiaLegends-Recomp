@@ -3343,6 +3343,30 @@ build (Dolphin's Vulkan backend on llvmpipe is right).
       | World map | 21.54 | 21.63 | 17.26 | −20% |
 
       A fresh exact profile gains nothing: the 14–20% is fast FP's own.
+  - **European and Japanese PGO** (2026-11-20; the secrets' `pgo/{windows,android}-{eu,jp}.profdata`, committed
+    there locally as `8c0c0cb`, not pushed): neither disc had a profile on any platform.
+    - Trained: `SEMANTICS=exact tools/pgo-standalone.sh eu|jp`, EU from four Dolphin states (Pirate Isle base,
+      red alarm, world map, ship battle; the main checkout's `build/savestates/eu-*`), JP from six (the Pocket 5
+      sweep's four, `win-jp-cabin`, a save-point recovery state); every training run 5490 / 5459 of the chunks.
+    - Measured (`build/pgo-exact/measure.sh`): Linux modules from `tools/ci-codegen.sh` with and without the
+      profiles, headless, unthrottled, CPU seconds per 60 guest seconds, medians of three interleaved runs:
+
+      | Scene | With | Without | Change |
+      |---|---|---|---|
+      | EU Pirate Isle base | 12.95 | 15.78 | −18% |
+      | EU red alarm | 17.41 | 21.40 | −19% |
+      | EU world map | 18.64 | 23.64 | −21% |
+      | EU ship battle | 10.66 | 12.75 | −16% |
+      | JP save point | 13.56 | 16.78 | −19% |
+      | JP first battle (results) | 5.14 | 5.98 | −14% |
+      | JP Pirate Isle save point | 13.87 | 16.41 | −15% |
+      | JP world map battle | 9.91 | 12.04 | −18% |
+      | JP red alarm | 17.30 | 20.95 | −17% |
+      | JP cabin | 17.23 | 21.16 | −19% |
+
+      The training scenes, as the US profile was judged. Android uses copies of the desktop profiles (the macOS
+      arm64 target already uses the desktop one). The profiles carry a few local source paths (static helpers
+      such as `host_fma.c`), as `windows.profdata` already does; they guide codegen only.
     - **Before any shipping:** the control; fusion made deliberate (`FPOpFusion::Standard`, or a real
       `fma` for guest `fmadd`) and checked in an Android disassembly; long exact-vs-fast differential runs
       on x86 and AArch64, EU and JP included; device tests (Pocket 5, an M4 or Exynos 1580 for #16); exact

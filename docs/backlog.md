@@ -46,13 +46,17 @@ Simplifications, biggest first:
   - `d1bce57`: the "window" resolution covers widescreen windows (#35's soft textures).
   - `1cfaf23`: the padded-copy base, after Fina's flashback.
   - `60dd22d`: the release-checks docs.
-  - `b3f1039`, `6654e9a`: docs.
+  - `b3f1039`, `6654e9a`, `d4f5a30`: docs.
+  - `c85534e`: #35 sky seams, varyings at the centroid with MSAA (the reporter plays at 2x MSAA).
+  - `f4be57a`: #35 60 fps "warping", a model turning round in one frame no longer squashed in the in-between.
+  - `717a61c`: docs, `tools/interp-check.py`.
+  - The secrets' `8c0c0cb` (local, needs the owner's word to push): EU and JP PGO profiles, -14% to -21% CPU.
   - Checked (2026-11-20, development notes, #35): Windows (C:\dev\SkiesStandalone rebuilt; flashback 9.66 ->
     1.02 ms; the cover costs the UHD 770 25-34% uncapped at 1440p, still >= 1.8x); the Pocket 5 test app
     (`ws35n10`: flashback 12.22 -> 2.56 ms, 1.00x); the Mac mini M4 (battle, #16 digits, cover 2560x1920, flashback 3.15 -> 1.01 ms, 1.00x).
   - Left before tagging: the owner's word to push, tag and approve `android-sign`.
-- **#35 still open:** the sky seams (Tenkou Island save point: reproduce by warping there) and the 60 fps
-  warping/flicker.
+- **#35:** every reported item has a fix (the seams and the 60 fps squash in the next build); waiting on the
+  reporter after it ships.
 - **Fast floating point:** an experiment only.
   - Control run: a fresh exact profile gains nothing; fast FP is -14% to -20% on PC.
   - Before shipping (the Fable review): fusion consistent on AArch64, long exact-vs-fast runs, device
