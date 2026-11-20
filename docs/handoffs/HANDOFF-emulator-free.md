@@ -1220,3 +1220,43 @@ Scripts and contact sheets in the Mac session's scratchpad (`sweep/run.sh`, `rep
   them again from the logical rects. Checked on the M4: the round trip exact at 1x, 2x, 3x and 4x, and at 4x
   with 60 fps (interpolated frames too); the 18-start sweep at the default scale gives the same frames as
   before (GPU flutter aside).
+
+## Dusklight ports (2026-11-20)
+
+The owner asked to look at [Dusklight](https://github.com/TwilitRealm/dusklight) (Twilight Princess on Aurora, CC0)
+and upstream Aurora for improvements, and to port them all (gyro left out: the owner, "this game doesn't need
+it"). Credited in `release/CREDITS.md` and the next build's notes. Local commits on `standalone-issues`:
+
+- `522d085` **`patches/recompcore-aurora-upstream-gx.patch`**: upstream Aurora 4998dcc (no `tev_overflow` on
+  inputs already in 0..1), 3094e04 (packed alpha compares on the pre-stage color inputs, as Dolphin), b684c0d (a
+  textureless stage reads white), e938637 + 2bf0825 (color texgens read the lit channel) and the raw decoder's
+  texgen type 3 = COLOR1. A probe of all 723 packaged pipelines (245 shaders) found Skies uses none of the last
+  three: correctness only. Byte-identical frames on 6 sweep starts but one pixel at an alpha-tested edge in two;
+  WSL's CPU renderer 5-20% faster. Already ours before: the min-filter swap (#35), Z8 copies, 1024 textures,
+  depth correction. Not taken: the partial copy clear (no Skies texture copy clears), the FIFO-thread /
+  PresentTarget / texture-cache reworks (ours differ), the Adreno Dawn toggle (not in our Dawn).
+- `bab367e` **Frame rate: Display refresh** (`[Skies] FrameMode` 2): see `video.cpp` *FrameMode 2* and
+  `docs/backlog.md`. Key points: each frame gets a show time (copy wall + present delay + two fields); a picture
+  at T blends the two frames around T at t = (T - A) / (B - A); pictures a refresh apart, each made
+  `DisplayLead` before its time, presented at it (Android: snapped to Choreographer's grid); frames join the
+  timeline at their frame end (joining at the deferred replay came up to 20 ms late: half the in-betweens
+  missing); the blend's pairing is a `BlendPlan` per pair (60 fps in-betweens byte-identical); the picture rate
+  steps down by whole refreshes when the measured replay cost doesn't fit (`InterpDisplayAllowed`, up again after
+  1 s with 10% room), and `ReplayFits` ignores replays in this mode. `SKIES_DISPLAY_TRACE`, `SKIES_DISPLAY_HZ`,
+  `SKIES_MAX_FPS` / `[Skies] MaxFrameRate`. Launchers: `moderngekko-display-rate.patch`,
+  `recompcore-android-display-rate.patch`.
+- `90fecab` **Crash reports** (`crash.cpp`): signal / exception, native stack as module + offset, the game CPU's
+  last registers, into the log; Windows minidump `crash-<time>.dmp` (threads, no heap) and `abort()`; then the
+  previous handler (Android's tombstone, the renderer's crash safeguard). Logs `.1`-`.3` kept. Tested WSL +
+  Windows with `SKIES_CRASH_TEST=segv|abort`. Not tested: Android (`_Unwind_Backtrace`), macOS (execinfo).
+  Dusklight's Sentry upload (with consent) left out: a service and a consent screen are the owner's call.
+- `efd581a` **Mouse camera** (`[Skies] MouseCamera`, off) and **controller light** (`[Skies] ControllerLight`,
+  on), `SKIES_PEEK`, `SKIES_MOUSE_SCRIPT`. Field yaw found by RE: `fn_80090DBC` turns C-stick X into
+  X / -44 * 512 a frame (C-stick right lowers the yaw); the camera object `0x80302F18` keeps its target yaw at
+  +0x74 in type-2 rooms (+0x8C is the output, rewritten every frame from it; +0x44 stayed 0 there), so the mouse
+  steers C-stick X toward a goal yaw (pokes don't stick). The game caps the turn at ~512 units a frame. WSLg's
+  pointer warps feed back motion: test with the script, not xdotool. The light: no controller on the PC then.
+- `331b8c5` launcher drag and drop + the new rows (`moderngekko-launcher-drop.patch`; compiled, not run), the
+  Resolution row's drawn size, the AppImage's AppStream metainfo (`release/linux/`, appstreamcli passes).
+- Left out on purpose: a stub-log split (the log has no stub noise); an update check (the builds don't know their
+  version, and it would call GitHub at every start: the owner's call).

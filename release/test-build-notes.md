@@ -9,6 +9,21 @@ The fifth test build of the new engine: sharper pictures on widescreen screens, 
 
 New to the new engine? The [first test build's notes](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/releases/tag/v0.90.0-standalone.6) cover what changed from 0.83 and how much faster it runs.
 
+## New
+
+- **Frame rate: Display refresh** ([#20](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/20))
+  - A third Frame rate choice beside 30 and 60 fps: an in-between picture for every refresh of your screen, 120 Hz, 144 Hz, 240 Hz and up, with or without V-Sync or VRR. The game still runs at its own speed; the pictures between its frames come a frame later than at 60 fps. When a scene is too heavy for every refresh, it draws on every second or third one instead (on an RTX 5080 at 240 Hz: 240 pictures a second in the field and on the world map, 120 in the Antonio battle).
+- **Mouse camera** (PC and Mac; Settings → Gameplay)
+  - Click the picture and the mouse turns, tilts and zooms the camera in towns, dungeons and on the world map. Esc or the menu lets the mouse go. Off unless you turn it on.
+- **Controller light** (Settings → Controls)
+  - A DualSense, DualShock 4 or Switch Pro controller glows sky blue in the field and red in battle. Off leaves the light alone.
+- **Crash reports in the log**
+  - If the game crashes, the log (`Logs/skies-standalone.log` in your data folder) now says where, and on Windows a `crash-….dmp` file is saved beside it: please attach both to an issue. Nothing is sent anywhere. The logs of your last three runs are kept too.
+- **Drop files on the launcher** (PC and Mac): a disc image, a save, a texture pack or a Dreamcast disc dropped on the window goes where its Select button would take it.
+- Settings → Graphics → Resolution now says the size the game draws at.
+
+These ideas come from [Dusklight](https://github.com/TwilitRealm/dusklight), the Twilight Princess port on the same Aurora renderer: thank you to its developers, and to [Aurora](https://github.com/encounter/aurora)'s, whose upstream fixes this build also picks up (lighter shaders).
+
 ## Fixed
 
 - **Shaders are prepared when the game starts** ([#34](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/34))

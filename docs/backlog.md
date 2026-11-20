@@ -32,7 +32,14 @@ Simplifications, biggest first:
 - Build the patched Dawn once per Dawn version and publish the packages as release assets that CI downloads
   (small and independent: the suggested first step).
 
-## Uncapped frame rate — planned 2026-11-20 (#20)
+## Uncapped frame rate — BUILT 2026-11-20 (#20), local (`bab367e`)
+
+Frame rate **Display refresh** (`[Skies] FrameMode` 2, `SKIES_INTERP=2`): `video.cpp` *FrameMode 2* (the timeline) and
+`interp60.cpp` (`InterpDisplayReplay`, the blend plan cached per pair). Windows RTX 5080 at 239 Hz: field / world map
+240 pictures a second (p99 6.2-6.7 ms), the Antonio battle 120 (p99 10.1), full speed, V-Sync on or off. Left: a
+120 Hz phone (the AYN Thor), the Pocket 5 (60 Hz: no gain over FrameMode 1, a field later), a VRR screen by eye.
+The notes below are the plan as it was.
+
 
 The owner: planned, "like Dusklight" (the #20 reply says so). The game's logic stays at 30 Hz; the picture runs at
 the display's rate (120 / 144 Hz, VRR), each presented picture blended between the last two game frames.
