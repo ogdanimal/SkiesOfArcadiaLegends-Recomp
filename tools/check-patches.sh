@@ -28,7 +28,7 @@ git -C "$R/mg" apply "$P/moderngekko-ship-hud.patch"
 git -C "$R/mg" apply "$P/moderngekko-cheats.patch"
 git -C "$R/mg" apply "$P/moderngekko-renderer.patch"
 for p in $(grep -v '^#' "$P/recompcore.series"); do git -C "$R/mg/vendor/dolphin" apply "$P/recompcore-$p.patch"; done
-for p in mtmsr-entry gather-pipe llvm-cpu win64-sjlj-frame coff-uwtable halfword-byterev macho-sections; do
+for p in mtmsr-entry gather-pipe llvm-cpu win64-sjlj-frame coff-uwtable halfword-byterev macho-sections fast-fp; do
   git -C "$R/mg/vendor/dolphin/DolRecomp" apply "$P/dolrecomp-$p.patch"
 done
 git -C "$R/ht" apply "$P/highlytheoretical-dsp-shift-wrap.patch"

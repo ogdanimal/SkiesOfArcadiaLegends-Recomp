@@ -85,6 +85,7 @@ git -C lib/ModernGekko/vendor/dolphin/DolRecomp apply ../../../../../patches/dol
 git -C lib/ModernGekko/vendor/dolphin/DolRecomp apply ../../../../../patches/dolrecomp-coff-uwtable.patch
 git -C lib/ModernGekko/vendor/dolphin/DolRecomp apply ../../../../../patches/dolrecomp-halfword-byterev.patch
 git -C lib/ModernGekko/vendor/dolphin/DolRecomp apply ../../../../../patches/dolrecomp-macho-sections.patch
+git -C lib/ModernGekko/vendor/dolphin/DolRecomp apply ../../../../../patches/dolrecomp-fast-fp.patch
 git -C lib/HighlyTheoretical apply ../../patches/highlytheoretical-dsp-shift-wrap.patch
 ```
 
@@ -190,6 +191,7 @@ target, not by `ninja dolrecomp`.
 | `highlytheoretical-dsp-shift-wrap.patch` | `lib/HighlyTheoretical/Core/yam.c` `dsp_sample_interpret`: the shifter's SHIFT 2 / 3 output wrapped to 24 bits (sign-extended), as MAME's SCSP / AICA DSP; SHIFT 0 / 1 already saturated | Issue #26: the Dreamcast music's level stuck (a constant -9830 on both channels in the reporter's video) in some songs since the reverb (v0.80): an unwrapped value past 24 bits stayed in the reverb's feedback. Both builds. |
 | `dolrecomp-halfword-byterev.patch` | `src/ir/dolir_builder.c`: `lhbrx` / `sthbrx` in the IR (LLVM) path swap the low two bytes (a 32-bit `BSWAP` then a 16-bit shift right), as the C emitter's `bswap16` already did | The 32-bit swap left the halfword in the high half: `sthbrx` of `0x0068` stored 0. The European game builds its text-pack directory (`ENGLISH.SOT` etc., 104 entries) with `sthbrx` at boot (EU `0x801DD504`), so its count was 0, every pack lookup returned "SOT ERROR", and the save / load screens drew from garbage pointers (an invalid-read storm in `FontExpandRle`). The USA game's `fn_80298798` has two `sthbrx` too. Found 2026-10-17. |
 | `dolrecomp-macho-sections.patch` | `src/backend/llvm/fp_fixups.cpp`: the cold FP fix-up helpers get their `.text.unlikely.<name>` section only outside Mach-O | Mach-O section names are `segment,section`: every chunk using a fix-up failed with "invalid section specifier" for `arm64-apple-macosx` (18 chunks of the USA game). The `cold` attribute still moves them aside. |
+| `dolrecomp-fast-fp.patch` | `--semantics fast` (was a no-op: the emitter always used the exact paths): floating point like Dolphin's JITs with default settings: scalar `fadd[s]`..`frsp`, the `fmadd[s]` family and `fctiw[z]` inline instead of `ppc_*` helper calls, multiply-add unfused, paired singles without PowerPC NaN preference, 25-bit multiplier rounding, FMA tie fix-ups or FPRF; compares and estimates stay exact. From the perf branch (issue #13), without its gather-pipe hunk (the Dolphin runtime's batching only) | 14-19% of the game thread in the standalone (2026-11-19 performance review); the codegen targets opt in with `--semantics fast` |
 
 None of these change behaviour when mods are loaded, except that LLVM regions now enter natively
 when no mod intercepts them (the intended DolRecomp semantics).
