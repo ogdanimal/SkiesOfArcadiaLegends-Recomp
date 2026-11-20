@@ -5,6 +5,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 MG=lib/ModernGekko RC=$MG/vendor/dolphin DR=$RC/DolRecomp
+mkdir -p build  # a fresh checkout has none yet
 R=$(mktemp -d "$PWD/build/check-patches-XXXXXX")
 cleanup() {
   git -C "$DR" worktree remove --force "$R/mg/vendor/dolphin/DolRecomp" >/dev/null 2>&1 || true

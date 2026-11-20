@@ -11,6 +11,7 @@ NAME=$1; shift
 RC=lib/ModernGekko/vendor/dolphin
 PATCH=$PWD/patches/recompcore-$NAME.patch
 ORDER=$(grep -v '^#' patches/recompcore.series)
+mkdir -p build  # a fresh checkout has none yet
 W=$(mktemp -d "$PWD/build/regen-XXXXXX")
 trap 'git -C "$RC" worktree remove --force "$W/rc" >/dev/null 2>&1 || true; rm -rf "$W"' EXIT
 git -C "$RC" worktree add -q --detach "$W/rc" HEAD
