@@ -1,0 +1,16 @@
+diff --git a/Source/Android/app/proguard-rules.pro b/Source/Android/app/proguard-rules.pro
+index ef5e934d6a..202e1fcfd7 100644
+--- a/Source/Android/app/proguard-rules.pro
++++ b/Source/Android/app/proguard-rules.pro
+@@ -17,3 +17,11 @@
+ -keep class androidx.core.util.Pair {
+     <init>(java.lang.Object, java.lang.Object);
+ }
++
++# Skies Recomp: the emulator-free game's Java (-PskiesStandaloneJava): SDL's glue registers native methods
++# the Java side never calls (onNativeSoftReturnKey, ...) and calls Java methods by name from C, and the host
++# calls SkiesGameActivity.restartGame; R8 removed them, and JNI_OnLoad's RegisterNatives aborted the game's
++# process at Start Game in every release APK (issue #34). No effect without those classes.
++-keep class org.libsdl.app.** { *; }
++-keep class org.dolphinemu.dolphinemu.skies.SkiesGameActivity { *; }
++-keep class org.dolphinemu.dolphinemu.skies.SkiesTouchControls { *; }
