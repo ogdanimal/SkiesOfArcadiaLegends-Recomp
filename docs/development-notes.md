@@ -3393,7 +3393,33 @@ build (Dolphin's Vulkan backend on llvmpipe is right).
   - **Route to Fina's flashback:** `19-retroid-antonio-start.sav`; press A at +2.0/3.2/4.4/5.6/6.8/8.0 s,
     then every second from +26 s; `SKIES_POKE="@1252:80ED3914=00000001"` sets Antonio's HP to 1. The
     flashback is at frames 42600-43300; the heavy stretch is guest 1314-1338 s.
-  - **Still open:** the sky seams (the reporter says the Tenkou Island save point) and the 60 fps warping.
+  - **Sky seams at Tenkou Island** (`recompcore-aurora-msaa-centroid`, next build):
+    - Finding the spot without a state: Tenkou Island is save point 31 in the DOL's save-point name table
+      (`0x802B9428`); the map scripts that open the save menu (SALSA instruction 138, scripts AKLZ-decompressed
+      first) narrowed it to `me020a`. Route: `05-save-point.sav`, `SKIES_POKE="@+3:80305CF0=6d65303230612e7363740000;@+3:80311AEC=0000000F"`,
+      `SKIES_PRESS` C-stick left ×5 from +6 s, DOWN ×10 from +8 s, UP +10.4, Y +12, LEFT +13.4 / +13.6 (C-stick left to turn, D-pad down the stairs, UP, Y = first-person look,
+      two LEFTs: the reporter's angle).
+    - Not reproduced without MSAA anywhere: lavapipe (`.7` and current, 1280x960 to 1920x1440), RTX 5080 and UHD
+      770 (D3D12 and Vulkan, `.7`, `.9`, current; Windows session), M4 Metal (Mac session).
+    - Cause: the reporter's log has "anti-aliasing 2x MSAA". With MSAA an edge pixel is shaded when any sample is
+      covered, but Aurora interpolated the varyings at the pixel's center, outside the polygon, so a repeating
+      texture brought in its opposite edge: dotted grey lines along a far cloud layer's edges. Dolphin uses
+      centroid interpolation with MSAA (`ShaderGenCommon.h`). Reproduced on lavapipe with 4x MSAA.
+    - Fix: every varying `@interpolate(perspective, centroid)`. WSL 4x MSAA: the lines gone; without MSAA all
+      17 frames of the route byte-identical.
+  - **60 fps "warping"** (`interp60.cpp`, next build):
+    - Tool: `tools/interp-check.py FRAMES` over `SKIES_INTERP=1` dumps with `SKIES_DUMP_EVERY=1`: per
+      16x16 tile, how far the in-between lies outside the range of the real pictures around it; the worst
+      tiles, then strips of before / in-between / after by eye.
+    - Found: a model turning sharply in one frame squashed in the in-between (Vyse turning back on Tenkou's
+      stairs became a sliver; a Valuan soldier's torso and arm folded in `02-first-battle`). Characters are
+      skinned on the CPU: their float positions were blended vertex by vertex, and halfway through a 180
+      degree turn every vertex sits near the axis. The Dolphin build's blend has the same rule.
+    - Fix: a draw whose blended vertices' spread (RMS distance from their mean) falls under 0.7 of the
+      frames' snaps as a jump (`Collapses`, with the same-texture grouping); position and normal matrices
+      keep their axes' length, or snap under 0.7 (`KeepMatrixScale`). The stats line counts both.
+    - Checked (WSL): the squashed in-betweens gone, real pictures byte-identical; snaps per blend: first
+      battle 2.66 of ~1340 draws, ship battle 0.74, world map 0.2, save point and pre-battle 0.
   - **The one Windows crash** (1 of 53 launches): an access violation in the stale local Dawn DLL
     (`C:\dev\SkiesStandalone\build\webgpu_dawn.dll`, 2026-10-25). It never shipped: 0 of 60 launches
     crashed with either the new build or `.8`.
