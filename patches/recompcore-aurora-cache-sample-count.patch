@@ -1,0 +1,23 @@
+diff --git a/GXRuntime/graphics/aurora/lib/gfx/pipeline_cache.cpp b/GXRuntime/graphics/aurora/lib/gfx/pipeline_cache.cpp
+index 15aa790166..180c3d3cc8 100644
+--- a/GXRuntime/graphics/aurora/lib/gfx/pipeline_cache.cpp
++++ b/GXRuntime/graphics/aurora/lib/gfx/pipeline_cache.cpp
+@@ -1115,6 +1115,18 @@ static size_t load_pipeline_cache_entries(ShaderType type, uint32_t configVersio
+     if (config.version != configVersion) {
+       continue;
+     }
++    // Local (fork): a cached pipeline at a sample count other than 1 (offscreen passes) or the one configured now
++    // gets the configured one (already limited to what the device can do). A row recorded at another MSAA setting
++    // (the player changed it, or the packaged initial_pipeline_cache.db came from runs at other settings) otherwise
++    // compiled a pipeline nothing would draw with, or crashed in Dawn when the device can't do that count (8x on an
++    // Adreno 740: VulkanSampleCount, issue #34). Rows that differ only in it fold into one pipeline. (Not
++    // get_sample_count(): it reads the current frame's render pass, and the cache loads before the first frame.)
++    if constexpr (requires { config.msaaSamples; }) {
++      const uint32_t configured = webgpu::g_graphicsConfig.msaaSamples;
++      if (config.msaaSamples != 1 && config.msaaSamples != configured) {
++        config.msaaSamples = configured;
++      }
++    }
+ 
+     find_pipeline_impl(type, config, [=] { return create(config); }, PipelinePriority::Background, firstFrameUsed);
+     ++acceptedRows;

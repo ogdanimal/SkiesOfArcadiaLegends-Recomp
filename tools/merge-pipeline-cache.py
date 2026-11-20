@@ -6,7 +6,10 @@
 # folder, or an earlier initial_pipeline_cache.db) from runs of the standalone on any platform: the rows are render
 # configurations, not compiled code, so they're the same everywhere. A pipeline in several inputs keeps its
 # earliest first_frame_used (the load order: the opening's pipelines first). Only the newest config_version of
-# each shader type is kept (older ones no longer load).
+# each shader type among the inputs is kept (older ones no longer load: rebuild the list from runs of the current
+# build after Aurora changes a config version). Rows at any MSAA sample count are fine: Aurora moves a cached row
+# to the count in use (recompcore-aurora-cache-sample-count). first_frame_used counts from each run's start, so
+# runs from a new game order the list best.
 #   tools/merge-pipeline-cache.py OUT.db IN.db [IN.db...]
 import sqlite3
 import sys
@@ -14,7 +17,7 @@ import sys
 SCHEMA = 1
 out_path, inputs = sys.argv[1], sys.argv[2:]
 if not inputs:
-    sys.exit(__doc__ or 'usage: merge-pipeline-cache.py OUT.db IN.db [IN.db...]')
+    sys.exit('usage: merge-pipeline-cache.py OUT.db IN.db [IN.db...]')
 
 rows = {}  # (type, hash) -> (config_version, config_size, config, first_frame_used)
 for path in inputs:

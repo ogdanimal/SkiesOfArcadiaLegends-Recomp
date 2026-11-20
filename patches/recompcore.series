@@ -64,3 +64,4 @@ aurora-window-cover-auto
 gxruntime-padded-base-once
 aurora-msaa-centroid
 aurora-pipeline-skip-log
+aurora-cache-sample-count

@@ -1985,6 +1985,8 @@ float g_overclock = 1.0f;
 
 bool MenuTap(float x, float y)
 {
+  if (VideoShaderPrepSkip())
+    return true;  // the start's shader preparation took it as its skip
   std::lock_guard lk(s_hits_lock);
   if (s_hits.empty())
     return false;  // the menu isn't open
@@ -2004,6 +2006,8 @@ void MenuContinue(int file)
 
 void MenuRequestBack()
 {
+  if (VideoShaderPrepSkip())
+    return;  // skips the start's shader preparation rather than opening the menu once the game starts
   Log("[menu] Back pressed (Android)\n");
   s_back_request.store(true);
 }

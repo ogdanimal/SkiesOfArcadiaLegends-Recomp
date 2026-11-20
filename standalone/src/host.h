@@ -437,6 +437,8 @@ void MenuFrame();
 void MenuShaderProgress(unsigned width, unsigned height, unsigned done, unsigned total, bool touch);
 void MenuShaderProgressEnd();
 void VideoPrepareShaders();
+// While the start's shader preparation waits: a tap, Back or touch-control press ends it (true: taken)
+bool VideoShaderPrepSkip();
 void MenuMessage(const std::string& text, int milliseconds);
 
 // ---- controllers through Aurora's PAD layer (input.cpp) ---------------------------------------------

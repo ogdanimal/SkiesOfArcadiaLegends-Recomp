@@ -980,10 +980,23 @@ std::chrono::steady_clock::duration VideoBusy()
   return std::chrono::nanoseconds(s_busy_ns.load(std::memory_order_relaxed));
 }
 
+// The start's shader preparation: waiting, and a skip from Android's touch view or Back (main.cpp's JNI calls,
+// on the UI thread), which SDL never sees: the touch-control view takes every touch
+std::atomic<bool> s_shader_prep_active{false}, s_shader_prep_tapped{false};
+
+bool VideoShaderPrepSkip()
+{
+  if (!s_shader_prep_active.load(std::memory_order_acquire))
+    return false;
+  s_shader_prep_tapped.store(true, std::memory_order_release);
+  return true;
+}
+
 #ifdef SKIES_STANDALONE_AURORA
 namespace
 {
-// A button, key or touch down now (the shader preparation's skip)
+// A button, key or touchscreen finger down now (the shader preparation's skip). Only direct touch devices: a
+// laptop's trackpad is a touch device to SDL too, and a resting finger would skip.
 bool AnyInputDown(bool* touch)
 {
   int count = 0;
@@ -1010,6 +1023,8 @@ bool AnyInputDown(bool* touch)
   {
     for (int i = 0; i < count && !down; ++i)
     {
+      if (SDL_GetTouchDeviceType(devices[i]) != SDL_TOUCH_DEVICE_DIRECT)
+        continue;
       *touch = true;
       int fingers = 0;
       if (SDL_Finger** list = SDL_GetTouchFingers(devices[i], &fingers))
@@ -1029,9 +1044,11 @@ bool AnyInputDown(bool* touch)
 // initial_pipeline_cache.db merged into the player's cache, and that cache's own), with a progress bar
 // (menu.cpp MenuShaderProgress). Aurora skips a draw whose pipeline is still compiling, so without the wait
 // the first scenes drew with pieces missing on a slow compiler (issue #34, an AYN Thor: the Valuan gate came
-// in late in the opening, fine the second time). Later starts find Dawn's own cache and pass in a moment;
-// the bar shows only after 300 ms. Ends early on any button, key or touch (pressed after it began), on quit,
-// or when nothing finished for 15 s. SKIES_SHADER_PREP=0 turns it off.
+// in late in the opening, fine the second time; there 725 pipelines took 12.6 s). Later starts find Dawn's own
+// cache (0.9 s on the Thor); the bar shows only after a second, so they pass without it. Ends early on any
+// button, key or touchscreen finger (pressed after it began), a tap or Back on Android (VideoShaderPrepSkip),
+// on quit, or when nothing finished for 15 s. A skip leaves the rest compiling in the background, earliest
+// used first. SKIES_SHADER_PREP=0 turns it off.
 void VideoPrepareShaders()
 {
 #ifdef SKIES_STANDALONE_AURORA
@@ -1050,13 +1067,19 @@ void VideoPrepareShaders()
   auto last_change = start;
   bool held = true;  // input already down at the start (the launcher's button) doesn't skip
   bool touch = false, shown = false, skipped = false;
+#if defined(__ANDROID__)
+  touch = true;  // the hint says tap: Android's touch reaches the host through its own view
+#endif
+  s_shader_prep_tapped.store(false);
+  s_shader_prep_active.store(true, std::memory_order_release);
   for (;;)
   {
     PollEvents();
     if (s_quit.load(std::memory_order_relaxed))
       break;
     const bool down = AnyInputDown(&touch);
-    if (down && !held && shown)
+    const bool tapped = s_shader_prep_tapped.exchange(false, std::memory_order_acq_rel);
+    if ((down && !held || tapped) && shown)
     {
       skipped = true;
       break;
@@ -1070,13 +1093,15 @@ void VideoPrepareShaders()
       last_queued = queued, last_change = now;
     if (now - last_change > std::chrono::seconds(15))
       break;
-    if (now - start >= std::chrono::milliseconds(300))
+    if (now - start >= std::chrono::seconds(1))
     {
       const u32 done = stats->createdPipelines - created_before;
       unsigned width = 0, height = 0;
-      if (VideoSurfaceSize(&width, &height))
+      if (VideoSurfaceSize(&width, &height) && width != 0 && height != 0)
+      {
         MenuShaderProgress(width, height, done, done + queued, touch);
-      shown = true;
+        shown = true;
+      }
     }
     Present(-1);
     std::this_thread::sleep_for(std::chrono::milliseconds(16));
@@ -1084,8 +1109,12 @@ void VideoPrepareShaders()
   const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
   Log("[video] shaders prepared: %u pipelines in %.1f s%s\n", stats->createdPipelines - created_before, seconds,
       skipped ? " (skipped by the player)" : stats->queuedPipelines ? " (stopped waiting)" : "");
+  s_shader_prep_active.store(false, std::memory_order_release);
   if (shown)
+  {
     MenuShaderProgressEnd();
+    Present(-1);  // the bar off the screen now, not at the game's first picture
+  }
   s_threaded = threaded;
 #endif
 }
@@ -1686,6 +1715,8 @@ static std::atomic<u64> s_touch_pad{0};
 
 void TouchPadSet(u16 buttons, s8 stick_x, s8 stick_y, s8 c_x, s8 c_y, u8 trigger_l, u8 trigger_r)
 {
+  if (buttons != 0 && VideoShaderPrepSkip())
+    return;
   s_touch_pad.store(u64{buttons} | u64{static_cast<u8>(stick_x)} << 16 | u64{static_cast<u8>(stick_y)} << 24 |
                         u64{static_cast<u8>(c_x)} << 32 | u64{static_cast<u8>(c_y)} << 40 | u64{trigger_l} << 48 |
                         u64{trigger_r} << 56,
