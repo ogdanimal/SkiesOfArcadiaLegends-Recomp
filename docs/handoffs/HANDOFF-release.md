@@ -21,7 +21,7 @@
   outside its `#if`), fixed in `7eecdfc`; 44662688280 built the Windows, Linux and macOS hosts.
 - **Replies:** #16 (fixed, asks both reporters to confirm), #26 and #34 (ask for the new log) posted.
 - **Next build:** write `release/test-build-notes.md` fresh again.
-  - **What it has so far** (local `standalone-issues`, unpushed):
+  - **What it has** (pushed to `aurora-backend` 2026-11-20; it becomes `.8`):
     - `a0224ea`: #35's texture filter and the FPS counter in 60 fps mode.
     - `0194554`: #35's boss battle entry swirl, from EFB copies without alpha.
   - Each fix has its own patch (`recompcore-gxruntime-min-filter`, `recompcore-gxruntime-copy-no-alpha`).
