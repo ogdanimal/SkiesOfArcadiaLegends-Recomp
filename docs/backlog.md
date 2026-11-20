@@ -32,6 +32,35 @@ Simplifications, biggest first:
 - Build the patched Dawn once per Dawn version and publish the packages as release assets that CI downloads
   (small and independent: the suggested first step).
 
+## After the third test build (v0.90.0-standalone.8) — 2026-11-20
+
+- **v0.90.0-standalone.9:**
+  - Tagged 2026-11-20 on `7ef653b` with the owner's approval (release run 44781370962; `android-sign`
+    approved).
+  - Contents: the #35 menu speed (retail texture key), the frame-wait skip, background save states, the
+    vertex-size cache, small fixes, the CI APK guard.
+  - Tested before the tag on WSL, Windows, the Pocket 5 and the Mac mini M4.
+  - Draft checks per platform (the owner's rule: *Release checks* in the release handoff), then publish.
+- **Next build (local, unpushed):**
+  - `d1bce57`: the "window" resolution covers widescreen windows (#35's soft textures).
+  - `1cfaf23`: the padded-copy base, after Fina's flashback.
+  - `60dd22d`: the release-checks docs.
+  - Before tagging: the UHD 770's GPU cost for the cover change and the flashback saving on Windows, then the
+    usual device checks.
+- **#35 still open:** the sky seams (Tenkou Island save point: reproduce by warping there) and the 60 fps
+  warping/flicker.
+- **Fast floating point:** an experiment only.
+  - Control run: a fresh exact profile gains nothing; fast FP is -14% to -20% on PC.
+  - Before shipping (the Fable review): fusion consistent on AArch64, long exact-vs-fast runs, device
+    tests, PC first.
+- **Waiting on reporters:** #16 (confirm on `.7`+), #26 (the log line), #34 (fixed in `.8`, confirmation
+  welcome).
+- **Test files on C:** for the owner to decide (ask twice before deleting):
+  - `C:\Users\Public\claude\`: `skies.rvz` (1.3 GB), several APKs, and `mac\skies-9.bundle`.
+  - `C:\dev\SkiesStandalone\`: `check8\`, `perf-wait\`, `perf-d3d12\` (its `after\`, `crash\` and
+    `blur\` subfolders), and `build\` (rebuilt at 11:45).
+  - PIX was installed by the Windows session with the owner's OK.
+
 ## After the second test build (v0.90.0-standalone.7) — 2026-11-20
 
 - **Waiting on testers:** #16 (both reporters asked to confirm the numbers on `.7`), #26 (the new log line when

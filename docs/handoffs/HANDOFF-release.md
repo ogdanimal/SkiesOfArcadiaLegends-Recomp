@@ -14,6 +14,25 @@ an Android APK that closed at Start Game: only debug test APKs were ever run, an
 | Linux tar.gz / AppImage | WSL or Linux | the same from a state: Vulkan, chunks, log |
 | macOS zip | the Mac | the same; plus battle damage digits (#16, FEAT_AFP) |
 
+## In progress (2026-11-20): v0.90.0-standalone.9
+
+- **Tagged** on `7ef653b` with the owner's approval: "push, tag and publish v0.90.0-standalone.9, and approve
+  android-sign for it". Release run 44781370962; `android-sign` approved through the pending-deployments API.
+- **Contents:**
+  - #35: the character menu speed on D3D;
+  - the frame-wait skip;
+  - background save states;
+  - the vertex-size cache, the audio and 60 fps tidy-ups, the headless build;
+  - the CI APK guard (`tools/check-apk-jni.sh` in `validate.yml`).
+  - The fast-FP patch is registered but unused.
+- **Notes** (`release/test-build-notes.md`): thank Cawl87.
+- **To finish, per *Release checks*:**
+  - Here: checksums, signer, method guard, PII scan; the Linux package.
+  - The signed APK on the AYN Thor, past Start Game.
+  - The Windows zip on the Windows session; the macOS zip on the Mac (Caffinate session; `gh` is logged in
+    there).
+  - Then publish (`gh release edit --draft=false --prerelease`) and comment on #35.
+
 ## Released (2026-11-20): v0.90.0-standalone.8, the third test build
 
 - **Published** 2026-11-20 16:38 UTC as a prerelease, tag on `67cc84b`, release run 44763742068. The

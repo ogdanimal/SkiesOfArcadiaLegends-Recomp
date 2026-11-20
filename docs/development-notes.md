@@ -3355,6 +3355,39 @@ build (Dolphin's Vulkan backend on llvmpipe is right).
     - The headless build compiles again.
     - The "texture unchanged" shortcut the review flagged is by design: raw-register textures use the
       content-hash cache, memoized per frame.
+- **#35 after `.8` (2026-11-20, afternoon).** The reporter confirmed the FPS counter and the swirl fixed,
+  said textures were still softer than the Dolphin build, and posted logs from a 7800 XT (Vulkan, Resolution
+  "window", 2x MSAA).
+  - **Character menu on D3D11/D3D12** (found by the Windows session with PIX on the UHD 770):
+    - Cause: about 55-100 new GPU textures a frame, each a kernel `MapGpuVirtualAddress`, which was half the
+      video thread. Aurora's retail texture cache keyed textures by content and address, and the menu writes
+      its 24x24 I4 glyphs into new buffers every frame.
+    - Fix: textures up to 4 KB are keyed by content alone (`recompcore-gxruntime-retail-texture-key`).
+    - Effect on Windows: the menu is 2.4-2.7x faster, and D3D12 is no longer behind D3D11. In `.9`.
+  - **Soft textures** (`recompcore-aurora-window-cover-auto`, next build):
+    - Cause: the "window" resolution fitted the 4:3 buffer inside the 16:9 window (1920x1440 on 2560x1440)
+      and stretched it sideways. Dolphin's Auto covers the window.
+    - Fix: on desktop the buffer now covers the window (2560x1920 there, scaled down at the present).
+      Explicit scales are unchanged. Android keeps the fit, since covering costs about 1.8x the pixels.
+    - The GPU cost on the UHD 770 is still to be measured.
+    - Ruled out on the way: the mip LOD bias (applied as Dolphin applies it) and the arbitrary-mipmap bias
+      (0 of 81 textures flagged in a battle).
+  - **The slowdown after Fina's flashback** (`recompcore-gxruntime-padded-base-once`, next build):
+    - The game copies the screen into the 1024x512 buffer at 0x80667540 every frame and draws it bigger.
+      Aurora rebuilt the padded texture's base every frame: the whole buffer decoded on the CPU and uploaded.
+    - Windows session: about 10 ms of the video thread a frame, with the game waiting at its per-frame
+      draw-done.
+    - Fix: the base is rebuilt only when the memory under it changes. WSL: 2.46 -> 1.00 ms a frame.
+    - The likely cause of the reporter's 14 fps, not yet confirmed.
+  - **Not slow on the Windows session's PC:** the boss intro blur and the flashback itself (D3D11, D3D12 and
+    Vulkan; UHD and RTX).
+  - **Route to Fina's flashback:** `19-retroid-antonio-start.sav`; press A at +2.0/3.2/4.4/5.6/6.8/8.0 s,
+    then every second from +26 s; `SKIES_POKE="@1252:80ED3914=00000001"` sets Antonio's HP to 1. The
+    flashback is at frames 42600-43300; the heavy stretch is guest 1314-1338 s.
+  - **Still open:** the sky seams (the reporter says the Tenkou Island save point) and the 60 fps warping.
+  - **The one Windows crash** (1 of 53 launches): an access violation in the stale local Dawn DLL
+    (`C:\dev\SkiesStandalone\build\webgpu_dawn.dll`, 2026-10-25). It never shipped: 0 of 60 launches
+    crashed with either the new build or `.8`.
 - **#32** 15-17 fps on a Ryzen 5 3550H + GTX 1650 laptop (v0.83): the Dolphin build takes Vulkan adapter 0 (on
   AMD APU + NVIDIA laptops that can be the integrated GPU); Aurora asks Dawn for HighPerformance. A good tester for
   the standalone.
