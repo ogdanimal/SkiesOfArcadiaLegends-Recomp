@@ -968,6 +968,7 @@ void ReadHintKeys()
 
 void Open()
 {
+  s_tap.store(0);  // a tap from before it opened isn't for it
   s_mode = Mode::Open;
   s_tab = 0;
   s_selected = 0;
@@ -2825,6 +2826,13 @@ void MenuFrame()
     VideoSetTitleFps(s_fps);
   }
 #ifdef SKIES_STANDALONE_AURORA
+  // The menu's tap areas only while it's open (the returns below skip drawing it): a tap on the game
+  // afterwards isn't the menu's
+  if (s_mode != Mode::Open)
+  {
+    std::lock_guard lk(s_hits_lock);
+    s_hits.clear();
+  }
   unsigned width = 0, height = 0;
   if (!VideoSurfaceSize(&width, &height) || width == 0 || height == 0)
     return;
@@ -2867,11 +2875,6 @@ void MenuFrame()
     DrawFps(unit);
   if (s_mode == Mode::Open)
     Draw(1.0f);
-  else
-  {
-    std::lock_guard lk(s_hits_lock);
-    s_hits.clear();
-  }
   ImGui::Render();
   Sink(ImGui::GetDrawData());
   s_overlay_shown = true;
