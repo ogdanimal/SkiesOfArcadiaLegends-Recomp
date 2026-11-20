@@ -4,11 +4,17 @@ A native port of **Skies of Arcadia Legends** (GameCube) to **Windows, Linux, ma
 static recompilation: the game's PowerPC code is translated ahead of time into native code. It adds
 widescreen, 60 fps, camera control, save states and quality-of-life options.
 
-**This is a test build of the new engine** (`v0.90.0-standalone`): the game runs on its own GameCube
-graphics, sound and disc layer, drawing through Direct3D 12, Vulkan, Direct3D 11, Metal or OpenGL ES,
-instead of inside [Dolphin](https://dolphin-emu.org/). It's faster and smoother than v0.83, most of all on
-weaker PCs and Android handhelds. **v0.83.0-beta**, on the Dolphin engine, stays the recommended release
-until the new engine has been tested more. Please [report](../../issues/new/choose) what you run into.
+## Where the project stands
+
+- **A new engine:** the game runs on its own GameCube hardware layer instead of inside
+  [Dolphin](https://dolphin-emu.org/), drawing through Direct3D 12, Vulkan, Direct3D 11, Metal or OpenGL ES. It has
+  v0.83's features (on Android it needs version 9 or later) and is faster and smoother, most of all on weaker PCs,
+  laptops and Android handhelds. Its newest test build is
+  **[v0.90.0-standalone.10](../../releases/tag/v0.90.0-standalone.10)**; this README describes it. Your saves carry
+  over; back them up first. Please [report](../../issues/new/choose) what you run into, with the log.
+- **[v0.83.0-beta](../../releases/tag/v0.83.0-beta)**, on the Dolphin engine, stays the recommended release until
+  the test builds' reports are in. There will be no more Dolphin-engine releases.
+- **Next:** the new engine becomes the normal release.
 
 No build contains the game. You need your own copy of the disc.
 
@@ -23,8 +29,8 @@ Get a build from the **[Releases](../../releases)** page:
 | macOS (Apple Silicon) | `SkiesOfArcadiaLegends-<version>-macos.zip` |
 | Android | `SkiesOfArcadiaLegends-<version>-android.apk` |
 
-Versions ending in `-beta` (or `-rc1`, `-rc2`, ...) are published as prereleases; `-standalone.N` versions are
-test builds of the new engine.
+Versions ending in `-beta` (or `-rc1`, `-rc2`, ...) are published as prereleases; versions ending in
+`-standalone.N` are test builds of the new engine.
 
 ## Getting Started
 
