@@ -32,24 +32,23 @@ Simplifications, biggest first:
 - Build the patched Dawn once per Dawn version and publish the packages as release assets that CI downloads
   (small and independent: the suggested first step).
 
-## After the first public test build (v0.90.0-standalone.6) — 2026-11-19
+## After the second test build (v0.90.0-standalone.7) — 2026-11-20
 
-- **The next test build soon:** the `.6` downloads carry the old READMEs and lack the new engine's licence texts
-  (fixed on `aurora-backend` in `d24c6ad`); plus whatever `.6`'s testers report.
-- **#16 damage numbers all 0 (Apple M4, Exynos 1580): fixed, ships in the next build.** On cores with FEAT_AFP,
-  FPCR.AH (set by GXRuntime's non-IEEE mode) makes FNEG keep a NaN's sign; clang builds `atoi`'s
-  0x80000000/0x7fffffff register pair with `movi` + `fneg`, so `__strtoul` got a max width of -1 and returned 0.
-  `patches/recompcore-gxruntime-fpcr-no-ah.patch` sets FZ only. Every game module compiles that file too (CI
-  rebuilds them each build); before tagging, check a release module's `msr fpcr` path no longer sets AH. Found with
-  the debug switches `SKIES_TRACE_PC`, `SKIES_TRACE_RANGE` and `SKIES_INTERP_RANGE` (native chunks interpreted
-  instead), uncommitted in `standalone/src/cpu.cpp`. Reply on #16 when the build is out.
-- **#34 AYN Thor closes at Start Game** (.6, fresh install too): not seen on the Pocket 5 / Nova (same chip as
-  the Thor). Likeliest a native crash in Vulkan's start (driver), which killed the process with no fallback:
-  the next build switches to OpenGL ES after such a start (`main.cpp` VulkanCrashGuard). Other suspects: the
-  Thor's second (near-square) screen. A reply asking for the Android version, the screen, OpenGL ES and
-  `files/log.txt` is drafted, not posted (the owner's call).
-- **Issue replies** drafted for the test build (`build/issue-replies-standalone5.md` in the issues worktree; say
-  `.6`): post with the owner's OK.
+- **Waiting on testers:** #16 (both reporters asked to confirm the numbers on `.7`), #26 (the new log line when
+  the Dreamcast music's output pins: `Logs/skies-standalone.log`), #34 (the Android version, the screen, OpenGL
+  ES, `files/log.txt`; `.7` switches the Renderer to OpenGL ES by itself after a crashed Vulkan start). Replies
+  posted on all three.
+- **#16 damage numbers all 0 (Apple M4, Exynos 1580): fixed in `.7`.** On cores with FEAT_AFP, FPCR.AH (set by
+  GXRuntime's non-IEEE mode) makes FNEG keep a NaN's sign; clang builds `atoi`'s 0x80000000/0x7fffffff register
+  pair with `movi` + `fneg`, so `__strtoul` got a max width of -1 and returned 0.
+  `patches/recompcore-gxruntime-fpcr-no-ah.patch` sets FZ only (the release module's `msr FPCR` path checked).
+  Found with debug switches (`SKIES_TRACE_PC`, `SKIES_TRACE_RANGE`, `SKIES_INTERP_RANGE`: native chunks
+  interpreted instead), kept out of the tree: `build/i26/debug-tools-all.patch` in the issues worktree.
+- **#34 AYN Thor closes at Start Game** (`.6`, fresh install too): not seen on the Pocket 5 / Nova (same chip as
+  the Thor); a simulated second, near-square display runs the game fine. Likeliest a native crash in Vulkan's
+  start, which `.7`'s safeguard turns into OpenGL ES at the next start. Needs the reporter's log.
+- **The 0.83 Dolphin build still has #16** (it sets FZ|AH the same way): no Dolphin-engine release is planned.
+- **Next test build:** write `release/test-build-notes.md` fresh; ask the owner to approve `android-sign`.
 
 ## After the standalone test prerelease (v0.90.0-standalone.4, never published) — 2026-11-18
 

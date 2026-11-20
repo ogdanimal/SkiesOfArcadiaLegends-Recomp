@@ -1917,7 +1917,8 @@ the static module replaces it).
 - Not reproduced: #17 (Pirate Isle ladder: standalone and Dolphin Vulkan on WSL draw the house), #21
   (Sailors' Island bridge: the rock backdrop isn't there at this point of the story, any aspect; needs
   the reporter's card save), #23 (Valua fortress turrets: nothing wrong at the screenshot's size;
-  the reporter saw it in Dolphin too). #16 needs an Exynos device.
+  the reporter saw it in Dolphin too). #16: solved 2026-11-19 (FPCR.AH, fixed in v0.90.0-standalone.7;
+  `docs/backlog.md`).
 
 **On aurora-backend (2026-11-18, branch `standalone-issues`).** The nine commits cherry-picked onto
 aurora-backend; only the patch lists conflicted, and `recompcore-interp-pacing.patch` was rebased by

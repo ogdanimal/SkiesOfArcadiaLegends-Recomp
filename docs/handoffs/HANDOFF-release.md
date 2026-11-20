@@ -50,16 +50,7 @@
   front-page README (main / dev, `22d4398`, pushed to both at the owner's request) now has *Where the project
   stands*: v0.83 recommended, `.6` in testing, no more Dolphin-engine releases. That commit is not on
   `aurora-backend`: at the cut-over merge keep `aurora-backend`'s README and carry the status section over.
-- **Next:** watch the issues for `.6` reports; the drafted issue replies (`build/issue-replies-standalone5.md`, written
-  for `.5`: say `.6`) can be posted now that a build is public, with the owner's OK; the next test build = the
-  README / licence fixes, the #16 FPCR.AH fix (`patches/recompcore-gxruntime-fpcr-no-ah.patch`, also needs the
-  modules rebuilt: check a release module's `msr fpcr` path no longer sets AH), #26's DC blocker on the game's
-  audio and the Dreamcast music's pinned-output log line, the log in `Logs/skies-standalone.log` on every
-  platform (until now Windows only; Android also keeps `files/log.txt`), Android's Vulkan crash safeguard
-  (a start that dies before its first frames switches the Renderer setting to OpenGL ES; possibly #34) and
-  the launcher reading the game's settings again after it closes (`recompcore-android-settings-reload.patch`),
-  plus whatever testers report. Write the notes fresh (`release/test-build-notes.md`); the log path line is
-  now right for every platform. The test folders on C: were deleted with the owner's approval (2026-11-19), with the old Dolphin-era ones (below).
+- **Next** (superseded by `.7` above): its items all shipped in v0.90.0-standalone.7. The test folders on C: were deleted with the owner's approval (2026-11-19), with the old Dolphin-era ones (below).
 
 - **C: cleanup (2026-11-19, the owner approved twice):** deleted `C:\dev\SkiesRelTest6` and this session's test
   folders in `C:\dev\SkiesStandalone`, plus the Dolphin-era test folders `C:\dev\SkiesAuroraRun`, `SkiesUncensor`,
