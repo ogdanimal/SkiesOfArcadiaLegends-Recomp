@@ -1134,8 +1134,10 @@ int main(int argc, char** argv)
   // Vulkan, then Direct3D 11 on Windows; Vulkan, then OpenGL ES on Linux; Metal on macOS), 1 Direct3D 12,
   // 2 Vulkan, 3 Direct3D 11, 4 OpenGL ES: tried first, the usual order after it if it can't start. The way
   // out of a graphics driver that misbehaves with the automatic choice. DOL_AURORA_BACKEND still wins.
+#if !defined(__APPLE__)  // macOS has Metal only: nothing to move on to
   if (!std::getenv("DOL_AURORA_BACKEND") && seconds <= 0)  // not unattended test runs (often cut short on purpose)
     RendererCrashGuard(user);
+#endif
   if (!std::getenv("DOL_AURORA_BACKEND"))
   {
     static const char* const apis[] = {nullptr, "d3d12", "vulkan", "d3d11", "gles"};
