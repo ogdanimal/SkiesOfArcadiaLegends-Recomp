@@ -66,6 +66,12 @@ struct VertexState
   u32 vat_a[8] = {}, vat_b[8] = {}, vat_c[8] = {};
 } s_vtx;
 
+// VertexSize per VAT group, until the VCD or that group changes (CommandLength asks for every draw,
+// and again for each 32-byte burst while a big draw is still arriving). Beside s_vtx, which a save
+// state holds byte for byte; cleared wherever s_vtx changes.
+u16 s_vsize[8];
+u8 s_vsize_valid = 0;  // bit per VAT group
+
 u32 ComponentSize(u32 format)
 {
   switch (format)
@@ -96,7 +102,7 @@ u32 IndexedSize(u32 type, u32 direct_size)
   }
 }
 
-u32 VertexSize(const VertexState& s, u32 vat)
+u32 VertexSizeUncached(const VertexState& s, u32 vat)
 {
   const u32 lo = s.vcd_lo, hi = s.vcd_hi;
   const u32 a = s.vat_a[vat], b = s.vat_b[vat], c = s.vat_c[vat];
@@ -137,24 +143,39 @@ u32 VertexSize(const VertexState& s, u32 vat)
   return size;
 }
 
+u32 VertexSize(const VertexState& s, u32 vat)
+{
+  if (!(s_vsize_valid & (1u << vat)))
+  {
+    s_vsize[vat] = static_cast<u16>(VertexSizeUncached(s, vat));
+    s_vsize_valid |= static_cast<u8>(1u << vat);
+  }
+  return s_vsize[vat];
+}
+
 void LoadCpReg(VertexState& s, u8 reg, u32 value)
 {
   switch (reg & 0xF0)
   {
   case 0x50:
     s.vcd_lo = value;
+    s_vsize_valid = 0;
     break;
   case 0x60:
     s.vcd_hi = value;
+    s_vsize_valid = 0;
     break;
   case 0x70:
     s.vat_a[reg & 7] = value;
+    s_vsize_valid &= static_cast<u8>(~(1u << (reg & 7)));
     break;
   case 0x80:
     s.vat_b[reg & 7] = value;
+    s_vsize_valid &= static_cast<u8>(~(1u << (reg & 7)));
     break;
   case 0x90:
     s.vat_c[reg & 7] = value;
+    s_vsize_valid &= static_cast<u8>(~(1u << (reg & 7)));
     break;
   default:
     break;
@@ -564,6 +585,7 @@ void GpuInit()
   s_pe_token = 0;
   s_pe_token_int = s_pe_finish_int = false;
   s_vtx = {};
+  s_vsize_valid = 0;
   s_pending.clear();
   s_gp_ptr = s_gp;
 }
@@ -595,6 +617,7 @@ void GpuDoState(StateIO& p)
   p.Do(s_tokens);
   p.Do(s_frames);
   p.Do(s_vtx);
+  s_vsize_valid = 0;
   p.Do(s_copy_size);
   p.Do(s_copy_dest);
   p.Do(s_copy_stride);
@@ -661,6 +684,7 @@ void GpuFromDolphin(const DolphinState& d)
     s_vtx.vat_b[i] = cp_state[37 + i * 3];
     s_vtx.vat_c[i] = cp_state[38 + i * 3];
   }
+  s_vsize_valid = 0;
   u32 bp[256];
   d.Array("video/bpmem", bp, 256);
   s_copy_size = bp[0x4A] & 0xFFFFFF;
