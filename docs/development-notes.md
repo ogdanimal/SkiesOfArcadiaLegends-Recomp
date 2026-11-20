@@ -3327,6 +3327,14 @@ build (Dolphin's Vulkan backend on llvmpipe is right).
     - Pictures and a battle (damage numbers) match exact.
     - CI needs the fast profiles in the secrets' `pgo/` and `--semantics fast` in `codegen-targets.txt`:
       the owner's call.
+  - **Smaller items from the review:**
+    - Vertex size cached per VAT group: about 4% CPU in the opening cutscene.
+    - `ResampleAudio` takes its callback as a template: audio byte-identical.
+    - 60 fps mode no longer numbers draws (nobody read that), and its load numbering uses a reused hash map.
+    - `SKIES_COPY_LOG` is read once.
+    - The headless build compiles again.
+    - The "texture unchanged" shortcut the review flagged is by design: raw-register textures use the
+      content-hash cache, memoized per frame.
 - **#32** 15-17 fps on a Ryzen 5 3550H + GTX 1650 laptop (v0.83): the Dolphin build takes Vulkan adapter 0 (on
   AMD APU + NVIDIA laptops that can be the integrated GPU); Aurora asks Dawn for HighPerformance. A good tester for
   the standalone.
