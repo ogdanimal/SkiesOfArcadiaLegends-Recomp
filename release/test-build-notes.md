@@ -1,4 +1,4 @@
-The third test build of the new engine: textures back to their smooth look, the boss battle swirl fixed, and a frame counter that counts 60 fps.
+The third test build of the new engine: the Android app starts the game again, textures are back to their smooth look, the boss battle swirl is fixed, and the frame counter counts 60 fps.
 
 > [!WARNING]
 > **This is a test build.** [v0.83.0-beta](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/releases/tag/v0.83.0-beta) stays the recommended release. **Back up your saves first** (Settings → Saves → Back up saves): save states made by the new engine don't load in 0.83.
@@ -11,6 +11,9 @@ New to the new engine? The [first test build's notes](https://github.com/ogdanim
 
 ## Fixed
 
+- **Android: the game closed as soon as you tapped Start Game** ([#34](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/34))
+  - In the first two test builds, the app's release packaging removed parts of the game's Android code that it wrongly thought were unused, so the new engine closed while starting, on every device. Fixed and checked on an AYN Thor.
+  - Thanks to [GLEclipseGaming](https://github.com/GLEclipseGaming) for reporting it and for the video.
 - **Blocky, low-detail textures** ([#35](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/35))
   - The new engine read one of the game's texture-filter settings backwards, so many textures (hair, railings, the save points) were drawn as hard pixels instead of smoothly, most visibly at higher resolutions.
 - **The opening swirl of boss battles showed the boss on black** (seen at Antonio, [#35](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/35))
