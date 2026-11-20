@@ -31,6 +31,8 @@ void Log(const char* fmt, ...);
 void LogAlsoToFile(const std::string& path);
 // The game has shown its first frames: the renderer started (main.cpp, Vulkan's crash safeguard on Android)
 void GpuStartSurvived();
+// The graphics API the first frame went out with ("Direct3D 12", ...): the desktop crash safeguard notes it
+void GpuStartApi(const char* name);
 // A tap or click at (x, y), fractions of the screen: true when the in-game menu is open and takes it (menu.cpp)
 bool MenuTap(float x, float y);
 [[noreturn]] void Fatal(const char* fmt, ...);

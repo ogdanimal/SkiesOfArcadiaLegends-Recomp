@@ -120,6 +120,7 @@ void Fatal(const char* fmt, ...)
                 g_cpu.pc, g_cpu.lr, g_cpu.gpr[1], g_cpu.msr, g_cpu.srr0, g_cpu.srr1,
                 static_cast<unsigned long long>(g_cycles));
   WriteLog(regs);
+  GpuStartSurvived();  // a deliberate stop, not the graphics driver: the renderer's crash safeguard stays out of it
   std::_Exit(1);  // no static destructors: Dawn aborts when torn down mid-frame
 }
 

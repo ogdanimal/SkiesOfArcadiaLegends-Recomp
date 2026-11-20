@@ -1139,7 +1139,11 @@ void ReplayVideo()
 void VideoFrameEnd()
 {
   ++s_frames;
-  if (s_frames == 300)
+  // The renderer's crash safeguard (main.cpp) counts this process's frames: s_frames jumps to a state's own count
+  static u64 s_frames_here = 0;
+  if (++s_frames_here == 1)
+    GpuStartApi(VideoRendererName());
+  else if (s_frames_here == 300)
     GpuStartSurvived();
   ApplyPokes();
   CheatsApply();

@@ -668,8 +668,90 @@ void AndroidSetup(int& argc, char**& argv)
 }  // namespace
 #endif
 
+#if !defined(__ANDROID__) && !defined(__APPLE__)
+namespace
+{
+// The renderer's crash safeguard on Windows and Linux (Android: VulkanCrashGuard): a graphics driver that crashes
+// while its API starts kills the process, so Auto's fallback (taken when an API merely fails) never runs and every
+// start dies the same way. A start leaves USER/Cache/renderer-start-pending, with the API in use written in once
+// the first frame is out (GpuStartApi); it goes after 300 frames, when main returns, or at a Fatal (not the
+// driver's doing). One still there at the next start moves the Renderer setting past the API that crashed
+// (Windows: Direct3D 12, Vulkan, Direct3D 11; Linux: Vulkan, OpenGL ES), with a line in the log.
+std::string s_renderer_marker;
+
+// [Skies] Renderer values: 1 Direct3D 12, 2 Vulkan, 3 Direct3D 11, 4 OpenGL ES
+#if defined(_WIN32)
+constexpr int RENDERER_ORDER[] = {1, 2, 3};
+#else
+constexpr int RENDERER_ORDER[] = {2, 4};
+#endif
+
+int RendererValue(const std::string& name)
+{
+  return name == "Direct3D 12" ? 1 : name == "Vulkan" ? 2 : name == "Direct3D 11" ? 3 : name == "OpenGL ES" ? 4 : 0;
+}
+
+void RendererCrashGuard(const std::string& user)
+{
+  if (user.empty())
+    return;
+  const std::filesystem::path cache = std::filesystem::path(user) / "Cache";
+  std::error_code ec;
+  std::filesystem::create_directories(cache, ec);
+  const std::string marker = (cache / "renderer-start-pending").string();
+  if (std::FILE* f = std::fopen(marker.c_str(), "r"))
+  {
+    char name[32] = {};
+    const size_t n = std::fread(name, 1, sizeof(name) - 1, f);
+    std::fclose(f);
+    std::remove(marker.c_str());
+    // The API that crashed: the one written in, or (dead before its first frame) the first one this start tried
+    int crashed = RendererValue(std::string(name, n));
+    const int setting = host::SettingGet(host::SettingFile::Main, "Skies", "Renderer", 0);
+    if (crashed == 0)
+      crashed = setting > 0 ? setting : RENDERER_ORDER[0];
+    const int* const end = std::end(RENDERER_ORDER);
+    const int* const at = std::find(std::begin(RENDERER_ORDER), end, crashed);
+    if (at != end && at + 1 != end)
+    {
+      host::SettingSet(host::SettingFile::Main, "Skies", "Renderer", *(at + 1), false);
+      host::SettingsSave();
+      static const char* const names[] = {"Auto", "Direct3D 12", "Vulkan", "Direct3D 11", "OpenGL ES"};
+      host::Log("[host] renderer: the last start with %s ended before its first frames (a graphics driver crash?), "
+                "so the Renderer setting is now %s (Settings > Graphics > Renderer to change it)\n", names[crashed],
+                names[*(at + 1)]);
+    }
+    else
+      host::Log("[host] renderer: the last start ended before its first frames, with no other graphics API left "
+                "to try\n");
+  }
+  if (std::FILE* f = std::fopen(marker.c_str(), "w"))
+  {
+    std::fclose(f);
+    s_renderer_marker = marker;
+  }
+}
+}  // namespace
+#endif
+
 namespace host
 {
+void GpuStartApi(const char* name)
+{
+#if !defined(__ANDROID__) && !defined(__APPLE__)
+  if (!s_renderer_marker.empty() && name && *name)
+  {
+    if (std::FILE* f = std::fopen(s_renderer_marker.c_str(), "w"))
+    {
+      std::fputs(name, f);
+      std::fclose(f);
+    }
+  }
+#else
+  (void)name;
+#endif
+}
+
 void GpuStartSurvived()
 {
 #if defined(__ANDROID__)
@@ -677,6 +759,12 @@ void GpuStartSurvived()
   {
     std::remove(s_vulkan_marker.c_str());
     s_vulkan_marker.clear();
+  }
+#elif !defined(__APPLE__)
+  if (!s_renderer_marker.empty())
+  {
+    std::remove(s_renderer_marker.c_str());
+    s_renderer_marker.clear();
   }
 #endif
 }
@@ -1031,7 +1119,7 @@ int main(int argc, char** argv)
 #if defined(__ANDROID__)
   // The app's Graphics > Renderer row (the Dolphin build's [Core] GFXBackend): OpenGL ES is the way
   // out of a Vulkan driver that misbehaves. DOL_AURORA_BACKEND (env.txt) still wins for tests.
-  if (!std::getenv("DOL_AURORA_BACKEND"))
+  if (!std::getenv("DOL_AURORA_BACKEND") && seconds <= 0)
     VulkanCrashGuard();
   if (!std::getenv("DOL_AURORA_BACKEND") && SettingGetString(SettingFile::Main, "Core", "GFXBackend") == "OGL")
   {
@@ -1046,6 +1134,8 @@ int main(int argc, char** argv)
   // Vulkan, then Direct3D 11 on Windows; Vulkan, then OpenGL ES on Linux; Metal on macOS), 1 Direct3D 12,
   // 2 Vulkan, 3 Direct3D 11, 4 OpenGL ES: tried first, the usual order after it if it can't start. The way
   // out of a graphics driver that misbehaves with the automatic choice. DOL_AURORA_BACKEND still wins.
+  if (!std::getenv("DOL_AURORA_BACKEND") && seconds <= 0)  // not unattended test runs (often cut short on purpose)
+    RendererCrashGuard(user);
   if (!std::getenv("DOL_AURORA_BACKEND"))
   {
     static const char* const apis[] = {nullptr, "d3d12", "vulkan", "d3d11", "gles"};
