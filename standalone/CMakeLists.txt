@@ -80,6 +80,7 @@ endif()
 set(SKIES_STANDALONE_SOURCES
   src/main.cpp
   src/cpu.cpp
+  src/crash.cpp
   src/scheduler.cpp
   src/boot.cpp
   src/disc.cpp

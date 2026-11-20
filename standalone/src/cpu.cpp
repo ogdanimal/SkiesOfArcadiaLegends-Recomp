@@ -100,6 +100,15 @@ void LogAlsoToFile(const std::string& path)
     std::setvbuf(s_log_file, nullptr, _IONBF, 0);  // unbuffered: a crash keeps every line written before it
 }
 
+int LogFileFd()
+{
+#if defined(_WIN32)
+  return s_log_file ? _fileno(s_log_file) : -1;
+#else
+  return s_log_file ? fileno(s_log_file) : -1;
+#endif
+}
+
 void Log(const char* fmt, ...)
 {
   va_list args;

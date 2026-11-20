@@ -29,6 +29,11 @@ extern bool g_log_mmio;
 void Log(const char* fmt, ...);
 // From now on the log also goes to this file (the data folder's Logs/skies-standalone.log), as well as stderr
 void LogAlsoToFile(const std::string& path);
+int LogFileFd();  // the log file's descriptor (-1: none; stderr is 2)
+// crash.cpp: a crash's report into the log (and a minidump on Windows) beside USER/Logs
+void CrashHandlerInstall(const std::string& user);
+// main.cpp: USER/Logs/skies-standalone.log kept as .1.log before a start writes a new one (.2, .3 older)
+void RotateLogs(const std::string& logs_dir);
 // The game has shown its first frames: the renderer started (main.cpp, Vulkan's crash safeguard on Android)
 void GpuStartSurvived();
 // The graphics API the first frame went out with ("Direct3D 12", ...): the desktop crash safeguard notes it

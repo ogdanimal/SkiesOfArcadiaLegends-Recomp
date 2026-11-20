@@ -736,6 +736,26 @@ void RendererCrashGuard(const std::string& user)
 
 namespace host
 {
+// The last three runs' logs stay (Dusklight keeps its logs a while too): skies-standalone.1.log is the run
+// before this one, a crash's report in it when the game crashed (crash.cpp)
+void RotateLogs(const std::string& logs_dir)
+{
+  namespace fs = std::filesystem;
+  const fs::path logs(logs_dir);
+  const auto name = [&](int i) {
+    return logs / (i == 0 ? std::string("skies-standalone.log") : "skies-standalone." + std::to_string(i) + ".log");
+  };
+  std::error_code ec;
+  if (!fs::exists(name(0), ec) || fs::file_size(name(0), ec) == 0)
+    return;
+  fs::remove(name(3), ec);
+  for (int i = 2; i >= 0; --i)
+  {
+    if (fs::exists(name(i), ec))
+      fs::rename(name(i), name(i + 1), ec);
+  }
+}
+
 void GpuStartApi(const char* name)
 {
 #if !defined(__ANDROID__) && !defined(__APPLE__)
@@ -1107,6 +1127,7 @@ int main(int argc, char** argv)
     const std::filesystem::path logs = std::filesystem::path(user) / "Logs";
     std::error_code ec;
     std::filesystem::create_directories(logs, ec);
+    RotateLogs(logs.string());
     const std::string log = (logs / "skies-standalone.log").string();
     // Emptied once, then both streams append (each write at the end, so neither overwrites the other)
     if (FILE* f = std::fopen(log.c_str(), "w"))
@@ -1125,8 +1146,10 @@ int main(int argc, char** argv)
     const std::filesystem::path logs = std::filesystem::path(user) / "Logs";
     std::error_code ec;
     std::filesystem::create_directories(logs, ec);
+    RotateLogs(logs.string());
     LogAlsoToFile((logs / "skies-standalone.log").string());
   }
+  CrashHandlerInstall(user);
   ExiSetUserDir(user);
   SettingsInit(user);
 #if defined(__ANDROID__)
