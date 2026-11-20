@@ -1255,6 +1255,8 @@ struct MouseYaw
   bool active = false;
   s32 goal = 0;  // 0..0xFFFF
   int settled = 0;
+  s32 last_error = 0;
+  int stalled = 0;  // polls without the error changing
 };
 MouseYaw s_mouse_yaw;
 
@@ -1287,6 +1289,7 @@ int ApplyMouse(const Context& context, float dx, float dy, float wheel)
       yaw.goal = current;
     yaw.active = true;
     yaw.settled = 0;
+    yaw.stalled = 0;
     yaw.goal = (yaw.goal + static_cast<s32>(std::lround(-dx * MOUSE_TURN))) & 0xFFFF;
   }
   if (!yaw.active)
@@ -1296,15 +1299,24 @@ int ApplyMouse(const Context& context, float dx, float dy, float wheel)
   if (s_trace)
     Log("[mouse] dx %.1f dy %.1f: yaw %04x goal %04x (%s) error %d\n", dx, dy, current, yaw.goal,
         target ? "target" : "output", error);
-  if (std::abs(error) < 16)
+  // The game turns in whole steps of 0x200 (X / -44 is an integer), so the goal is met within half a step.
+  // Not getting closer for a while counts as there too: the stick must never stay on (it would hold the
+  // pad's and the keyboard's camera turn off for good; seen on the Mac with .10: error 170 for ever).
+  if (error != yaw.last_error)
+  {
+    yaw.last_error = error;
+    yaw.stalled = 0;
+  }
+  if (std::abs(error) < 0x100 || ++yaw.stalled > 30)
   {
     // There: the game's own camera again after a moment (its follow, the pad's C-stick)
     if (++yaw.settled > 30)
       yaw.active = false;
     return STICK_CENTER;
   }
-  // The stick that turns the rest of the way in one frame, at most fully over
-  const int stick = std::clamp(static_cast<int>(std::lround(-error * 44.0f / 512.0f)), -100, 100);
+  // The stick that turns the rest of the way in one frame, at most fully over; at least one step's worth
+  const int want = static_cast<int>(std::lround(-error * 44.0f / 512.0f));
+  const int stick = std::clamp(want < 0 ? std::min(want, -60) : std::max(want, 60), -100, 100);
   return STICK_CENTER + stick;
 }
 
