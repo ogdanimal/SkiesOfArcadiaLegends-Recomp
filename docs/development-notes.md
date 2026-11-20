@@ -192,8 +192,11 @@ in the decomp's `docs/camera.md`. B + X + Start held for half a second is the ga
 |---|---|---|
 | `Widescreen` | 1 = 16:9, 2 = Match screen (the window's shape, 4:3 to 32:9), 0 = original 4:3 (first boot: the DOL's) | `Core/SkiesSettings.cpp` -> `ws_config.display_aspect` (0x80002A08) and Dolphin's aspect |
 | `Hud` | 2 = at the picture's edges, 3 = in a centred 21:9 area, 1 = in a 16:9 area (a narrower picture keeps its own edges), 0 = the original 4:3 layout (2) | `Core/SkiesSettings.cpp` -> `ws_hud_aspect` (0x80002E9C: 0, 64:27, 16:9, -1) |
-| `FrameMode` | 0 = 30 fps, 1 = 60 fps interpolated (first boot: the old switches) | `FrameInterpolator::RequestEnabled` |
+| `FrameMode` | 0 = 30 fps, 1 = 60 fps interpolated (first boot: the old switches); 2 = Display refresh, an in-between picture for every refresh (the new engine only; the Dolphin engine treats it as 1) | `FrameInterpolator::RequestEnabled`; new engine: `interp60.cpp`, `video.cpp` *FrameMode 2* |
+| `MaxFrameRate` | new engine, FrameMode 2: at most this many pictures a second (0 = the display's rate; no menu row) | `video.cpp` `DisplayPeriod` |
 | `CameraControl` | 1 = hold Z to move the camera, 0 = the game's only (1) | `SkiesMenu.cpp` -> `cam_input` (0x80002EC0) |
+| `MouseCamera` | new engine, desktop: 1 = a click takes the mouse for the camera, 0 = off (0) | `menu.cpp` (namespaces `mouse`, `camera::ApplyMouse`) |
+| `ControllerLight` | new engine: 1 = a colour light follows the game (field / world map / battle), 0 = left alone (1) | `menu.cpp` `ControllerLight` -> Aurora's `PADSetColor` |
 | `Encounters` | percent of the encounter chance: 0, 25, 50, 100, 200, 400 (100) | `SkiesMenu.cpp` -> `qol_input` (0x80002EA0) |
 | `Exp`, `Gold`, `MagicExp` | percent of what battles give: 0, 50, 100, 200, 300, 400 (100) | same |
 | `BattleSpeed` | 1-4 (1) | same |

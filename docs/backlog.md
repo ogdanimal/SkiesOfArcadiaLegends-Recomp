@@ -32,12 +32,13 @@ Simplifications, biggest first:
 - Build the patched Dawn once per Dawn version and publish the packages as release assets that CI downloads
   (small and independent: the suggested first step).
 
-## Uncapped frame rate — BUILT 2026-11-20 (#20), local (`bab367e`)
+## Uncapped frame rate — BUILT 2026-11-20 (#20), on `origin/aurora-backend` (`bab367e`, Android `ec84654`)
 
 Frame rate **Display refresh** (`[Skies] FrameMode` 2, `SKIES_INTERP=2`): `video.cpp` *FrameMode 2* (the timeline) and
 `interp60.cpp` (`InterpDisplayReplay`, the blend plan cached per pair). Windows RTX 5080 at 239 Hz: field / world map
 240 pictures a second (p99 6.2-6.7 ms), the Antonio battle 120 (p99 10.1), full speed, V-Sync on or off. Left: a
-120 Hz phone (the AYN Thor), the Pocket 5 (60 Hz: no gain over FrameMode 1, a field later), a VRR screen by eye.
+VRR screen by eye, the Thor again at 120 after the exact-mode-rate change (the AYN Thor at 120 Hz: ~120 pictures/s
+in the field and battle, full speed, `ec84654`), the Pocket 5 (60 Hz: no gain over FrameMode 1, a field later).
 The notes below are the plan as it was.
 
 
@@ -63,7 +64,7 @@ the display's rate (120 / 144 Hz, VRR), each presented picture blended between t
   - Tested before the tag on WSL, Windows, the Pocket 5 and the Mac mini M4.
   - Every package checked on the draft (the owner's rule), then PUBLISHED 2026-11-20 18:25 UTC; #35 comment
     posted.
-- **Next build (local, unpushed):**
+- **Next build (v0.90.0-standalone.10; PUSHED to `origin/aurora-backend` 2026-11-20 evening, `bc3ba8c`):**
   - `d1bce57`: the "window" resolution covers widescreen windows (#35's soft textures).
   - `1cfaf23`: the padded-copy base, after Fina's flashback.
   - `60dd22d`: the release-checks docs.
@@ -80,7 +81,11 @@ the display's rate (120 / 144 Hz, VRR), each presented picture blended between t
   - Checked (2026-11-20, development notes, #35): Windows (C:\dev\SkiesStandalone rebuilt; flashback 9.66 ->
     1.02 ms; the cover costs the UHD 770 25-34% uncapped at 1440p, still >= 1.8x); the Pocket 5 test app
     (`ws35n10`: flashback 12.22 -> 2.56 ms, 1.00x); the Mac mini M4 (battle, #16 digits, cover 2560x1920, flashback 3.15 -> 1.01 ms, 1.00x).
-  - Left before tagging: the owner's word to push, tag and approve `android-sign`.
+  - The Dusklight ports (`522d085`..`f59e370`, `HANDOFF-emulator-free.md` *Dusklight ports*): Display refresh frame
+    rate (#20), upstream Aurora GX fixes, crash reports, mouse camera, controller light, launcher drop, the
+    Resolution row's size, AppStream metadata.
+  - Left before tagging: the owner's word to tag and approve `android-sign` (the push is done). The EU / JP
+    profiles first run in CI at the tag: `validate` on `aurora-backend` can't run codegen (`HANDOFF-release.md`).
 - **#35:** every reported item has a fix (the seams and the 60 fps squash in the next build); waiting on the
   reporter after it ships.
 - **Fast floating point:** an experiment only.

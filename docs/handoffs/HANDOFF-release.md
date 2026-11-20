@@ -50,7 +50,7 @@ were clean. The tag, `android-sign` and the publish each still need the owner's 
     `aurora-backend` can't show it: its codegen jobs need the `ci` environment, which deploys only from `dev`,
     `main` and `v*` tags ("Branch aurora-backend is not allowed to deploy to ci"; every dispatched run on this
     branch fails there, e.g. 44826619922 at `f59e370`); its host jobs (`standalone-host.yml`) still build the
-    engine for Linux / macOS / Windows. The codegen with the profiles runs at the tag's `release.yml`.
+    engine for Linux / macOS / Windows (all three green at `f59e370`: the Dusklight ports compile on macOS too). The codegen with the profiles runs at the tag's `release.yml`.
   - Then the usual *Release checks* on the draft, every platform's own package.
 - **Devices:** the Thor has the test app (`com.skiesofarcadia.recomp.test`, the game pushed to its
   `Games/GEAE8P`) beside the `.9` release install, now on `ws35dl1` (the `ws35n15` module and the Dusklight
