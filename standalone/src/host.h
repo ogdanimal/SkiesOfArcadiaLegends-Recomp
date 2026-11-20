@@ -341,6 +341,7 @@ int CheatsSkippedCount();
 std::string CheatsFileName();
 // A controller's motor: 0 stop, 1 rumble, 2 hard stop (the SDK's PAD_MOTOR_*)
 void VideoPadMotor(u32 channel, u32 command);
+void VideoPadColor(u8 red, u8 green, u8 blue);  // every controller with a colour light (Aurora's PADSetColor)
 // HD textures (video.cpp): USER/Load/Textures/ with its separator ("" without --user), where the
 // imported packs are (texture_pack.h); turning them on or off, live (Aurora's texture replacement).
 std::string TexturesDir();

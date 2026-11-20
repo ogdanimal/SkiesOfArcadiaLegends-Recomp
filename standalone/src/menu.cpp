@@ -91,6 +91,7 @@ enum class Option
   ShowFps,
   Renderer,
   Camera,
+  MouseCamera,
   BattleSpeed,
   FieldSpeed,
   Encounters,
@@ -103,6 +104,7 @@ enum class Option
   Volume,
   DeadZone,
   Rumble,
+  ControllerLight,
   TouchControls,
   TouchOpacity,
   TouchSize,
@@ -123,18 +125,26 @@ constexpr std::array GRAPHICS_ROWS{Option::Picture,    Option::Hud,          Opt
                                    Option::HdTextures, Option::VSync,        Option::ShowFps,
                                    Option::Renderer};
 #endif
+#if defined(__ANDROID__)
 constexpr std::array GAMEPLAY_ROWS{Option::Camera,     Option::BattleSpeed, Option::FieldSpeed,
                                    Option::Encounters, Option::HoldB,       Option::Exp,
                                    Option::Gold,       Option::MagicExp,    Option::Invincible,
                                    Option::Cheats};
+#else
+constexpr std::array GAMEPLAY_ROWS{Option::Camera,     Option::MouseCamera, Option::BattleSpeed,
+                                   Option::FieldSpeed, Option::Encounters,  Option::HoldB,
+                                   Option::Exp,        Option::Gold,        Option::MagicExp,
+                                   Option::Invincible, Option::Cheats};
+#endif
 constexpr std::array LANGUAGE_ROWS{Option::Language};
 constexpr std::array SOUND_ROWS{Option::Volume};
 constexpr std::array DREAMCAST_ROWS{Option::Music, Option::Uncensored};
 #if defined(__ANDROID__)
 constexpr std::array CONTROLS_ROWS{Option::Mapping,       Option::DeadZone,     Option::Rumble,
-                                   Option::TouchControls, Option::TouchOpacity, Option::TouchSize};
+                                   Option::ControllerLight, Option::TouchControls, Option::TouchOpacity,
+                                   Option::TouchSize};
 #else
-constexpr std::array CONTROLS_ROWS{Option::Mapping, Option::DeadZone, Option::Rumble};
+constexpr std::array CONTROLS_ROWS{Option::Mapping, Option::DeadZone, Option::Rumble, Option::ControllerLight};
 #endif
 struct Tab
 {
@@ -191,6 +201,8 @@ constexpr Key SHIP_HUD{SettingFile::Main, "Skies", "ShipHud", 0};
 // -1 (unset) and 0: 30 fps, 1: 60 fps (interp60.cpp)
 constexpr Key FRAME_MODE{SettingFile::Main, "Skies", "FrameMode", -1};
 constexpr Key CAMERA_CONTROL{SettingFile::Main, "Skies", "CameraControl", 1};
+constexpr Key MOUSE_CAMERA{SettingFile::Main, "Skies", "MouseCamera", 0};  // desktop: the mouse turns the camera
+constexpr Key CONTROLLER_LIGHT{SettingFile::Main, "Skies", "ControllerLight", 1};  // a pad's light by the game
 constexpr Key ENCOUNTERS{SettingFile::Main, "Skies", "Encounters", 100};
 constexpr Key EXP{SettingFile::Main, "Skies", "Exp", 100};
 constexpr Key GOLD{SettingFile::Main, "Skies", "Gold", 100};
@@ -287,6 +299,7 @@ struct Values
   bool vsync = false;
   bool show_fps = false;
   int camera = 1;
+  int mouse_camera = 0;
   int encounters = 100;
   int hold_b = 0;
   int exp = 100;
@@ -301,6 +314,7 @@ struct Values
   int language = 0;
   int dead_zone = 0;
   int rumble = 1;
+  int controller_light = 1;
   int touch = 0;  // TOUCH_CONTROLS
   int touch_opacity = 75;
   int touch_size = 100;
@@ -548,6 +562,7 @@ Values ReadValues()
   values.vsync = Get(VSYNC) != 0;
   values.show_fps = Get(SHOW_FPS) != 0;
   values.camera = Get(CAMERA_CONTROL) != 0 ? 1 : 0;
+  values.mouse_camera = Get(MOUSE_CAMERA) != 0 ? 1 : 0;
   values.encounters = Get(ENCOUNTERS);
   values.hold_b = Get(HOLD_B) != 0 ? 1 : 0;
   values.exp = Get(EXP);
@@ -562,6 +577,7 @@ Values ReadValues()
   values.language = std::clamp(Get(LANGUAGE), 0, 3);
   values.dead_zone = ReadDeadZone();
   values.rumble = ReadRumble();
+  values.controller_light = Get(CONTROLLER_LIGHT) != 0 ? 1 : 0;
   values.touch = std::clamp(Get(TOUCH_CONTROLS), 0, 2);
   values.touch_opacity = std::clamp(Get(TOUCH_OPACITY), 25, 100);
   values.touch_size = std::clamp(Get(TOUCH_SIZE), 75, 110);
@@ -602,6 +618,7 @@ void Apply(const Values& values, const Values& before)
   set(VSYNC, values.vsync, before.vsync);
   set(SHOW_FPS, values.show_fps, before.show_fps);
   set(CAMERA_CONTROL, values.camera, before.camera);
+  set(MOUSE_CAMERA, values.mouse_camera, before.mouse_camera);
   set(ENCOUNTERS, values.encounters, before.encounters);
   set(HOLD_B, values.hold_b, before.hold_b);
   set(EXP, values.exp, before.exp);
@@ -616,6 +633,7 @@ void Apply(const Values& values, const Values& before)
   set(LANGUAGE, values.language, before.language);
   set(DEAD_ZONE, values.dead_zone, before.dead_zone);
   set(RUMBLE, values.rumble, before.rumble);
+  set(CONTROLLER_LIGHT, values.controller_light, before.controller_light);
   if (values.dead_zone != before.dead_zone)
   {
     SettingSet(SettingFile::Pad, "GCPad1", "Main Stick/Dead Zone", values.dead_zone);
@@ -867,8 +885,14 @@ void Change(Option option, int direction, bool wrap)
   case Option::Camera:
     v.camera = v.camera ? 0 : 1;
     break;
+  case Option::MouseCamera:
+    v.mouse_camera = v.mouse_camera ? 0 : 1;
+    break;
   case Option::DeadZone:
     v.dead_zone = Step(DEAD_ZONES, v.dead_zone, direction, wrap);
+    break;
+  case Option::ControllerLight:
+    v.controller_light = v.controller_light ? 0 : 1;
     break;
   case Option::Rumble:
     v.rumble = v.rumble ? 0 : 1;
@@ -1032,6 +1056,86 @@ bool InShipBattle()
 // the ship) and the L/R triggers zoom; the game patch (patches/game/camera.c) applies the offsets
 // it finds in cam_input. Only where the game's camera manager follows the field camera object:
 // towns, dungeons and the world map.
+// ---- the mouse camera (desktop) ----------------------------------------------------------------------
+// Dusklight's mouse look (src/dusk/mouse.cpp, TwilitRealm/dusklight): with [Skies] MouseCamera on, a click
+// on the picture takes the mouse (SDL's relative mode) while the menu is closed; Esc, the menu or another
+// window lets it go. Its motion goes to the camera control (camera::ApplyMouse) where that works (the field
+// and the world map), the wheel zooms. Anywhere, the cursor hides after a second without moving.
+namespace mouse
+{
+std::atomic<float> s_dx{0.0f}, s_dy{0.0f}, s_wheel{0.0f};  // since the game's last poll
+std::atomic<bool> s_wanted{false};    // the setting on and the menu closed (the game's thread)
+std::atomic<bool> s_captured{false};  // the video thread's
+std::atomic<s64> s_moved_ns{0};       // the cursor's last motion
+std::atomic<bool> s_cursor_hidden{false};
+
+s64 NowNs()
+{
+  return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch())
+      .count();
+}
+
+#ifdef SKIES_STANDALONE_AURORA
+void Release(SDL_Window* window)
+{
+  if (!s_captured.exchange(false))
+    return;
+  if (window)
+    SDL_SetWindowRelativeMouseMode(window, false);
+  s_dx = s_dy = s_wheel = 0.0f;
+}
+
+void ReleaseAny()
+{
+  int count = 0;
+  SDL_Window** windows = SDL_GetWindows(&count);
+  Release(windows && count > 0 ? windows[0] : nullptr);
+  SDL_free(windows);
+}
+
+// From MenuKeyWatch, on the video thread. True: the event was the mouse camera's (not a menu tap).
+bool Event(SDL_Event* event)
+{
+  switch (event->type)
+  {
+  case SDL_EVENT_MOUSE_MOTION:
+    if (s_captured)
+    {
+      s_dx.fetch_add(event->motion.xrel);
+      s_dy.fetch_add(event->motion.yrel);
+      return true;
+    }
+    s_moved_ns = NowNs();
+    if (s_cursor_hidden.exchange(false))
+      SDL_ShowCursor();
+    return false;
+  case SDL_EVENT_MOUSE_WHEEL:
+    if (s_captured)
+      s_wheel.fetch_add(event->wheel.y);
+    return s_captured;
+  case SDL_EVENT_MOUSE_BUTTON_DOWN:
+    if (s_captured)
+      return true;
+    if (event->button.button == SDL_BUTTON_LEFT && s_wanted)
+    {
+      if (SDL_Window* window = SDL_GetWindowFromEvent(event); window && SDL_SetWindowRelativeMouseMode(window, true))
+      {
+        s_captured = true;
+        s_dx = s_dy = s_wheel = 0.0f;
+        return true;
+      }
+    }
+    return false;
+  case SDL_EVENT_WINDOW_FOCUS_LOST:
+    Release(SDL_GetWindowFromEvent(event));
+    return false;
+  default:
+    return false;
+  }
+}
+#endif
+}  // namespace mouse
+
 namespace camera
 {
 const RegionAddress GAME_MODE{0x803475CC, 0x8034ACEC, 0x80347048};  // 6 = field / world map
@@ -1135,6 +1239,75 @@ bool Update(const Context& context, const PadStatus& raw, bool z, float dt)
   return moved;
 }
 
+// The mouse camera (mouse:: above): its motion since the last poll on the offsets: up and down tilt, the
+// wheel zooms, and on the world map left and right turn. In the field the game turns its own camera (and
+// Vyse walks by it): the turn goes to the game as C-stick X, which fn_80090DBC makes a turn of
+// X / -44 * 512 a frame, steered toward the yaw the mouse asks for (the camera object's target yaw, +0x74,
+// in the rooms of camera type 2, else its output yaw). Returns the C-stick X to send (STICK_CENTER: the
+// pad's own). SKIES_MOUSE_TRACE=1: each poll in the log.
+constexpr float MOUSE_TURN = 0.15f * DEGREES;  // per pixel (Dusklight's 0.0025 rad is 0.14 degrees)
+constexpr float MOUSE_TILT = 0.12f * DEGREES;
+constexpr float MOUSE_ZOOM = 0.08f;  // per wheel notch
+const RegionAddress FIELD_CAMERA_TYPE{0x80302F20, 0x803065A0, 0x803029A0};  // the object's +0x8 halfword
+const RegionAddress FIELD_YAW_TARGET{0x80302F8C, 0x8030660C, 0x80302A0C};   // +0x74
+struct MouseYaw
+{
+  bool active = false;
+  s32 goal = 0;  // 0..0xFFFF
+  int settled = 0;
+};
+MouseYaw s_mouse_yaw;
+
+s32 Wrap16(s32 v)
+{
+  v &= 0xFFFF;
+  return v >= 0x8000 ? v - 0x10000 : v;
+}
+
+int ApplyMouse(const Context& context, float dx, float dy, float wheel)
+{
+  Offsets& offsets = context.world_map ? s_world : s_field;
+  const Limits& limits = context.world_map ? WORLD_LIMITS : FIELD_LIMITS;
+  offsets.pitch -= dy * MOUSE_TILT;
+  offsets.zoom = std::clamp(offsets.zoom - wheel * MOUSE_ZOOM, limits.zoom_lo, limits.zoom_hi);
+  offsets.pitch = std::clamp(offsets.pitch, std::min(0.0f, limits.pitch_lo - context.game_pitch),
+                             std::max(0.0f, limits.pitch_hi - context.game_pitch));
+  if (context.world_map)
+  {
+    offsets.yaw -= dx * MOUSE_TURN;
+    s_mouse_yaw.active = false;
+    return STICK_CENTER;
+  }
+  const bool target = (Read32(FIELD_CAMERA_TYPE) >> 16) == 2;
+  const s32 current = static_cast<s32>(Read32(target ? FIELD_YAW_TARGET : FIELD_CAMERA_PITCH + 4) & 0xFFFF);
+  MouseYaw& yaw = s_mouse_yaw;
+  if (dx != 0.0f)
+  {
+    if (!yaw.active)
+      yaw.goal = current;
+    yaw.active = true;
+    yaw.settled = 0;
+    yaw.goal = (yaw.goal + static_cast<s32>(std::lround(-dx * MOUSE_TURN))) & 0xFFFF;
+  }
+  if (!yaw.active)
+    return STICK_CENTER;
+  const s32 error = Wrap16(yaw.goal - current);
+  static const bool s_trace = std::getenv("SKIES_MOUSE_TRACE") != nullptr;
+  if (s_trace)
+    Log("[mouse] dx %.1f dy %.1f: yaw %04x goal %04x (%s) error %d\n", dx, dy, current, yaw.goal,
+        target ? "target" : "output", error);
+  if (std::abs(error) < 16)
+  {
+    // There: the game's own camera again after a moment (its follow, the pad's C-stick)
+    if (++yaw.settled > 30)
+      yaw.active = false;
+    return STICK_CENTER;
+  }
+  // The stick that turns the rest of the way in one frame, at most fully over
+  const int stick = std::clamp(static_cast<int>(std::lround(-error * 44.0f / 512.0f)), -100, 100);
+  return STICK_CENTER + stick;
+}
+
 void Write(const Context& context, bool enabled)
 {
   if (Read32(HOOK_SITE) == HOOK_ORIGINAL)
@@ -1151,6 +1324,42 @@ void Write(const Context& context, bool enabled)
   Write32(INPUT + 28, std::bit_cast<u32>(limits.rise));
 }
 }  // namespace camera
+
+// The controllers' colour light (Dusklight's gamepad_color.cpp: the light follows the game), every poll on the
+// game's thread: sky blue in the field, lighter over the world map, red-orange in battle, easing between
+// them. [Skies] ControllerLight 0 leaves the light alone (from the moment it's turned off).
+void ControllerLight()
+{
+  static bool s_was_on = false;
+  if (Get(CONTROLLER_LIGHT) == 0)
+  {
+    s_was_on = false;
+    return;
+  }
+  const u32 mode = Read32(camera::GAME_MODE);
+  const bool battle = mode == 7;
+  const bool world = mode == 6 && Read32(camera::MAP_ID) == camera::WORLD_MAP;
+  const float target[3] = {battle ? 255.0f : world ? 90.0f : 40.0f, battle ? 60.0f : world ? 190.0f : 120.0f,
+                           battle ? 20.0f : 255.0f};
+  static float s_color[3] = {40.0f, 120.0f, 255.0f};
+  static u8 s_sent[3] = {0, 0, 0};
+  static u64 s_last = 0;
+  const u64 now = Now();
+  const float dt = s_last == 0 ? 1.0f : std::clamp(static_cast<float>(now - s_last) / CPU_HZ, 0.0f, 1.0f);
+  s_last = now;
+  const float k = std::min(1.0f, dt * 3.0f);  // about a third of a second
+  u8 c[3];
+  for (int i = 0; i < 3; ++i)
+  {
+    s_color[i] += (target[i] - s_color[i]) * k;
+    c[i] = static_cast<u8>(std::clamp(std::lround(s_color[i]), 0l, 255l));
+  }
+  if (s_was_on && c[0] == s_sent[0] && c[1] == s_sent[1] && c[2] == s_sent[2])
+    return;
+  s_was_on = true;
+  std::memcpy(s_sent, c, 3);
+  VideoPadColor(c[0], c[1], c[2]);
+}
 
 // Quality-of-life options: the settings go to the game patch (patches/game/qol.c) through
 // qol_input every poll; a Z tap in battle cycles the battle speed, Z+X in the field the field speed.
@@ -1450,11 +1659,68 @@ PadStatus FilterClosed(const PadStatus& raw)
     out.buttons &= ~(PAD_TRIGGER_Z | PAD_BUTTON_X);
     return out;
   }
+  // The mouse camera: wanted while its setting is on and the menu closed; the motion goes to the camera
+  // where the camera control works (else it's dropped, as the cursor is the game's then)
+  {
+    const bool wanted = Get(MOUSE_CAMERA) != 0 && s_mode != Mode::Open;
+    mouse::s_wanted = wanted;
+#if defined(SKIES_STANDALONE_AURORA) && !defined(__ANDROID__)
+    if (!wanted && mouse::s_captured)
+      VideoPost([] { mouse::ReleaseAny(); });
+    // The cursor out of the way a second after it stopped (it comes back as it moves: mouse::Event)
+    const s64 moved = mouse::s_moved_ns.load();
+    if (moved != 0 && !mouse::s_cursor_hidden && mouse::NowNs() - moved > 1'000'000'000)
+    {
+      mouse::s_cursor_hidden = true;
+      VideoPost([] {
+        if (mouse::s_cursor_hidden)
+          SDL_HideCursor();
+      });
+    }
+#endif
+  }
+  ControllerLight();
+  int mouse_stick = STICK_CENTER;
+  // SKIES_MOUSE_SCRIPT=+T:DX,DY[,WHEEL];... (tests): that motion at T guest seconds after the start, as if
+  // the mouse were taken (no window or pointer needed)
+  static const std::vector<std::array<double, 4>> s_mouse_script = [] {
+    std::vector<std::array<double, 4>> list;
+    const char* spec = std::getenv("SKIES_MOUSE_SCRIPT");
+    for (std::string rest = spec ? spec : ""; !rest.empty();)
+    {
+      const size_t semi = rest.find(';');
+      const std::string one = rest.substr(0, semi);
+      rest = semi == std::string::npos ? "" : rest.substr(semi + 1);
+      std::array<double, 4> e{0, 0, 0, 0};
+      if (std::sscanf(one.c_str(), "+%lf:%lf,%lf,%lf", &e[0], &e[1], &e[2], &e[3]) >= 3)
+        list.push_back(e);
+    }
+    return list;
+  }();
+  static size_t s_mouse_next = 0;
+  const bool scripted = !s_mouse_script.empty();
+  while (scripted && s_mouse_next < s_mouse_script.size() &&
+         static_cast<double>(Now()) / CPU_HZ >= g_run_start_seconds + s_mouse_script[s_mouse_next][0])
+  {
+    const auto& e = s_mouse_script[s_mouse_next++];
+    mouse::s_dx.fetch_add(static_cast<float>(e[1]));
+    mouse::s_dy.fetch_add(static_cast<float>(e[2]));
+    mouse::s_wheel.fetch_add(static_cast<float>(e[3]));
+  }
+  if (mouse::s_captured || scripted)
+  {
+    const float dx = mouse::s_dx.exchange(0.0f), dy = mouse::s_dy.exchange(0.0f);
+    const float wheel = mouse::s_wheel.exchange(0.0f);
+    if (camera_on)
+      mouse_stick = camera::ApplyMouse(context, dx, dy, wheel);
+  }
   if (camera_on)
   {
     if (camera::Update(context, raw, s_z_held_back && z, dt))
       s_z_camera_used = true;
     camera::Write(context, true);
+    if (mouse_stick != STICK_CENTER && !context.world_map)
+      out.sub_x = static_cast<u8>(mouse_stick);
     if (s_z_held_back && z)
     {
       // The camera has the C-stick's tilt (and on the world map its turn) and the triggers.
@@ -1926,6 +2192,7 @@ struct Hotkeys
   bool stick_click = false;  // L3 or R3
 };
 
+
 #ifdef SKIES_STANDALONE_AURORA
 // Esc / Back latched as they go down (the video thread pumps SDL's events): polling the keyboard state missed a
 // tap shorter than a pad read (a quick Back, adb's input keyevent), and polling it as well would count a press twice.
@@ -1934,7 +2201,14 @@ bool SDLCALL MenuKeyWatch(void*, SDL_Event* event)
   // The Menu hotkey's key (Escape unless rebound) and Android's Back key
   if (event->type == SDL_EVENT_KEY_DOWN && !event->key.repeat &&
       (static_cast<int>(event->key.scancode) == InputHotkeyKey(0) || event->key.scancode == SDL_SCANCODE_AC_BACK))
+  {
     s_back_request.store(true);
+    mouse::Release(SDL_GetWindowFromEvent(event));  // the menu opens: the mouse is the player's again
+  }
+#if !defined(__ANDROID__)
+  if (mouse::Event(event))
+    return true;
+#endif
   if (event->type == SDL_EVENT_KEY_DOWN && !event->key.repeat && event->key.scancode == SDL_SCANCODE_F1)
     s_f1_request.store(true);
   if (event->type == SDL_EVENT_KEY_DOWN && !event->key.repeat &&
@@ -2530,6 +2804,10 @@ void Draw(float scale)
       return {"Camera", v.camera ? "Hold Z to move" : "Original",
               "Hold Z, then tilt with the C-stick and zoom with L / R. Original keeps the game's "
               "fixed camera."};
+    case Option::MouseCamera:
+      return {"Mouse camera", v.mouse_camera ? "On" : "Off",
+              "Click the picture to turn the camera with the mouse (the wheel zooms). Esc or the menu "
+              "lets the mouse go."};
     case Option::BattleSpeed:
       return {"Battle speed", SpeedText(v.battle_speed),
               "Plays battles faster. Tap Z during a battle to switch speeds."};
@@ -2573,6 +2851,10 @@ void Draw(float scale)
     case Option::DeadZone:
       return {"Stick dead zone", v.dead_zone <= 0 ? std::string("Off") : std::to_string(v.dead_zone) + "%",
               "Ignores small stick movements. Raise it if a stick drifts."};
+    case Option::ControllerLight:
+      return {"Controller light", v.controller_light ? "By the game" : "Off",
+              "A controller with a colour light (DualSense, DualShock 4, Switch Pro) glows sky blue in the "
+              "field and on the world map and red in battle. Off leaves the light to the controller."};
     case Option::Rumble:
       return {"Rumble", v.rumble ? "On" : "Off", "Controller vibration."};
     case Option::TouchControls:

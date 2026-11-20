@@ -34,6 +34,7 @@
 #include <aurora/aurora.h>
 #include <aurora/gfx.h>
 #include <dolphin/gx.h>
+#include <dolphin/pad.h>
 #include <dolphin/vi.h>
 
 #if defined(__ANDROID__)
@@ -1233,6 +1234,48 @@ void ApplyPokes()
     return list;
   }();
   const double now = static_cast<double>(Now()) / CPU_HZ;
+  // SKIES_PEEK=@T:ADDR:N[;...] (tests): the N words at ADDR logged once at guest time T (@+T: after the start)
+  struct Peek
+  {
+    u32 address, count;
+    double at;
+    bool relative, done = false;
+  };
+  static std::vector<Peek> peeks = [] {
+    std::vector<Peek> list;
+    const char* spec = std::getenv("SKIES_PEEK");
+    for (std::string rest = spec ? spec : ""; !rest.empty();)
+    {
+      const size_t semi = rest.find(';');
+      const std::string one = rest.substr(0, semi);
+      rest = semi == std::string::npos ? "" : rest.substr(semi + 1);
+      const size_t c1 = one.find(':'), c2 = one.find(':', c1 + 1);
+      if (one.size() < 2 || one[0] != '@' || c1 == std::string::npos || c2 == std::string::npos)
+        continue;
+      const bool relative = one[1] == '+';
+      list.push_back(Peek{static_cast<u32>(std::strtoul(one.substr(c1 + 1, c2 - c1 - 1).c_str(), nullptr, 16)),
+                          static_cast<u32>(std::strtoul(one.c_str() + c2 + 1, nullptr, 0)),
+                          std::strtod(one.c_str() + (relative ? 2 : 1), nullptr), relative});
+    }
+    return list;
+  }();
+  for (Peek& p : peeks)
+  {
+    if (p.done || now < (p.relative ? g_run_start_seconds + p.at : p.at))
+      continue;
+    p.done = true;
+    for (u32 i = 0; i < p.count; i += 8)
+    {
+      std::string line;
+      char word[16];
+      for (u32 k = i; k < std::min(p.count, i + 8); ++k)
+      {
+        std::snprintf(word, sizeof(word), " %08x", Read32(p.address + 4 * k));
+        line += word;
+      }
+      Log("[peek] %08x:%s (%.3f s)\n", p.address + 4 * i, line.c_str(), now);
+    }
+  }
   for (Poke& p : pokes)
   {
     if (p.at >= 0)
@@ -2104,6 +2147,30 @@ void VideoPadRead(u16 buttons[4], s8 sticks[4][4], u8 triggers[4][2], bool conne
     triggers[i][1] = std::max(triggers[i][1], state[i].trigger_right);
   }
   AddTouchPad(buttons[0], sticks[0], triggers[0]);
+#endif
+}
+
+void VideoPadColor(u8 red, u8 green, u8 blue)
+{
+#ifdef SKIES_STANDALONE_AURORA
+  if (s_active)
+  {
+    const auto input = VideoInputLock();
+    int lit = 0;
+    for (u32 port = 0; port < 4; ++port)
+    {
+      if (PADHasLED(port) && PADSetColor(port, red, green, blue))
+        ++lit;
+    }
+    static int s_lit = -1;
+    if (lit != s_lit)
+    {
+      s_lit = lit;
+      Log("[input] controller light: %d controller%s with a colour light\n", lit, lit == 1 ? "" : "s");
+    }
+  }
+#else
+  (void)red, (void)green, (void)blue;
 #endif
 }
 
