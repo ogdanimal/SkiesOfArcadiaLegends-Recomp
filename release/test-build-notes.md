@@ -1,4 +1,4 @@
-The fifth test build of the new engine: sharper pictures on widescreen screens, no more pieces loading in late on phones, smoother 60 fps, and faster European and Japanese games.
+The fifth test build of the new engine: a frame rate that follows your screen (120 Hz, 144 Hz, 240 Hz), sharper pictures on widescreen screens, no more pieces loading in late on phones, smoother 60 fps, and faster European and Japanese games.
 
 > [!WARNING]
 > **This is a test build.** [v0.83.0-beta](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/releases/tag/v0.83.0-beta) stays the recommended release. **Back up your saves first** (Settings → Saves → Back up saves): save states made by the new engine don't load in 0.83.
@@ -27,7 +27,7 @@ These ideas come from [Dusklight](https://github.com/TwilitRealm/dusklight), the
 ## Fixed
 
 - **Shaders are prepared when the game starts** ([#34](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/34))
-  - The first time the game saw a scene, it drew without the objects whose shaders were still compiling, so on phones and handhelds pieces of a scene (the Valuan gate in the opening) came in late. The game now prepares the shaders it knows it will need before it starts, with a "Preparing shaders" bar: about 10-20 seconds the first time on an AYN Thor, a second or so after that. Any button, key or tap skips it.
+  - The first time the game saw a scene, it drew without the objects whose shaders were still compiling, so on phones and handhelds pieces of a scene (the Valuan gate in the opening) came in late. The game now prepares the shaders it knows it will need before it starts, with a "Preparing shaders" bar: about 20 seconds the first time on an AYN Thor (10 on a desktop graphics card), a second or so after that. Any button, key or tap skips it.
 - **Soft textures on widescreen screens** ([#35](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/35))
   - With Resolution "window", the picture was drawn at 4:3 inside the window and stretched sideways. It now covers the window, as Dolphin's Auto does: on a 2560×1440 screen textures are as sharp as in the Dolphin build.
 - **Lines in the sky with anti-aliasing (MSAA)** ([#35](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/35))

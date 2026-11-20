@@ -43,9 +43,15 @@ were clean. The tag, `android-sign` and the publish each still need the owner's 
   AYN Thor test app (`ws35n15`: the shader preparation, 725 pipelines in 12.6 s cold, 0.9 s after, tap skip);
   a Fable review of the shader preparation, its findings fixed. The 255-map warp sweep: no engine problems.
 - **Left before tagging:**
-  - Rebuild `release/initial_pipeline_cache.db` with the Windows session's sweep cache
-    (`%APPDATA%\Skies of Arcadia Legends\pipeline_cache.db`) and WSL's (`tools/merge-pipeline-cache.py`).
-  - A Windows check of the bar (keyboard and controller skip), and the Mac (the bundle's Resources path).
+  - DONE 2026-11-20 evening: `release/initial_pipeline_cache.db` rebuilt from the old list, the Windows sweep cache
+    (`%APPDATA%\Skies of Arcadia Legends\pipeline_cache.db`, 1575 rows) and WSL's (775):
+    `tools/merge-pipeline-cache.py`, 1626 pipelines (was 854), 0 skipped at the seed. Cold preparation: the AYN
+    Thor 1203 pipelines in 19.5 s (was 725 in 12.6 s), the RTX 5080 1194 in 9.7 s, WSL llvmpipe 1200 in 7.0 s;
+    a second start compiles nothing.
+  - DONE: the Windows keyboard skip (Space posted to the game's window at ~2.5 s: "161 pipelines in 2.5 s
+    (skipped by the player)"; `C:\dev\SkiesStandalone\dl-prepskip.ps1`, its own `--title` so the cache is
+    cold). Not checked: a controller's skip on Windows (none connected; the same SDL check), the Mac (the
+    bundle's Resources path: on the draft).
   - A CI run that shows the EU / JP modules built with their profiles. `validate` started by hand on
     `aurora-backend` can't show it: its codegen jobs need the `ci` environment, which deploys only from `dev`,
     `main` and `v*` tags ("Branch aurora-backend is not allowed to deploy to ci"; every dispatched run on this
