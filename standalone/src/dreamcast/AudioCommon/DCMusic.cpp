@@ -4,6 +4,7 @@
 #include "AudioCommon/DCMusic.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <array>
 #include <cstring>
 #include <deque>
@@ -277,8 +278,63 @@ private:
     Render(m_buffer, CHUNK);
     m_buffer_len = CHUNK;
     m_buffer_pos = 0;
+    WatchForPinnedOutput();
     if (!m_playing && m_tail > 0)
       m_tail -= static_cast<int>(CHUNK);
+  }
+
+  // Issue #26: a player heard the music pinned at full scale for seconds at a time in some songs (only
+  // the half of the waveform above the floor got through), which hasn't been reproduced here. When the
+  // chip's output, after the gain, sits at full scale for over 30% of a quarter second, the log gets one
+  // line (at most every 10 s, 20 in all) with the song and what the chip is doing, for the report.
+  void WatchForPinnedOutput()
+  {
+    const float gain = m_gain / 256.0f * m_level;
+    for (std::size_t i = 0; i < CHUNK; ++i)
+      for (int c = 0; c < 2; ++c)
+      {
+        const int x = m_buffer[i * 2 + c];
+        if (std::abs(x * gain) >= 32000.0f)
+          ++m_pin_samples;
+        m_pin_min[c] = std::min(m_pin_min[c], x);
+        m_pin_max[c] = std::max(m_pin_max[c], x);
+        m_pin_sum[c] += x;
+      }
+    m_pin_frames += CHUNK;
+    if (m_pin_frames < AICA_RATE / 4)
+      return;
+    const double share = m_pin_samples / (2.0 * static_cast<double>(m_pin_frames));
+    m_pin_since += m_pin_frames;
+    if (share > 0.3 && m_pin_reports < 20 && (m_pin_reports == 0 || m_pin_since >= 10 * AICA_RATE))
+    {
+      ++m_pin_reports;
+      m_pin_since = 0;
+      void* yam = dcsound_get_yam_state(m_state.get());
+      std::string keyed;
+      for (u32 ch = 0; ch < 64; ++ch)
+      {
+        const u32 base = ch * 0x80;
+        const u32 play = yam_aica_load_reg(yam, base + 0x00, 0xFFFF);
+        if (!(play & 0x4000))
+          continue;
+        const u32 address = ((play & 0x7F) << 16) | yam_aica_load_reg(yam, base + 0x04, 0xFFFF);
+        keyed += fmt::format(" {}:{:06x}/{}/{:04x}-{:04x}/{:04x}/{:04x}", ch, address, (play >> 7) & 3,
+                             yam_aica_load_reg(yam, base + 0x08, 0xFFFF), yam_aica_load_reg(yam, base + 0x0C, 0xFFFF),
+                             yam_aica_load_reg(yam, base + 0x20, 0xFFFF), yam_aica_load_reg(yam, base + 0x24, 0xFFFF));
+      }
+      const double frames = static_cast<double>(m_pin_frames);
+      WARN_LOG_FMT(AUDIO,
+                   "Dreamcast music output pinned ({:.0f}% of 0.25 s at full scale, issue #26): {} bank {} "
+                   "sequence {}, gain {} level {:.2f}; chip L {}..{} (mean {:.0f}), R {}..{} (mean {:.0f}); "
+                   "effect out {:04x} {:04x}; keyed (channel:address/format/loop/send/direct){}",
+                   share * 100.0, m_song, m_play_bank, m_play_sequence, m_gain, m_level, m_pin_min[0],
+                   m_pin_max[0], m_pin_sum[0] / frames, m_pin_min[1], m_pin_max[1], m_pin_sum[1] / frames,
+                   yam_aica_load_reg(yam, 0x4580, 0xFFFF), yam_aica_load_reg(yam, 0x4584, 0xFFFF), keyed);
+    }
+    m_pin_frames = m_pin_samples = 0;
+    m_pin_min[0] = m_pin_min[1] = 32767;
+    m_pin_max[0] = m_pin_max[1] = -32768;
+    m_pin_sum[0] = m_pin_sum[1] = 0;
   }
 
   void Render(s16* buffer, std::size_t samples)
@@ -337,10 +393,13 @@ private:
           goto send;
         if (r.data && !r.data->empty())
           DownloadUnits(*r.data);
+        m_song = r.mlt;
         break;
       case Request::Kind::Command:
         if (r.record[0] == CMD_MIDI_PLAY)
         {
+          m_play_bank = r.record[3];
+          m_play_sequence = r.record[4];
           // A new song starts at its own level, on a running chip.
           StartFade(1.0f, 0, AfterFade::None);
           m_frozen = false;
@@ -443,6 +502,12 @@ private:
   bool m_frozen = false;   // paused: not rendered at all
   bool m_playing = false;  // a song was started and not stopped
   int m_tail = 0;          // samples still to render after a stop
+  // WatchForPinnedOutput
+  std::string m_song;
+  int m_play_bank = -1, m_play_sequence = -1;
+  u32 m_pin_frames = 0, m_pin_samples = 0, m_pin_since = 0, m_pin_reports = 0;
+  int m_pin_min[2] = {32767, 32767}, m_pin_max[2] = {-32768, -32768};
+  double m_pin_sum[2] = {};
 };
 
 std::mutex s_lock;  // guards s_engines against Start / Shutdown while the audio thread mixes

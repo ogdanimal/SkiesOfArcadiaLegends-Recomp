@@ -3238,6 +3238,23 @@ build (Dolphin's Vulkan backend on llvmpipe is right).
   songs (red alarm 10 min, the first battle 5 min) have no stuck span; with the patch the red alarm's first 60 s
   are byte-identical. A held last sample isn't it either (a non-looping sample outputs 0 after its end). The
   reported songs (the Ramirez scenes, Vigoro in the cell, the Dark Rift's end, Yafutoma) still need a state.
+  2026-11-19 (the standalone, warping into Vigoro's cell: `05-save-point` plus `SKIES_POKE` IntVar 15 = 2300 and
+  a map change to `me116a`): the reporter's three clips sit on a hard floor at -9827 (-32768 at their 30% volume)
+  with only the music above it getting through, pinned 1-3 s, music for 0.5 s, pinned again, then a 1.5 s drift
+  back at a scene change. Not reproduced: the cell scene's song (M0269, 15 minutes), the fight's (M0374), the
+  one after it (M0312, 13 minutes), guest-time and real-time (48 kHz stream) mixing, Field 3x / Battle 4x, the
+  Windows build, the Dolphin engine's final mix, the SHIFT 2 / 3 fix reverted (the reverb program has no SHIFT
+  2 / 3 steps: 0 in 96 s). The US disc 1, European disc 2 and Japanese disc 1 give identical MLTs; the banks
+  don't overlap (each MLT carries data for its own bank number only), and the voices play from bank 0 and the
+  song's own bank. Found on the way: the game's own audio carries a constant DC (about -1000 in the cell,
+  -838 in battle): MusyX's depop (DoDepopFade, 0x8027C814 USA) leaves a remainder under 160 in the AX start
+  values for good, and the game's reverb on the AUX buses amplifies it about 8x. The real microcode does the
+  same (Dolphin's DSP LLE from a clean boot; an HLE state loaded into LLE leaves the sound system broken, so
+  don't compare that way). The console's analog output is AC-coupled, so the standalone now runs the game's
+  audio through a 7 Hz DC blocker (`video.cpp`, `SKIES_KEEP_DC=1` for the old behaviour): headroom for the
+  Dreamcast music. And the Dreamcast engine logs a line when its output, after the gain, sits at full scale
+  for over 30% of a quarter second (`DCMusic.cpp` `WatchForPinnedOutput`): the song, the chip's range, the
+  effect outputs and each keyed channel's sample address, format, loop and sends, for the next report.
 - **#32** 15-17 fps on a Ryzen 5 3550H + GTX 1650 laptop (v0.83): the Dolphin build takes Vulkan adapter 0 (on
   AMD APU + NVIDIA laptops that can be the integrated GPU); Aurora asks Dawn for HighPerformance. A good tester for
   the standalone.

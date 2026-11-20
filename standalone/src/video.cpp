@@ -1663,8 +1663,44 @@ void WavClose()
   s_wav = nullptr;
 }
 
+// The console's analog audio output is AC-coupled, so the DC the game's own mix carries never reaches the
+// speakers. The game has some: MusyX's depop leaves a remainder under 160 in its start values for good
+// (DoDepopFade, 0x8027C814 USA), and the game's reverb on the AUX buses amplifies that constant (about 8x in
+// Vigoro's cell), the real microcode too (Dolphin's DSP LLE from a clean boot). Passed on as it is, it thumps
+// when it changes and takes headroom from the Dreamcast music added on top (issue #26). A first-order DC
+// blocker (about 7 Hz) on the game's audio stands in for the coupling capacitors.
+class DcBlocker
+{
+public:
+  void Run(const s16* in, s16* out, u32 frames)
+  {
+    for (u32 i = 0; i < frames; ++i)
+      for (int c = 0; c < 2; ++c)
+      {
+        const float x = in[i * 2 + c];
+        const float y = x - m_x[c] + POLE * m_y[c];
+        m_x[c] = x;
+        m_y[c] = y;
+        out[i * 2 + c] = static_cast<s16>(std::clamp(std::lround(y), -32768L, 32767L));
+      }
+  }
+
+private:
+  static constexpr float POLE = 0.99863f;  // exp(-2 pi 7 / 32000)
+  float m_x[2] = {}, m_y[2] = {};
+};
+
 void AudioPushSamples(const s16* samples, u32 frames)
 {
+  static DcBlocker s_dc_blocker;
+  static std::vector<s16> s_blocked;
+  static const bool s_keep_dc = std::getenv("SKIES_KEEP_DC") != nullptr;  // A/B tests: the game's DC as it was
+  if (!s_keep_dc)
+  {
+    s_blocked.resize(frames * 2);
+    s_dc_blocker.Run(samples, s_blocked.data(), frames);
+    samples = s_blocked.data();
+  }
 #ifdef SKIES_STANDALONE_AURORA
   // SKIES_DC_MUSIC_SYNC=1: the Dreamcast music in the game's audio, in guest time (dreamcast.cpp)
   static std::vector<s16> s_with_music;

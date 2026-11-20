@@ -48,10 +48,10 @@ Simplifications, biggest first:
 
 ## After the standalone test prerelease (v0.90.0-standalone.4, never published) — 2026-11-18
 
-- **#26 Dreamcast music stuck at one level** in some songs (Ramirez / Valua scenes, the Dark Rift's end): a
-  constant -9830 for over a second, then a slow drift back; not clipping, not the reverb writing over samples
-  (development notes, *Issues #26-#32*). Needs the reporter's save state; then the AICA DSP's state there.
-  Both builds.
+- **#26 Dreamcast music stuck at one level** in some songs (Ramirez / Valua scenes, the Dark Rift's end): the
+  output pinned at full scale for seconds (half-wave), then a slow drift back. Not reproduced in any setup tried
+  (2026-11-19, development notes, *Issues #26-#32*). The next test build has a DC blocker on the game's audio
+  and a log line when the Dreamcast music's output pins (song, chip state): ask the reporter for that log.
 - **#28 fix to dev**: not happening (no more Dolphin-engine releases, 2026-11-19); the new engine has it.
 - **The `issues` branch** (#25 ShipHud, #19, #18, #24, #22): ported 2026-11-18 on the local branch
   `standalone-issues` (ws35 on all three discs, the standalone's menu row, DC gain and #18 pass;
