@@ -14,12 +14,21 @@ an Android APK that closed at Start Game: only debug test APKs were ever run, an
 | Linux tar.gz / AppImage | WSL or Linux | the same from a state: Vulkan, chunks, log |
 | macOS zip | the Mac | the same; plus battle damage digits (#16, FEAT_AFP) |
 
-## Next build (on `origin/aurora-backend`, pushed 2026-11-20 evening): v0.90.0-standalone.10
+## TAGGED (2026-11-20 evening): v0.90.0-standalone.10, the fifth test build, draft in progress
 
-PUSHED 2026-11-20 evening with the owner's word ("read the whole pii sweep and then push"): `standalone-issues`
--> `aurora-backend` `7ef653b..f59e370` (24 commits: this build's and the Dusklight ports, `HANDOFF-emulator-free.md`,
-*Dusklight ports*), and the secrets `5e0d68d`. The tree sweep and the new commits' lines / messages / identities
-were clean. The tag, `android-sign` and the publish each still need the owner's word.
+- **Tagged** `v0.90.0-standalone.10` on `fa57e89` (lightweight, as `.9`) with the owner's word ("do what needs to
+  be done to properly get the next release out"); release run 44829795770. The owner also said "just approve it"
+  for `android-sign` (approved through the pending-deployments API once it asks). Publishing waits for the
+  draft checks (*Release checks* above) and the owner.
+- **Draft checks:** this session does the checksums, the APK (signer, flags, versionName, `check-apk-jni.sh`, the
+  AYN Thor), Linux (WSL) and Windows (`cmd.exe`); the Mac session (Remote Control, "Caffinate session" on the Mac
+  mini M4) downloads the macOS zip itself with `gh` and runs it headless / windowed: Metal, chunks, 1.00x, #16
+  digits, the seeded list ("1626 rows merged"), Display refresh (`SKIES_INTERP=2`) and the mouse camera
+  (`SKIES_MOUSE_SCRIPT`). The menu click and a real mouse capture on the Mac are the owner's to try by hand.
+- **Pushed before the tag:** `standalone-issues` -> `aurora-backend` `7ef653b..fa57e89` in three pushes (the
+  owner's "read the whole pii sweep and then push", then "push" twice): this build's commits, the Dusklight ports,
+  docs, and `fa57e89` (the shader list from the sweeps, the notes). Secrets `5e0d68d`. Every sweep clean: the
+  tree, the new commits' lines / messages / identities, and `strings` over every binary in the tree.
 - **Contents** (commits after `7ef653b`; notes drafted in `release/test-build-notes.md`):
   - #35 soft textures: Resolution "window" covers widescreen windows (`d1bce57`).
   - #35 the slowdown after Fina's flashback (`1cfaf23`).
