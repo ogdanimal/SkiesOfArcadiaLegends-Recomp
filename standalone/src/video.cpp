@@ -38,8 +38,12 @@
 #include <dolphin/vi.h>
 
 #if defined(__ANDROID__)
+#include <SDL3/SDL_system.h>
 #include <android/choreographer.h>
 #include <android/looper.h>
+#include <android/native_window.h>
+#include <dlfcn.h>
+#include <jni.h>
 #endif
 
 extern bool aurora_debug_draw_log;  // GXRuntime: Aurora's per-draw log (AURORA_DRAW_LOG)
@@ -1341,6 +1345,97 @@ bool DisplayTrace()
   return on;
 }
 
+#if defined(__ANDROID__)
+// Android runs an app at 60 Hz on a faster screen unless it asks (the AYN Thor: 60 / 120): with FrameMode 2 the
+// game's surface asks for the display's highest rate (Display.getSupportedModes over JNI, then
+// ANativeWindow_setFrameRate, Android 11+, looked up at run time); 0 clears the request. Again whenever SDL's
+// surface changes (a pause and resume makes a new one). Choreographer's measured period then follows.
+float AndroidHighestRefresh()
+{
+  static float s_highest = -1.0f;
+  if (s_highest >= 0.0f)
+    return s_highest;
+  s_highest = 0.0f;
+  JNIEnv* env = static_cast<JNIEnv*>(SDL_GetAndroidJNIEnv());
+  jobject activity = static_cast<jobject>(SDL_GetAndroidActivity());
+  if (!env || !activity)
+    return s_highest;
+  const auto call = [&](jobject object, const char* name, const char* signature) -> jobject {
+    if (!object)
+      return nullptr;
+    jclass cls = env->GetObjectClass(object);
+    jmethodID method = env->GetMethodID(cls, name, signature);
+    jobject result = method ? env->CallObjectMethod(object, method) : nullptr;
+    env->DeleteLocalRef(cls);
+    if (env->ExceptionCheck())
+    {
+      env->ExceptionClear();
+      return nullptr;
+    }
+    return result;
+  };
+  jobject manager = call(activity, "getWindowManager", "()Landroid/view/WindowManager;");
+  jobject display = call(manager, "getDefaultDisplay", "()Landroid/view/Display;");
+  auto modes = static_cast<jobjectArray>(call(display, "getSupportedModes", "()[Landroid/view/Display$Mode;"));
+  if (modes)
+  {
+    const jsize count = env->GetArrayLength(modes);
+    for (jsize i = 0; i < count; ++i)
+    {
+      jobject mode = env->GetObjectArrayElement(modes, i);
+      jclass cls = env->GetObjectClass(mode);
+      if (jmethodID rate = env->GetMethodID(cls, "getRefreshRate", "()F"))
+        s_highest = std::max(s_highest, env->CallFloatMethod(mode, rate));
+      env->DeleteLocalRef(cls);
+      env->DeleteLocalRef(mode);
+    }
+    env->DeleteLocalRef(modes);
+  }
+  if (env->ExceptionCheck())
+    env->ExceptionClear();
+  for (jobject o : {display, manager, activity})
+  {
+    if (o)
+      env->DeleteLocalRef(o);
+  }
+  Log("[video] the display's highest refresh rate: %.1f Hz\n", s_highest);
+  return s_highest;
+}
+
+void AndroidRequestFrameRate(bool high)
+{
+  using SetFrameRate = int32_t (*)(ANativeWindow*, float, int8_t);
+  // (through libandroid's handle: RTLD_DEFAULT doesn't reach it from the app's linker namespace)
+  static const auto s_set = [] {
+    void* android = dlopen("libandroid.so", RTLD_NOW | RTLD_NOLOAD);
+    if (!android)
+      android = dlopen("libandroid.so", RTLD_NOW);
+    return reinterpret_cast<SetFrameRate>(android ? dlsym(android, "ANativeWindow_setFrameRate") : nullptr);
+  }();
+  static ANativeWindow* s_window = nullptr;
+  static float s_applied = -1.0f;
+  SDL_Window* sdl = MainWindow();
+  auto* window = sdl ? static_cast<ANativeWindow*>(SDL_GetPointerProperty(SDL_GetWindowProperties(sdl),
+                                                                          SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, nullptr))
+                     : nullptr;
+  static bool s_reported = false;
+  if ((!s_set || !window) && high && !s_reported)
+  {
+    s_reported = true;
+    Log("[video] can't ask for a refresh rate: %s\n", !s_set ? "no ANativeWindow_setFrameRate (Android 11+)" : "no window");
+  }
+  if (!s_set)
+    return;
+  const float rate = high ? AndroidHighestRefresh() : 0.0f;
+  if (!window || (window == s_window && rate == s_applied))
+    return;
+  const int32_t result = s_set(window, rate, 0 /* ANATIVEWINDOW_FRAME_RATE_COMPATIBILITY_DEFAULT */);
+  Log("[video] asked for %.1f Hz (%s): %d\n", rate, rate > 0.0f ? "Display refresh" : "the default", result);
+  s_window = window;
+  s_applied = rate;
+}
+#endif
+
 // A refresh, from the display (SDL's mode on the desktop, Choreographer's measured period on Android), at
 // most [Skies] MaxFrameRate; looked at again every second (the window may move to another display)
 std::chrono::nanoseconds DisplayPeriod()
@@ -1353,9 +1448,17 @@ std::chrono::nanoseconds DisplayPeriod()
     s_checked = now;
     double hz = 0.0;
 #if defined(__ANDROID__)
+    AndroidRequestFrameRate(true);
     const s64 period = s_vsync_period_ns.load(std::memory_order_relaxed);
     if (period > 0)
       hz = 1e9 / static_cast<double>(period);
+    // Choreographer's measure wanders (118.8-119.6 on the Thor's 120): the mode's own rate when it is near it, so
+    // the pictures don't slip a refresh every second
+    const double highest = AndroidHighestRefresh();
+    if (highest > 0.0 && std::abs(hz - highest) < highest * 0.05)
+      hz = highest;
+    else if (std::abs(hz - 60.0) < 3.0)
+      hz = 60.0;
 #else
     if (SDL_Window* window = MainWindow())
     {
@@ -1380,7 +1483,7 @@ std::chrono::nanoseconds DisplayPeriod()
       hz = 60.0;  // unknown
     if (cap >= 30 && hz > cap)
       hz = cap;
-    if (std::abs(hz - s_hz) > 0.01)
+    if (std::abs(hz - s_hz) > 1.0)
       Log("[video] the display's rate: %.2f Hz\n", hz);
     s_hz = hz;
   }
@@ -1576,6 +1679,10 @@ void FrameEndVideo(const FrameEnd& end)
   {
     DisplayClear();
   }
+#if defined(__ANDROID__)
+  if (!end.interp.display)
+    AndroidRequestFrameRate(false);  // (once: it returns when nothing changed)
+#endif
   // 60 fps: the real picture kept here, the in-between one by the replay after the frame's tokens
   // (ReplayVideo), both presented from the retraces
   if (!end.interp.display && InterpFrameEndVideo(end.interp, RealSlot(end.frame), end.frame) >= 0)
