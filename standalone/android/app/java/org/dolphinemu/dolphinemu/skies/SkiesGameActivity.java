@@ -45,6 +45,9 @@ public class SkiesGameActivity extends SDLActivity {
   /** The in-game menu (Back, and the touch controls' menu button). */
   static native void nativeBack();
 
+  /** A touch no touch control took, at (x, y) as fractions of the screen: true when the in-game menu took it. */
+  static native boolean nativeMenuTap(float x, float y);
+
   private final Handler mHandler = new Handler(Looper.getMainLooper());
   private boolean mClosing = false;
   private SkiesTouchControls mTouch;

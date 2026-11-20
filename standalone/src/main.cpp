@@ -504,6 +504,13 @@ std::vector<char*> s_android_argv;
 }  // namespace
 
 // Android's Back (the app's SkiesGameActivity): the menu, as Esc on the desktop; Quit game in it ends the game
+// A touch on the game's screen that no touch control took: the in-game menu's (x, y fractions of the view)
+extern "C" JNIEXPORT jboolean JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesGameActivity_nativeMenuTap(JNIEnv*, jclass,
+                                                                                                       jfloat x, jfloat y)
+{
+  return host::MenuTap(x, y) ? JNI_TRUE : JNI_FALSE;
+}
+
 extern "C" JNIEXPORT void JNICALL Java_org_dolphinemu_dolphinemu_skies_SkiesGameActivity_nativeBack(JNIEnv*, jclass)
 {
   host::MenuRequestBack();

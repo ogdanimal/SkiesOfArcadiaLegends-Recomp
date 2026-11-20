@@ -236,6 +236,17 @@ public class SkiesTouchControls extends View implements InputManager.InputDevice
 
   @Override
   public boolean onTouchEvent(MotionEvent event) {
+    // A finger going down off the controls (or with them hidden) taps the in-game menu when it's open
+    final int masked = event.getActionMasked();
+    if ((masked == MotionEvent.ACTION_DOWN || masked == MotionEvent.ACTION_POINTER_DOWN) && getWidth() > 0 &&
+        getHeight() > 0) {
+      final int i = event.getActionIndex();
+      final float x = event.getX(i), y = event.getY(i);
+      if ((!mShown || hit(x, y) < 0) && SkiesGameActivity.nativeMenuTap(x / getWidth(), y / getHeight())) {
+        if (!mShown)
+          return true;  // the menu took it: the hidden controls stay hidden
+      }
+    }
     if (!mShown) {
       // the first touch after a controller shows the controls (Auto), and doesn't press anything
       if (event.getActionMasked() == MotionEvent.ACTION_DOWN && mMode == MODE_AUTO)

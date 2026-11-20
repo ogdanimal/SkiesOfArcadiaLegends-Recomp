@@ -31,6 +31,8 @@ void Log(const char* fmt, ...);
 void LogAlsoToFile(const std::string& path);
 // The game has shown its first frames: the renderer started (main.cpp, Vulkan's crash safeguard on Android)
 void GpuStartSurvived();
+// A tap or click at (x, y), fractions of the screen: true when the in-game menu is open and takes it (menu.cpp)
+bool MenuTap(float x, float y);
 [[noreturn]] void Fatal(const char* fmt, ...);
 
 // ---- frame timing (SKIES_PRESENT_PACING=1, or the Dolphin build's RECOMP_PRESENT_PACING=1) -----

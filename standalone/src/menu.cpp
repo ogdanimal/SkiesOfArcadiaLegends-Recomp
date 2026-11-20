@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <mutex>
 #include <bit>
 #include <cfloat>
 #include <chrono>
@@ -346,6 +347,28 @@ HintKeys s_hint_keys;
 int s_tab = 0;
 int s_selected = 0;  // row within the tab, TAB_BAR = the tab bar itself (as in the launchers)
 constexpr int TAB_BAR = -1;
+
+// Taps and clicks on the menu (MenuTap): Draw records where the tabs, the rows and their value boxes are, as
+// fractions of the screen; a tap found there waits for the game thread (FilterOpen) as a pending action.
+enum class HitKind : int
+{
+  None,
+  Tab,        // index: the tab
+  Row,        // index: the row (its label)
+  ValueLeft,  // the row's value box, left third: Left
+  ValueMid,   // middle: A
+  ValueRight, // right third: Right
+  Outside,    // off the window: close, as B
+};
+struct HitArea
+{
+  float x0, y0, x1, y1;
+  HitKind kind;
+  int index;
+};
+std::mutex s_hits_lock;
+std::vector<HitArea> s_hits;  // empty while the menu isn't drawn
+std::atomic<int> s_tap{0};    // pending: kind << 8 | index + 1, 0 = none
 int s_text_percent = 100;
 Values s_staged;
 Values s_current;
@@ -1545,10 +1568,44 @@ PadStatus FilterOpen(const PadStatus& raw)
 {
   s_keyboard_hints = InputKeyboardInUse();
   if (s_mapping)
+  {
+    s_tap.store(0);  // the mapping page takes the controller only
     return FilterMapping(raw);
+  }
+  // A tap or click: select what it hit, then act on it as the matching button
+  u16 tapped = 0;
+  if (const int tap = s_tap.exchange(0); tap != 0)
+  {
+    const HitKind kind = static_cast<HitKind>(tap >> 8);
+    const int index = (tap & 0xFF) - 1;
+    if (kind == HitKind::Outside)
+      tapped = PAD_BUTTON_B;
+    else if (kind == HitKind::Tab && index >= 0 && index < static_cast<int>(TABS.size()))
+    {
+      if (s_tab != index)
+      {
+        s_tab = index;
+        s_load_confirm = s_restart_confirm = s_quit_confirm = false;
+      }
+      s_selected = TAB_BAR;
+    }
+    else if (index >= 0 && index < static_cast<int>(TABS[s_tab].rows.size()))
+    {
+      if (s_selected != index)
+      {
+        s_selected = index;
+        s_load_confirm = s_restart_confirm = s_quit_confirm = false;
+      }
+      tapped = kind == HitKind::ValueLeft ? PAD_BUTTON_LEFT :
+               kind == HitKind::ValueRight ? PAD_BUTTON_RIGHT :
+               kind == HitKind::ValueMid  ? PAD_BUTTON_A :
+                                            0;
+    }
+  }
   const std::span<const Option> rows = TABS[s_tab].rows;
   const bool on_tabs = s_selected == TAB_BAR;
-  const u16 pressed = Pressed(MenuButtons(raw), !on_tabs && rows[s_selected] == Option::Volume);
+  const u16 pressed = static_cast<u16>(Pressed(MenuButtons(raw), !on_tabs && rows[s_selected] == Option::Volume) |
+                                       tapped);
   const int tab_count = static_cast<int>(TABS.size());
   const auto switch_tab = [&](int direction) {
     s_tab = (s_tab + direction + tab_count) % tab_count;
@@ -1866,6 +1923,14 @@ bool SDLCALL MenuKeyWatch(void*, SDL_Event* event)
   if (event->type == SDL_EVENT_KEY_DOWN && !event->key.repeat &&
       static_cast<int>(event->key.scancode) == InputHotkeyKey(1))
     s_invincible_request.store(true);
+  // A left click on the menu (a desktop touch screen's tap arrives as one too)
+  if (event->type == SDL_EVENT_MOUSE_BUTTON_DOWN && event->button.button == SDL_BUTTON_LEFT)
+  {
+    int w = 0, h = 0;
+    if (SDL_Window* window = SDL_GetWindowFromEvent(event); window && SDL_GetWindowSize(window, &w, &h) && w > 0 &&
+                                                              h > 0)
+      MenuTap(event->button.x / static_cast<float>(w), event->button.y / static_cast<float>(h));
+  }
   return true;
 }
 #endif
@@ -1916,6 +1981,20 @@ double s_fps = 0.0;
 }  // namespace
 
 float g_overclock = 1.0f;
+
+bool MenuTap(float x, float y)
+{
+  std::lock_guard lk(s_hits_lock);
+  if (s_hits.empty())
+    return false;  // the menu isn't open
+  // The last area holding the point is the most specific (the window comes first)
+  const auto in = [&](const HitArea& h) { return x >= h.x0 && x < h.x1 && y >= h.y0 && y < h.y1; };
+  const auto found = std::find_if(s_hits.rbegin(), s_hits.rend(), in);
+  const HitKind kind = found == s_hits.rend() ? HitKind::Outside : found->kind;
+  if (kind != HitKind::None)
+    s_tap.store(static_cast<int>(kind) << 8 | ((found == s_hits.rend() ? 0 : found->index) + 1));
+  return true;
+}
 
 void MenuContinue(int file)
 {
@@ -2583,6 +2662,24 @@ void Draw(float scale)
                       14.0f * u);
   draw->AddRect(origin, ImVec2(origin.x + size.x, origin.y + size.y), IM_COL32(255, 255, 255, 56),
                 14.0f * u, 0, std::max(1.0f, 1.5f * u));
+  // Where a tap lands (MenuTap), as fractions of the screen; the window itself first, so a tap inside it
+  // that hits nothing does nothing, and one outside it closes the menu
+  std::vector<HitArea> hits;
+  const auto hit = [&](ImVec2 a, ImVec2 b, HitKind kind, int index) {
+    hits.push_back({(a.x - viewport->Pos.x) / viewport->Size.x, (a.y - viewport->Pos.y) / viewport->Size.y,
+                    (b.x - viewport->Pos.x) / viewport->Size.x, (b.y - viewport->Pos.y) / viewport->Size.y, kind,
+                    index});
+  };
+  const struct HitsOut
+  {
+    std::vector<HitArea>& hits;
+    ~HitsOut()
+    {
+      std::lock_guard lk(s_hits_lock);
+      s_hits = std::move(hits);
+    }
+  } hits_out{hits};
+  hit(origin, ImVec2(origin.x + size.x, origin.y + size.y), HitKind::None, 0);
 
   float y = PAD;
   draw->AddText(bold, px(TITLE), at(PAD, y), white, mapping ? "Button mapping" : "Settings");
@@ -2664,6 +2761,7 @@ void Draw(float scale)
       draw->AddRect(a, b, gold, 6.0f * u, ImDrawFlags_RoundCornersTop, std::max(1.0f, 2.0f * u));
     draw->AddText(ui, px(TEXT), at(x + 13.0f, y + (TAB_H - TEXT * 1.33f) * 0.5f),
                   i == tab ? white : IM_COL32(242, 242, 242, 200), TABS[i].name);
+    hit(a, b, HitKind::Tab, i);
     x += w + 6.0f;
   }
   y += TAB_H;
@@ -2678,6 +2776,11 @@ void Draw(float scale)
     const float text_y = y + (BOX_H - TEXT * 1.33f) * 0.5f;
     draw->AddText(ui, px(TEXT), at(PAD, text_y), is_selected ? gold : white, row.label);
     const ImVec2 box_a = at(PAD + LABEL_W, y), box_b = at(PAD + LABEL_W + VALUE_W, y + BOX_H);
+    hit(at(PAD, y), at(PAD + LABEL_W, y + BOX_H), HitKind::Row, i);
+    hit(box_a, at(PAD + LABEL_W + VALUE_W / 3.0f, y + BOX_H), HitKind::ValueLeft, i);
+    hit(at(PAD + LABEL_W + VALUE_W / 3.0f, y), at(PAD + LABEL_W + VALUE_W * 2.0f / 3.0f, y + BOX_H),
+        HitKind::ValueMid, i);
+    hit(at(PAD + LABEL_W + VALUE_W * 2.0f / 3.0f, y), box_b, HitKind::ValueRight, i);
     draw->AddRectFilled(box_a, box_b, is_selected ? IM_COL32(41, 66, 118, 255) : IM_COL32(26, 41, 77, 255),
                         6.0f * u);
     if (is_selected)
@@ -2764,6 +2867,11 @@ void MenuFrame()
     DrawFps(unit);
   if (s_mode == Mode::Open)
     Draw(1.0f);
+  else
+  {
+    std::lock_guard lk(s_hits_lock);
+    s_hits.clear();
+  }
   ImGui::Render();
   Sink(ImGui::GetDrawData());
   s_overlay_shown = true;

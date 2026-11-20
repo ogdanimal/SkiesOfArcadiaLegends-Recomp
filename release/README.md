@@ -219,7 +219,7 @@ The game's own controls are unchanged; on top of them:
 
 | Input | What it does |
 |---|---|
-| Esc, the controller's Back / View (Create) / Select, or hold Z and press Start | the settings menu (L / R switch tabs; B, Start or Esc close it). Its Saves tab saves and loads states |
+| Esc, the controller's Back / View (Create) / Select, or hold Z and press Start | the settings menu (L / R switch tabs; B, Start or Esc close it; tapping or clicking works too: a tab, a row, the left or right of a value to change it, outside the window to close). Its Saves tab saves and loads states |
 | F1 (keyboard) | save a state to the slot chosen in the menu's Save state row (slot 1 unless changed); not when F1 is bound to a game button |
 | Hold Z + C-stick up / down | tilt the camera |
 | Hold Z + R / L | zoom out / in |

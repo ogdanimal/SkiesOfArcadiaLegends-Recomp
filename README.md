@@ -113,7 +113,7 @@ The game's own controls are unchanged; on top of them:
 
 | Input | What it does |
 |---|---|
-| Esc, the controller's Back / View (Create) / Select, or hold Z and press Start | The settings menu (L / R switch tabs; B, Start or Esc close it). Its Saves tab saves and loads states |
+| Esc, the controller's Back / View (Create) / Select, or hold Z and press Start | The settings menu (L / R switch tabs; B, Start or Esc close it; tapping or clicking works too: a tab, a row, the left or right of a value to change it, outside the window to close). Its Saves tab saves and loads states |
 | Hold Z + C-stick up / down | Tilt the camera |
 | Hold Z + R / L | Zoom out / in |
 | Tap Z in battle | Battle speed: Normal, 2x, 3x, 4x |
