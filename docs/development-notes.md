@@ -3255,6 +3255,16 @@ build (Dolphin's Vulkan backend on llvmpipe is right).
   Dreamcast music. And the Dreamcast engine logs a line when its output, after the gain, sits at full scale
   for over 30% of a quarter second (`DCMusic.cpp` `WatchForPinnedOutput`): the song, the chip's range, the
   effect outputs and each keyed channel's sample address, format, loop and sends, for the next report.
+- **#34** (2026-11-19) the AYN Thor closes at Start Game on `.6`, fresh install too (no log yet). The Thor has
+  the Nova's Snapdragon 8 Gen 2 but its own firmware and a second, near-square screen (about 1240x1080). A
+  simulated second display on the Pocket 5 (`overlay_display_devices 1240x1080/320`, the launcher started there
+  with `am start --display`, Start Game tapped with `input -d`) runs the game there fine (Vulkan, 1240x1080),
+  so the screen alone doesn't crash it. Likeliest a Vulkan driver crash at start, which killed the process with
+  no fallback: `main.cpp` VulkanCrashGuard now leaves a marker in the app's files for a Vulkan start, removed
+  after 300 frames (or when main returns); a marker still there switches the Renderer setting to OpenGL ES with
+  a log line. The launcher also kept a stale copy of `Dolphin.ini` and wrote it back over the game process's
+  changes (the in-game menu's too): it reloads the settings once the game has ended
+  (`recompcore-android-settings-reload.patch`). Both checked on the Pocket 5 (planted marker; then Vulkan again).
 - **#32** 15-17 fps on a Ryzen 5 3550H + GTX 1650 laptop (v0.83): the Dolphin build takes Vulkan adapter 0 (on
   AMD APU + NVIDIA laptops that can be the integrated GPU); Aurora asks Dawn for HighPerformance. A good tester for
   the standalone.

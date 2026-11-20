@@ -43,6 +43,11 @@ Simplifications, biggest first:
   rebuilds them each build); before tagging, check a release module's `msr fpcr` path no longer sets AH. Found with
   the debug switches `SKIES_TRACE_PC`, `SKIES_TRACE_RANGE` and `SKIES_INTERP_RANGE` (native chunks interpreted
   instead), uncommitted in `standalone/src/cpu.cpp`. Reply on #16 when the build is out.
+- **#34 AYN Thor closes at Start Game** (.6, fresh install too): not seen on the Pocket 5 / Nova (same chip as
+  the Thor). Likeliest a native crash in Vulkan's start (driver), which killed the process with no fallback:
+  the next build switches to OpenGL ES after such a start (`main.cpp` VulkanCrashGuard). Other suspects: the
+  Thor's second (near-square) screen. A reply asking for the Android version, the screen, OpenGL ES and
+  `files/log.txt` is drafted, not posted (the owner's call).
 - **Issue replies** drafted for the test build (`build/issue-replies-standalone5.md` in the issues worktree; say
   `.6`): post with the owner's OK.
 

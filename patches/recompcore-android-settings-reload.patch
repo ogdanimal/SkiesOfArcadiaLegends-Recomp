@@ -28,3 +28,24 @@ index aaebc9daac..417bd1a4b4 100644
      /** The game screen has returned and its process is ending (see playGame). */
      private var gameEnding = false
  
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+index 4519baca50..ec7011a2b6 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+@@ -557,9 +557,14 @@ class SkiesSettingsPanel(
+             choicesList += Choice(keys.size - 1, "Aurora (experimental)")
+         }
+         val current = keys.indexOf(stored).coerceAtLeast(0)
+-        choiceRow(rows, "Renderer", choicesList, current,
++        val help = if (SkiesGame.standalone)
++            "Vulkan is the default. If the game crashes or draws things wrong on this device, try OpenGL ES. " +
++                "If the game closes while starting with Vulkan, the next start switches to OpenGL ES by itself. " +
++                "Takes effect when the game starts."
++        else
+             "Vulkan is the default. If the game crashes or draws things wrong on this device, try " +
+-                "OpenGL ES. Aurora is a different renderer under test. Takes effect when the game starts.") { value ->
++                "OpenGL ES. Aurora is a different renderer under test. Takes effect when the game starts."
++        choiceRow(rows, "Renderer", choicesList, current, help) { value ->
+             NativeConfig.setString(NativeConfig.LAYER_BASE, Settings.FILE_DOLPHIN, "Core", "GFXBackend",
+                 keys[value])
+             NativeConfig.save(NativeConfig.LAYER_BASE)
