@@ -1,0 +1,17 @@
+diff --git a/GXRuntime/graphics/aurora/lib/gx/gx.cpp b/GXRuntime/graphics/aurora/lib/gx/gx.cpp
+index 8ee8ad77be..83d110b0bf 100644
+--- a/GXRuntime/graphics/aurora/lib/gx/gx.cpp
++++ b/GXRuntime/graphics/aurora/lib/gx/gx.cpp
+@@ -756,7 +756,11 @@ static gfx::TextureHandle padded_copy_texture(const GXState::CopyTextureRef& cop
+                                    : 0;
+   const u64 fingerprint = bytes != 0 ? copy_ram_fingerprint(obj.data, bytes) : 0;
+   if (padded.revision != copy.revision || padded.ramFingerprint != fingerprint) {
+-    if (bytes != 0) {
++    // Local (fork): the base (the memory decoded outside the copy) only when that memory changed or the
++    // texture is new. A game that copies the screen into the same buffer every frame and draws it bigger
++    // (Skies after Fina's flashback, issue #35) had the whole 1024x512 buffer decoded on the CPU and
++    // uploaded every frame (~8 ms of the video thread on an i7-12700K); the copy alone changes the corner.
++    if (bytes != 0 && (padded.revision == UINT32_MAX || padded.ramFingerprint != fingerprint)) {
+       upload_padded_base(*padded.texture, obj, bytes);
+     }
+     gfx::queue_texture_copy(wgpu::TexelCopyTextureInfo{.texture = src->texture},
