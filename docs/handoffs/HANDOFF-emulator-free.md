@@ -1225,7 +1225,10 @@ Scripts and contact sheets in the Mac session's scratchpad (`sweep/run.sh`, `rep
 
 The owner asked to look at [Dusklight](https://github.com/TwilitRealm/dusklight) (Twilight Princess on Aurora, CC0)
 and upstream Aurora for improvements, and to port them all (gyro left out: the owner, "this game doesn't need
-it"). Credited in `release/CREDITS.md` and the next build's notes. Local commits on `standalone-issues`:
+it"). Credited in `release/CREDITS.md` and the next build's notes. Commits on `standalone-issues`, pushed to
+`origin/aurora-backend` on 2026-11-20 evening (with the next build's; `HANDOFF-release.md`, *Next build*). The
+update check and Sentry uploads: the owner, "neither for now" (Sentry would need an account, a DSN, sentry-native,
+a CI symbol upload with an auth token and a consent screen).
 
 - `522d085` **`patches/recompcore-aurora-upstream-gx.patch`**: upstream Aurora 4998dcc (no `tev_overflow` on
   inputs already in 0..1), 3094e04 (packed alpha compares on the pre-stage color inputs, as Dolphin), b684c0d (a

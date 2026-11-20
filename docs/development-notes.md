@@ -3344,7 +3344,8 @@ build (Dolphin's Vulkan backend on llvmpipe is right).
 
       A fresh exact profile gains nothing: the 14–20% is fast FP's own.
   - **European and Japanese PGO** (2026-11-20; the secrets' `pgo/{windows,android}-{eu,jp}.profdata`, committed
-    there locally as `8c0c0cb`, not pushed): neither disc had a profile on any platform.
+    pushed as `5e0d68d` on 2026-11-20 evening, without the 6 entries per file that named static host helpers by
+    the build machine's path; `8c0c0cb` locally before that): neither disc had a profile on any platform.
     - Trained: `SEMANTICS=exact tools/pgo-standalone.sh eu|jp`, EU from four Dolphin states (Pirate Isle base,
       red alarm, world map, ship battle; the main checkout's `build/savestates/eu-*`), JP from six (the Pocket 5
       sweep's four, `win-jp-cabin`, a save-point recovery state); every training run 5490 / 5459 of the chunks.

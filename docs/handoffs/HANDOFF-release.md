@@ -14,9 +14,12 @@ an Android APK that closed at Start Game: only debug test APKs were ever run, an
 | Linux tar.gz / AppImage | WSL or Linux | the same from a state: Vulkan, chunks, log |
 | macOS zip | the Mac | the same; plus battle damage digits (#16, FEAT_AFP) |
 
-## Next build (local on `standalone-issues`, 2026-11-20 evening): v0.90.0-standalone.10
+## Next build (on `origin/aurora-backend`, pushed 2026-11-20 evening): v0.90.0-standalone.10
 
-The owner said "Not yet" to pushing it; push, tag, `android-sign` and the secrets push each need their word.
+PUSHED 2026-11-20 evening with the owner's word ("read the whole pii sweep and then push"): `standalone-issues`
+-> `aurora-backend` `7ef653b..f59e370` (24 commits: this build's and the Dusklight ports, `HANDOFF-emulator-free.md`,
+*Dusklight ports*), and the secrets `5e0d68d`. The tree sweep and the new commits' lines / messages / identities
+were clean. The tag, `android-sign` and the publish each still need the owner's word.
 - **Contents** (commits after `7ef653b`; notes drafted in `release/test-build-notes.md`):
   - #35 soft textures: Resolution "window" covers widescreen windows (`d1bce57`).
   - #35 the slowdown after Fina's flashback (`1cfaf23`).
@@ -25,7 +28,16 @@ The owner said "Not yet" to pushing it; push, tag, `android-sign` and the secret
   - #34 shaders prepared at start: `release/initial_pipeline_cache.db` in every package, the bar, and the MSAA
     sample-count fix for cached rows (`821ccab`, `deaff82`, `170aef6`).
   - Tools and docs: `tools/interp-check.py`, `tools/merge-pipeline-cache.py`; `60dd22d` and later docs commits.
-  - The European and Japanese PGO profiles: secrets `8c0c0cb` (local). CI picks them up only once that's pushed.
+  - The European and Japanese PGO profiles: secrets `5e0d68d` (pushed; it was `8c0c0cb` locally). The sweep
+    found the build machine's path in 6 entries of each profile (static host helpers: `psq_load_value` /
+    `psq_store_value`, `fma3`, the module's dispatch, named `/home/<user>/...;name`). The owner had them removed:
+    `llvm-profdata-20 merge --text`, those blocks dropped, merged back (format 12), every other function identical.
+    `pgo/windows.profdata` too (its older copy stays in the private repo's history). CI never used those entries
+    (DolRecomp's game code is keyed by addresses; the helpers compile without a profile). Check a newly trained
+    profile with `strings | grep` before pushing it.
+  - The Dusklight ports (`522d085`..`f59e370`): Display refresh frame rate, the upstream Aurora GX fixes, crash
+    reports, mouse camera, controller light, launcher drop, the Resolution row's size, AppStream metadata; in
+    the notes' *New* section.
 - **Checked:** Windows (the cover cost, the flashback, the MSAA seams and the 60 fps squash, RTX 5080 and UHD 770,
   D3D12 and Vulkan); the Pocket 5 test app (`ws35n10`, `ws35n11`); the Mac mini M4 (`skies-s9` at `6654e9a`); the
   AYN Thor test app (`ws35n15`: the shader preparation, 725 pipelines in 12.6 s cold, 0.9 s after, tap skip);
@@ -34,11 +46,15 @@ The owner said "Not yet" to pushing it; push, tag, `android-sign` and the secret
   - Rebuild `release/initial_pipeline_cache.db` with the Windows session's sweep cache
     (`%APPDATA%\Skies of Arcadia Legends\pipeline_cache.db`) and WSL's (`tools/merge-pipeline-cache.py`).
   - A Windows check of the bar (keyboard and controller skip), and the Mac (the bundle's Resources path).
-  - The owner's word on pushing the secrets (`8c0c0cb`), then a CI run that shows the EU / JP modules built with
-    their profiles.
+  - A CI run that shows the EU / JP modules built with their profiles. `validate` started by hand on
+    `aurora-backend` can't show it: its codegen jobs need the `ci` environment, which deploys only from `dev`,
+    `main` and `v*` tags ("Branch aurora-backend is not allowed to deploy to ci"; every dispatched run on this
+    branch fails there, e.g. 44826619922 at `f59e370`); its host jobs (`standalone-host.yml`) still build the
+    engine for Linux / macOS / Windows. The codegen with the profiles runs at the tag's `release.yml`.
   - Then the usual *Release checks* on the draft, every platform's own package.
 - **Devices:** the Thor has the test app (`com.skiesofarcadia.recomp.test`, the game pushed to its
-  `Games/GEAE8P`) beside the `.9` release install; the Pocket 5's test app is on `ws35n11`.
+  `Games/GEAE8P`) beside the `.9` release install, now on `ws35dl1` (the `ws35n15` module and the Dusklight
+  ports' host); the Pocket 5's test app is on `ws35n11`.
 
 ## Released (2026-11-20): v0.90.0-standalone.9, the fourth test build
 

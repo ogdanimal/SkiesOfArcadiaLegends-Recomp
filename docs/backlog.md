@@ -71,7 +71,8 @@ the display's rate (120 / 144 Hz, VRR), each presented picture blended between t
   - `c85534e`: #35 sky seams, varyings at the centroid with MSAA (the reporter plays at 2x MSAA).
   - `f4be57a`: #35 60 fps "warping", a model turning round in one frame no longer squashed in the in-between.
   - `717a61c`: docs, `tools/interp-check.py`.
-  - The secrets' `8c0c0cb` (local, needs the owner's word to push): EU and JP PGO profiles, -14% to -21% CPU.
+  - The secrets' `5e0d68d` (pushed 2026-11-20 evening; `8c0c0cb` before the path entries were dropped): EU and JP
+    PGO profiles, -14% to -21% CPU.
   - `f0bc73d`, `821ccab`, `deaff82`, `170aef6`: #34 shader preparation at start (`release/initial_pipeline_cache.db`,
     the bar, the MSAA-count fix); reviewed (Fable) and checked on the AYN Thor.
   - Before tagging: the pipeline list rebuilt from the sweeps' caches (Windows, WSL); a Windows check of the bar
