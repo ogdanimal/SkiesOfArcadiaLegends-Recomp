@@ -1,5 +1,27 @@
 # Handoff: releases (Windows, Linux, macOS, Android)
 
+## Released (2026-11-20): v0.90.0-standalone.7, the second test build
+
+- **Published** 2026-11-20 03:57 UTC as a **prerelease** ("Do it!" from the owner); tag on `7eecdfc`, release run
+  44664011739, all jobs green. The owner gave explicit permission to approve `android-sign` for this build only
+  (done through the API's pending-deployments call; ask again for the next one).
+- **What it has** (`release/test-build-notes.md`, the whole body): #16 (FPCR.AH: damage numbers on M4 / Exynos
+  1580), #26's DC blocker and the Dreamcast pinned-output log line, the log in `Logs/skies-standalone.log` on
+  every platform, the renderer crash safeguards (Android, Windows, Linux; maybe #34), the Android launcher
+  reading the game's settings again, the in-game menu taking taps and clicks, the new READMEs and licences.
+- **Checked on the draft before publishing:** SHA256SUMS; the APK's signer = `release/android-signer.sha256`, no
+  `testOnly` / `debuggable`, versionName `0.90.0-standalone.7`, `libskies.so`, `libskiesvk.so` and the three
+  modules; the arm64 module's and `libskies.so`'s `msr FPCR` paths set only the rounding mode and FZ, never AH;
+  a PII scan of all 11434 extracted files (only `/home/runner/` paths); the Linux package's `skies-run` (module
+  5461 / 5461, Vulkan, `Logs/skies-standalone.log` written) and the Windows package's (Direct3D 12, 1.00x, the
+  log written, no user paths) from the converted save-point state. Android: the same code on the Pocket 5's test
+  app (the release app wasn't touched).
+- **Before the tag:** two `validate` dispatches on `aurora-backend` (the codegen jobs fail there by design, the
+  `ci` environment being dev and tags only): 44658171850 caught a macOS compile error (the renderer guard's call
+  outside its `#if`), fixed in `7eecdfc`; 44662688280 built the Windows, Linux and macOS hosts.
+- **Replies:** #16 (fixed, asks both reporters to confirm), #26 and #34 (ask for the new log) posted.
+- **Next build:** write `release/test-build-notes.md` fresh again.
+
 ## Released (2026-11-19): v0.90.0-standalone.6, the first public test build of the new engine
 
 - **Published** 2026-11-19 20:35 UTC as a **prerelease** at the owner's request ("we need to release something so
