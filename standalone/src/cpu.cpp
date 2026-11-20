@@ -207,6 +207,8 @@ constexpr u32 LC_BASE = 0xE0000000u;
 
 bool s_quit = false;
 u32 s_idle_pc = 0;
+FrameWait s_wait;
+u64 s_wait_skips = 0;
 bool s_external_asserted = false;
 bool s_decrementer_pending = false;
 u64 s_dec_start_cycles = 0;
@@ -679,6 +681,13 @@ void SetIdlePc(u32 pc)
   s_idle_pc = pc;
 }
 
+void SetFrameWait(const FrameWait& wait)
+{
+  s_wait = wait;
+  if (const char* v = std::getenv("SKIES_NO_WAIT_SKIP"); v && v[0] == '1')
+    s_wait = {};  // A/B runs: the game runs its waits
+}
+
 void RequestQuit()
 {
   s_quit = true;
@@ -819,6 +828,29 @@ inline void Watch(u32 pc)
     WatchChanged(pc, s_watch_address);
 }
 
+// Guest time jumps to `when` (a wait skip): the cycle count and the timebase move as if the code
+// had run till then.
+void SkipTo(CPUState& c, u64 when)
+{
+  const u64 skip = when - g_cycles;
+  g_cycles = when;
+  s_tb_remainder += skip;
+  c.timebase += s_tb_remainder / TIMER_RATIO;
+  s_tb_remainder %= TIMER_RATIO;
+}
+
+// At the frame-end wait with nothing to do: the loop's head, the loader entered from the loop, or
+// the return from it, while the retrace count is the last handled one and the loader's queue is
+// empty. With interrupts off the count can't move, so the loop runs as it is.
+bool InFrameWait(const CPUState& c, u32 pc)
+{
+  if (s_wait.head == 0 || !(c.msr & PPC_MSR_EE))
+    return false;
+  if (pc != s_wait.head && pc != s_wait.after_loader && !(pc == s_wait.loader && c.lr == s_wait.after_loader))
+    return false;
+  return Read32(s_wait.counter) == Read32(s_wait.last) && Read32(s_wait.queue) == 0;
+}
+
 void RunCpu()
 {
   CPUState& c = g_cpu;
@@ -853,6 +885,16 @@ void RunCpu()
       continue;
     }
 
+    // The game's frame-end wait (SetFrameWait), while nothing it looks at can change before the next
+    // event: time jumps there before the loop runs (a dispatch spins up to the module's step budget,
+    // ~2048 loop turns, before it returns).
+    if (g_next_event > g_cycles && g_next_event != ~0ull && InFrameWait(c, pc))
+    {
+      SkipTo(c, g_next_event);
+      ++s_wait_skips;
+      continue;
+    }
+
     if (!s_module->dispatch(&c, pc))
       Fatal("no recompiled code at %08x\n", pc);
     ++dispatches;
@@ -879,19 +921,14 @@ void RunCpu()
     c.program_exception = 0;
 
     // The scheduler's idle spin (game ini StaticRecompIdlePC): nothing can change until the next
-    // event, so time jumps there.
-    if (c.pc == s_idle_pc && s_idle_pc != 0 && g_next_event > g_cycles &&
-        g_next_event != ~0ull)
-    {
-      const u64 skip = g_next_event - g_cycles;
-      g_cycles = g_next_event;
-      s_tb_remainder += skip;
-      c.timebase += s_tb_remainder / TIMER_RATIO;
-      s_tb_remainder %= TIMER_RATIO;
-    }
+    // event, so time jumps there. After a dispatch, not before: the spin's own code checks the run
+    // queue (an interrupt may have readied a thread) and turns interrupts on.
+    if (c.pc == s_idle_pc && s_idle_pc != 0 && g_next_event > g_cycles && g_next_event != ~0ull)
+      SkipTo(c, g_next_event);
   }
-  Log("[cpu] stopped after %llu dispatches (%llu fallback instructions), %llu cycles (%.2f s guest)\n",
-      static_cast<unsigned long long>(dispatches), static_cast<unsigned long long>(s_fallback_instructions), static_cast<unsigned long long>(g_cycles),
+  Log("[cpu] stopped after %llu dispatches (%llu fallback instructions, %llu wait skips), %llu cycles (%.2f s guest)\n",
+      static_cast<unsigned long long>(dispatches), static_cast<unsigned long long>(s_fallback_instructions),
+      static_cast<unsigned long long>(s_wait_skips), static_cast<unsigned long long>(g_cycles),
       static_cast<double>(g_cycles) / CPU_HZ);
 }
 }  // namespace host

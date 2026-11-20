@@ -124,6 +124,19 @@ void RunCpu();          // until quit
 void RequestQuit();
 bool QuitRequested();
 void SetIdlePc(u32 pc);
+// The game's frame-end wait (main.cpp per disc): a loop that calls the loader and reads the VI retrace
+// count until it moves. While the count equals the last one seen and the loader's queue is empty,
+// nothing the loop looks at changes before the next event, so time jumps there without running it.
+struct FrameWait
+{
+  u32 head = 0;          // the loop's first instruction (li r3,0)
+  u32 loader = 0;        // the loader it calls, skipped when entered from the loop
+  u32 after_loader = 0;  // the return address (the VIGetRetraceCount call)
+  u32 counter = 0;       // the VI retrace count
+  u32 last = 0;          // the count the game last handled
+  u32 queue = 0;         // the loader's queue (0 = empty)
+};
+void SetFrameWait(const FrameWait& wait);
 u32 GetSpr(u16 spr);
 void SetSpr(u16 spr, u32 value);
 // Interrupt lines from the PI (level) and the decrementer (edge).

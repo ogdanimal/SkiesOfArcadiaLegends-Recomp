@@ -784,6 +784,19 @@ u32 DefaultIdlePc(const std::string& disc_id)
   return 0;
 }
 
+// The frame-end wait per game (fn_801DC420's loop on the USA disc; the other two found by the same
+// code): see host.h FrameWait. The perf branch's StaticRecompWait* values, checked on the ws35 DOLs.
+host::FrameWait DefaultFrameWait(const std::string& disc_id)
+{
+  if (disc_id == "GEAE8P")
+    return {0x801DC490u, 0x801C6248u, 0x801DC498u, 0x80347A64u, 0x8034768Cu, 0x803471C8u};
+  if (disc_id == "GEAP8P")
+    return {0x801DE11Cu, 0x801C83C8u, 0x801DE124u, 0x8034B13Cu, 0x8034ADB0u, 0x8034A8E0u};
+  if (disc_id == "GEAJ8P")
+    return {0x801DC294u, 0x801C6338u, 0x801DC29Cu, 0x803474E4u, 0x8034710Cu, 0x80346C48u};
+  return {};
+}
+
 // The disc's module by name: Android loads it from the APK's libraries; the desktop takes the one
 // beside the executable, else leaves it to the library path.
 std::string DefaultModule(const std::string& disc_id, const char* argv0)
@@ -1176,6 +1189,7 @@ int main(int argc, char** argv)
   if (idle_pc == ~0u)
     idle_pc = DefaultIdlePc(disc_id);
   SetIdlePc(idle_pc);
+  SetFrameWait(DefaultFrameWait(disc_id));
   dsphle::SetResamplingCoefficientsPath(dsp_coef.c_str());
 
   PiInit();
