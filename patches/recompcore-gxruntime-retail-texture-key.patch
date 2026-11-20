@@ -1,0 +1,35 @@
+diff --git a/GXRuntime/graphics/aurora/lib/gx/gx.cpp b/GXRuntime/graphics/aurora/lib/gx/gx.cpp
+index 8cef6ebabc..8ee8ad77be 100644
+--- a/GXRuntime/graphics/aurora/lib/gx/gx.cpp
++++ b/GXRuntime/graphics/aurora/lib/gx/gx.cpp
+@@ -124,6 +124,9 @@ const bool s_retailTextureHashFull = [] {
+   return env != nullptr && env[0] == '1';
+ }();
+ 
++// Up to this size the content hash covers every byte (hash_bytes)
++constexpr size_t kRetailTextureFullHashBytes = 4096;
++
+ u64 hash_bytes(const void* ptr, size_t size) noexcept {
+   // Content hash of the texel bytes (a texture is rebound every draw that samples it, so this
+   // runs per draw; XXH3 is several times faster than the FNV-1a it replaced). Past 4 KB the hash
+@@ -131,6 +134,7 @@ u64 hash_bytes(const void* ptr, size_t size) noexcept {
+   // last one), which costs the same for any size; AURORA_RETAIL_TEXHASH_FULL=1 hashes every byte.
+   constexpr size_t kPiece = 32;
+   constexpr size_t kPieces = 128;
++  static_assert(kPiece * kPieces == kRetailTextureFullHashBytes);
+   if (s_retailTextureHashFull || size <= kPiece * kPieces) {
+     return XXH3_64bits(ptr, size);
+   }
+@@ -179,7 +183,11 @@ bool make_retail_key(const GXTexObj_& obj, const GXTlutObj_* tlut, RetailTexture
+     return false;
+   }
+   key.image0 = obj.image0;
+-  key.image3 = obj.image3 & 0xFFFFFF;
++  // Local (fork): a texture small enough to be hashed whole is keyed by content alone, not where it
++  // sits: Skies' character menu writes its glyphs into new buffers every frame, so with the address
++  // in the key every glyph missed and became a new GPU texture (~100 a frame; on D3D11/D3D12 each one a
++  // kernel call, half the video thread: issue #35). Bigger ones (hash_bytes samples them) keep it.
++  key.image3 = (s_retailTextureHashFull || size <= kRetailTextureFullHashBytes) ? 0 : obj.image3 & 0xFFFFFF;
+   key.flags = obj.flags & 0x7F;
+   const bool hasTlut = tlut != nullptr && tlut->data != nullptr;
+   const u32 tlutBytes = hasTlut ? static_cast<u32>(tlut->numEntries) * 2u : 0u;
