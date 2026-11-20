@@ -3472,6 +3472,12 @@ build (Dolphin's Vulkan backend on llvmpipe is right).
   against the Dolphin build on WSL (`build/sweep-dolphin/warp.sh`): me121e and me561a log the same null-pointer
   writes (0x88 / 0x8c / 0x4c) there, me019a is the same lone building, me032a the same sky, the black ones
   black: the game's own reaction to an out-of-story warp, not the engine.
+- **Replies posted 2026-11-20 (evening, the owner's "Post them"):** #34 (the shader preparation, asks for
+  throne-room screenshots: the video never finished processing on Streamable), #27 (asks the disc's region and
+  SHA-256), #20, #15 (save states instead of more card slots), #17 and #21 (retry `.9`, a zipped save state),
+  #29 (HD texture packs for the fonts), #30 (no Switch version), #31 (Uncensored is the Dreamcast art, not text).
+  #20 was then edited at the owner's word: an uncapped frame rate is planned (`docs/backlog.md`, *Uncapped frame
+  rate*: Dusklight's 30 Hz game with interpolated presentation).
 - **#32** 15-17 fps on a Ryzen 5 3550H + GTX 1650 laptop (v0.83): the Dolphin build takes Vulkan adapter 0 (on
   AMD APU + NVIDIA laptops that can be the integrated GPU); Aurora asks Dawn for HighPerformance. A good tester for
   the standalone.

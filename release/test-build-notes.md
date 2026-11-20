@@ -1,4 +1,4 @@
-The fourth test build of the new engine: a much faster character menu on Windows, less CPU use in battle, and save states that no longer pause the game.
+The fifth test build of the new engine: sharper pictures on widescreen screens, no more pieces loading in late on phones, smoother 60 fps, and faster European and Japanese games.
 
 > [!WARNING]
 > **This is a test build.** [v0.83.0-beta](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/releases/tag/v0.83.0-beta) stays the recommended release. **Back up your saves first** (Settings → Saves → Back up saves): save states made by the new engine don't load in 0.83.
@@ -9,15 +9,25 @@ The fourth test build of the new engine: a much faster character menu on Windows
 
 New to the new engine? The [first test build's notes](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/releases/tag/v0.90.0-standalone.6) cover what changed from 0.83 and how much faster it runs.
 
+## Fixed
+
+- **Shaders are prepared when the game starts** ([#34](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/34))
+  - The first time the game saw a scene, it drew without the objects whose shaders were still compiling, so on phones and handhelds pieces of a scene (the Valuan gate in the opening) came in late. The game now prepares the shaders it knows it will need before it starts, with a "Preparing shaders" bar: about 10-20 seconds the first time on an AYN Thor, a second or so after that. Any button, key or tap skips it.
+- **Soft textures on widescreen screens** ([#35](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/35))
+  - With Resolution "window", the picture was drawn at 4:3 inside the window and stretched sideways. It now covers the window, as Dolphin's Auto does: on a 2560×1440 screen textures are as sharp as in the Dolphin build.
+- **Lines in the sky with anti-aliasing (MSAA)** ([#35](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/35))
+  - Thin dotted lines along the edges of cloud layers (Tenkou Island's sky, for one) are gone.
+- **60 fps: characters squashed when turning** ([#35](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/35))
+  - A character or enemy turning quickly could flatten for one in-between picture, which looked like warping or flickering. They now stay whole.
+
 ## Faster
 
-- **The character menu and other text-heavy screens** ([#35](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/35))
-  - The menu's text made the new engine create dozens of new textures every frame. On Direct3D (Windows) each one is slow, so the menu ran far below full speed on some PCs. It now reuses them: on an Intel UHD 770 the menu runs about 2.5× faster, and Direct3D 12 is no longer slower than Direct3D 11.
-- **Less CPU in battle and elsewhere**
-  - The game's own wait for the next frame no longer burns processor time: up to a third less CPU in battles on PC (about 14% on a Retroid Pocket 5), a little less elsewhere. On handhelds that means less battery and heat at the same speed.
-- **Save states no longer pause the game**
-  - A save state (and the auto-save) used to hold the game for a moment while it was compressed and written; that now happens in the background.
-- Thanks to [Cawl87](https://github.com/Cawl87) for the detailed reports.
+- **After Fina's flashback** ([#35](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/35))
+  - The scenes after the flashback slowed down on some PCs (about 10 ms of work every frame); that work is gone.
+- **The European and Japanese games**
+  - They now get the same profile-guided optimisation as the USA game: 14-21% less CPU in our tests.
+
+Thanks to [Cawl87](https://github.com/Cawl87) and [GLEclipseGaming](https://github.com/GLEclipseGaming) for the detailed reports and videos.
 
 ## Not in this build
 

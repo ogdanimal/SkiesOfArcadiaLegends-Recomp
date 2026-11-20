@@ -14,6 +14,32 @@ an Android APK that closed at Start Game: only debug test APKs were ever run, an
 | Linux tar.gz / AppImage | WSL or Linux | the same from a state: Vulkan, chunks, log |
 | macOS zip | the Mac | the same; plus battle damage digits (#16, FEAT_AFP) |
 
+## Next build (local on `standalone-issues`, 2026-11-20 evening): v0.90.0-standalone.10
+
+The owner said "Not yet" to pushing it; push, tag, `android-sign` and the secrets push each need their word.
+- **Contents** (commits after `7ef653b`; notes drafted in `release/test-build-notes.md`):
+  - #35 soft textures: Resolution "window" covers widescreen windows (`d1bce57`).
+  - #35 the slowdown after Fina's flashback (`1cfaf23`).
+  - #35 the Tenkou Island sky seams: centroid varyings with MSAA (`c85534e`).
+  - #35 60 fps "warping": a model turning in one frame no longer squashed (`f4be57a`).
+  - #34 shaders prepared at start: `release/initial_pipeline_cache.db` in every package, the bar, and the MSAA
+    sample-count fix for cached rows (`821ccab`, `deaff82`, `170aef6`).
+  - Tools and docs: `tools/interp-check.py`, `tools/merge-pipeline-cache.py`; `60dd22d` and later docs commits.
+  - The European and Japanese PGO profiles: secrets `8c0c0cb` (local). CI picks them up only once that's pushed.
+- **Checked:** Windows (the cover cost, the flashback, the MSAA seams and the 60 fps squash, RTX 5080 and UHD 770,
+  D3D12 and Vulkan); the Pocket 5 test app (`ws35n10`, `ws35n11`); the Mac mini M4 (`skies-s9` at `6654e9a`); the
+  AYN Thor test app (`ws35n15`: the shader preparation, 725 pipelines in 12.6 s cold, 0.9 s after, tap skip);
+  a Fable review of the shader preparation, its findings fixed. The 255-map warp sweep: no engine problems.
+- **Left before tagging:**
+  - Rebuild `release/initial_pipeline_cache.db` with the Windows session's sweep cache
+    (`%APPDATA%\Skies of Arcadia Legends\pipeline_cache.db`) and WSL's (`tools/merge-pipeline-cache.py`).
+  - A Windows check of the bar (keyboard and controller skip), and the Mac (the bundle's Resources path).
+  - The owner's word on pushing the secrets (`8c0c0cb`), then a CI run that shows the EU / JP modules built with
+    their profiles.
+  - Then the usual *Release checks* on the draft, every platform's own package.
+- **Devices:** the Thor has the test app (`com.skiesofarcadia.recomp.test`, the game pushed to its
+  `Games/GEAE8P`) beside the `.9` release install; the Pocket 5's test app is on `ws35n11`.
+
 ## Released (2026-11-20): v0.90.0-standalone.9, the fourth test build
 
 - **Published** 2026-11-20 18:25 UTC as a prerelease; #35 comment posted.

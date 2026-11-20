@@ -21,6 +21,10 @@ Two separate things, done in this order:
 - **A play-through on the new engine** (at least the USA disc; the European and Japanese ones by spot checks).
   Checked so far: sweeps (47 starts on WSL, 31 on the Pocket 5, a 5-start A/B run after the review fixes), bench
   scenes, routes, short runs on Windows / macOS / Android. Each new scene has found something before.
+  2026-11-20: a warp into every one of the 255 map scripts on the Mac (Metal, USA): no crash or hang, every odd
+  picture the same in the Dolphin build (`docs/development-notes.md`, *Play-through sweep*); the Japanese disc's
+  sweep on Windows was running. A warp shows each map, not its story events or battles: a real play-through is
+  still the gate.
 - **Testers' reports** from one or two opt-in test builds (`v0.90.0-standalone.6`, published 2026-11-19, and one with their fixes) with
   nothing serious open.
 - **Performance re-measured** on the current builds (the "ahead of Dolphin" numbers in `HANDOFF-emulator-free.md`
