@@ -3295,6 +3295,38 @@ build (Dolphin's Vulkan backend on llvmpipe is right).
     - Character menu (1543 draws a frame, no EFB copies): UHD 770 D3D12 1.31x against D3D11 1.43x; RTX
       equal.
     - The reporter's 2-9 fps on D3D12 needs their GPU. The sky seams and Fina's flashback are open.
+- **#34 solved (2026-11-20, on the owner's AYN Thor):**
+  - **Effect:** the `.6` and `.7` release APKs aborted at Start Game on every Android 9+ device.
+  - **Cause:** R8 shrinks release builds only, and it removed Java methods that only native code uses. The
+    `.7` dex lacked 38 of them: SDL's `onNativeSoftReturnKey`, `nativeGetHint`, the controller hot-plug and
+    input natives, and the host's `restartGame`. SDL's `JNI_OnLoad` then hit `RegisterNatives`, got
+    `NoSuchMethodError`, and the process died with SIGABRT.
+  - **Why no device check caught it:** they all used debug test APKs, which R8 doesn't shrink.
+  - **Fix:** `recompcore-android-standalone-r8.patch` (proguard keeps `org.libsdl.app.**`,
+    `SkiesGameActivity` and `SkiesTouchControls`). Checked with a release-type APK on the Thor: the game
+    runs. In `.8`.
+  - **Guard:** `tools/check-apk-jni.sh`, run by `validate.yml` after every APK build. It fails `.7`'s APK
+    and passes the fixed one (97 methods).
+  - **Release rule:** run the signed APK from the draft on a device before publishing.
+- **Performance work after the 11-19 review (2026-11-20, local after `.8`).** WSL figures are CPU seconds
+  per 60 guest seconds, headless and uncapped.
+  - **Frame-wait skip** (`cpu.cpp` `InFrameWait`; addresses per disc in `main.cpp` `DefaultFrameWait`):
+    - When: before the dispatch, while the retrace count equals the last handled one and the loader's
+      queue is empty.
+    - WSL: battle −31%, ship battle −27%, save point −8%, other scenes −2% to −4%; EU −14%, JP −7%.
+    - Windows (measured by the Windows session): battle −33%, ship battle −25%, the rest within noise.
+    - The idle-PC skip stays after the dispatch: moved before it, the game hung, because the spin never
+      checked its run queue.
+  - **Save states:** packed and written on a background thread. The game thread holds only the
+    serialization, 21–24 ms. Loads and the end of the run wait for the writer.
+  - **Fast floating point:** `dolrecomp-fast-fp.patch`, without the perf branch's gather-pipe hunk.
+    - The profile was trained in the standalone (`tools/pgo-standalone.sh`, headless, the four standard
+      states). Without its own profile, fast FP only matches today's exact module with PGO.
+    - With it, together with the wait skip, against today: battle 13.59 → 7.39 s (−46%), ship battle −41%,
+      save point −28%, cutscene −24%, Valuan ship −23%, world map −24%.
+    - Pictures and a battle (damage numbers) match exact.
+    - CI needs the fast profiles in the secrets' `pgo/` and `--semantics fast` in `codegen-targets.txt`:
+      the owner's call.
 - **#32** 15-17 fps on a Ryzen 5 3550H + GTX 1650 laptop (v0.83): the Dolphin build takes Vulkan adapter 0 (on
   AMD APU + NVIDIA laptops that can be the integrated GPU); Aurora asks Dawn for HighPerformance. A good tester for
   the standalone.
