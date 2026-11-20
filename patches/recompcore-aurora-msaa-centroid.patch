@@ -1,0 +1,25 @@
+diff --git a/GXRuntime/graphics/aurora/lib/gx/shader.cpp b/GXRuntime/graphics/aurora/lib/gx/shader.cpp
+index 43d1ddf872..96e9eaa550 100644
+--- a/GXRuntime/graphics/aurora/lib/gx/shader.cpp
++++ b/GXRuntime/graphics/aurora/lib/gx/shader.cpp
+@@ -1605,6 +1605,20 @@ std::string build_shader_source(const ShaderConfig& config) noexcept {
+         "\n      prev = vec4f(({1}) & vec4u(255u)) / 255.0;\n    }}",
+         LogicOpDstTexMap, kOps[(config.pad2 - 1) & 15]);
+   }
++  // Local (fork): every varying interpolated at the centroid of the covered samples, as Dolphin's shaders do with
++  // MSAA (ShaderGenCommon.h). With MSAA a pixel on a polygon's edge is shaded when any sample is covered, but
++  // center interpolation evaluates the texture coordinates at the pixel's center, outside the polygon: they run
++  // past the texture's edge and a repeating texture brings in the opposite edge. Skies' Tenkou Island sky drew
++  // dotted grey lines along a far cloud layer's edges that way (issue #35, 2x MSAA). One sample: the same as center.
++  {
++    static constexpr std::string_view kLocation = "@location(";
++    static constexpr std::string_view kCentroid = " @interpolate(perspective, centroid)";
++    for (size_t at = vtxOutAttrs.find(kLocation); at != std::string::npos; at = vtxOutAttrs.find(kLocation, at)) {
++      const size_t close = vtxOutAttrs.find(')', at);
++      vtxOutAttrs.insert(close + 1, kCentroid);
++      at = close + 1 + kCentroid.size();
++    }
++  }
+   const auto shaderSource = fmt::format(R"""(
+ fn bswap32(v: u32, le: bool) -> u32 {{
+   if (le) {{
