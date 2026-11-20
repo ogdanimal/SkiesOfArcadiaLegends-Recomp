@@ -1,0 +1,74 @@
+diff --git a/GXRuntime/graphics/aurora/lib/dolphin/gx/GXFrameBuffer.cpp b/GXRuntime/graphics/aurora/lib/dolphin/gx/GXFrameBuffer.cpp
+index 46df2d9293..854644db55 100644
+--- a/GXRuntime/graphics/aurora/lib/dolphin/gx/GXFrameBuffer.cpp
++++ b/GXRuntime/graphics/aurora/lib/dolphin/gx/GXFrameBuffer.cpp
+@@ -43,19 +43,29 @@ void copy_tex(const void* dest, GXBool clear) noexcept {
+       .height = dstHeight,
+       .format = texCopyFmt,
+   };
++  // Local (fork): a copy from an EFB without alpha (RGB8_Z24, RGB565_Z16) reads alpha 1 on the console. The render
++  // texture's sample view has no swizzle for that, so the copy carried the EFB's leftover alpha and drew see-through
++  // (Skies' boss battle swirl, issue #35: the boss's grab mostly black). Such a copy goes through the RGB565
++  // conversion instead (RGBA8 with alpha 1); a cached texture of the other kind is replaced.
++  const bool conv = gfx::tex_copy_conv::needs_conversion(texCopyFmt);
++  const bool noAlpha = !conv && (g_gxState.pixelFmt == GX_PF_RGB8_Z24 || g_gxState.pixelFmt == GX_PF_RGB565_Z16) &&
++                       gfx::tex_copy_conv::needs_conversion(GX_TF_RGB565);
++  const auto resolveFmt = noAlpha ? GX_TF_RGB565 : texCopyFmt;
++  const u32 handleFmt = conv ? static_cast<u32>(texCopyFmt) : noAlpha ? GX_TF_RGB565 : GX_TF_RGBA8;
++  const wgpu::TextureFormat handleWgpuFmt = conv || noAlpha
++                                                ? gfx::tex_copy_conv::output_format(static_cast<GXTexFmt>(handleFmt))
++                                                : webgpu::g_graphicsConfig.surfaceConfiguration.format;
+   auto it = g_gxState.copyTextureCache.find(key);
++  // (a restored state's copy is in the surface's format whatever its kind)
++  if (it != g_gxState.copyTextureCache.end() && it->second.handle &&
++      (it->second.handle->gxFormat != handleFmt || it->second.handle->format != handleWgpuFmt)) {
++    it->second.handle = conv || noAlpha ? gfx::new_conv_texture(dstWidth, dstHeight, handleFmt, "Copy Conv Texture")
++                                        : gfx::new_render_texture(dstWidth, dstHeight, handleFmt, "Resolved Texture");
++  }
+   if (it == g_gxState.copyTextureCache.end()) {
+-    gfx::TextureHandle handle;
+-    if (gfx::tex_copy_conv::needs_conversion(texCopyFmt)) {
+-      handle = gfx::new_conv_texture(dstWidth, dstHeight, texCopyFmt, "Copy Conv Texture");
+-    } else {
+-      // Configure the texture swizzle to use alpha 1.0 if targeting RGB565 or EFB doesn't have alpha
+-      const auto fmt = texCopyFmt == GX_TF_RGB565 || g_gxState.pixelFmt == GX_PF_RGB8_Z24 ||
+-                               g_gxState.pixelFmt == GX_PF_RGB565_Z16
+-                           ? GX_TF_RGB565
+-                           : GX_TF_RGBA8;
+-      handle = gfx::new_render_texture(dstWidth, dstHeight, fmt, "Resolved Texture");
+-    }
++    gfx::TextureHandle handle = conv || noAlpha
++                                    ? gfx::new_conv_texture(dstWidth, dstHeight, handleFmt, "Copy Conv Texture")
++                                    : gfx::new_render_texture(dstWidth, dstHeight, handleFmt, "Resolved Texture");
+     it = g_gxState.copyTextureCache.emplace(key, GXState::CopyTextureRef{.handle = handle, .revision = 0}).first;
+   }
+   auto& handle = it->second;
+@@ -79,7 +89,7 @@ void copy_tex(const void* dest, GXBool clear) noexcept {
+   const auto clearAlpha = clear && g_gxState.alphaUpdate;
+   const auto clearDepth = clear && g_gxState.depthUpdate;
+   gfx::resolve_pass(handle.handle, rect, clearColor, clearAlpha, clearDepth, g_gxState.clearColor, clear_depth_value(),
+-                    texCopyFmt);
++                    resolveFmt);
+   ++handle.revision;
+   handle.ramBytes = GXGetTexBufferSize(static_cast<u16>(g_gxState.texCopyDstWidth),
+                                        static_cast<u16>(g_gxState.texCopyDstHeight), texCopyFmt, GX_FALSE, 0);
+diff --git a/GXRuntime/graphics/aurora/lib/gx/gx.cpp b/GXRuntime/graphics/aurora/lib/gx/gx.cpp
+index 474c06127e..8cef6ebabc 100644
+--- a/GXRuntime/graphics/aurora/lib/gx/gx.cpp
++++ b/GXRuntime/graphics/aurora/lib/gx/gx.cpp
+@@ -733,9 +733,12 @@ static gfx::TextureHandle padded_copy_texture(const GXState::CopyTextureRef& cop
+   const u32 h = std::max<u32>(static_cast<u32>(std::lround(height * sy)), src->size.height);
+   auto& padded = s_paddedCopies[src.get()];
+   if (!padded.texture || padded.width != w || padded.height != h) {
+-    padded.texture = gfx::tex_copy_conv::needs_conversion(static_cast<GXTexFmt>(copy.copyFormat))
+-                         ? gfx::new_conv_texture(w, h, copy.copyFormat, "Padded Copy Texture")
+-                         : gfx::new_render_texture(w, h, src->gxFormat, "Padded Copy Texture");
++    // Local (fork): in the copy's own texture format, so the copy into it is valid: a converted copy's (a copy from
++    // an EFB without alpha is converted as RGB565, GXFrameBuffer.cpp), else the surface's
++    const bool convSrc = gfx::tex_copy_conv::needs_conversion(static_cast<GXTexFmt>(copy.copyFormat)) ||
++                         src->format != webgpu::g_graphicsConfig.surfaceConfiguration.format;
++    padded.texture = convSrc ? gfx::new_conv_texture(w, h, src->gxFormat, "Padded Copy Texture")
++                             : gfx::new_render_texture(w, h, src->gxFormat, "Padded Copy Texture");
+     padded.width = w;
+     padded.height = h;
+     padded.revision = UINT32_MAX;

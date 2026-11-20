@@ -57,3 +57,4 @@ png-limits
 gxruntime-fpcr-no-ah
 android-settings-reload
 gxruntime-min-filter
+gxruntime-copy-no-alpha
