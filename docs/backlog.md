@@ -48,7 +48,25 @@ Simplifications, biggest first:
   the Thor); a simulated second, near-square display runs the game fine. Likeliest a native crash in Vulkan's
   start, which `.7`'s safeguard turns into OpenGL ES at the next start. Needs the reporter's log.
 - **The 0.83 Dolphin build still has #16** (it sets FZ|AH the same way): no Dolphin-engine release is planned.
-- **Next test build:** write `release/test-build-notes.md` fresh; ask the owner to approve `android-sign`.
+- **#35 (2026-11-20, Windows, `.7` against the Dolphin perftest build).** Fixed, for the next build (local
+  commits `a0224ea` and `0194554`):
+  - Blocky textures: Aurora's minification filter codes 2 and 5 were swapped
+    (`recompcore-gxruntime-min-filter.patch`).
+  - The FPS counter counted only the game's frames, so it showed 30 with 60 fps on.
+  - The boss battle entry swirl showed the boss on black: a copy from an EFB without alpha kept the
+    renderer's leftover alpha (`recompcore-gxruntime-copy-no-alpha.patch`).
+
+  Open:
+  - Direct3D 12 slowness: the reporter sees 2-9 fps in the character menu; here D3D12 runs like D3D11 on the
+    RTX 5080 and the UHD 770, so their GPU is needed.
+  - Sky seams near an unknown save point.
+  - Fina's flashback at 14 fps.
+
+  Replies drafted, not posted. Details: development notes, *Issues #26-#32*, the #35 entry.
+- **#34, 2026-11-20:** OpenGL ES closes the same way, so it's probably not the renderer. Ask for `.7`'s
+  `files/Logs/skies-standalone.log` (`.6` writes none on Android).
+- **Next test build:** write `release/test-build-notes.md` fresh (#35's three fixes: credit Cawl87); ask the
+  owner to approve `android-sign`.
 
 ## After the standalone test prerelease (v0.90.0-standalone.4, never published) — 2026-11-18
 

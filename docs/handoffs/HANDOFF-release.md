@@ -21,6 +21,12 @@
   outside its `#if`), fixed in `7eecdfc`; 44662688280 built the Windows, Linux and macOS hosts.
 - **Replies:** #16 (fixed, asks both reporters to confirm), #26 and #34 (ask for the new log) posted.
 - **Next build:** write `release/test-build-notes.md` fresh again.
+  - **What it has so far** (local `standalone-issues`, unpushed):
+    - `a0224ea`: #35's texture filter and the FPS counter in 60 fps mode.
+    - `0194554`: #35's boss battle entry swirl, from EFB copies without alpha.
+  - Each fix has its own patch (`recompcore-gxruntime-min-filter`, `recompcore-gxruntime-copy-no-alpha`).
+  - Checked on WSL and on Windows (D3D12 and D3D11), not yet on Android or macOS.
+  - Credit Cawl87 (#35).
 
 ## Released (2026-11-19): v0.90.0-standalone.6, the first public test build of the new engine
 
