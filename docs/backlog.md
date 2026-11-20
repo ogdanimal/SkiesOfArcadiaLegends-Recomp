@@ -40,13 +40,17 @@ Simplifications, biggest first:
   - Contents: the #35 menu speed (retail texture key), the frame-wait skip, background save states, the
     vertex-size cache, small fixes, the CI APK guard.
   - Tested before the tag on WSL, Windows, the Pocket 5 and the Mac mini M4.
-  - Draft checks per platform (the owner's rule: *Release checks* in the release handoff), then publish.
+  - Every package checked on the draft (the owner's rule), then PUBLISHED 2026-11-20 18:25 UTC; #35 comment
+    posted.
 - **Next build (local, unpushed):**
   - `d1bce57`: the "window" resolution covers widescreen windows (#35's soft textures).
   - `1cfaf23`: the padded-copy base, after Fina's flashback.
   - `60dd22d`: the release-checks docs.
-  - Before tagging: the UHD 770's GPU cost for the cover change and the flashback saving on Windows, then the
-    usual device checks.
+  - `b3f1039`, `6654e9a`: docs.
+  - Checked (2026-11-20, development notes, #35): Windows (C:\dev\SkiesStandalone rebuilt; flashback 9.66 ->
+    1.02 ms; the cover costs the UHD 770 25-34% uncapped at 1440p, still >= 1.8x); the Pocket 5 test app
+    (`ws35n10`: flashback 12.22 -> 2.56 ms, 1.00x); the Mac mini M4 (battle, #16 digits, cover 2560x1920, flashback 3.15 -> 1.01 ms, 1.00x).
+  - Left before tagging: the owner's word to push, tag and approve `android-sign`.
 - **#35 still open:** the sky seams (Tenkou Island save point: reproduce by warping there) and the 60 fps
   warping/flicker.
 - **Fast floating point:** an experiment only.
@@ -57,8 +61,10 @@ Simplifications, biggest first:
   welcome).
 - **Test files on C:** for the owner to decide (ask twice before deleting):
   - `C:\Users\Public\claude\`: `skies.rvz` (1.3 GB), several APKs, and `mac\skies-9.bundle`.
-  - `C:\dev\SkiesStandalone\`: `check8\`, `perf-wait\`, `perf-d3d12\` (its `after\`, `crash\` and
-    `blur\` subfolders), and `build\` (rebuilt at 11:45).
+  - `C:\dev\SkiesStandalone\`: `check8\`, `check9\`, `next\`, `perf-wait\`, `perf-d3d12\` (its `after\`,
+    `crash\` and `blur\` subfolders), `build\skies-standalone-before-next.exe` (the 11:45 build kept for
+    comparison), and `build\` (rebuilt at 13:27 with the next build).
+  - `C:\Users\Public\claude\mac\`: also `skies-next10.bundle` and `19-retroid-antonio-start.sav` (for the Mac).
   - PIX was installed by the Windows session with the owner's OK.
 
 ## After the second test build (v0.90.0-standalone.7) — 2026-11-20

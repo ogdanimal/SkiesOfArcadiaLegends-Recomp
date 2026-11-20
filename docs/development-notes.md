@@ -3369,7 +3369,11 @@ build (Dolphin's Vulkan backend on llvmpipe is right).
       and stretched it sideways. Dolphin's Auto covers the window.
     - Fix: on desktop the buffer now covers the window (2560x1920 there, scaled down at the present).
       Explicit scales are unchanged. Android keeps the fit, since covering costs about 1.8x the pixels.
-    - The GPU cost on the UHD 770 is still to be measured.
+    - Measured (Windows session, 2026-11-20): the frame dumps are 1920x1440 before and 2560x1920 after; framing
+      and proportions unchanged. Cost on the UHD 770 at 2560x1440, uncapped (save-point state): field D3D12
+      2.83x -> 1.90x, D3D11 2.69x -> 1.81x; menu D3D12 4.26x -> 3.18x, D3D11 3.74x -> 2.67x. GPU-bound (the
+      video thread's ms a frame unchanged); at least 1.8x headroom left at full speed. Mac mini M4: 2560x1920
+      at a 2560x1440 window, 1.00x, uncapped limited by the 144 Hz present (4.8x either way).
     - Ruled out on the way: the mip LOD bias (applied as Dolphin applies it) and the arbitrary-mipmap bias
       (0 of 81 textures flagged in a battle).
   - **The slowdown after Fina's flashback** (`recompcore-gxruntime-padded-base-once`, next build):
@@ -3378,6 +3382,11 @@ build (Dolphin's Vulkan backend on llvmpipe is right).
     - Windows session: about 10 ms of the video thread a frame, with the game waiting at its per-frame
       draw-done.
     - Fix: the base is rebuilt only when the memory under it changes. WSL: 2.46 -> 1.00 ms a frame.
+    - Measured, video thread ms a frame after the flashback (frames 43201-43801), before -> after:
+      Windows RTX 5080 D3D12 (both at SKIES_EFB_SCALE=3) 9.66 -> 1.02 (the cabin after it 6.86 -> 1.43; process
+      CPU over the run 66.7 -> 49.6 s); Pocket 5 test app 12.22 -> 2.56 (the game's waits 10.92 -> 1.20); Mac mini M4
+      (the `.9` release zip as before) 3.15 -> 1.01 (waits 2.54 -> 0.32). The
+      frames before the flashback are unchanged; 1.00x throughout on both.
     - The likely cause of the reporter's 14 fps, not yet confirmed.
   - **Not slow on the Windows session's PC:** the boss intro blur and the flashback itself (D3D11, D3D12 and
     Vulkan; UHD and RTX).
