@@ -996,6 +996,7 @@ void InputPoll()
 #endif
 }
 
+#ifdef SKIES_STANDALONE_AURORA
 bool InputHotkeyHeld(void* sdl_gamepad, int h)
 {
   SDL_Gamepad* pad = static_cast<SDL_Gamepad*>(sdl_gamepad);
@@ -1021,6 +1022,22 @@ void InputHotkeysReload()
 {
   s_hotkeys_loaded = false;
 }
+#else
+// The headless build (-DSKIES_STANDALONE_AURORA=OFF, test runs): no controllers, keyboard or hotkeys
+bool InputHotkeyHeld(void*, int)
+{
+  return false;
+}
+
+int InputHotkeyKey(int)
+{
+  return 0;
+}
+
+void InputHotkeysRefresh() {}
+
+void InputHotkeysReload() {}
+#endif
 
 bool InputKeyBound(int scancode)
 {
@@ -1115,9 +1132,11 @@ bool InputClearable(int row, InputSlot slot)
 {
   if (row < 0 || row >= InputMappingRows())
     return false;
+#ifdef SKIES_STANDALONE_AURORA
   // A hotkey slot clears back to its defaults (so the menu can always be opened)
   if (HotkeyRow(row) >= 0)
     return true;
+#endif
   // Not the controller's A and B, without which a controller (on Android often the only input)
   // could no longer work the mapping page
   return slot == InputSlot::Keyboard || row > 1;
