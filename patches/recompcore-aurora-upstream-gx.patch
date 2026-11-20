@@ -1,0 +1,291 @@
+diff --git a/GXRuntime/graphics/aurora/lib/gx/command_processor.cpp b/GXRuntime/graphics/aurora/lib/gx/command_processor.cpp
+index 0d62c6db79..8a370cf128 100644
+--- a/GXRuntime/graphics/aurora/lib/gx/command_processor.cpp
++++ b/GXRuntime/graphics/aurora/lib/gx/command_processor.cpp
+@@ -1841,6 +1841,13 @@ static void handle_xf(const u8* data, u32& pos, u32 size, bool bigEndian) {
+             if (srcRow < 13) {
+               tcg.src = rowToSrc[srcRow];
+             }
++            // Local (fork): a color texgen's channel is its type (2 = COLOR0, 3 = COLOR1; Dolphin's TexGenType),
++            // the source row is "colors" for both
++            if (tgType == 3) {
++              tcg.src = GX_TG_COLOR1;
++            } else if (tgType == 2) {
++              tcg.src = GX_TG_COLOR0;
++            }
+             g_gxState.stateDirty = true;
+           }
+         } else if (reg >= 0x50 && reg <= 0x5F) {
+diff --git a/GXRuntime/graphics/aurora/lib/gx/shader.cpp b/GXRuntime/graphics/aurora/lib/gx/shader.cpp
+index 96e9eaa550..38d260ec58 100644
+--- a/GXRuntime/graphics/aurora/lib/gx/shader.cpp
++++ b/GXRuntime/graphics/aurora/lib/gx/shader.cpp
+@@ -81,6 +81,10 @@ static std::string alpha_bump_sel(size_t stageIdx, const ShaderConfig& config, c
+ }
+ 
+ static bool uses_texture_sample(const TevStage& stage) noexcept {
++  // A stage without a texture reads white (Dolphin: textemp = 255 when the order's texture is off)
++  if (stage.texMapId == GX_TEXMAP_NULL) {
++    return false;
++  }
+   const auto& c = stage.colorPass;
+   const auto& a = stage.alphaPass;
+   return c.a == GX_CC_TEXC || c.a == GX_CC_TEXA || c.b == GX_CC_TEXC || c.b == GX_CC_TEXA || c.c == GX_CC_TEXC ||
+@@ -123,14 +127,18 @@ static std::string color_arg_reg(GXTevColorArg arg, size_t stageIdx, const Shade
+   case GX_CC_A2:
+     return "vec3f(tevreg2.a)";
+   case GX_CC_TEXC: {
+-    CHECK(stage.texMapId != GX_TEXMAP_NULL, "unmapped texture for stage {}", stageIdx);
++    if (stage.texMapId == GX_TEXMAP_NULL) {
++      return "vec3f(1.0)";
++    }
+     CHECK(stage.texMapId >= GX_TEXMAP0 && stage.texMapId <= GX_TEXMAP7, "invalid texture {} for stage {}",
+           underlying(stage.texMapId), stageIdx);
+     const auto& swap = config.tevSwapTable[stage.tevSwapTex];
+     return fmt::format("sampled{}.{}{}{}", stageIdx, chan_comp(swap.red), chan_comp(swap.green), chan_comp(swap.blue));
+   }
+   case GX_CC_TEXA: {
+-    CHECK(stage.texMapId != GX_TEXMAP_NULL, "unmapped texture for stage {}", stageIdx);
++    if (stage.texMapId == GX_TEXMAP_NULL) {
++      return "vec3f(1.0)";
++    }
+     CHECK(stage.texMapId >= GX_TEXMAP0 && stage.texMapId <= GX_TEXMAP7, "invalid texture {} for stage {}",
+           underlying(stage.texMapId), stageIdx);
+     const auto& swap = config.tevSwapTable[stage.tevSwapTex];
+@@ -251,7 +259,9 @@ static std::string alpha_arg_reg(GXTevAlphaArg arg, size_t stageIdx, const Shade
+   case GX_CA_A2:
+     return "tevreg2.a";
+   case GX_CA_TEXA: {
+-    CHECK(stage.texMapId != GX_TEXMAP_NULL, "unmapped texture for stage {}", stageIdx);
++    if (stage.texMapId == GX_TEXMAP_NULL) {
++      return "1.0";
++    }
+     CHECK(stage.texMapId >= GX_TEXMAP0 && stage.texMapId <= GX_TEXMAP7, "invalid texture {} for stage {}",
+           underlying(stage.texMapId), stageIdx);
+     const auto& swap = config.tevSwapTable[stage.tevSwapTex];
+@@ -331,6 +341,47 @@ static std::string alpha_arg_reg(GXTevAlphaArg arg, size_t stageIdx, const Shade
+   }
+ }
+ 
++// Local (fork, from upstream Aurora 4998dcc): a TEV input already in [0, 1] (a clamped register, a texture, a
++// rasterized color, a constant) passes tev_overflow unchanged, so it isn't wrapped
++static bool tev_color_arg_is_normalized(GXTevColorArg arg, const std::array<bool, MaxTevRegs>& colorNormalized,
++                                        const std::array<bool, MaxTevRegs>& alphaNormalized) {
++  switch (arg) {
++  case GX_CC_CPREV:
++    return colorNormalized[GX_TEVPREV];
++  case GX_CC_APREV:
++    return alphaNormalized[GX_TEVPREV];
++  case GX_CC_C0:
++    return colorNormalized[GX_TEVREG0];
++  case GX_CC_A0:
++    return alphaNormalized[GX_TEVREG0];
++  case GX_CC_C1:
++    return colorNormalized[GX_TEVREG1];
++  case GX_CC_A1:
++    return alphaNormalized[GX_TEVREG1];
++  case GX_CC_C2:
++    return colorNormalized[GX_TEVREG2];
++  case GX_CC_A2:
++    return alphaNormalized[GX_TEVREG2];
++  default:
++    return true;
++  }
++}
++
++static bool tev_alpha_arg_is_normalized(GXTevAlphaArg arg, const std::array<bool, MaxTevRegs>& alphaNormalized) {
++  switch (arg) {
++  case GX_CA_APREV:
++    return alphaNormalized[GX_TEVPREV];
++  case GX_CA_A0:
++    return alphaNormalized[GX_TEVREG0];
++  case GX_CA_A1:
++    return alphaNormalized[GX_TEVREG1];
++  case GX_CA_A2:
++    return alphaNormalized[GX_TEVREG2];
++  default:
++    return true;
++  }
++}
++
+ static std::string tev_op(GXTevOp op, std::string_view bias, std::string_view scale, std::string_view a,
+                           std::string_view b, std::string_view c, std::string_view d, std::string_view zero) {
+   switch (op) {
+@@ -373,16 +424,14 @@ static std::string tev_op(GXTevOp op, std::string_view bias, std::string_view sc
+ 
+ static std::string tev_color_op(GXTevOp op, std::string_view bias, std::string_view scale, bool clamp,
+                                 std::string_view a, std::string_view b, std::string_view c, std::string_view d) {
+-  const auto overflow = [](std::string_view reg) { return fmt::format("tev_overflow_vec3f({})", reg); };
+-  std::string expr = tev_op(op, bias, scale, overflow(a), overflow(b), overflow(c), d, "vec3(0)"sv);
++  std::string expr = tev_op(op, bias, scale, a, b, c, d, "vec3(0)"sv);
+   return clamp ? fmt::format("clamp({}, vec3f(0.0), vec3f(1.0))", expr)
+                : fmt::format("clamp({}, vec3f(-4.0), vec3f(4.0))", expr);
+ }
+ 
+ static std::string tev_alpha_op(GXTevOp op, std::string_view bias, std::string_view scale, bool clamp,
+                                 std::string_view a, std::string_view b, std::string_view c, std::string_view d) {
+-  const auto overflow = [](std::string_view reg) { return fmt::format("tev_overflow_f32({})", reg); };
+-  std::string expr = tev_op(op, bias, scale, overflow(a), overflow(b), overflow(c), d, "0.0"sv);
++  std::string expr = tev_op(op, bias, scale, a, b, c, d, "0.0"sv);
+   return clamp ? fmt::format("clamp({}, 0.0, 1.0)", expr) : fmt::format("clamp({}, -4.0, 4.0)", expr);
+ }
+ 
+@@ -1040,25 +1089,53 @@ std::string build_shader_source(const ShaderConfig& config) noexcept {
+   std::string fragmentFn;
+ 
+   static std::array regName{"prev"sv, "tevreg0"sv, "tevreg1"sv, "tevreg2"sv};
++  // Local (fork, from upstream Aurora 4998dcc): which registers hold a clamped (0..1) result so far
++  std::array<bool, MaxTevRegs> colorNormalized{};
++  std::array<bool, MaxTevRegs> alphaNormalized{};
+   for (u32 idx = 0; idx < config.tevStageCount; ++idx) {
+     const auto& stage = config.tevStages[idx];
++    const auto color_arg = [&](GXTevColorArg arg) {
++      auto value = color_arg_reg(arg, idx, config, stage);
++      if (tev_color_arg_is_normalized(arg, colorNormalized, alphaNormalized)) {
++        return fmt::format("vec3f({})", value);
++      }
++      return fmt::format("tev_overflow_vec3f({})", value);
++    };
++    // Local (fork, from upstream Aurora 3094e04): the alpha stage's packed compares (R8, GR16, BGR24) compare the
++    // color inputs A and B, as read before this stage writes its color (Dolphin's tev_a_comparison_*: tevin_a.rgb);
++    // only A8 compares alpha
++    const bool alphaCompareColor = stage.alphaOp.op >= GX_TEV_COMP_R8_GT && stage.alphaOp.op <= GX_TEV_COMP_BGR24_EQ;
++    if (alphaCompareColor) {
++      fragmentFn += fmt::format("\n    let tev_cmp_a{0} = {1};\n    let tev_cmp_b{0} = {2};", idx,
++                                color_arg(stage.colorPass.a), color_arg(stage.colorPass.b));
++    }
+     {
+       std::string_view outReg = regName[stage.colorOp.outReg];
+-      std::string op = tev_color_op(
+-          stage.colorOp.op, tev_bias(stage.colorOp.bias), tev_scale(stage.colorOp.scale), stage.colorOp.clamp,
+-          color_arg_reg(stage.colorPass.a, idx, config, stage), color_arg_reg(stage.colorPass.b, idx, config, stage),
+-          color_arg_reg(stage.colorPass.c, idx, config, stage), color_arg_reg(stage.colorPass.d, idx, config, stage));
++      std::string op = tev_color_op(stage.colorOp.op, tev_bias(stage.colorOp.bias), tev_scale(stage.colorOp.scale),
++                                    stage.colorOp.clamp, color_arg(stage.colorPass.a), color_arg(stage.colorPass.b),
++                                    color_arg(stage.colorPass.c), color_arg_reg(stage.colorPass.d, idx, config, stage));
+       fragmentFn += fmt::format("\n    // TEV stage {2}\n    {0} = vec4f({1}, {0}.a);", outReg, op, idx);
++      colorNormalized[stage.colorOp.outReg] = stage.colorOp.clamp;
+     }
+     {
++      const auto alpha_arg = [&](GXTevAlphaArg arg) {
++        auto value = alpha_arg_reg(arg, idx, config, stage);
++        if (tev_alpha_arg_is_normalized(arg, alphaNormalized)) {
++          return value;
++        }
++        return fmt::format("tev_overflow_f32({})", value);
++      };
+       std::string_view outReg = regName[stage.alphaOp.outReg];
+       std::string op = tev_alpha_op(
+           stage.alphaOp.op, tev_bias(stage.alphaOp.bias), tev_scale(stage.alphaOp.scale), stage.alphaOp.clamp,
+-          alpha_arg_reg(stage.alphaPass.a, idx, config, stage), alpha_arg_reg(stage.alphaPass.b, idx, config, stage),
+-          alpha_arg_reg(stage.alphaPass.c, idx, config, stage), alpha_arg_reg(stage.alphaPass.d, idx, config, stage));
++          alphaCompareColor ? fmt::format("tev_cmp_a{}", idx) : alpha_arg(stage.alphaPass.a),
++          alphaCompareColor ? fmt::format("tev_cmp_b{}", idx) : alpha_arg(stage.alphaPass.b),
++          alpha_arg(stage.alphaPass.c), alpha_arg_reg(stage.alphaPass.d, idx, config, stage));
+       fragmentFn += fmt::format("\n    {0}.a = {1};", outReg, op);
++      alphaNormalized[stage.alphaOp.outReg] = stage.alphaOp.clamp;
+     }
+   }
++  bool prevColorNormalized = false, prevAlphaNormalized = false;
+ 
+   {
+     // GXRuntime recomp patch (0006): zero TEV stages is invalid (SDK state
+@@ -1074,6 +1151,10 @@ std::string build_shader_source(const ShaderConfig& config) noexcept {
+     }
+     const u32 lastStageIdx = config.tevStageCount != 0 ? config.tevStageCount - 1 : 0;
+     const auto& lastStage = config.tevStages[lastStageIdx];
++    if (config.tevStageCount != 0) {
++      prevColorNormalized = colorNormalized[lastStage.colorOp.outReg];
++      prevAlphaNormalized = alphaNormalized[lastStage.alphaOp.outReg];
++    }
+     if (lastStage.colorOp.outReg != 0) {
+       fragmentFn += fmt::format("\n    prev = vec4f({0}.rgb, prev.a);", regName[lastStage.colorOp.outReg]);
+     }
+@@ -1199,9 +1280,10 @@ std::string build_shader_source(const ShaderConfig& config) noexcept {
+     } else if (tcg.src == GX_TG_NRM) {
+       vtxXfrAttrs += fmt::format("\n    var tc{} = vec4f({}, 1.0);", i, vtx_attr(config, GX_VA_NRM));
+     } else if (tcg.src == GX_TG_COLOR0) {
+-      vtxXfrAttrs += fmt::format("\n    var tc{} = {};", i, vtx_attr(config, GX_VA_CLR0));
++      // Local (fork, from upstream Aurora e938637): the lit color channel, as Dolphin's vertex_lighting_0
++      vtxXfrAttrs += fmt::format("\n    var tc{} = out.cc0;", i);
+     } else if (tcg.src == GX_TG_COLOR1) {
+-      vtxXfrAttrs += fmt::format("\n    var tc{} = {};", i, vtx_attr(config, GX_VA_CLR1));
++      vtxXfrAttrs += fmt::format("\n    var tc{} = out.cc1;", i);
+     } else if (tcg.src == GX_TG_BINRM) {
+       vtxXfrAttrs += fmt::format("\n    var tc{} = vec4f({}, 1.0);", i, nbt_slice_local(NbtSlice::B));
+     } else if (tcg.src == GX_TG_TANGENT) {
+@@ -1542,7 +1624,13 @@ std::string build_shader_source(const ShaderConfig& config) noexcept {
+         "var tex{0}_samp: sampler;",
+         i, i * 2, i * 2 + 1);
+   }
+-  fragmentFn += "\n    prev = tev_overflow_vec4f(prev);";
++  if (!prevColorNormalized && !prevAlphaNormalized) {
++    fragmentFn += "\n    prev = tev_overflow_vec4f(prev);";
++  } else if (!prevColorNormalized) {
++    fragmentFn += "\n    prev = vec4f(tev_overflow_vec3f(prev.rgb), prev.a);";
++  } else if (!prevAlphaNormalized) {
++    fragmentFn += "\n    prev.a = tev_overflow_f32(prev.a);";
++  }
+   if (config.alphaCompare) {
+     const auto comp0 = alpha_compare(config.alphaCompare.comp0, config.alphaCompare.ref0);
+     const auto comp1 = alpha_compare(config.alphaCompare.comp1, config.alphaCompare.ref1);
+diff --git a/GXRuntime/graphics/aurora/lib/gx/shader_info.cpp b/GXRuntime/graphics/aurora/lib/gx/shader_info.cpp
+index 8f005447a1..654007eb2d 100644
+--- a/GXRuntime/graphics/aurora/lib/gx/shader_info.cpp
++++ b/GXRuntime/graphics/aurora/lib/gx/shader_info.cpp
+@@ -55,10 +55,11 @@ void color_arg_reg_info(GXTevColorArg arg, const TevStage& stage, ShaderInfo& in
+     break;
+   case GX_CC_TEXC:
+   case GX_CC_TEXA:
+-    CHECK(stage.texCoordId != GX_TEXCOORD_NULL, "tex coord not bound");
+-    CHECK(stage.texMapId != GX_TEXMAP_NULL, "tex map not bound");
+-    info.sampledTexCoords.set(stage.texCoordId);
+-    info.sampledTextures.set(stage.texMapId);
++    if (stage.texMapId != GX_TEXMAP_NULL) {  // Local (fork, upstream b684c0d): no texture reads white
++      CHECK(stage.texCoordId != GX_TEXCOORD_NULL, "tex coord not bound");
++      info.sampledTexCoords.set(stage.texCoordId);
++      info.sampledTextures.set(stage.texMapId);
++    }
+     break;
+   case GX_CC_RASC:
+   case GX_CC_RASA:
+@@ -129,10 +130,11 @@ void alpha_arg_reg_info(GXTevAlphaArg arg, const TevStage& stage, ShaderInfo& in
+     }
+     break;
+   case GX_CA_TEXA:
+-    CHECK(stage.texCoordId != GX_TEXCOORD_NULL, "tex coord not bound");
+-    CHECK(stage.texMapId != GX_TEXMAP_NULL, "tex map not bound");
+-    info.sampledTexCoords.set(stage.texCoordId);
+-    info.sampledTextures.set(stage.texMapId);
++    if (stage.texMapId != GX_TEXMAP_NULL) {  // Local (fork, upstream b684c0d): no texture reads white
++      CHECK(stage.texCoordId != GX_TEXCOORD_NULL, "tex coord not bound");
++      info.sampledTexCoords.set(stage.texCoordId);
++      info.sampledTextures.set(stage.texMapId);
++    }
+     break;
+   case GX_CA_RASA:
+     if (stage.channelId != GX_COLOR_NULL && stage.channelId != GX_COLOR_ZERO &&
+@@ -269,6 +271,23 @@ ShaderInfo build_shader_info(const ShaderConfig& config) noexcept {
+     }
+   }
+ 
++  // Local (fork, from upstream Aurora 2bf0825): a texgen from a color channel needs that channel lit even when
++  // no TEV stage reads it
++  for (int i = 0; i < info.sampledTexCoords.size(); ++i) {
++    if (!info.sampledTexCoords.test(i)) {
++      continue;
++    }
++    const auto& tcg = config.tcgs[i];
++    if (tcg.type >= GX_TG_BUMP0 && tcg.type <= GX_TG_BUMP7) {
++      continue;
++    }
++    if (tcg.src == GX_TG_COLOR0) {
++      info.sampledColorChannels.set(0);
++    } else if (tcg.src == GX_TG_COLOR1) {
++      info.sampledColorChannels.set(1);
++    }
++  }
++
+   info.uniformSize += info.loadsTevReg.count() * sizeof(Vec4<float>);
+   for (int i = 0; i < info.sampledColorChannels.size(); ++i) {
+     if (info.sampledColorChannels.test(i)) {
