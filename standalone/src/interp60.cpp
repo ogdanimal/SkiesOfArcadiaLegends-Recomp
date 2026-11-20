@@ -37,6 +37,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <unordered_map>
 #include <mutex>
 #include <tuple>
 #include <vector>
@@ -85,7 +86,6 @@ struct Prim
   u8 pos_format;    // ComponentFormat
   u8 pos_count;     // 2 or 3
   u64 key;
-  u32 occurrence;
   u32 texture;      // texture unit 0's image address: draws of one object share it
 };
 
@@ -837,7 +837,7 @@ void NoteDraw(const u8* p, u32 len)
   {
     frame.prims.push_back(Prim{static_cast<u32>(frame.stream.size() + 3), num_vertices,
                                static_cast<u16>(size / num_vertices), pos_offset,
-                               static_cast<u8>(pos_format), static_cast<u8>(pos_count), key, 0, texture});
+                               static_cast<u8>(pos_format), static_cast<u8>(pos_count), key, texture});
   }
   // Not the vertex data itself: CPU-skinned models change it every frame.
   for (size_t index : s_unkeyed)
@@ -1111,12 +1111,21 @@ InterpHandoff InterpFrameEndGame()
     s_current = TakeFrame();
   // Number the loads and draws now that every key is known.
   {
-    std::map<std::tuple<u16, u8, u64>, u32> seen;
+    // (Draws were numbered too once; nothing reads that.) A hash map, kept between frames
+    struct LoadId
+    {
+      u64 key;
+      u32 address_count;
+      bool operator==(const LoadId&) const = default;
+    };
+    struct LoadIdHash
+    {
+      size_t operator()(const LoadId& id) const { return std::hash<u64>()(id.key * 0x9E3779B97F4A7C15ull ^ id.address_count); }
+    };
+    static std::unordered_map<LoadId, u32, LoadIdHash> seen;
+    seen.clear();
     for (Load& load : s_current->loads)
-      load.occurrence = seen[std::make_tuple(load.address, load.count, load.key)]++;
-    std::map<u64, u32> seen_prims;
-    for (Prim& prim : s_current->prims)
-      prim.occurrence = seen_prims[prim.key]++;
+      load.occurrence = seen[LoadId{load.key, (u32{load.address} << 8) | load.count}]++;
   }
   s_unkeyed.clear();
   handoff.complete = s_recording && s_current->has_start && !s_current->stream.empty();
