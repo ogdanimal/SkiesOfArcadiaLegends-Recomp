@@ -276,6 +276,10 @@ void PostDeferred()
 }
 
 void ParseCommands(const u8* data, u32 size);
+// FrameMode 2 (the display's refresh rate): when the timeline's next picture is to be made (max: none
+// waiting), and making it (below, after the frame ends)
+std::chrono::steady_clock::time_point DisplayDue();
+void DisplayTick();
 
 // The video thread until the game's thread is done
 void VideoLoop()
@@ -283,17 +287,26 @@ void VideoLoop()
   for (;;)
   {
     VideoItem item;
+    DisplayTick();
     if (s_spin_now.load(std::memory_order_relaxed))
     {
       // Polling for the next item, at most a while (the game may be loading or quitting)
-      const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(50);
+      const auto until = std::min(std::chrono::steady_clock::now() + std::chrono::milliseconds(50), DisplayDue());
       while (s_posted_count.load(std::memory_order_acquire) == s_taken &&
              std::chrono::steady_clock::now() < until)
         std::this_thread::yield();
     }
     {
       std::unique_lock lock(s_queue_mutex);
-      s_queue_items.wait(lock, [] { return !s_queue.empty(); });
+      const auto due = DisplayDue();
+      if (due == std::chrono::steady_clock::time_point::max())
+      {
+        s_queue_items.wait(lock, [] { return !s_queue.empty(); });
+      }
+      else if (!s_queue_items.wait_until(lock, due, [] { return !s_queue.empty(); }))
+      {
+        continue;  // the next picture is due: made at the top
+      }
       item = std::move(s_queue.front());
       s_queue.pop_front();
       s_queued_bytes -= item.bytes.size();
@@ -545,15 +558,14 @@ s64 SnapToRefresh(s64 steady_ns)
 // + 1.5 ms (at most 30), N fixes it, off presents at once. Hitches over 50 ms (state loads) are left out;
 // unthrottled runs present at once. `wall` is the copy's (or the retrace's) guest time on the throttle's
 // clock (WallForGuest, from the game's thread); how late it is, is how late the video thread got here.
-void SchedulePresent(std::chrono::steady_clock::time_point wall)
+// The delay for a copy at `wall` (as SchedulePresent's), ms; -1: present at once
+double PresentDelay(std::chrono::steady_clock::time_point wall)
 {
   static const double s_mode = [] {  // -2 auto, -1 off, else fixed ms
     const char* v = std::getenv("SKIES_PRESENT_DELAY_MS");
     const std::string mode = v ? v : "auto";
     return mode == "auto" ? -2.0 : mode == "off" ? -1.0 : std::atof(mode.c_str());
   }();
-  if (wall.time_since_epoch().count() == 0)
-    return;
   const double late = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - wall).count();
   if (PacingOn())
   {
@@ -561,7 +573,7 @@ void SchedulePresent(std::chrono::steady_clock::time_point wall)
     PacingAdd(window, late, "present-late", "copy after its guest time", 5.0, 10.0);
   }
   if (s_mode == -1.0 || late > 50.0)
-    return;
+    return -1.0;
   double delay = s_mode;
   if (s_mode == -2.0)
   {
@@ -583,6 +595,16 @@ void SchedulePresent(std::chrono::steady_clock::time_point wall)
     }
     delay = s_delay;
   }
+  return delay;
+}
+
+void SchedulePresent(std::chrono::steady_clock::time_point wall)
+{
+  if (wall.time_since_epoch().count() == 0)
+    return;
+  const double delay = PresentDelay(wall);
+  if (delay < 0.0)
+    return;
   s64 at = std::chrono::duration_cast<std::chrono::nanoseconds>(
                (wall + std::chrono::microseconds(static_cast<s64>(delay * 1000))).time_since_epoch())
                .count();
@@ -1242,14 +1264,271 @@ struct FrameEnd
   u32 xfb, vi_xfb;  // for SKIES_INTERP_TRACE
 };
 
+// ---- FrameMode 2: pictures at the display's refresh rate ----------------------------------------
+// Dusklight's way (src/dusk/game_clock.cpp, TwilitRealm/dusklight): the game runs at its own rate and
+// each picture shows the game between its last two frames at the time the picture is shown, one frame
+// behind. Each frame gets a show time (s_disp): its copy's guest time on the throttle's clock, the
+// present delay (SchedulePresent's) and two VI fields, so the next frame is there before its time comes.
+// A picture at time T between frame A's and frame B's show times is their blend at t = (T - A) / (B - A)
+// (interp60.cpp InterpDisplayReplay, kept in one of the odd slots in turn); at or past the newest
+// frame's time its real picture shows, once. Pictures come a refresh apart ([Skies] MaxFrameRate caps
+// it), each made just before its time (DisplayLead) and presented at it, so the render worker holds at
+// most one. Against FrameMode 1 the real frame shows a field later (16.7 ms): the price of any number of
+// pictures between two frames. A frame end far after the last (a load, a pause) starts the timeline
+// again. SKIES_DISPLAY_TRACE=1: each picture in the log; SKIES_DISPLAY_HZ=N: the display's rate taken as N
+// (tests); SKIES_MAX_FPS=N overrides MaxFrameRate.
+struct DisplayFrame
+{
+  u64 frame;
+  std::chrono::steady_clock::time_point show;
+  int slot;  // its real picture
+};
+std::deque<DisplayFrame> s_disp;
+std::chrono::steady_clock::time_point s_disp_next = std::chrono::steady_clock::time_point::max();
+std::chrono::steady_clock::time_point s_disp_last{};  // the last picture's time
+u64 s_disp_real = UINT64_MAX;  // the frame whose real picture shows (none after an in-between)
+u64 s_disp_count = 0;          // in-betweens made (their slot)
+std::atomic<int> s_disp_cap{0};       // [Skies] MaxFrameRate (from the game's thread)
+std::atomic<double> s_disp_hz{0.0};   // the rate in use (the menu's)
+constexpr std::chrono::microseconds DISPLAY_BEHIND{33367};  // two VI fields
+
+bool DisplayTrace()
+{
+  static const bool on = std::getenv("SKIES_DISPLAY_TRACE") != nullptr;
+  return on;
+}
+
+// A refresh, from the display (SDL's mode on the desktop, Choreographer's measured period on Android), at
+// most [Skies] MaxFrameRate; looked at again every second (the window may move to another display)
+std::chrono::nanoseconds DisplayPeriod()
+{
+  static std::chrono::steady_clock::time_point s_checked{};
+  static double s_hz = 60.0;
+  const auto now = std::chrono::steady_clock::now();
+  if (now - s_checked > std::chrono::seconds(1))
+  {
+    s_checked = now;
+    double hz = 0.0;
+#if defined(__ANDROID__)
+    const s64 period = s_vsync_period_ns.load(std::memory_order_relaxed);
+    if (period > 0)
+      hz = 1e9 / static_cast<double>(period);
+#else
+    if (SDL_Window* window = MainWindow())
+    {
+      const SDL_DisplayID display = SDL_GetDisplayForWindow(window);
+      const SDL_DisplayMode* mode = display ? SDL_GetCurrentDisplayMode(display) : nullptr;
+      if (mode && mode->refresh_rate > 1.0f)
+        hz = mode->refresh_rate;
+    }
+#endif
+    static const int s_env_cap = [] {
+      const char* v = std::getenv("SKIES_MAX_FPS");
+      return v ? std::atoi(v) : -1;
+    }();
+    const int cap = s_env_cap >= 0 ? s_env_cap : s_disp_cap.load(std::memory_order_relaxed);
+    static const double s_env_hz = [] {  // tests: the display's rate as given
+      const char* v = std::getenv("SKIES_DISPLAY_HZ");
+      return v ? std::atof(v) : 0.0;
+    }();
+    if (s_env_hz > 0.0)
+      hz = s_env_hz;
+    if (hz < 30.0)
+      hz = 60.0;  // unknown
+    if (cap >= 30 && hz > cap)
+      hz = cap;
+    if (std::abs(hz - s_hz) > 0.01)
+      Log("[video] the display's rate: %.2f Hz\n", hz);
+    s_hz = hz;
+  }
+  // Every `s_every` refreshes when the in-betweens of all of them don't fit (interp60.cpp's measure): a
+  // whole number, so each picture still lands on a refresh. More often again after a second with room
+  // (90%): the first frames after a load or a scene change cost more.
+  static int s_every = 1;
+  static int s_room = 0;  // checks in a row with room for more pictures
+  static std::chrono::steady_clock::time_point s_every_checked{};
+  if (now - s_every_checked > std::chrono::milliseconds(250))
+  {
+    s_every_checked = now;
+    const double allowed = InterpDisplayAllowed();
+    const double per_frame = DISPLAY_BEHIND.count() * 1e-6 * s_hz;  // refreshes in a 30 fps frame
+    const auto needed = [&](int every) { return per_frame / every - 1.0; };
+    int every = s_every;
+    while (every < 8 && needed(every) > allowed)
+      ++every;
+    s_room = every > 1 && needed(every - 1) <= allowed * 0.9 ? s_room + 1 : 0;
+    if (s_room >= 4)
+    {
+      --every;
+      s_room = 0;
+    }
+    if (every != s_every || s_disp_hz.load(std::memory_order_relaxed) == 0.0)
+      Log("[video] pictures at %.2f Hz (every %d refresh%s; %.1f in-betweens a frame fit)\n", s_hz / every, every,
+          every == 1 ? "" : "es", allowed);
+    s_every = every;
+    s_disp_hz.store(s_hz / every, std::memory_order_relaxed);
+  }
+  return std::chrono::nanoseconds(static_cast<s64>(1e9 * s_every / s_hz));
+}
+
+// How long before its time a picture is made: its replay and present call before the render worker needs it
+std::chrono::nanoseconds DisplayLead(std::chrono::nanoseconds period)
+{
+  return std::min<std::chrono::nanoseconds>(period * 6 / 10, std::chrono::milliseconds(6));
+}
+
+void DisplayClear()
+{
+  s_disp.clear();
+  s_disp_next = std::chrono::steady_clock::time_point::max();
+  s_disp_real = UINT64_MAX;
+}
+
+void DisplayPresentAt(std::chrono::steady_clock::time_point at, int slot)
+{
+  s64 ns = std::chrono::duration_cast<std::chrono::nanoseconds>(at.time_since_epoch()).count();
+#if defined(__ANDROID__)
+  ns = SnapToRefresh(ns);
+#endif
+  aurora_backend_set_present_time(ns);
+  Present(slot);
+  s_disp_last = at;
+}
+
+void DisplayTickNow()
+{
+  const auto period = DisplayPeriod();
+  const auto now = std::chrono::steady_clock::now();
+  if (s_disp.empty())
+  {
+    s_disp_next = std::chrono::steady_clock::time_point::max();
+    return;
+  }
+  auto at = s_disp_next;
+  if (at + period < now)
+    at = now + DisplayLead(period);  // behind (a long item, a hitch): again from now
+  // The frames around `at`: `to` the first shown after it
+  size_t to = 0;
+  while (to < s_disp.size() && s_disp[to].show <= at)
+    ++to;
+  int slot = -1;
+  u64 real = UINT64_MAX;
+  u64 shown = 0;  // the frame the picture leads up to (the trace's)
+  int why = 0;    // the replay's result (the trace's)
+  float t = 1.0f;
+  if (to == 0 || to == s_disp.size())
+  {
+    // Before the oldest frame's time, or at or past the newest's: that real picture
+    const DisplayFrame& f = to == 0 ? s_disp.front() : s_disp.back();
+    if (s_disp_real != f.frame)
+    {
+      slot = f.slot;
+      real = f.frame;
+    }
+  }
+  else
+  {
+    const DisplayFrame& a = s_disp[to - 1];
+    const DisplayFrame& b = s_disp[to];
+    t = static_cast<float>(std::chrono::duration<double>(at - a.show).count() /
+                           std::chrono::duration<double>(b.show - a.show).count());
+    const int in_between = static_cast<int>(s_disp_count % 4) * 2 + 1;
+    shown = b.frame;
+    why = b.frame == a.frame + 1 ? InterpDisplayReplay(b.frame, t, in_between) : -5;
+    if (why == 1)
+    {
+      slot = in_between;
+      ++s_disp_count;
+      s_inbetweens_shown.fetch_add(1, std::memory_order_relaxed);
+    }
+    else
+    {
+      // No blend (a scene change, the replay not ready yet): the nearer real picture
+      const DisplayFrame& f = t < 0.5f ? a : b;
+      if (s_disp_real != f.frame)
+      {
+        slot = f.slot;
+        real = f.frame;
+      }
+    }
+    // Frames before `a` are done with
+    while (s_disp.front().frame < a.frame)
+      s_disp.pop_front();
+    InterpDisplayDrop(s_disp.front().frame);
+  }
+  if (DisplayTrace() && why != 1 && why != 0)
+    Log("[display-trace] no in-between at %+.2f ms (frame %llu, t %.3f): %d%s\n",
+        std::chrono::duration<double, std::milli>(at - now).count(), static_cast<unsigned long long>(shown), t, why,
+        slot < 0 ? ", nothing presented" : "");
+  if (slot >= 0)
+  {
+    if (DisplayTrace())
+      Log("[display-trace] picture at %+.2f ms: %s (frame %llu, t %.3f, slot %d)\n",
+          std::chrono::duration<double, std::milli>(at - now).count(), real != UINT64_MAX ? "real" : "in-between",
+          static_cast<unsigned long long>(real != UINT64_MAX ? real : shown), t, slot);
+    DisplayPresentAt(at, slot);
+    s_disp_real = real;
+    s_disp_next = at + period;
+  }
+  else if (to == s_disp.size())
+  {
+    // The newest real picture shows: nothing until the next frame end
+    s_disp_next = std::chrono::steady_clock::time_point::max();
+  }
+  else
+  {
+    s_disp_next = at + period;
+  }
+}
+
 void FrameEndVideo(const FrameEnd& end)
 {
   if ((end.frame % 600) == 1)
     HdTexturesLog();
   ArmDrawLog(end.frame);
+  // FrameMode 2: the real picture kept here, its show time on the timeline (DisplayTickNow presents)
+  if (end.interp.display)
+  {
+    if (InterpFrameEndVideo(end.interp, RealSlot(end.frame), end.frame) >= 0 &&
+        end.wall.time_since_epoch().count() != 0)
+    {
+      const double delay = std::max(PresentDelay(end.wall), 0.0);
+      auto show = end.wall + std::chrono::microseconds(static_cast<s64>(delay * 1000)) + DISPLAY_BEHIND;
+      if (!s_disp.empty() && show - s_disp.back().show > std::chrono::milliseconds(250))
+      {
+        DisplayClear();  // a load or a pause: no blend across it
+        InterpDisplayDrop(end.frame);
+      }
+      if (!s_disp.empty() && show <= s_disp.back().show)
+        show = s_disp.back().show + std::chrono::milliseconds(1);
+      s_disp.push_back(DisplayFrame{end.frame, show, RealSlot(end.frame)});
+      while (s_disp.size() > 4)
+        s_disp.pop_front();
+      if (s_disp_next == std::chrono::steady_clock::time_point::max())
+      {
+        // Pictures again: on the last one's refresh grid if it is recent, else from the first frame's time
+        const auto period = DisplayPeriod();
+        const auto now = std::chrono::steady_clock::now();
+        auto next = s_disp_last + period;
+        if (s_disp_last.time_since_epoch().count() == 0 || next + std::chrono::milliseconds(100) < now)
+          next = std::max(s_disp.front().show, now + DisplayLead(period));
+        while (next < now)
+          next += period;
+        s_disp_next = next;
+      }
+      s_retrace_presents = false;
+      s_shown.clear();
+      return;
+    }
+    DisplayClear();  // not fitting (presented as at 30 fps) or unthrottled
+  }
+  else if (!s_disp.empty())
+  {
+    DisplayClear();
+  }
   // 60 fps: the real picture kept here, the in-between one by the replay after the frame's tokens
   // (ReplayVideo), both presented from the retraces
-  if (InterpFrameEndVideo(end.interp, RealSlot(end.frame)) >= 0)
+  if (!end.interp.display && InterpFrameEndVideo(end.interp, RealSlot(end.frame), end.frame) >= 0)
   {
     s_shown.push_back(Shown{end.xfb, end.frame, false});
     if (InterpTrace())
@@ -1293,6 +1572,8 @@ void FrameEndVideo(const FrameEnd& end)
 void ReplayVideo()
 {
   const int kept = InterpReplayVideo();
+  if (!s_disp.empty())
+    return;  // FrameMode 2: the frame joined the timeline's
   if (kept == 1 && !s_shown.empty())
     s_shown.back().interp = true;
   if (kept == 1)
@@ -1303,6 +1584,37 @@ void ReplayVideo()
 }
 }  // namespace
 #endif
+
+namespace
+{
+std::chrono::steady_clock::time_point DisplayDue()
+{
+#ifdef SKIES_STANDALONE_AURORA
+  if (s_disp_next == std::chrono::steady_clock::time_point::max())
+    return s_disp_next;
+  return s_disp_next - DisplayLead(DisplayPeriod());
+#else
+  return std::chrono::steady_clock::time_point::max();
+#endif
+}
+
+void DisplayTick()
+{
+#ifdef SKIES_STANDALONE_AURORA
+  if (std::chrono::steady_clock::now() >= DisplayDue())
+    DisplayTickNow();
+#endif
+}
+}  // namespace
+
+double VideoDisplayHz()
+{
+#ifdef SKIES_STANDALONE_AURORA
+  return s_disp_hz.load(std::memory_order_relaxed);
+#else
+  return 0.0;
+#endif
+}
 
 void VideoFrameEnd()
 {
@@ -1333,9 +1645,10 @@ void VideoFrameEnd()
   PostDeferred();
   FrameEnd end{s_frames, WallForGuest(Now()), InterpFrameEndGame(), GpuXfbCopyAddress(),
                ViXfbAddress() & 0x01FFFFFF};
-  s_retrace_presents_wanted = end.interp.wanted;
+  s_retrace_presents_wanted = end.interp.wanted && !end.interp.display;
+  s_disp_cap.store(SettingGet(SettingFile::Main, "Skies", "MaxFrameRate", 0), std::memory_order_relaxed);
   VideoPost([end] { FrameEndVideo(end); });
-  if (end.interp.wanted)
+  if (end.interp.wanted && !end.interp.display)  // (FrameMode 2: the timeline's at the frame end)
     VideoPostDeferred([] { ReplayVideo(); });
   // At most a frame ahead of the video thread: this frame end posted, the previous one done
   if (s_threaded)
@@ -1481,6 +1794,7 @@ void VideoStateLoaded()
     VideoSync([frame] {
       InterpResetVideo();
       s_shown.clear();
+      DisplayClear();
       if (!s_loaded_copies.empty())
       {
         const int count = aurora_backend_copies_restore(g_ram, RAM_SIZE, s_loaded_copies.data(),

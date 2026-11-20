@@ -21,8 +21,13 @@
 // replay's own XFB copy. The real picture is kept too, and video.cpp presents the in-between one at
 // the first retrace after the copy, the real one at the next (the Dolphin build's order).
 //
-// [Skies] FrameMode (-1 the default and 0: 30 fps, 1: 60 fps; SKIES_INTERP=0/1 overrides it), held
-// off while the game runs fast (menu.cpp qol::Write).
+// [Skies] FrameMode (-1 the default and 0: 30 fps, 1: 60 fps, 2: the display's refresh rate; SKIES_INTERP=0/1/2
+// overrides it), held off while the game runs fast (menu.cpp qol::Write).
+//
+// At the display's refresh rate (FrameMode 2, from Dusklight's game_clock.cpp: the game at its own rate, the
+// pictures between its last two frames at the time each is shown) the recordings stay here a while
+// (s_display) and video.cpp's timeline asks for a blend at any position between two of them
+// (InterpDisplayReplay) for each refresh.
 // SKIES_INTERP_T: the blend's position between the frames (0.5). SKIES_INTERP_STATS=1: counts and
 // times every 600 frames. SKIES_INTERP_TRACE=1 (video.cpp): each frame end and retrace present.
 // SPDX-License-Identifier: GPL-3.0-or-later
@@ -36,6 +41,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <map>
 #include <unordered_map>
 #include <mutex>
@@ -118,6 +124,7 @@ struct Frame
   // sorted once, the current frame's order serves again when it becomes the previous frame.
   std::vector<u32> load_order, prim_order;
   bool sorted = false;
+  u64 serial = 0;      // set when the recording is handed over (BuildBlendedStream's plan key)
   GpRegisters start;   // the registers when the frame began (the previous frame's XFB copy done)
   bool has_start = false;
 
@@ -132,6 +139,7 @@ struct Frame
     load_order.clear();
     prim_order.clear();
     sorted = false;
+    serial = 0;
     has_start = false;
   }
 };
@@ -508,31 +516,47 @@ int Align(int n_cur, int n_prev, const Distance& distance, const PairFn& pair)
 // The halfway matrices and positions written into a copy of the current stream. False when too few
 // loads and draws have a partner in the previous frame to be worth it (a scene change). The Dolphin
 // build's BuildBlendedStream, less its trace lines.
-bool BuildBlendedStream(const Frame& cur_frame, const Frame& prev_frame, std::vector<u8>* out)
+float DefaultT()
 {
   static const float t = [] {
     const char* env = std::getenv("SKIES_INTERP_T");
     return env ? static_cast<float>(std::atof(env)) : 0.5f;
   }();
-  *out = cur_frame.stream;
-  size_t paired = 0;
+  return t;
+}
+
+// The pairing of two frames, which doesn't depend on the blend's position: FrameMode 2 blends a pair at
+// several positions (one per refresh) and pairs them once. BuildPlan is the Dolphin build's
+// BuildBlendedStream up to the blend; ApplyPlan the blend at t.
+struct BlendPlan
+{
+  u64 cur_serial = 0, prev_serial = 0;  // the frames (pooled recordings are used again: by serial)
+  std::vector<std::pair<const Load*, const Load*>> loads;  // Blendable pairs
+  struct PrimPair
+  {
+    u32 index;          // in cur_frame.prims
+    const Prim* old;    // its partner
+    bool jumps;         // VertexJumps (float positions only)
+    bool check_collapse;  // float positions, same layout, no jump: Collapses decides at t
+  };
+  std::vector<PrimPair> prims;          // partners with the same layout
+  std::vector<u64> jumping_textures;    // textures with a paired draw that jumps (sorted)
+  size_t total = 0;
+};
+
+void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
+{
+  plan->loads.clear();
+  plan->prims.clear();
+  plan->jumping_textures.clear();
   const auto blend_load = [&](const Load& load, const Load& match) {
     const u8* cur = cur_frame.stream.data() + load.data_offset;
     const u8* prev = prev_frame.stream.data() + match.data_offset;
     if (!Blendable(load, cur, prev))
       return;
-    ++paired;
     ++s_stat_loads_blended;
     s_stat_words_changed += std::memcmp(cur, prev, load.count * 4u) != 0 ? 1 : 0;
-    for (u32 i = 0; i < load.count; ++i)
-    {
-      // The projection type (the word after the six parameters) isn't a float.
-      if (load.address + i >= XFMEM_SETPROJECTION + 6)
-        continue;
-      const float c = ReadFloat(cur + i * 4), p = ReadFloat(prev + i * 4);
-      WriteFloat(out->data() + load.data_offset + i * 4, p + (c - p) * t);
-    }
-    KeepMatrixScale(load, cur, prev, t, out->data() + load.data_offset);
+    plan->loads.emplace_back(&load, &match);
   };
   // Loads of a kind (address, count and the next draw's key) are aligned like draws: when the game
   // culls one of many alike objects, pairing them by occurrence put every later object's matrix
@@ -712,11 +736,7 @@ bool BuildBlendedStream(const Frame& cur_frame, const Frame& prev_frame, std::ve
   // Which paired draws jump (VertexJumps; with the two added, a full-screen quad Skies moves from
   // z = 100 to 0.001 after a menu passed covered the scene halfway). When one draw jumps, every draw
   // with the same texture snaps rather than smears: deciding per draw tore objects made of many
-  // draws apart (the battle-entry shatter's card of strips).
-  static std::vector<u8> jumps;
-  jumps.assign(cur_frame.prims.size(), 0);
-  static std::vector<std::pair<u64, std::pair<u32, u32>>> group_counts;  // texture -> paired, jumping
-  group_counts.clear();
+  // draws apart (the battle-entry shatter's card of strips). Collapses, which depends on t, is ApplyPlan's.
   const auto same_layout = [](const Prim& prim, const Prim& old) {
     return old.num_vertices == prim.num_vertices && old.vertex_size == prim.vertex_size &&
            old.pos_offset == prim.pos_offset && old.pos_format == prim.pos_format &&
@@ -728,53 +748,90 @@ bool BuildBlendedStream(const Frame& cur_frame, const Frame& prev_frame, std::ve
       continue;
     const Prim& prim = cur_frame.prims[index];
     const Prim& old = *partner[index];
-    if (prim.pos_format != FORMAT_FLOAT || !same_layout(prim, old))
+    if (!same_layout(prim, old))
       continue;
     bool jump = false;
-    for (u32 v = 0; v < prim.num_vertices && !jump; ++v)
+    if (prim.pos_format == FORMAT_FLOAT)
     {
-      const u32 at = v * prim.vertex_size + prim.pos_offset;
-      jump = VertexJumps(cur_frame.stream.data() + prim.data_offset + at,
-                         prev_frame.stream.data() + old.data_offset + at, prim.pos_count);
+      for (u32 v = 0; v < prim.num_vertices && !jump; ++v)
+      {
+        const u32 at = v * prim.vertex_size + prim.pos_offset;
+        jump = VertexJumps(cur_frame.stream.data() + prim.data_offset + at,
+                           prev_frame.stream.data() + old.data_offset + at, prim.pos_count);
+      }
+      if (jump)
+        plan->jumping_textures.push_back(prim.texture);
     }
-    if (!jump && Collapses(cur_frame.stream.data() + prim.data_offset, prev_frame.stream.data() + old.data_offset,
-                           prim, t))
-    {
-      jump = true;
-      ++s_stat_collapsed;
-    }
-    jumps[index] = jump ? 1 : 0;
-    if (group_counts.empty() || group_counts.back().first != prim.texture)
-    {
-      auto it = std::find_if(group_counts.begin(), group_counts.end(),
-                             [&](const auto& g) { return g.first == prim.texture; });
-      if (it == group_counts.end())
-        group_counts.push_back({prim.texture, {0, 0}});
-      else
-        std::swap(*it, group_counts.back());
-    }
-    group_counts.back().second.first += 1;
-    group_counts.back().second.second += jump ? 1 : 0;
-  }
-  std::sort(group_counts.begin(), group_counts.end());
-  const auto group_snaps = [&](u64 key) {
-    const auto it = std::lower_bound(group_counts.begin(), group_counts.end(),
-                                     std::make_pair(key, std::make_pair(0u, 0u)));
-    return it != group_counts.end() && it->first == key && it->second.second != 0;
-  };
-  for (size_t index = 0; index < cur_frame.prims.size(); ++index)
-  {
-    if (!partner[index])
-      continue;
-    const Prim& prim = cur_frame.prims[index];
-    const Prim& old = *partner[index];
-    if (!same_layout(prim, old) || jumps[index] || group_snaps(prim.texture))
-      continue;
-    ++paired;
-    ++s_stat_prims_blended;
+    plan->prims.push_back(BlendPlan::PrimPair{static_cast<u32>(index), &old, jump,
+                                              prim.pos_format == FORMAT_FLOAT && !jump});
     s_stat_prims_changed += std::memcmp(cur_frame.stream.data() + prim.data_offset,
                                         prev_frame.stream.data() + old.data_offset,
                                         static_cast<size_t>(prim.num_vertices) * prim.vertex_size) != 0 ? 1 : 0;
+  }
+  std::sort(plan->jumping_textures.begin(), plan->jumping_textures.end());
+  plan->jumping_textures.erase(std::unique(plan->jumping_textures.begin(), plan->jumping_textures.end()),
+                               plan->jumping_textures.end());
+  plan->total = cur_frame.loads.size() + cur_frame.prims.size();
+  s_stat_loads += cur_frame.loads.size();
+  s_stat_prims += cur_frame.prims.size();
+  s_stat_draws += cur_frame.draws.size();
+}
+
+// The blend at t: the plan's matrices and positions written into a copy of the current stream. False
+// when too few loads and draws have a partner in the previous frame to be worth it (a scene change).
+bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan& plan, std::vector<u8>* out, float t)
+{
+  *out = cur_frame.stream;
+  size_t paired = 0;
+  for (const auto& [load_ptr, match_ptr] : plan.loads)
+  {
+    const Load& load = *load_ptr;
+    const u8* cur = cur_frame.stream.data() + load.data_offset;
+    const u8* prev = prev_frame.stream.data() + match_ptr->data_offset;
+    ++paired;
+    for (u32 i = 0; i < load.count; ++i)
+    {
+      // The projection type (the word after the six parameters) isn't a float.
+      if (load.address + i >= XFMEM_SETPROJECTION + 6)
+        continue;
+      const float c = ReadFloat(cur + i * 4), p = ReadFloat(prev + i * 4);
+      WriteFloat(out->data() + load.data_offset + i * 4, p + (c - p) * t);
+    }
+    KeepMatrixScale(load, cur, prev, t, out->data() + load.data_offset);
+  }
+  // Draws turning round in one frame (Collapses, at this t) snap with their texture's group too
+  static std::vector<u64> collapsing;
+  static std::vector<u8> collapsed;
+  collapsing.clear();
+  collapsed.assign(plan.prims.size(), 0);
+  for (size_t i = 0; i < plan.prims.size(); ++i)
+  {
+    const BlendPlan::PrimPair& pair = plan.prims[i];
+    if (!pair.check_collapse)
+      continue;
+    const Prim& prim = cur_frame.prims[pair.index];
+    if (Collapses(cur_frame.stream.data() + prim.data_offset, prev_frame.stream.data() + pair.old->data_offset, prim,
+                  t))
+    {
+      collapsed[i] = 1;
+      collapsing.push_back(prim.texture);
+      ++s_stat_collapsed;
+    }
+  }
+  std::sort(collapsing.begin(), collapsing.end());
+  const auto group_snaps = [&](u64 texture) {
+    return std::binary_search(plan.jumping_textures.begin(), plan.jumping_textures.end(), texture) ||
+           std::binary_search(collapsing.begin(), collapsing.end(), texture);
+  };
+  for (size_t i = 0; i < plan.prims.size(); ++i)
+  {
+    const BlendPlan::PrimPair& pair = plan.prims[i];
+    const Prim& prim = cur_frame.prims[pair.index];
+    const Prim& old = *pair.old;
+    if (pair.jumps || collapsed[i] || group_snaps(prim.texture))
+      continue;
+    ++paired;
+    ++s_stat_prims_blended;
     for (u32 v = 0; v < prim.num_vertices; ++v)
     {
       const u32 at = v * prim.vertex_size + prim.pos_offset;
@@ -814,12 +871,23 @@ bool BuildBlendedStream(const Frame& cur_frame, const Frame& prev_frame, std::ve
       }
     }
   }
-  const size_t total = cur_frame.loads.size() + cur_frame.prims.size();
-  s_stat_loads += cur_frame.loads.size();
-  s_stat_prims += cur_frame.prims.size();
-  s_stat_draws += cur_frame.draws.size();
-  return total != 0 && paired * 2 >= total;
+  return plan.total != 0 && paired * 2 >= plan.total;
 }
+
+u64 s_serial = 0;  // the game's thread: each finished recording's (BlendPlan's key)
+
+bool BuildBlendedStream(const Frame& cur_frame, const Frame& prev_frame, std::vector<u8>* out, float t)
+{
+  static BlendPlan plan;
+  if (plan.cur_serial != cur_frame.serial || plan.prev_serial != prev_frame.serial || cur_frame.serial == 0)
+  {
+    BuildPlan(cur_frame, prev_frame, &plan);
+    plan.cur_serial = cur_frame.serial;
+    plan.prev_serial = prev_frame.serial;
+  }
+  return ApplyPlan(cur_frame, prev_frame, plan, out, t);
+}
+
 
 // ---- recording -----------------------------------------------------------------------------------
 
@@ -978,6 +1046,8 @@ struct Budget
   double work = 0.0;         // recent game work per frame
   bool on = true;
   u32 fitting = 0;  // frames in a row that would have fit while off
+  double frame = 0.0;  // the last frame's real-time budget, seconds
+  bool display = false;  // FrameMode 2: video.cpp makes fewer pictures instead (InterpDisplayAllowed)
 };
 Budget s_budget;
 u64 s_skipped = 0;
@@ -1008,9 +1078,11 @@ bool ReplayFits(u64 cycles)
   const double budget = static_cast<double>(cycles - previous.last_cycles) / CPU_HZ;
   if (budget > 0.25)
     return b.on;  // a long gap (loading, a pause): says nothing about the scene
+  b.frame = budget;
   // Averaged over about ten frames: the throttle catches up after a single slow frame
   b.work = b.work == 0.0 ? work : b.work * 0.9 + work * 0.1;
-  const double need = b.work + b.replay;
+  // FrameMode 2: the in-betweens adapt (every few refreshes), so only the frame's own work counts here
+  const double need = b.work + (b.display ? 0.0 : b.replay);
   if (b.on && need > 0.95 * budget)
   {
     b.on = false;
@@ -1036,14 +1108,19 @@ void CountReplay(double seconds)
   s_budget.replay = s_budget.replay == 0.0 ? seconds : s_budget.replay * 0.8 + seconds * 0.2;
 }
 
-bool Wanted()
+int Mode()
 {
   static const int env = [] {
     const char* v = std::getenv("SKIES_INTERP");
     return v ? std::atoi(v) : -1;
   }();
-  const bool setting = env >= 0 ? env != 0 : SettingGet(SettingFile::Main, "Skies", "FrameMode", -1) >= 1;
-  return setting && !MenuInterpHeld();
+  const int mode = env >= 0 ? env : SettingGet(SettingFile::Main, "Skies", "FrameMode", -1);
+  return std::clamp(mode, 0, 2);
+}
+
+bool Wanted()
+{
+  return Mode() >= 1 && !MenuInterpHeld();
 }
 
 #ifdef SKIES_STANDALONE_AURORA
@@ -1212,6 +1289,7 @@ InterpHandoff InterpFrameEndGame()
 {
   InterpHandoff handoff;
   handoff.wanted = Wanted();
+  handoff.display = handoff.wanted && Mode() == 2 && VideoThreaded();  // the timeline is the video thread's
   handoff.cycles = g_cycles;
   if (handoff.wanted != s_on_game)
   {
@@ -1242,6 +1320,7 @@ InterpHandoff InterpFrameEndGame()
   }
   s_unkeyed.clear();
   handoff.complete = s_recording && s_current->has_start && !s_current->stream.empty();
+  s_current->serial = ++s_serial;
   handoff.frame = s_current;
   // The next frame starts with the registers as they are now (this XFB copy done)
   s_current = TakeFrame();
@@ -1262,8 +1341,33 @@ struct Pending
   bool replay = false;  // the real picture kept: replay into real_slot + 1
   int real_slot = 0;
   double keep_seconds = 0.0;
+  bool display = false;  // for the timeline (FrameMode 2) instead
+  u64 id = 0;
 };
 Pending s_pending;
+
+// FrameMode 2: the recent recordings, oldest first, for the timeline's blends (each with the one before)
+struct DisplayFrame
+{
+  Frame* frame;
+  bool complete;
+  u64 id;
+};
+std::deque<DisplayFrame> s_display;
+bool s_display_mode = false;   // the frames go to s_display
+double s_display_replay = 0.0;  // replay seconds since the last frame end (the budget's)
+u32 s_display_replays = 0;      // and how many
+double s_display_cost = 0.0;    // seconds per replay (recent)
+// In-betweens per frame that fit beside the frame's work (85% of the frame's time, the rest the video
+// thread's work on the stream): video.cpp makes pictures every few refreshes when all of them don't
+std::atomic<double> s_display_allowed{1e9};
+
+void DisplayClear()
+{
+  for (DisplayFrame& f : s_display)
+    GiveBack(f.frame);
+  s_display.clear();
+}
 
 // The frame becomes the next one's previous (a recording cut short can't be blended with)
 void Rotate(Frame* frame, bool complete)
@@ -1302,17 +1406,18 @@ void LogStats()
 }
 }  // namespace
 
-int InterpFrameEndVideo(const InterpHandoff& handoff, int real_slot)
+int InterpFrameEndVideo(const InterpHandoff& handoff, int real_slot, u64 id)
 {
   Frame* const frame = static_cast<Frame*>(handoff.frame);
   // A replay that never came (no frame end can pass the next one's without it, but a state load)
   if (s_pending.frame)
     InterpReplayVideo();
-  if (handoff.wanted != s_on)
+  if (handoff.wanted != s_on || (handoff.wanted && handoff.display != s_display_mode))
   {
     s_on = handoff.wanted;
     InterpResetVideo();
-    Log("[interp] frame interpolation %s\n", s_on ? "on" : "off");
+    s_display_mode = handoff.wanted && handoff.display;
+    Log("[interp] frame interpolation %s\n", !s_on ? "off" : s_display_mode ? "on (display rate)" : "on");
   }
   if (!s_on)
   {
@@ -1320,11 +1425,31 @@ int InterpFrameEndVideo(const InterpHandoff& handoff, int real_slot)
     return -1;
   }
   ++s_frames;
+  s_budget.display = s_display_mode;
+  if (s_display_mode)
+  {
+    // The in-betweens since the last frame end are its replay cost. The timeline's replays run outside
+    // the video thread's items, so its busy time (the work) doesn't hold them: nothing to take off it.
+    CountReplay(s_display_replay);
+    s_budget.last_replay = 0.0;
+    if (s_display_replays != 0)
+    {
+      const double cost = s_display_replay / s_display_replays;
+      s_display_cost = s_display_cost == 0.0 ? cost : s_display_cost * 0.8 + cost * 0.2;
+    }
+    s_display_replay = 0.0;
+    s_display_replays = 0;
+  }
   // While replays don't fit, the frame is presented as at 30 fps (-1)
   const bool fits = ReplayFits(handoff.cycles);
   if (!fits)
     ++s_skipped;
-  s_pending = Pending{frame, handoff.complete, false, real_slot, 0.0};
+  if (s_display_mode && s_display_cost > 0.0 && s_budget.frame > 0.0 && Throttled())
+    s_display_allowed.store(std::max(0.85 * s_budget.frame - s_budget.work, 0.0) / s_display_cost,
+                            std::memory_order_relaxed);
+  else if (!s_display_mode || !Throttled())
+    s_display_allowed.store(1e9, std::memory_order_relaxed);
+  s_pending = Pending{frame, handoff.complete, false, real_slot, 0.0, s_display_mode, id};
 #ifdef SKIES_STANDALONE_AURORA
   if (fits)
   {
@@ -1336,6 +1461,21 @@ int InterpFrameEndVideo(const InterpHandoff& handoff, int real_slot)
 #else
   (void)real_slot;
 #endif
+  if (s_pending.replay && s_pending.display)
+  {
+    // For the timeline at once (its first pictures come before the next frame's tokens would pass); sorted
+    // at its first blend
+    s_display.push_back(DisplayFrame{frame, handoff.complete, id});
+    while (s_display.size() > 4)
+    {
+      GiveBack(s_display.front().frame);
+      s_display.pop_front();
+    }
+    s_record_wanted.store(s_budget.on || s_budget.fitting >= 28, std::memory_order_relaxed);
+    LogStats();
+    s_pending = {};
+    return 0;
+  }
   if (!s_pending.replay)
   {
     // Nothing to replay: the frame is only the next one's previous
@@ -1364,7 +1504,7 @@ int InterpReplayVideo()
     Sort(*pending.frame);
     static std::vector<u8> blended;
     auto t0 = Clock::now();
-    const bool blend = BuildBlendedStream(*pending.frame, *s_previous, &blended);
+    const bool blend = BuildBlendedStream(*pending.frame, *s_previous, &blended, DefaultT());
     s_ms[1] += Ms(t0);
     if (blend && Replay(*pending.frame, blended, pending.real_slot + 1))
     {
@@ -1393,5 +1533,66 @@ void InterpResetVideo()
   s_pending = {};
   GiveBack(s_previous);
   s_previous = nullptr;
+  DisplayClear();
+  s_display_replay = 0.0;
+  s_display_replays = 0;
+}
+
+int InterpMode()
+{
+  return Mode();
+}
+
+double InterpDisplayAllowed()
+{
+  return s_display_allowed.load(std::memory_order_relaxed);
+}
+
+int InterpDisplayReplay(u64 id, float t, int slot)
+{
+#ifdef SKIES_STANDALONE_AURORA
+  const DisplayFrame* cur = nullptr;
+  const DisplayFrame* prev = nullptr;
+  for (size_t i = 1; i < s_display.size(); ++i)
+  {
+    if (s_display[i].id == id && s_display[i - 1].id + 1 == id)
+    {
+      cur = &s_display[i];
+      prev = &s_display[i - 1];
+    }
+  }
+  if (!cur)
+    return -1;  // not here (yet)
+  if (!cur->complete || !prev->complete)
+    return -2;
+  const auto start = Clock::now();
+  Sort(*cur->frame);   // once each (Sort returns when sorted)
+  Sort(*prev->frame);
+  static std::vector<u8> blended;
+  auto t0 = Clock::now();
+  const bool blend = BuildBlendedStream(*cur->frame, *prev->frame, &blended, std::clamp(t, 0.0f, 1.0f));
+  s_ms[1] += Ms(t0);
+  int result = blend ? -4 : -3;  // -3: too different (a scene change), -4: no replay context
+  if (blend && Replay(*cur->frame, blended, slot))
+  {
+    result = 1;
+    ++s_interpolated;
+  }
+  s_display_replay += std::chrono::duration<double>(Clock::now() - start).count();
+  ++s_display_replays;
+  return result;
+#else
+  (void)id, (void)t, (void)slot;
+  return 0;
+#endif
+}
+
+void InterpDisplayDrop(u64 id)
+{
+  while (!s_display.empty() && s_display.front().id < id)
+  {
+    GiveBack(s_display.front().frame);
+    s_display.pop_front();
+  }
 }
 }  // namespace host

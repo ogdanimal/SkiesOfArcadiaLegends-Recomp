@@ -1,0 +1,25 @@
+diff --git a/tools/moderngekko_launcher.cpp b/tools/moderngekko_launcher.cpp
+--- a/tools/moderngekko_launcher.cpp
++++ b/tools/moderngekko_launcher.cpp
+@@ -2254,8 +2254,8 @@
+         static constexpr std::array<Choice, 4> huds{
+             {{2, "Screen edges"}, {3, "21:9 area"}, {1, "16:9 area"}, {0, "Original 4:3"}}};
+         static constexpr std::array<Choice, 2> ship_huds{{{0, "Spread out"}, {1, "Centred"}}};
+-        static constexpr std::array<Choice, 2> frame_rates{
+-            {{0, "30 fps (original)"}, {1, "60 fps (interpolated)"}}};
++        static constexpr std::array<Choice, 3> frame_rates{
++            {{0, "30 fps (original)"}, {1, "60 fps (interpolated)"}, {2, "Display refresh"}}};
+         static constexpr std::array<Choice, 4> msaa_modes{
+             {{1, "Off"}, {2, "2x MSAA"}, {4, "4x MSAA"}, {8, "8x MSAA"}}};
+         // Dolphin's TextureFilteringMode, AnisotropicFilteringMode (-1 = the game's own) and
+@@ -2318,7 +2318,9 @@
+         if (first <= 2 && last >= 2)
+           option("Frame rate", "##skies_frame_rate", SKIES_FRAME_MODE, &skies_frame_mode,
+                  config.frame_interpolation ? 1 : 0, frame_rates,
+-                 "60 fps adds in-between frames for smoother motion. 30 fps is the original.");
++                 "60 fps adds in-between frames for smoother motion. Display refresh adds one for every "
++                 "refresh of the screen (120 Hz, 144 Hz and up), a frame later than 60 fps. 30 fps is "
++                 "the original.");
+         if (first <= 3 && last >= 3)
+           option("Anti-aliasing", "##msaa", GFX_MSAA, &msaa, 1, msaa_modes,
+                  "Smooths jagged edges. Higher settings need a faster graphics card.");

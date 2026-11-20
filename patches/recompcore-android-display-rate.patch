@@ -1,0 +1,24 @@
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+@@ -76,7 +76,8 @@
+         val HUD = choices(2 to "Screen edges", 3 to "21:9 area", 1 to "16:9 area",
+             0 to "Original 4:3")
+         val SHIP_HUD = choices(0 to "Spread out", 1 to "Centred")
+-        val FRAME_RATE = choices(0 to "30 fps (original)", 1 to "60 fps (interpolated)")
++        val FRAME_RATE = choices(0 to "30 fps (original)", 1 to "60 fps (interpolated)",
++            2 to "Display refresh")
+         val RESOLUTION = choices(1 to "Native (480p)", 2 to "2x (720p)", 3 to "3x (1080p)",
+             4 to "4x (1440p)", 6 to "6x (4K)")
+         val MSAA = choices(1 to "Off", 2 to "2x MSAA", 4 to "4x MSAA", 8 to "8x MSAA")
+@@ -248,7 +249,9 @@
+                     "Spread out moves the ship battle HUD to the sides with the rest. Centred " +
+                         "keeps the game's own layout, with the grid under the Spirit bar.")
+                 configRow(rows, "Frame rate", FRAME_RATE, dolphin, "Skies", "FrameMode", 0,
+-                    "60 fps adds in-between frames for smoother motion. 30 fps is the original.")
++                    "60 fps adds in-between frames for smoother motion. Display refresh adds one " +
++                        "for every refresh of the screen (120 Hz and up), a frame later than 60 fps. " +
++                        "30 fps is the original.")
+                 configRow(rows, "Resolution", RESOLUTION, gfx, "Settings", "InternalResolution", 1,
+                     "Higher is sharper but needs more power. 3x matches a 1080p screen.")
+                 configRow(rows, "Anti-aliasing", MSAA, gfx, "Settings", "MSAA", 1,

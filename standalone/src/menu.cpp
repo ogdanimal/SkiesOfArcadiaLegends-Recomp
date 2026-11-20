@@ -533,7 +533,7 @@ Values ReadValues()
   const int hud = Get(HUD);
   values.hud = hud < 0 ? 2 : hud;
   values.ship_hud = Get(SHIP_HUD) == 1 ? 1 : 0;
-  values.frame_mode = Get(FRAME_MODE) >= 1 ? 1 : 0;
+  values.frame_mode = std::clamp(Get(FRAME_MODE), 0, 2);
   values.efb_scale = Get(EFB_SCALE);
   values.msaa = MsaaRunning(Get(MSAA));
   values.texture_filter = std::clamp(Get(TEXTURE_FILTER), 0, 2);
@@ -661,6 +661,22 @@ int Step(std::span<const int> list, int value, int direction, bool wrap)
   if (wrap)
     index = (index + count) % count;
   return list[std::clamp(index, 0, count - 1)];
+}
+
+constexpr int FRAME_MODES[] = {0, 1, 2};
+
+std::string FrameRateText(int mode)
+{
+  if (mode == 0)
+    return "30 fps (original)";
+  if (mode == 1)
+    return "60 fps (interpolated)";
+  const double hz = VideoDisplayHz();
+  if (hz < 1.0)
+    return "Display refresh (interpolated)";
+  char text[64];
+  std::snprintf(text, sizeof(text), "Display refresh (%.0f fps)", hz);
+  return text;
 }
 
 std::string ResolutionText(int scale)
@@ -810,7 +826,7 @@ void Change(Option option, int direction, bool wrap)
     v.ship_hud = v.ship_hud ? 0 : 1;
     break;
   case Option::FrameRate:
-    v.frame_mode = v.frame_mode ? 0 : 1;
+    v.frame_mode = Step(FRAME_MODES, v.frame_mode, direction, wrap);
     break;
   case Option::Resolution:
     v.efb_scale = Step(EFB_SCALES, v.efb_scale, direction, wrap);
@@ -2436,8 +2452,10 @@ void Draw(float scale)
               "Spread out moves the ship battle HUD to the sides with the rest. Centred keeps the "
               "game's own layout, with the grid under the Spirit bar."};
     case Option::FrameRate:
-      return {"Frame rate", v.frame_mode ? "60 fps (interpolated)" : "30 fps (original)",
-              "60 fps adds in-between frames for smoother motion. 30 fps is the original."};
+      return {"Frame rate", FrameRateText(v.frame_mode),
+              "60 fps adds in-between frames for smoother motion. Display refresh adds one for every "
+              "refresh of the screen (120 Hz, 144 Hz and up), a frame later than 60 fps. 30 fps is the "
+              "original."};
     case Option::Resolution:
       return {"Resolution", ResolutionText(v.efb_scale),
               "Higher is sharper but needs a faster graphics chip. Match window draws at the "

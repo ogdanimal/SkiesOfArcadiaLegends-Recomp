@@ -232,7 +232,8 @@ void InterpCommand(const u8* p, u32 len);
 struct InterpHandoff
 {
   void* frame = nullptr;  // the recording (interp60.cpp's), the video thread's from here on
-  bool wanted = false;    // 60 fps on
+  bool wanted = false;    // 60 fps (or the display's rate) on
+  bool display = false;   // at the display's refresh rate ([Skies] FrameMode 2): the video thread's timeline
   bool complete = false;  // the whole frame recorded
   u64 cycles = 0;         // the guest time of the copy
 };
@@ -240,10 +241,21 @@ InterpHandoff InterpFrameEndGame();
 // The same frame end on the video thread (not yet sent to Aurora): with interpolation on, keeps the
 // real picture in Aurora slot real_slot (0; -1: off or not fitting, present as usual); the replay
 // then keeps the in-between picture in real_slot + 1 when the frame pairs with the previous one.
-int InterpFrameEndVideo(const InterpHandoff& handoff, int real_slot);
+int InterpFrameEndVideo(const InterpHandoff& handoff, int real_slot, u64 id);
 // The frame's replay, later on the video thread (after the copy and the next frame's tokens):
 // 1 the in-between picture kept, 0 not, -1 nothing to replay (InterpFrameEndVideo gave -1).
 int InterpReplayVideo();
+// At the display's refresh rate (FrameMode 2): the frames kept for the video thread's timeline (video.cpp),
+// numbered by the video thread's frame count. InterpReplayVideo gives 1 when the pending frame joined them.
+// InterpDisplayReplay blends frame `id` with frame id - 1 at t (0..1) and keeps the picture in Aurora slot
+// `slot`: 1 kept, else not: -1 the frame not here (yet), -2 a recording cut short, -3 a scene change, -4 no replay
+// context. InterpDisplayDrop lets go of the
+// frames before `id`.
+int InterpDisplayReplay(u64 id, float t, int slot);
+void InterpDisplayDrop(u64 id);
+double InterpDisplayAllowed();  // in-betweens per frame that fit (the budget's; large: any number)
+int InterpMode();
+double VideoDisplayHz();  // FrameMode 2: the pictures' rate in use (0: not yet known)  // 0: 30 fps, 1: 60 fps, 2: the display's refresh rate (FrameMode, SKIES_INTERP)
 void InterpReset();       // a state load, on the game's thread: this frame's recording goes
 void InterpResetVideo();  // and on the video thread: the previous frame's
 u16 CpRead16(u32 offset);
