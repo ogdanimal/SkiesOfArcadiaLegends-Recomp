@@ -88,6 +88,11 @@ found no remote-exploitable issue. Hold the new code to the same bar.
     `cmd.exe /c "C:\dev\SkiesStandalone\build.bat build"`. Before any Windows test launch, call
     `C:\dev\sync-controls.bat <USER_DIR>` (the owner's rule). The module is
     `C:\dev\SkiesStandalone\build\modules-ws35\gGEAE8P_recomp.dll`, the game is `C:\dev\SkiesStandalone\games\GEAE8P-ws35`.
+    That `build\` links an old prebuilt Dawn (`webgpu_dawn.dll`): its Vulkan dies right after the pipeline cache
+    (2026-11-19), while the release and `dawn-package\test-pkg.bat`'s `dawn-package\build-pkg\` (the same code
+    against the Dawn package, as releases) run Vulkan fine: test Vulkan with the latter. Its CMake cache's
+    `SKIES_RELEASE_DOL_PATCHES` pointed into the deleted `C:\dev\SkiesPerf`; `reconf.bat` there sets it to
+    `release-patches\skies-widescreen.dolpatch`.
   - Android test APK (US module only):
     `PREGEN=build/ws35/codegen-android/android NAME=ws35t STANDALONE=1 BRAND=1 TEST_ID=1 DOL_EU=/nonexistent DOL_JP=/nonexistent tools/android-ws-build.sh`.
     Add `DAWN_PACKAGE=` to use a patched Dawn. Copy the APK to `C:\Users\Public\` and run `adb.exe install -r -t`.
