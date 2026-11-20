@@ -1260,3 +1260,14 @@ it"). Credited in `release/CREDITS.md` and the next build's notes. Local commits
   Resolution row's drawn size, the AppImage's AppStream metainfo (`release/linux/`, appstreamcli passes).
 - Left out on purpose: a stub-log split (the log has no stub noise); an update check (the builds don't know their
   version, and it would call GitHub at every start: the owner's call).
+- `ec84654` **Android Display refresh**: the app asks for the display's top mode (`AndroidRequestFrameRate`;
+  `dlsym(RTLD_DEFAULT)` doesn't find `ANativeWindow_setFrameRate` in the app's namespace, libandroid's handle
+  does). AYN Thor (test app `com.skiesofarcadia.recomp.test`, now on `ws35dl1` = the ws35n15 module + this
+  host): with the owner's 120 Hz setting on, field 118.8 pictures/s (p99 9-13 ms) and the Antonio battle ~120
+  (p99 ~10), full speed; with the system's peak refresh at 60 the app stays at 60 (Android's cap, correct).
+  Crash report on Android checked (`SKIES_CRASH_TEST=segv`: stack in log.txt, tombstone still written, the
+  renderer safeguard not tripped). Not re-run at 120 after the exact-mode-rate change (the setting was back at
+  60). Not run: the Pocket 5 (60 Hz: nothing to gain), a VRR desktop screen by eye.
+- Windows test files left (C: rule: not deleted): `C:\dev\SkiesStandalone\dl-run.bat`, `dl*.log`, `crash-*.log`,
+  `user-dl1`, `user-crash`, `build\skies-standalone-before-dusklight.exe` (the exe before these changes),
+  `C:\Users\Public\skies-dl1.apk`. The `C:\dev\SkiesStandalone` copy now builds this branch's sources.
