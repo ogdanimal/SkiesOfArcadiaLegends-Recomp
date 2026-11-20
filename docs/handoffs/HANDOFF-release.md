@@ -14,7 +14,9 @@ an Android APK that closed at Start Game: only debug test APKs were ever run, an
 | Linux tar.gz / AppImage | WSL or Linux | the same from a state: Vulkan, chunks, log |
 | macOS zip | the Mac | the same; plus battle damage digits (#16, FEAT_AFP) |
 
-## In progress (2026-11-20): v0.90.0-standalone.9
+## Released (2026-11-20): v0.90.0-standalone.9, the fourth test build
+
+- **Published** 2026-11-20 18:25 UTC as a prerelease; #35 comment posted.
 
 - **Tagged** on `7ef653b` with the owner's approval: "push, tag and publish v0.90.0-standalone.9, and approve
   android-sign for it". Release run 44781370962; `android-sign` approved through the pending-deployments API.
@@ -26,12 +28,14 @@ an Android APK that closed at Start Game: only debug test APKs were ever run, an
   - the CI APK guard (`tools/check-apk-jni.sh` in `validate.yml`).
   - The fast-FP patch is registered but unused.
 - **Notes** (`release/test-build-notes.md`): thank Cawl87.
-- **To finish, per *Release checks*:**
-  - Here: checksums, signer, method guard, PII scan; the Linux package.
-  - The signed APK on the AYN Thor, past Start Game.
-  - The Windows zip on the Windows session; the macOS zip on the Mac (Caffinate session; `gh` is logged in
-    there).
-  - Then publish (`gh release edit --draft=false --prerelease`) and comment on #35.
+- **Checked on the draft:**
+  - SHA256SUMS; the pinned signer; versionName `0.90.0-standalone.9`; `check-apk-jni.sh` 97 of 97; a PII scan
+    of all 11434 extracted files (only `/home/runner`, `/Users/runner` and Dolphin's known strings).
+  - Linux: `skies-run` from the save-point state, Vulkan (CPU), 5461 of 5461, 1.00× (`.8` was 0.76× there).
+  - Android: the signed APK on the AYN Thor as an update over `.8`, past Start Game, no crash.
+  - Windows (the Windows session): D3D12, 5461 of 5461, 1.00×, log clean. Character menu on the UHD 770 at
+    1440p: D3D12 about 4.0×, D3D11 about 3.7× uncapped.
+  - macOS (Mac mini M4): Metal, 5461 of 5461, 1.00×, real damage digits (#16), log clean.
 
 ## Released (2026-11-20): v0.90.0-standalone.8, the third test build
 
