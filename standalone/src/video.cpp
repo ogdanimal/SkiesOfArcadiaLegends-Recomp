@@ -52,6 +52,7 @@ void aurora_backend_set_present_rect(int left, int top, int width, int height);
 void aurora_backend_set_present_time(long long steady_ns);
 void aurora_backend_set_present_callback(void (*callback)(void));
 void aurora_backend_set_frame_buffer_aspect_fit(int fit);
+void aurora_backend_set_frame_buffer_cover_auto(int cover);
 void aurora_backend_present_kept(int slot);
 void aurora_backend_synchronize(void);
 void aurora_backend_set_event_poller(void (*poller)(void));
@@ -835,6 +836,13 @@ bool VideoInit(bool headless)
   // window's shape (the ws patch draws anamorphic) and the picture is stretched at the present.
   // The scale is the Resolution setting (menu.cpp; SKIES_EFB_SCALE=N overrides it), 0 = the window's.
   aurora_backend_set_frame_buffer_aspect_fit(1);
+#if !defined(__ANDROID__)
+  // Resolution "window" (no scale) covers the window like Dolphin's Auto, rather than fitting the 4:3 buffer
+  // inside it: on a 16:9 screen the fitted buffer was stretched sideways at the present (1920x1440 shown
+  // at 2560x1440), so textures looked soft next to the Dolphin build (issue #35). Android keeps the fit:
+  // covering costs about 1.8x the pixels, which a phone's GPU feels.
+  aurora_backend_set_frame_buffer_cover_auto(1);
+#endif
   // SDK baseline before the game's own GXInit, as the Dolphin-side backend does.
   static std::vector<u8> s_gx_fifo(64 * 1024);
   GXInit(s_gx_fifo.data(), static_cast<u32>(s_gx_fifo.size()));

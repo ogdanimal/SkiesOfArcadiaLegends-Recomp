@@ -1,0 +1,117 @@
+diff --git a/GXRuntime/backends/aurora/aurora_graphics.cpp b/GXRuntime/backends/aurora/aurora_graphics.cpp
+index f021780aaa..878d738bcc 100644
+--- a/GXRuntime/backends/aurora/aurora_graphics.cpp
++++ b/GXRuntime/backends/aurora/aurora_graphics.cpp
+@@ -1009,6 +1009,12 @@ void aurora_backend_set_frame_buffer_aspect_fit(int fit) {
+     aurora::window::set_frame_buffer_aspect_fit(fit != 0);
+ }
+ 
++// With aspect fit and the window's size (no scale): cover the window rather than fit in it
++// (window.hpp set_frame_buffer_cover_auto). No effect on Android's external window.
++void aurora_backend_set_frame_buffer_cover_auto(int cover) {
++    aurora::window::set_frame_buffer_cover_auto(cover != 0);
++}
++
+ // The host's 2D overlay for the next presents (Dolphin's on-screen UI as Dear ImGui draw data),
+ // in display pixels: vertices of 20 bytes (pos f32x2, uv f32x2, colour rgba8), 16-bit indices,
+ // commands (clip x1 y1 x2 y2, texture id, index offset/count, vertex offset). An empty list clears it.
+diff --git a/GXRuntime/graphics/aurora/lib/window.cpp b/GXRuntime/graphics/aurora/lib/window.cpp
+index b8ba9828f4..4ab3d2a078 100644
+--- a/GXRuntime/graphics/aurora/lib/window.cpp
++++ b/GXRuntime/graphics/aurora/lib/window.cpp
+@@ -43,6 +43,7 @@ SDL_Window* g_window;
+ SDL_Renderer* g_renderer;
+ float g_frameBufferScale = 0.f;
+ bool g_frameBufferAspectFit = false;
++bool g_frameBufferCoverAuto = false;
+ AuroraWindowSize g_windowSize;
+ std::vector<AuroraEvent> g_events;
+ std::atomic_bool g_backgrounded = false;
+@@ -72,6 +73,17 @@ Vec2<int> scale_frame_buffer_to_aspect(int w, int h, float scale, float aspect)
+   return {baseW, std::max(1, static_cast<int>(std::lround(static_cast<float>(baseW) / aspect)))};
+ }
+ 
++// The smallest buffer of this aspect that covers width x height
++Vec2<int> cover_frame_buffer_to_aspect(int width, int height, float aspect) {
++  if (width <= 0 || height <= 0 || aspect <= 0.f) {
++    return {std::max(width, 1), std::max(height, 1)};
++  }
++  if (static_cast<float>(width) / static_cast<float>(height) > aspect) {
++    return {width, std::max(1, static_cast<int>(std::lround(static_cast<float>(width) / aspect)))};
++  }
++  return {std::max(1, static_cast<int>(std::lround(static_cast<float>(height) * aspect))), height};
++}
++
+ Vec2<int> fit_frame_buffer_to_aspect(int width, int height, float aspect) {
+   if (width <= 0 || height <= 0 || aspect <= 0.f) {
+     return {std::max(width, 1), std::max(height, 1)};
+@@ -418,8 +430,10 @@ AuroraWindowSize get_window_size() {
+   if (g_frameBufferAspectFit) {
+     const auto [baseW, baseH] = vi::configured_fb_size();
+     if (baseW > 0 && baseH > 0) {
+-      const auto [fitW, fitH] =
+-          fit_frame_buffer_to_aspect(fb_w, fb_h, static_cast<float>(baseW) / static_cast<float>(baseH));
++      const float baseAspect = static_cast<float>(baseW) / static_cast<float>(baseH);
++      const auto [fitW, fitH] = g_frameBufferCoverAuto && g_frameBufferScale <= 0.f
++                                    ? cover_frame_buffer_to_aspect(fb_w, fb_h, baseAspect)
++                                    : fit_frame_buffer_to_aspect(fb_w, fb_h, baseAspect);
+       fb_w = fitW;
+       fb_h = fitH;
+     }
+@@ -537,6 +551,14 @@ void set_frame_buffer_aspect_fit(bool fit) {
+   request_frame_buffer_resize();
+ }
+ 
++void set_frame_buffer_cover_auto(bool cover) {
++  if (g_frameBufferCoverAuto == cover) {
++    return;
++  }
++  g_frameBufferCoverAuto = cover;
++  request_frame_buffer_resize();
++}
++
+ void set_background_input(bool value) { SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, value ? "1" : "0"); }
+ 
+ void* get_native_window() { return nullptr; }
+diff --git a/GXRuntime/graphics/aurora/lib/window.hpp b/GXRuntime/graphics/aurora/lib/window.hpp
+index adc729258e..c22dc353cc 100644
+--- a/GXRuntime/graphics/aurora/lib/window.hpp
++++ b/GXRuntime/graphics/aurora/lib/window.hpp
+@@ -52,6 +52,11 @@ void center_window();
+ void request_frame_buffer_resize();
+ void set_frame_buffer_scale(float scale);
+ void set_frame_buffer_aspect_fit(bool fit);
++// Local (fork): with aspect fit on and no frame buffer scale set (the window's size), cover the window
++// instead of fitting inside it: the buffer is as wide and as tall as the window at least, as Dolphin's
++// Auto internal resolution. A 4:3 buffer fitted into a 16:9 window was stretched sideways at the present
++// (1920x1440 shown at 2560x1440: textures looked soft, issue #35).
++void set_frame_buffer_cover_auto(bool cover);
+ void set_background_input(bool value);
+ // Builds without SDL (window_external.cpp): the host's native window. In SDL builds the setter
+ // only warns (the window is SDL's) and the getter returns null.
+diff --git a/GXRuntime/graphics/aurora/lib/window_external.cpp b/GXRuntime/graphics/aurora/lib/window_external.cpp
+index 1c1fd1c6ae..46214d11c7 100644
+--- a/GXRuntime/graphics/aurora/lib/window_external.cpp
++++ b/GXRuntime/graphics/aurora/lib/window_external.cpp
+@@ -229,6 +229,9 @@ void set_frame_buffer_scale(float scale) {
+   request_frame_buffer_resize();
+ }
+ 
++// The host's window size is its own here (Android): no covering
++void set_frame_buffer_cover_auto(bool) {}
++
+ void set_frame_buffer_aspect_fit(bool fit) {
+   if (g_frameBufferAspectFit == fit) {
+     return;
+diff --git a/GXRuntime/graphics/aurora/tests/gx_test_stubs.cpp b/GXRuntime/graphics/aurora/tests/gx_test_stubs.cpp
+index a2219dcba0..a6468b20f7 100644
+--- a/GXRuntime/graphics/aurora/tests/gx_test_stubs.cpp
++++ b/GXRuntime/graphics/aurora/tests/gx_test_stubs.cpp
+@@ -254,6 +254,7 @@ std::optional<TextureHandle> find_replacement(const GXTexObj_&, bool*) noexcept
+ namespace aurora::window {
+ AuroraWindowSize get_window_size() { return {640, 480, 640, 480, 640, 480, 1.0f}; }
+ void set_frame_buffer_aspect_fit(bool) {}
++void set_frame_buffer_cover_auto(bool) {}
+ } // namespace aurora::window
+ 
+ // --- WebGPU C API stubs (prevent linker errors from wgpu:: destructors) ---
