@@ -3329,9 +3329,20 @@ build (Dolphin's Vulkan backend on llvmpipe is right).
       multiplier, fuses multiply-add on FMA CPUs, and rounds `fmadds` once. On AArch64 fast mode's
       `AllowFPOpFusion = Fast` makes LLVM fuse multiplies and adds (`fmla`), so Android and macOS would
       differ from x86, untested.
-    - **The gain is confounded:** the baseline's profile (`windows.profdata`, 2026-10-11, Dolphin
-      runtime) is older than the fast one. Control: an exact profile trained the same way (`SEMANTICS=exact
-      tools/pgo-standalone.sh`).
+    - **Control run (2026-11-20):** an exact profile trained the same way (`SEMANTICS=exact
+      tools/pgo-standalone.sh`, `build/perf1/prof/us-exact.profdata`), six scenes × three interleaved runs,
+      all with the wait skip. Medians, today's exact / fresh exact / fast:
+
+      | Scene | Today's exact | Fresh exact | Fast | Fast vs today |
+      |---|---|---|---|---|
+      | Battle | 9.62 | 9.61 | 8.10 | −16% |
+      | Ship battle | 10.55 | 10.08 | 8.70 | −18% |
+      | Save point | 17.19 | 17.21 | 14.18 | −18% |
+      | Opening cutscene | 20.72 | 21.95 | 17.76 | −14% |
+      | Valuan ship | 21.29 | 21.44 | 17.28 | −19% |
+      | World map | 21.54 | 21.63 | 17.26 | −20% |
+
+      A fresh exact profile gains nothing: the 14–20% is fast FP's own.
     - **Before any shipping:** the control; fusion made deliberate (`FPOpFusion::Standard`, or a real
       `fma` for guest `fmadd`) and checked in an Android disassembly; long exact-vs-fast differential runs
       on x86 and AArch64, EU and JP included; device tests (Pocket 5, an M4 or Exynos 1580 for #16); exact
