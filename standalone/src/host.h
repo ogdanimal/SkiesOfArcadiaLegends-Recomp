@@ -27,6 +27,8 @@ constexpr u32 TIMER_RATIO = 12;    // core cycles per time base tick (40.5 MHz)
 // ---- logging -----------------------------------------------------------------------------------
 extern bool g_log_mmio;
 void Log(const char* fmt, ...);
+// From now on the log also goes to this file (the data folder's Logs/skies-standalone.log), as well as stderr
+void LogAlsoToFile(const std::string& path);
 [[noreturn]] void Fatal(const char* fmt, ...);
 
 // ---- frame timing (SKIES_PRESENT_PACING=1, or the Dolphin build's RECOMP_PRESENT_PACING=1) -----

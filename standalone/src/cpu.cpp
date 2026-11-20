@@ -57,6 +57,16 @@ std::string Redact(std::string text)
   return text;
 }
 
+// The log file in the data folder (LogAlsoToFile), written beside stderr
+std::FILE* s_log_file = nullptr;
+
+void WriteLog(const std::string& text)
+{
+  std::fwrite(text.data(), 1, text.size(), stderr);
+  if (s_log_file)
+    std::fwrite(text.data(), 1, text.size(), s_log_file);
+}
+
 void VLog(const char* fmt, va_list args)
 {
   char small[1024];
@@ -77,10 +87,18 @@ void VLog(const char* fmt, va_list args)
     std::vsnprintf(text.data(), text.size(), fmt, args);
     text.resize(static_cast<size_t>(n));
   }
-  text = Redact(std::move(text));
-  std::fwrite(text.data(), 1, text.size(), stderr);
+  WriteLog(Redact(std::move(text)));
 }
 }  // namespace
+
+void LogAlsoToFile(const std::string& path)
+{
+  if (s_log_file)
+    return;
+  s_log_file = std::fopen(path.c_str(), "w");
+  if (s_log_file)
+    std::setvbuf(s_log_file, nullptr, _IONBF, 0);  // unbuffered: a crash keeps every line written before it
+}
 
 void Log(const char* fmt, ...)
 {
@@ -94,12 +112,14 @@ void Fatal(const char* fmt, ...)
 {
   va_list args;
   va_start(args, fmt);
-  std::fprintf(stderr, "[fatal] ");
+  WriteLog("[fatal] ");
   VLog(fmt, args);
   va_end(args);
-  std::fprintf(stderr, "[fatal] pc=%08x lr=%08x r1=%08x msr=%08x srr0=%08x srr1=%08x cycles=%llu\n",
-               g_cpu.pc, g_cpu.lr, g_cpu.gpr[1], g_cpu.msr, g_cpu.srr0, g_cpu.srr1,
-               static_cast<unsigned long long>(g_cycles));
+  char regs[160];
+  std::snprintf(regs, sizeof(regs), "[fatal] pc=%08x lr=%08x r1=%08x msr=%08x srr0=%08x srr1=%08x cycles=%llu\n",
+                g_cpu.pc, g_cpu.lr, g_cpu.gpr[1], g_cpu.msr, g_cpu.srr0, g_cpu.srr1,
+                static_cast<unsigned long long>(g_cycles));
+  WriteLog(regs);
   std::_Exit(1);  // no static destructors: Dawn aborts when torn down mid-frame
 }
 

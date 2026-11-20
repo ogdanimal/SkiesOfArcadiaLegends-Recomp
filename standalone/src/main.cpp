@@ -964,7 +964,17 @@ int main(int argc, char** argv)
     if (std::freopen(log.c_str(), "a", stdout))
       setvbuf(stdout, nullptr, _IONBF, 0);
   }
+  else
 #endif
+  // Everywhere else (a terminal, the launcher on Linux and macOS, the Android app's log.txt) the log also goes
+  // to USER/Logs/skies-standalone.log, the file the README asks players to attach
+  if (!user.empty())
+  {
+    const std::filesystem::path logs = std::filesystem::path(user) / "Logs";
+    std::error_code ec;
+    std::filesystem::create_directories(logs, ec);
+    LogAlsoToFile((logs / "skies-standalone.log").string());
+  }
   ExiSetUserDir(user);
   SettingsInit(user);
 #if defined(__ANDROID__)
