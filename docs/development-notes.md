@@ -3319,14 +3319,23 @@ build (Dolphin's Vulkan backend on llvmpipe is right).
       checked its run queue.
   - **Save states:** packed and written on a background thread. The game thread holds only the
     serialization, 21–24 ms. Loads and the end of the run wait for the writer.
-  - **Fast floating point:** `dolrecomp-fast-fp.patch`, without the perf branch's gather-pipe hunk.
-    - The profile was trained in the standalone (`tools/pgo-standalone.sh`, headless, the four standard
-      states). Without its own profile, fast FP only matches today's exact module with PGO.
-    - With it, together with the wait skip, against today: battle 13.59 → 7.39 s (−46%), ship battle −41%,
-      save point −28%, cutscene −24%, Valuan ship −23%, world map −24%.
-    - Pictures and a battle (damage numbers) match exact.
-    - CI needs the fast profiles in the secrets' `pgo/` and `--semantics fast` in `codegen-targets.txt`:
-      the owner's call.
+  - **Fast floating point** (`dolrecomp-fast-fp.patch`, without the perf branch's gather-pipe hunk): an
+    experiment, not shipped.
+    - With a profile trained in the standalone (`tools/pgo-standalone.sh`, headless, the four standard
+      states), plus the wait skip, against today: battle 13.59 → 7.39 s, ship battle −41%, other scenes
+      −23% to −28%. On PC the pictures (74 frames byte-identical) and a battle's dispatch and cycle counts
+      matched exact.
+    - **Review (Fable, 2026-11-20):** "like Dolphin's defaults" was wrong. Dolphin keeps the 25-bit
+      multiplier, fuses multiply-add on FMA CPUs, and rounds `fmadds` once. On AArch64 fast mode's
+      `AllowFPOpFusion = Fast` makes LLVM fuse multiplies and adds (`fmla`), so Android and macOS would
+      differ from x86, untested.
+    - **The gain is confounded:** the baseline's profile (`windows.profdata`, 2026-10-11, Dolphin
+      runtime) is older than the fast one. Control: an exact profile trained the same way (`SEMANTICS=exact
+      tools/pgo-standalone.sh`).
+    - **Before any shipping:** the control; fusion made deliberate (`FPOpFusion::Standard`, or a real
+      `fma` for guest `fmadd`) and checked in an Android disassembly; long exact-vs-fast differential runs
+      on x86 and AArch64, EU and JP included; device tests (Pocket 5, an M4 or Exynos 1580 for #16); exact
+      kept one switch away.
   - **Smaller items from the review:**
     - Vertex size cached per VAT group: about 4% CPU in the opening cutscene.
     - `ResampleAudio` takes its callback as a template: audio byte-identical.
