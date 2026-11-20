@@ -311,6 +311,9 @@ jobs:
       target: android
       release: ${{ inputs.release == true }}
 
+  # The three desktop jobs build the launcher only (it still links Dolphin's DiscIO / core for the disc and
+  # save imports); the Dolphin engine's runner isn't built: the standalone above is the package's skies-run
+  # (patches/moderngekko-no-dolphin-runner.patch, docs/handoffs/HANDOFF-dolphin-removal.md)
   windows:
     name: windows
     environment: ci
@@ -395,7 +398,7 @@ jobs:
           set MODULE_TABLES_INC=%CD%\codegen\windows-jp\generated\module_tables.inc
           call tools\module-win.bat %CD%\codegen\windows-jp\generated %CD%\build\module-jp || exit /b 1
 
-      - name: Build and package the launcher and runner
+      - name: Build the launcher, package it with the standalone
         shell: cmd
         env:
           VNAME: ${{ inputs.vname }}
@@ -494,7 +497,7 @@ jobs:
           GAME_ID=GEAJ8P MODULE_TABLES_INC=codegen/linux-jp/generated/module_tables.inc \
             tools/module-linux.sh codegen/linux-jp/generated build/module-linux-jp
 
-      - name: Build and package the launcher and runner
+      - name: Build the launcher, package it with the standalone
         env:
           VNAME: ${{ inputs.vname }}
           STANDALONE: build/standalone-release
@@ -571,8 +574,8 @@ jobs:
           done
           rm -rf run-codegen-*
 
-      # The image's default Xcode 16.4 libc++ has no std::jthread (dolphin_runtime.cpp uses it):
-      # take the newest Xcode 26 on the image.
+      # The image's default Xcode 16.4 libc++ has no std::jthread (dolphin_runtime.cpp uses it; the
+      # launcher still links that runtime): take the newest Xcode 26 on the image.
       - name: Select Xcode 26
         run: |
           xcode=$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)
@@ -589,7 +592,7 @@ jobs:
             tools/module-macos.sh codegen/macos-jp/generated build/module-macos-jp
           rm -rf codegen
 
-      - name: Build and package the launcher and runner
+      - name: Build the launcher, package it with the standalone
         env:
           VNAME: ${{ inputs.vname }}
           STANDALONE: build/standalone-release

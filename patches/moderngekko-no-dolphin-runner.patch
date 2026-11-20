@@ -1,0 +1,58 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -524,27 +524,39 @@
+         target_compile_definitions(moderngekko-run PRIVATE
+             MODERNGEKKO_USER_DIRECTORY_IN_DOCUMENTS=1)
+     endif()
+-    add_custom_command(TARGET moderngekko-run POST_BUILD
++    # Sys, the DOL patches and the game inis beside the programs. With the standalone runner
++    # (the emulator-free host, built on its own and copied in as the runner) the Dolphin runner
++    # isn't built at all: a target of their own copies them, and the launcher depends on it
++    # instead of on moderngekko-run.
++    if(MODERNGEKKO_STANDALONE_RUNNER)
++        set(_moderngekko_data_target moderngekko-data)
++        set(_moderngekko_data_dir "$<TARGET_FILE_DIR:moderngekko-launcher>")
++        add_custom_target(moderngekko-data)
++    else()
++        set(_moderngekko_data_target moderngekko-run)
++        set(_moderngekko_data_dir "$<TARGET_FILE_DIR:moderngekko-run>")
++    endif()
++    add_custom_command(TARGET ${_moderngekko_data_target} POST_BUILD
+         COMMAND ${CMAKE_COMMAND} -E copy_directory
+                 "${CMAKE_CURRENT_SOURCE_DIR}/vendor/dolphin/Data/Sys"
+-                "$<TARGET_FILE_DIR:moderngekko-run>/Sys")
++                "${_moderngekko_data_dir}/Sys")
+     foreach(_moderngekko_dol_patch IN LISTS MODERNGEKKO_DOL_PATCH_MANIFEST)
+         if(_moderngekko_dol_patch)
+             get_filename_component(_moderngekko_dol_patch_name "${_moderngekko_dol_patch}" NAME)
+-            add_custom_command(TARGET moderngekko-run POST_BUILD
++            add_custom_command(TARGET ${_moderngekko_data_target} POST_BUILD
+                 COMMAND ${CMAKE_COMMAND} -E make_directory
+-                        "$<TARGET_FILE_DIR:moderngekko-run>/patches"
++                        "${_moderngekko_data_dir}/patches"
+                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                         "${_moderngekko_dol_patch}"
+-                        "$<TARGET_FILE_DIR:moderngekko-run>/patches/${_moderngekko_dol_patch_name}")
++                        "${_moderngekko_data_dir}/patches/${_moderngekko_dol_patch_name}")
+         endif()
+     endforeach()
+     foreach(_moderngekko_settings IN LISTS MODERNGEKKO_GAME_SETTINGS_OVERRIDE)
+         get_filename_component(_moderngekko_settings_name "${_moderngekko_settings}" NAME)
+-        add_custom_command(TARGET moderngekko-run POST_BUILD
++        add_custom_command(TARGET ${_moderngekko_data_target} POST_BUILD
+             COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                     "${_moderngekko_settings}"
+-                    "$<TARGET_FILE_DIR:moderngekko-run>/Sys/GameSettings/${_moderngekko_settings_name}")
++                    "${_moderngekko_data_dir}/Sys/GameSettings/${_moderngekko_settings_name}")
+     endforeach()
+ 
+     add_executable(moderngekko-launcher
+@@ -632,7 +644,7 @@
+         set_target_properties(moderngekko-run moderngekko-launcher PROPERTIES
+             INSTALL_RPATH "$ORIGIN/lib")
+     endif()
+-    add_dependencies(moderngekko-launcher moderngekko-run)
++    add_dependencies(moderngekko-launcher ${_moderngekko_data_target})
+     if(WIN32)
+         # UTF-8 as the process code page (Windows 10 1903 and later): narrow paths and environment
+         # variables (path::string(), getenv, --game / --user-dir) keep names like "José" intact

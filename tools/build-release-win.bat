@@ -59,8 +59,15 @@ if "%1"=="configure" (
     "-DMODERNGEKKO_DEFAULT_WINDOW_TITLE=Skies of Arcadia Legends" -DMODERNGEKKO_GAMECUBE_CONTROLLERS=ON ^
     "-DMODERNGEKKO_WINDOWS_ICON=%CD%\release\skies.ico" %STANDALONE_ARGS% || exit /b 1
 )
+rem build: configured with STANDALONE, the launcher alone (the emulator-free host is the runner; the
+rem Dolphin runner isn't built, patches\moderngekko-no-dolphin-runner.patch)
 if "%1"=="build" (
-  cmake --build %B% --target moderngekko-run moderngekko-launcher || exit /b 1
+  findstr /b /c:"MODERNGEKKO_STANDALONE_RUNNER:BOOL=ON" %B%\CMakeCache.txt >nul
+  if errorlevel 1 (
+    cmake --build %B% --target moderngekko-run moderngekko-launcher || exit /b 1
+  ) else (
+    cmake --build %B% --target moderngekko-launcher || exit /b 1
+  )
   copy /y release\launcher-background.png %B%\launcher-background.png >nul || exit /b 1
   copy /y release\CREDITS.md %B%\CREDITS.md >nul || exit /b 1
 )
@@ -100,7 +107,7 @@ if defined MODULE_JP copy /y "%MODULE_JP%" %B%\gGEAJ8P_recomp.dll >nul || exit /
 set P=build\SkiesOfArcadiaLegends-%VERSION%-windows
 if exist %P% rmdir /s /q %P%
 mkdir %P% || exit /b 1
-for %%F in ("Skies of Arcadia Legends.exe" skies-run.exe gGEAE8P_recomp.dll launcher-background.png) do (
+for %%F in ("Skies of Arcadia Legends.exe" gGEAE8P_recomp.dll launcher-background.png) do (
   copy /y "%B%\%%~F" %P%\ >nul || exit /b 1
 )
 rem the pipelines compiled before the first scene (Aurora reads it beside the runner; issue #34)
@@ -109,6 +116,8 @@ if defined STANDALONE (
   copy /y "%STANDALONE%\skies-standalone.exe" %P%\skies-run.exe >nul || exit /b 1
   rem every DLL the build put beside it (Dawn, DXC, libpng and its zlib)
   for %%F in ("%STANDALONE%\*.dll") do copy /y "%%~F" %P%\ >nul || exit /b 1
+) else (
+  copy /y %B%\skies-run.exe %P%\ >nul || exit /b 1
 )
 if defined MODULE_EU copy /y %B%\gGEAP8P_recomp.dll %P%\ >nul || exit /b 1
 if defined MODULE_JP copy /y %B%\gGEAJ8P_recomp.dll %P%\ >nul || exit /b 1

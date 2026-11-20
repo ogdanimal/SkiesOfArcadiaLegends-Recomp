@@ -51,7 +51,13 @@ configure)
     ${STANDALONE:+-DMODERNGEKKO_STANDALONE_RUNNER=ON}
   ;;
 build)
-  cmake --build $B --target moderngekko-run moderngekko-launcher
+  # Configured with STANDALONE: the launcher alone (the emulator-free host is the runner; the
+  # Dolphin runner isn't built, patches/moderngekko-no-dolphin-runner.patch)
+  if grep -q '^MODERNGEKKO_STANDALONE_RUNNER:BOOL=ON$' $B/CMakeCache.txt; then
+    cmake --build $B --target moderngekko-launcher
+  else
+    cmake --build $B --target moderngekko-run moderngekko-launcher
+  fi
   cp release/launcher-background.png release/CREDITS.md $B/
   ;;
 package)
@@ -67,10 +73,14 @@ package)
   NAME=SkiesOfArcadiaLegends-$VERSION-linux
   P=build/$NAME
   rm -rf "$P" "$P.tar.gz"; mkdir -p "$P/patches" "$P/licenses"
-  cp $B/SkiesOfArcadiaLegends $B/skies-run $B/launcher-background.png "$P/"
+  cp $B/SkiesOfArcadiaLegends $B/launcher-background.png "$P/"
   # The pipelines compiled before the first scene (Aurora reads it beside the runner; issue #34)
   cp release/initial_pipeline_cache.db "$P/"
-  [ -n "${STANDALONE:-}" ] && strip --strip-debug -o "$P/skies-run" "$STANDALONE/skies-standalone"
+  if [ -n "${STANDALONE:-}" ]; then
+    strip --strip-debug -o "$P/skies-run" "$STANDALONE/skies-standalone"
+  else
+    cp $B/skies-run "$P/"
+  fi
   strip --strip-debug -o "$P/gGEAE8P_recomp.so" "$MODULE"
   [ -n "$MODULE_EU" ] && strip --strip-debug -o "$P/gGEAP8P_recomp.so" "$MODULE_EU"
   [ -n "$MODULE_JP" ] && strip --strip-debug -o "$P/gGEAJ8P_recomp.so" "$MODULE_JP"

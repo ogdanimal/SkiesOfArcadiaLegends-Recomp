@@ -43,7 +43,13 @@ configure)
     ${STANDALONE:+-DMODERNGEKKO_STANDALONE_RUNNER=ON}
   ;;
 build)
-  cmake --build $B --target moderngekko-run moderngekko-launcher
+  # Configured with STANDALONE: the launcher alone (the emulator-free host is the runner; the
+  # Dolphin runner isn't built, patches/moderngekko-no-dolphin-runner.patch)
+  if grep -q '^MODERNGEKKO_STANDALONE_RUNNER:BOOL=ON$' $B/CMakeCache.txt; then
+    cmake --build $B --target moderngekko-launcher
+  else
+    cmake --build $B --target moderngekko-run moderngekko-launcher
+  fi
   cp release/launcher-background.png release/CREDITS.md $B/
   ;;
 package)
@@ -62,9 +68,13 @@ package)
   rm -rf "$P" "$P.zip"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/patches" "$P/licenses"
   # Programs and game modules in Contents/MacOS; Sys, the patches and the background in
   # Contents/Resources (where Dolphin looks for Sys and the launcher and runner for their data)
-  cp $B/SkiesOfArcadiaLegends $B/skies-run "$APP/Contents/MacOS/"
+  cp $B/SkiesOfArcadiaLegends "$APP/Contents/MacOS/"
   # STANDALONE=DIR: the emulator-free host (tools/build-standalone-release.sh) is the runner
-  [ -n "${STANDALONE:-}" ] && cp "$STANDALONE/skies-standalone" "$APP/Contents/MacOS/skies-run"
+  if [ -n "${STANDALONE:-}" ]; then
+    cp "$STANDALONE/skies-standalone" "$APP/Contents/MacOS/skies-run"
+  else
+    cp $B/skies-run "$APP/Contents/MacOS/"
+  fi
   # Only system libraries: the GitHub runner has Homebrew's zstd, lz4, lzo and libusb, which
   # Dolphin's CMake prefers to the bundled ones (USE_SYSTEM_*=OFF above), and a player's Mac doesn't
   # (checked on what ships: with STANDALONE the host is skies-run)

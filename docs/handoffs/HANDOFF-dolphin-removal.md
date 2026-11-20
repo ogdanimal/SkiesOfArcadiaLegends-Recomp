@@ -55,7 +55,11 @@ prereleases (`HANDOFF-release.md`, first section). **Started 2026-11-19 with `.6
 - Android: the APK keeps Dolphin's app shell (Phase 4) but no longer offers Dolphin's emulation
   (`SkiesGame.standalone` always true, `EmulationActivity` paths removed or unreachable).
 - Desktop: the packages stop building `moderngekko-run` only to overwrite it (`tools/build-release-*`), and the
-  launcher's `MODERNGEKKO_STANDALONE_RUNNER` becomes the only mode.
+  launcher's `MODERNGEKKO_STANDALONE_RUNNER` becomes the only mode. **Done early, 2026-11-20** (branch
+  `ci-no-dolphin-runner`): `patches/moderngekko-no-dolphin-runner.patch` drops the launcher's dependency on
+  `moderngekko-run` when the option is on (a `moderngekko-data` target copies `Sys`, the DOL patches and the game
+  inis instead), and the build scripts then build the launcher alone. Without the option the runner still builds
+  (local Dolphin-build comparisons).
 
 **Phase 3: delete the Dolphin-engine code** (after the cut-over has shipped and settled). The inventory below.
 Afterwards `Q1` (one settings table) gets simpler: two menus fewer.
@@ -90,7 +94,10 @@ changes; `tools/regen-recompcore-patch.sh` re-diffs every file a patch owns and 
 ### CI and tools
 
 - `validate.yml`: the codegen jobs and `standalone-host.yml` stay; the platform jobs stop building the Dolphin
-  runner (`tools/build-release-*`); dev's own validate (the Dolphin build) stays only for a Phase 0 hotfix.
+  runner (`tools/build-release-*`; done 2026-11-20, above); dev's own validate (the Dolphin build) stays only for
+  a Phase 0 hotfix. What CI still builds of Dolphin after that is the launchers' share: the desktop launcher links
+  Dolphin's `core` (and with it the video backends) through DiscIO and the runtime's `Host_*` callbacks, and the
+  Android APK is Dolphin's app with `libmain.so`. Both go only in Phase 4.
 - Tools that drive the Dolphin runner (`tools/drive.py` and the automation directory, the Dolphin-runner test
   scripts in `HANDOFF-desktop.md` / `HANDOFF-android.md`) go with it; the standalone's (`tools/sa-*.sh`) stay.
 - Docs: README / release README sections on Dolphin's settings (Dolphin video backends, the Dolphin engine's
