@@ -177,6 +177,7 @@ double Ms(Clock::time_point since)
 u64 s_stat_loads = 0, s_stat_prims = 0, s_stat_loads_blended = 0, s_stat_prims_blended = 0,
     s_stat_words_changed = 0, s_stat_draws = 0, s_stat_prims_changed = 0;
 u64 s_stat_repaired = 0;  // draws paired across a texture change (issue #18)
+u64 s_stat_collapsed = 0, s_stat_matrix_snaps = 0;  // draws and matrices snapped as turning round (issue #35)
 // The game's thread
 std::vector<size_t> s_unkeyed;  // loads in s_current still waiting for the draw that uses them
 bool s_on_game = false;         // recording
@@ -258,6 +259,71 @@ bool Blendable(const Load& load, const u8* cur, const u8* prev)
   return true;
 }
 
+// A position matrix blended element by element shrinks while it turns: halfway through a 90 degree turn
+// its axes are 0.71 as long, through a 180 degree one they vanish, so a character turning round in one
+// frame collapsed to a sliver in the in-between picture (issue #35's "warping"; Vyse turning back on
+// Tenkou Island's stairs). Each whole 3x4 matrix in the load: an axis (the 3x3 part's columns) shorter
+// than 0.7 of the frames' mean length (about a 90 degree turn or more in one frame) snaps the matrix to
+// the current frame's, as a cut; otherwise the axes get the mean length back. The translation column is
+// left as blended. `out` holds the blended words.
+void KeepMatrixScale(const Load& load, const u8* cur, const u8* prev, float t, u8* out)
+{
+  // Position matrices: 3 rows of 4 words from a multiple of 4. Normal matrices (lighting): 3 rows of 3 words
+  // from 0x400 plus a multiple of 3, treated the same so a snapped model isn't lit by a shrunken normal matrix.
+  u32 stride, size, end;
+  if (load.address < XFMEM_POSMATRICES_END && (load.address & 3) == 0)
+    stride = 4, size = 12, end = XFMEM_POSMATRICES_END;
+  else if (load.address >= XFMEM_NORMALMATRICES && load.address < XFMEM_NORMALMATRICES_END &&
+           (load.address - XFMEM_NORMALMATRICES) % 3 == 0)
+    stride = 3, size = 9, end = XFMEM_NORMALMATRICES_END;
+  else
+    return;
+  for (u32 m = 0; m + size <= load.count && load.address + m + size <= end; m += size)
+  {
+    float scale[3];
+    bool snap = false;
+    for (u32 col = 0; col < 3; ++col)
+    {
+      float lc = 0, lp = 0, lb = 0;
+      for (u32 row = 0; row < 3; ++row)
+      {
+        const u32 w = (m + row * stride + col) * 4;
+        const float c = ReadFloat(cur + w), p = ReadFloat(prev + w), b = ReadFloat(out + w);
+        lc += c * c;
+        lp += p * p;
+        lb += b * b;
+      }
+      const float target = std::sqrt(lp) + (std::sqrt(lc) - std::sqrt(lp)) * t;
+      const float blended = std::sqrt(lb);
+      if (target <= 0.0f)
+      {
+        scale[col] = 1.0f;
+        continue;
+      }
+      if (blended < 0.7f * target)
+      {
+        snap = true;
+        ++s_stat_matrix_snaps;
+        break;
+      }
+      scale[col] = target / blended;
+    }
+    for (u32 row = 0; row < 3; ++row)
+    {
+      for (u32 col = 0; col < 3; ++col)
+      {
+        const u32 w = (m + row * stride + col) * 4;
+        WriteFloat(out + w, snap ? ReadFloat(cur + w) : ReadFloat(out + w) * scale[col]);
+      }
+      if (snap && stride == 4)
+      {
+        const u32 w = (m + row * 4 + 3) * 4;
+        WriteFloat(out + w, ReadFloat(cur + w));
+      }
+    }
+  }
+}
+
 // Whether a float vertex position jumps between frames: a coordinate moves more than half its value
 // and more than 50 units, or a tenth of the vertex's distance from the camera if that is more (the
 // positions are in view space: turning the camera moves a far-off vertex's coordinate a lot).
@@ -280,6 +346,46 @@ bool VertexJumps(const u8* cur, const u8* prev, u32 count)
       return true;
   }
   return false;
+}
+
+// Whether a draw's float positions blended halfway shrink: the RMS distance of its vertices from their
+// mean, blended, under 0.7 of the frames' (blended) value. Characters the game skins on the CPU send
+// positions, not matrices, so a model turning round in one frame was blended vertex by vertex into a
+// sliver (issue #35's "warping"; Vyse turning back on Tenkou Island's stairs); such a draw snaps, as a
+// jump. Draws too small to judge (a point, a line) don't count.
+bool Collapses(const u8* cur_data, const u8* prev_data, const Prim& prim, float t)
+{
+  if (prim.num_vertices < 3)
+    return false;
+  double mc[3] = {}, mp[3] = {};
+  for (u32 v = 0; v < prim.num_vertices; ++v)
+  {
+    const u32 at = v * prim.vertex_size + prim.pos_offset;
+    for (u32 k = 0; k < prim.pos_count; ++k)
+    {
+      mc[k] += ReadFloat(cur_data + at + k * 4);
+      mp[k] += ReadFloat(prev_data + at + k * 4);
+    }
+  }
+  for (u32 k = 0; k < 3; ++k)
+    mc[k] /= prim.num_vertices, mp[k] /= prim.num_vertices;
+  double rc = 0, rp = 0, rb = 0;
+  for (u32 v = 0; v < prim.num_vertices; ++v)
+  {
+    const u32 at = v * prim.vertex_size + prim.pos_offset;
+    for (u32 k = 0; k < prim.pos_count; ++k)
+    {
+      const double c = ReadFloat(cur_data + at + k * 4) - mc[k];
+      const double p = ReadFloat(prev_data + at + k * 4) - mp[k];
+      const double b = p + (c - p) * t;
+      rc += c * c, rp += p * p, rb += b * b;
+    }
+  }
+  rc = std::sqrt(rc), rp = std::sqrt(rp), rb = std::sqrt(rb);
+  const double target = rp + (rc - rp) * t;
+  if (!(target > 1e-6) || !std::isfinite(rb))
+    return false;
+  return rb < 0.7 * target;
 }
 
 // Pairs two lists of alike items, n_cur in this frame and n_prev in the previous one, allowing for
@@ -426,6 +532,7 @@ bool BuildBlendedStream(const Frame& cur_frame, const Frame& prev_frame, std::ve
       const float c = ReadFloat(cur + i * 4), p = ReadFloat(prev + i * 4);
       WriteFloat(out->data() + load.data_offset + i * 4, p + (c - p) * t);
     }
+    KeepMatrixScale(load, cur, prev, t, out->data() + load.data_offset);
   };
   // Loads of a kind (address, count and the next draw's key) are aligned like draws: when the game
   // culls one of many alike objects, pairing them by occurrence put every later object's matrix
@@ -629,6 +736,12 @@ bool BuildBlendedStream(const Frame& cur_frame, const Frame& prev_frame, std::ve
       const u32 at = v * prim.vertex_size + prim.pos_offset;
       jump = VertexJumps(cur_frame.stream.data() + prim.data_offset + at,
                          prev_frame.stream.data() + old.data_offset + at, prim.pos_count);
+    }
+    if (!jump && Collapses(cur_frame.stream.data() + prim.data_offset, prev_frame.stream.data() + old.data_offset,
+                           prim, t))
+    {
+      jump = true;
+      ++s_stat_collapsed;
     }
     jumps[index] = jump ? 1 : 0;
     if (group_counts.empty() || group_counts.back().first != prim.texture)
@@ -1175,15 +1288,16 @@ void LogStats()
   if (s_stats)
   {
     Log("[interp] per blend %.1f draws, %.1f matrix loads (%.1f blended, %.1f changed), %.1f with "
-        "positions (%.1f blended, %.1f changed, %.2f paired across a texture change); ms per frame: keep real %.2f, blend %.2f, enter "
+        "positions (%.1f blended, %.1f changed, %.2f paired across a texture change, %.2f snapped turning, %.2f matrices snapped turning); ms per frame: keep real %.2f, blend %.2f, enter "
         "%.2f, feed %.2f, keep in-between %.2f, leave %.2f\n",
         s_stat_draws / 600.0, s_stat_loads / 600.0, s_stat_loads_blended / 600.0,
         s_stat_words_changed / 600.0, s_stat_prims / 600.0, s_stat_prims_blended / 600.0,
-        s_stat_prims_changed / 600.0, s_stat_repaired / 600.0, s_ms[0] / 600, s_ms[1] / 600, s_ms[2] / 600, s_ms[3] / 600,
+        s_stat_prims_changed / 600.0, s_stat_repaired / 600.0, s_stat_collapsed / 600.0, s_stat_matrix_snaps / 600.0,
+        s_ms[0] / 600, s_ms[1] / 600, s_ms[2] / 600, s_ms[3] / 600,
         s_ms[4] / 600, s_ms[5] / 600);
   }
   s_stat_loads = s_stat_prims = s_stat_loads_blended = s_stat_prims_blended = s_stat_words_changed =
-      s_stat_draws = s_stat_prims_changed = s_stat_repaired = 0;
+      s_stat_draws = s_stat_prims_changed = s_stat_repaired = s_stat_collapsed = s_stat_matrix_snaps = 0;
   std::fill(std::begin(s_ms), std::end(s_ms), 0.0);
 }
 }  // namespace
