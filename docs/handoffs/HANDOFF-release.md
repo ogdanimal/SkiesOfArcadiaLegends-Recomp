@@ -1,5 +1,31 @@
 # Handoff: releases (Windows, Linux, macOS, Android)
 
+## Released (2026-11-20): v0.90.0-standalone.8, the third test build
+
+- **Published** 2026-11-20 16:38 UTC as a prerelease, tag on `67cc84b`, release run 44763742068. The
+  owner approved the push, the tag, the publish and `android-sign` for this build.
+- **The first tag was remade.** The first `.8` tag (on `001c4d5`) was cancelled and deleted before any
+  draft existed, once the Thor showed every Android APK closing at Start Game. Owner's choice: remake `.8`
+  with the fix.
+- **What it has:**
+  - #34: Android's Start Game crash. R8 removed Java methods the native code needs;
+    `recompcore-android-standalone-r8.patch`.
+  - #35: blocky textures (min filter), the boss battle entry swirl (copies without alpha), and the FPS
+    counter in 60 fps mode.
+- **Checked on the draft:**
+  - SHA256SUMS; the APK signer is the pinned key; no testOnly or debuggable; versionName
+    `0.90.0-standalone.8`.
+  - `tools/check-apk-jni.sh`: 97 of 97 methods present.
+  - A PII scan of every extracted file: only `/home/runner` and `/Users/runner`, plus Dolphin's known
+    PEM, Triforce IP and BBA MAC strings.
+  - The Linux package's `skies-run` from the save-point state: Vulkan, 5461 of 5461 chunks, log clean.
+  - The Windows package, checked by the Windows session: D3D12, 1.00×, 5461 of 5461, log clean.
+- **New release rule:** **the signed APK from the draft, installed on a device (the AYN Thor) and played
+  past Start Game.** `.6` and `.7` were only ever run as debug test APKs, which R8 doesn't shrink, and that's
+  how the crash got out.
+- **Next build:** the local performance commits after `67cc84b` (frame-wait skip, async saves, vertex-size
+  cache, the small fixes, the CI APK guard). Fast FP stays an experiment; development notes, *Performance work*.
+
 ## Released (2026-11-20): v0.90.0-standalone.7, the second test build
 
 - **Published** 2026-11-20 03:57 UTC as a **prerelease** ("Do it!" from the owner); tag on `7eecdfc`, release run
