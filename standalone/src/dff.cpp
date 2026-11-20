@@ -87,6 +87,13 @@ void XfWrite(u32 address, u32 value)
     s_xf_regs[address - 0x1000] = value;
 }
 
+// SKIES_COPY_LOG: every EFB copy to a texture, logged (read once: this runs on every copy)
+bool CopyLogOn()
+{
+  static const bool on = std::getenv("SKIES_COPY_LOG") != nullptr;
+  return on;
+}
+
 void BpWrite(u8 reg, u32 value)
 {
   if (reg == 0xFE)
@@ -108,7 +115,7 @@ void BpWrite(u8 reg, u32 value)
     if (p && tmem_addr + count <= s_tmem.size())
       std::memcpy(s_tmem.data() + tmem_addr, p, count);
   }
-  else if (reg == 0x52 && !(s_bp[0x52] & 0x4000) && std::getenv("SKIES_COPY_LOG"))
+  else if (reg == 0x52 && !(s_bp[0x52] & 0x4000) && CopyLogOn())
   {
     // EFB copy to a texture: source 0x49 (x 0-9, y 10-19), size 0x4A (w-1, h-1), dest 0x4B << 5,
     // dest stride 0x4D (in 32-byte lines), format bits 4-6 + bit 3 (and intensity bit 15)
