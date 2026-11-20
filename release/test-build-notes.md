@@ -1,4 +1,4 @@
-The third test build of the new engine: the Android app starts the game again, textures are back to their smooth look, the boss battle swirl is fixed, and the frame counter counts 60 fps.
+The fourth test build of the new engine: a much faster character menu on Windows, less CPU use in battle, and save states that no longer pause the game.
 
 > [!WARNING]
 > **This is a test build.** [v0.83.0-beta](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/releases/tag/v0.83.0-beta) stays the recommended release. **Back up your saves first** (Settings → Saves → Back up saves): save states made by the new engine don't load in 0.83.
@@ -7,19 +7,17 @@ The third test build of the new engine: the Android app starts the game again, t
 > **You need your own Skies of Arcadia Legends disc** (GameCube: USA `GEAE8P`, European `GEAP8P` or Japanese `GEAJ8P`) as RVZ, ISO, GCM, GCZ, WIA or CISO.
 > Nothing here contains game data: the launcher imports your disc and patches it.
 
-New to the new engine? The [first test build's notes](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/releases/tag/v0.90.0-standalone.6) cover what changed from 0.83 and how much faster it runs, and the [second's](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/releases/tag/v0.90.0-standalone.7) what came after.
+New to the new engine? The [first test build's notes](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/releases/tag/v0.90.0-standalone.6) cover what changed from 0.83 and how much faster it runs.
 
-## Fixed
+## Faster
 
-- **Android: the game closed as soon as you tapped Start Game** ([#34](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/34))
-  - In the first two test builds, the app's release packaging removed parts of the game's Android code that it wrongly thought were unused, so the new engine closed while starting, on every device. Fixed and checked on an AYN Thor.
-  - Thanks to [GLEclipseGaming](https://github.com/GLEclipseGaming) for reporting it and for the video.
-- **Blocky, low-detail textures** ([#35](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/35))
-  - The new engine read one of the game's texture-filter settings backwards, so many textures (hair, railings, the save points) were drawn as hard pixels instead of smoothly, most visibly at higher resolutions.
-- **The opening swirl of boss battles showed the boss on black** (seen at Antonio, [#35](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/35))
-  - The screen picture the swirl stretches came out see-through, so most of the boss and the room vanished.
-- **The frame counter showed 30 with 60 fps on** ([#35](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/35)): it now counts the in-between frames too.
-- Thanks to [Cawl87](https://github.com/Cawl87) for the careful side-by-side comparisons.
+- **The character menu and other text-heavy screens** ([#35](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/35))
+  - The menu's text made the new engine create dozens of new textures every frame. On Direct3D (Windows) each one is slow, so the menu ran far below full speed on some PCs. It now reuses them: on an Intel UHD 770 the menu runs about 2.5× faster, and Direct3D 12 is no longer slower than Direct3D 11.
+- **Less CPU in battle and elsewhere**
+  - The game's own wait for the next frame no longer burns processor time: up to a third less CPU in battles on PC (about 14% on a Retroid Pocket 5), a little less elsewhere. On handhelds that means less battery and heat at the same speed.
+- **Save states no longer pause the game**
+  - A save state (and the auto-save) used to hold the game for a moment while it was compressed and written; that now happens in the background.
+- Thanks to [Cawl87](https://github.com/Cawl87) for the detailed reports.
 
 ## Not in this build
 
