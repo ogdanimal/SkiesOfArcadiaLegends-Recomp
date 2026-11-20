@@ -10,7 +10,7 @@ widescreen, 60 fps, camera control, save states and quality-of-life options.
   [Dolphin](https://dolphin-emu.org/), drawing through Direct3D 12, Vulkan, Direct3D 11, Metal or OpenGL ES. It has
   v0.83's features (on Android it needs version 9 or later) and is faster and smoother, most of all on weaker PCs,
   laptops and Android handhelds. Its newest test build is
-  **[v0.90.0-standalone.10](../../releases/tag/v0.90.0-standalone.10)**; this README describes it. Your saves carry
+  **[v0.90.0-standalone.11](../../releases/tag/v0.90.0-standalone.11)**; this README describes it. Your saves carry
   over; back them up first. Please [report](../../issues/new/choose) what you run into, with the log.
 - **[v0.83.0-beta](../../releases/tag/v0.83.0-beta)**, on the Dolphin engine, stays the recommended release until
   the test builds' reports are in. There will be no more Dolphin-engine releases.

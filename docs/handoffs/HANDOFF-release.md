@@ -14,7 +14,21 @@ an Android APK that closed at Start Game: only debug test APKs were ever run, an
 | Linux tar.gz / AppImage | WSL or Linux | the same from a state: Vulkan, chunks, log |
 | macOS zip | the Mac | the same; plus battle damage digits (#16, FEAT_AFP) |
 
-## TAGGED (2026-11-20 evening): v0.90.0-standalone.10, the fifth test build, draft in progress
+## In progress (2026-11-20 night): v0.90.0-standalone.11, the fifth test build (replaces `.10`)
+
+- **Why not `.10`:** its draft passed every package check (SHA256SUMS; PII scan of 14166 extracted files: only
+  Dolphin's Triforce / BBA / PEM strings and upstream doc emails; APK signer, flags, versionName, JNI 97 of 97;
+  the Thor past Start Game over `.9`; Linux and Windows from the save-point state, 5461 of 5461, Vulkan / D3D12;
+  macOS on the Mac mini: Metal, digits, seeded cache, Display refresh at 144 Hz), but the Mac's mouse-camera run
+  found the field turn never settling: the game turns in steps of 0x200, the mouse code wanted 16, so after any
+  mouse turn it held a small C-stick X for good and the pad's and keyboard's camera turn stopped working. The
+  owner: "Fix it in .11". The `.10` draft stays unpublished.
+- **What `.11` adds:** that fix (`058e9dd`); the desktop jobs no longer build the Dolphin runner
+  (`79c0aab`, `8f29994`); dev now holds the new engine's line (`00ab9be`, merge of dev's README). The notes
+  (`release/test-build-notes.md`) are `.10`'s, in short bullets (the owner's edit on the `.10` draft).
+- **Before the tag:** dev's validate run on the new CI (no Dolphin runner) green on every platform.
+
+## TAGGED (2026-11-20 evening): v0.90.0-standalone.10, the fifth test build, NOT published (superseded by `.11`)
 
 - **Tagged** `v0.90.0-standalone.10` on `fa57e89` (lightweight, as `.9`) with the owner's word ("do what needs to
   be done to properly get the next release out"); release run 44829795770. The owner also said "just approve it"

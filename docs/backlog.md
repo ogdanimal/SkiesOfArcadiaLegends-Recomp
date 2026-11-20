@@ -64,7 +64,7 @@ the display's rate (120 / 144 Hz, VRR), each presented picture blended between t
   - Tested before the tag on WSL, Windows, the Pocket 5 and the Mac mini M4.
   - Every package checked on the draft (the owner's rule), then PUBLISHED 2026-11-20 18:25 UTC; #35 comment
     posted.
-- **Next build (v0.90.0-standalone.10; PUSHED to `origin/aurora-backend` 2026-11-20 evening, `bc3ba8c`):**
+- **Next build (v0.90.0-standalone.10, never published: shipped as `.11` with the mouse-camera settle fix; PUSHED to `origin/aurora-backend` 2026-11-20 evening, `bc3ba8c`):**
   - `d1bce57`: the "window" resolution covers widescreen windows (#35's soft textures).
   - `1cfaf23`: the padded-copy base, after Fina's flashback.
   - `60dd22d`: the release-checks docs.
