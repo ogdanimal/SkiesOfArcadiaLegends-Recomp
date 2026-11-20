@@ -1,5 +1,19 @@
 # Handoff: releases (Windows, Linux, macOS, Android)
 
+## Release checks (the owner's rule, 2026-11-20)
+
+Every release, before publishing: download the draft's own files and test **each platform's package on that
+platform**. A local or test build never stands in for a release package. This is how `.6` and `.7` shipped
+an Android APK that closed at Start Game: only debug test APKs were ever run, and R8 shrinks release builds only.
+
+| Package | Where | What |
+|---|---|---|
+| All | here | `SHA256SUMS`; a PII scan of every extracted file (the sweep's patterns) |
+| Android APK | here, then a device (AYN Thor, or the Nova; never the owner's own release app or data) | signer against `release/android-signer.sha256`; no testOnly or debuggable; versionName; `tools/check-apk-jni.sh`. Then install, import the disc, and play past Start Game |
+| Windows zip | Windows (the Windows session, or `cmd.exe`) | `skies-run.exe` from a save state: D3D12, module chunks 5461/5461, 1.00×, a log without user paths |
+| Linux tar.gz / AppImage | WSL or Linux | the same from a state: Vulkan, chunks, log |
+| macOS zip | the Mac | the same; plus battle damage digits (#16, FEAT_AFP) |
+
 ## Released (2026-11-20): v0.90.0-standalone.8, the third test build
 
 - **Published** 2026-11-20 16:38 UTC as a prerelease, tag on `67cc84b`, release run 44763742068. The
