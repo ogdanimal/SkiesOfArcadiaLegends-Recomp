@@ -32,6 +32,20 @@ Simplifications, biggest first:
 - Build the patched Dawn once per Dawn version and publish the packages as release assets that CI downloads
   (small and independent: the suggested first step).
 
+## Uncapped frame rate — planned 2026-11-20 (#20)
+
+The owner: planned, "like Dusklight" (the #20 reply says so). The game's logic stays at 30 Hz; the picture runs at
+the display's rate (120 / 144 Hz, VRR), each presented picture blended between the last two game frames.
+- **Dusklight's way** (`TwilitRealm/dusklight`, `src/dusk/game_clock.cpp`, `src/dusk/interp/`): a 30 Hz
+  simulation tick (`kSimPeriod`), presentation separate; each presented frame interpolates at step =
+  (now - the newest tick's time) / (1/30 s), clamped 0..1, one tick behind. It records matrices per object (it
+  has the source); ours blends the recorded GX stream (`interp60.cpp`), which already takes any t
+  (`SKIES_INTERP_T`).
+- **To build:** in-betweens at any t (today one per frame at 0.5, replayed into a kept slot); presents timed to
+  the display's refreshes (a 120 Hz grid on desktop first, then a per-present t from wall time for VRR); the
+  adaptive budget from "one in-between fits" to "how many fit"; the setting (60 / 120 / uncapped). The #35
+  squash snap and #18 pairing carry over. Cost: one full replay per extra picture (desktop GPUs; phones stay at 60).
+
 ## After the third test build (v0.90.0-standalone.8) — 2026-11-20
 
 - **v0.90.0-standalone.9:**
