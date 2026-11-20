@@ -10,7 +10,7 @@ widescreen, 60 fps, camera control, save states and quality-of-life options.
   inside a trimmed copy of [Dolphin](https://dolphin-emu.org/)'s core, which supplies the GameCube's
   graphics, sound and input. The rest of this README describes it.
 - **A new engine is in testing:
-  [v0.90.0-standalone.6](../../releases/tag/v0.90.0-standalone.6)**. The game runs on its own GameCube
+  [v0.90.0-standalone.7](../../releases/tag/v0.90.0-standalone.7)**. The game runs on its own GameCube
   hardware layer instead of inside Dolphin, drawing through Direct3D 12, Vulkan, Direct3D 11, Metal or
   OpenGL ES. It has v0.83's features (on Android it needs version 9 or later) and is faster and smoother, most
   of all on weaker PCs, laptops and Android handhelds (the release notes compare the two). Your saves carry over; back them up first.
