@@ -738,6 +738,9 @@ jobs:
           fi
           STANDALONE=1 BRAND=1 SIGN=0 NAME=ci JNILIBS=android-module NDK=$ANDROID_HOME/ndk/29.0.14206865 tools/android-ws-build.sh
           ls -la build/android/apk/
+          # Every Java method the native code registers or calls by name is still there: R8 (release
+          # builds) removed some, and the v0.90.0-standalone.6 / .7 APKs aborted at Start Game (issue #34)
+          for apk in build/android/apk/*.apk; do tools/check-apk-jni.sh "$apk"; done
 
       - name: Upload APK
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
