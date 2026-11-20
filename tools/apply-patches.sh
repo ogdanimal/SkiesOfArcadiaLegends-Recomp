@@ -19,6 +19,7 @@ apply $MG moderngekko-ship-hud.patch
 apply $MG moderngekko-cheats.patch
 apply $MG moderngekko-renderer.patch
 apply $MG moderngekko-display-rate.patch
+apply $MG moderngekko-launcher-drop.patch
 for p in $(grep -v '^#' "$P/recompcore.series"); do
   apply $RC recompcore-$p.patch
 done

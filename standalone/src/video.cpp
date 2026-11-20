@@ -1524,8 +1524,15 @@ void DisplayTickNow()
   }
 }
 
+std::atomic<u32> s_render_size{0};  // the EFB's size in pixels, width << 16 | height (the menu's Resolution row)
+
 void FrameEndVideo(const FrameEnd& end)
 {
+  {
+    u32 width = 0, height = 0;
+    AuroraGetRenderSize(&width, &height);
+    s_render_size.store((std::min(width, 0xFFFFu) << 16) | std::min(height, 0xFFFFu), std::memory_order_relaxed);
+  }
   if ((end.frame % 600) == 1)
     HdTexturesLog();
   ArmDrawLog(end.frame);
@@ -1649,6 +1656,19 @@ void DisplayTick()
 #endif
 }
 }  // namespace
+
+bool VideoRenderSize(u32* width, u32* height)
+{
+#ifdef SKIES_STANDALONE_AURORA
+  const u32 size = s_render_size.load(std::memory_order_relaxed);
+  *width = size >> 16;
+  *height = size & 0xFFFF;
+  return size != 0;
+#else
+  *width = *height = 0;
+  return false;
+#endif
+}
 
 double VideoDisplayHz()
 {

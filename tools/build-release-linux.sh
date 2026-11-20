@@ -117,9 +117,13 @@ Name=Skies of Arcadia Legends
 Comment=Skies of Arcadia Legends, recompiled
 Exec=SkiesOfArcadiaLegends
 Icon=skies-of-arcadia-legends
-Categories=Game;
+Categories=Game;RolePlaying;
+Keywords=Skies of Arcadia;GameCube;RPG;
 Terminal=false
 EOF
+  # AppStream metadata (software centres, the Steam Deck's desktop mode): its launchable is the desktop file above
+  mkdir -p "$A/usr/share/metainfo"
+  cp release/linux/io.github.ogdanimal.SkiesOfArcadiaLegends.metainfo.xml "$A/usr/share/metainfo/"
   # The modules are loaded by the runner, not linked: their dependencies only
   MODULES=()
   for m in "$A"/usr/bin/g*_recomp.so; do MODULES+=(--deploy-deps-only "$m"); done

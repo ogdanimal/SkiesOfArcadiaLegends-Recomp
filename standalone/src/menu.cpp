@@ -2731,9 +2731,15 @@ void Draw(float scale)
               "refresh of the screen (120 Hz, 144 Hz and up), a frame later than 60 fps. 30 fps is the "
               "original."};
     case Option::Resolution:
-      return {"Resolution", ResolutionText(v.efb_scale),
-              "Higher is sharper but needs a faster graphics chip. Match window draws at the "
-              "window's own size."};
+    {
+      // With the size it draws at now (Dusklight's graphics tuner shows it too)
+      static std::string s_text;  // Row keeps a pointer: the text must outlive this call
+      s_text = "Higher is sharper but needs a faster graphics chip. Match window draws at the window's own size.";
+      u32 width = 0, height = 0;
+      if (VideoRenderSize(&width, &height))
+        s_text += " Drawing at " + std::to_string(width) + "x" + std::to_string(height) + " now.";
+      return {"Resolution", ResolutionText(v.efb_scale), s_text.c_str()};
+    }
     case Option::Antialiasing:
       return {"Anti-aliasing", v.msaa > 1 ? std::to_string(v.msaa) + "x MSAA" : "Off",
               "Smooths jagged edges. Higher settings need a faster graphics chip."};

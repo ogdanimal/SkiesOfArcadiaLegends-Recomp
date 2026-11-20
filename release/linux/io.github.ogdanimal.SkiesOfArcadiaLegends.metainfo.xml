@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AppStream metadata for the Linux packages (the AppImage's usr/share/metainfo): what software
+     centres and the Steam Deck's desktop mode show. tools/build-release-linux.sh copies it in. -->
+<component type="desktop-application">
+  <id>io.github.ogdanimal.SkiesOfArcadiaLegends</id>
+  <name>Skies of Arcadia Legends: Recompiled</name>
+  <summary>A native port of the GameCube game, played from your own disc</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <developer id="io.github.ogdanimal">
+    <name>The Skies of Arcadia Legends: Recompiled contributors</name>
+  </developer>
+  <description>
+    <p>
+      A static recompilation of Skies of Arcadia Legends for the GameCube, running natively with no
+      emulator. It doesn't include the game: it imports and patches your own disc image (USA, Europe
+      or Japan).
+    </p>
+    <ul>
+      <li>Widescreen and any window shape, high resolutions and anti-aliasing</li>
+      <li>60 fps or the display's refresh rate through frame interpolation</li>
+      <li>Save states, faster battles and field, optional cheats</li>
+      <li>HD texture packs and the Dreamcast music</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">skies-of-arcadia-legends.desktop</launchable>
+  <url type="homepage">https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp</url>
+  <url type="bugtracker">https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues</url>
+  <categories>
+    <category>Game</category>
+    <category>RolePlaying</category>
+  </categories>
+  <recommends>
+    <control>gamepad</control>
+  </recommends>
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </supports>
+  <content_rating type="oars-1.1">
+    <content_attribute id="violence-fantasy">moderate</content_attribute>
+    <content_attribute id="drugs-alcohol">mild</content_attribute>
+    <content_attribute id="language-humor">mild</content_attribute>
+  </content_rating>
+</component>

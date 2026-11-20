@@ -1,0 +1,119 @@
+diff --git a/tools/moderngekko_launcher.cpp b/tools/moderngekko_launcher.cpp
+--- a/tools/moderngekko_launcher.cpp
++++ b/tools/moderngekko_launcher.cpp
+@@ -242,6 +242,7 @@
+ constexpr std::array<LauncherChoice, 3> RENDERER_CHOICES{{{0, "Auto"}, {2, "Vulkan"}, {4, "OpenGL ES"}}};
+ #endif
+ constexpr std::array<LauncherChoice, 2> CAMERA_CHOICES{{{1, "Hold Z to move"}, {0, "Original"}}};
++constexpr std::array<LauncherChoice, 2> LIGHT_CHOICES{{{1, "By the game"}, {0, "Off"}}};
+ constexpr std::array<LauncherChoice, 6> ENCOUNTER_CHOICES{
+     {{0, "Off"}, {25, "1/4"}, {50, "1/2"}, {100, "Normal"}, {200, "2x"}, {400, "4x"}}};
+ constexpr std::array<LauncherChoice, 6> REWARD_CHOICES{
+@@ -1446,6 +1447,8 @@
+   SettingValue dc_intro = setting({"Dolphin.ini", "Skies", "DreamcastIntro"}, 1);
+   SettingValue uncensored = setting({"Dolphin.ini", "Skies", "Uncensored"}, 0);
+   SettingValue camera = setting({"Dolphin.ini", "Skies", "CameraControl"}, 1);
++  SettingValue mouse_camera = setting({"Dolphin.ini", "Skies", "MouseCamera"}, 0);
++  SettingValue controller_light = setting({"Dolphin.ini", "Skies", "ControllerLight"}, 1);
+   SettingValue encounters = setting({"Dolphin.ini", "Skies", "Encounters"}, 100);
+   SettingValue exp = setting({"Dolphin.ini", "Skies", "Exp"}, 100);
+   SettingValue gold = setting({"Dolphin.ini", "Skies", "Gold"}, 100);
+@@ -1564,6 +1567,7 @@
+   bool open_data_prompt = false;        // the prompt opens in the Disc tab's frame
+   // The first portable start with earlier data: Settings opens on the Disc tab with the prompt
+   bool open_settings_on_disc = false;
++  const char* open_settings_tab = nullptr;  // a dropped file's tab (Settings opens on it)
+   if (offer_earlier_data)
+   {
+     data_source = earlier_user_directory;
+@@ -1790,6 +1794,44 @@
+       ImGui_ImplSDL3_ProcessEvent(&event);
+       if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED)
+         done = true;
++      // A file dropped on the window goes where its picker would take it (Dusklight's drop install,
++      // ui/drop_install_modal.cpp): a disc as Select Disc does, a save to Settings, Saves, a texture pack to
++      // Settings, Graphics, a Dreamcast disc to Settings, Dreamcast
++      if (event.type == SDL_EVENT_DROP_FILE && event.drop.data)
++      {
++        const std::string path = event.drop.data;
++        std::string ext = PathToString(StringToPath(path).extension());
++        std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return std::tolower(c); });
++        const auto is = [&](std::initializer_list<const char*> list) {
++          return std::find_if(list.begin(), list.end(), [&](const char* e) { return ext == e; }) != list.end();
++        };
++        if (is({".rvz", ".iso", ".gcm", ".gcz", ".wia", ".ciso"}))
++        {
++          std::lock_guard lock(dialog.mutex);
++          dialog.selected = path;
++          extract_after_pick = true;
++        }
++        else if (is({".gci", ".gcs", ".sav", ".raw", ".gcp"}))
++        {
++          std::lock_guard lock(save_dialog.mutex);
++          save_dialog.selected = path;
++          open_settings_tab = "Saves";
++        }
++        else if (is({".7z", ".zip"}))
++        {
++          std::lock_guard lock(pack_dialog.mutex);
++          pack_dialog.selected = path;
++          open_settings_tab = "Graphics";
++        }
++#ifdef HAVE_DCMUSIC
++        else if (is({".gdi", ".chd"}))
++        {
++          std::lock_guard lock(dc_dialog.mutex);
++          dc_dialog.selected = path;
++          open_settings_tab = "Dreamcast";
++        }
++#endif
++      }
+       if (event.type == SDL_EVENT_JOYSTICK_ADDED || event.type == SDL_EVENT_JOYSTICK_REMOVED ||
+           event.type == SDL_EVENT_GAMEPAD_REMAPPED)
+       {
+@@ -3465,7 +3507,7 @@
+         }
+       }
+       ImGui::PopStyleVar();
+-      if (open_settings_on_disc && !ImGui::IsPopupOpen("Settings"))
++      if ((open_settings_on_disc || open_settings_tab) && !ImGui::IsPopupOpen("Settings"))
+         ImGui::OpenPopup("Settings");
+       ImGui::PushFont(ui_font, 16.0f);
+       if (extraction.running)
+@@ -3554,6 +3596,11 @@
+         ImGui::Spacing();
+         const auto tab = [&](const char* label, const auto& draw, ImGuiTabItemFlags flags = 0)
+         {
++          if (open_settings_tab && std::strcmp(open_settings_tab, label) == 0)
++          {
++            flags |= ImGuiTabItemFlags_SetSelected;
++            open_settings_tab = nullptr;
++          }
+           if (ImGui::BeginTabItem(label, nullptr, flags))
+           {
+             ImGui::BeginChild("##tab", ImVec2(0, -ImGui::GetTextLineHeightWithSpacing()));
+@@ -3594,6 +3641,11 @@
+                 setting_row("Camera", "##camera", camera, CAMERA_CHOICES,
+                             "Hold Z, then tilt with the C-stick and zoom with L / R. Original keeps "
+                             "the game's fixed camera.");
++#if defined(MODERNGEKKO_STANDALONE_RUNNER)
++                setting_row("Mouse camera", "##mouse_camera", mouse_camera, ON_OFF,
++                            "Click the picture to turn the camera with the mouse (the wheel zooms). Esc "
++                            "or the menu lets the mouse go.");
++#endif
+                 setting_row("Battle speed", "##battle_speed", battle_speed, SPEED_CHOICES,
+                             "Plays battles faster. Tap Z during a battle to switch speeds.");
+                 setting_row("Field speed", "##field_speed", field_speed, FIELD_SPEED_CHOICES,
+@@ -3660,6 +3712,12 @@
+                         "Ignores small stick movements. Raise it if a stick drifts.");
+                 pad_row("Rumble", "##rumble", &rumble, ON_OFF, {"Rumble/Motor/Range"}, 100,
+                         "Controller vibration.");
++#if defined(MODERNGEKKO_STANDALONE_RUNNER)
++                setting_row("Controller light", "##controller_light", controller_light, LIGHT_CHOICES,
++                            "A controller with a colour light (DualSense, DualShock 4, Switch Pro) glows "
++                            "sky blue in the field and on the world map and red in battle. Off leaves "
++                            "the light to the controller.");
++#endif
+                 if (!controller_status.empty())
+                 {
+                   ImGui::Spacing();

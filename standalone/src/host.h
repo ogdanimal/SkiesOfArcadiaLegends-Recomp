@@ -260,7 +260,8 @@ int InterpDisplayReplay(u64 id, float t, int slot);
 void InterpDisplayDrop(u64 id);
 double InterpDisplayAllowed();  // in-betweens per frame that fit (the budget's; large: any number)
 int InterpMode();
-double VideoDisplayHz();  // FrameMode 2: the pictures' rate in use (0: not yet known)  // 0: 30 fps, 1: 60 fps, 2: the display's refresh rate (FrameMode, SKIES_INTERP)
+double VideoDisplayHz();
+bool VideoRenderSize(u32* width, u32* height);  // the picture's drawn size (the EFB), as of the last frame  // FrameMode 2: the pictures' rate in use (0: not yet known)  // 0: 30 fps, 1: 60 fps, 2: the display's refresh rate (FrameMode, SKIES_INTERP)
 void InterpReset();       // a state load, on the game's thread: this frame's recording goes
 void InterpResetVideo();  // and on the video thread: the previous frame's
 u16 CpRead16(u32 offset);
