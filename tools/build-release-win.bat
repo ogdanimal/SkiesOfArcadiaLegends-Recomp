@@ -1,5 +1,6 @@
 @echo off
-rem Branded release build (Windows): the launcher, runner and Sys in lib\ModernGekko\build-release,
+rem Branded release build (Windows): the launcher, Sys and (without STANDALONE) the Dolphin runner in
+rem lib\ModernGekko\build-release,
 rem configured for Skies (the USA disc GEAE8P, the European GEAP8P and the Japanese GEAJ8P, each with its widescreen DOL patch
 rem applied to the players own main.dol and its game ini). Separate from the dev build: the release
 rem runner patches the DOL of any game root it starts. Then package: the modules beside the exes and
@@ -98,6 +99,8 @@ if /i "%~x1"==".dll" (
 )
 goto package_arg
 :package_args_done
+rem A tree configured for the standalone has no Dolphin runner of its own (or an old one): its package needs STANDALONE
+if not defined STANDALONE findstr /b /c:"MODERNGEKKO_STANDALONE_RUNNER:BOOL=ON" %B%\CMakeCache.txt >nul && (echo %B% is configured for the standalone runner: set STANDALONE=DIR & exit /b 1)
 if "%VERSION%"=="" set VERSION=v0.9.0
 copy /y "%MODULE_US%" %B%\gGEAE8P_recomp.dll >nul || exit /b 1
 if exist %B%\gGEAP8P_recomp.dll del %B%\gGEAP8P_recomp.dll

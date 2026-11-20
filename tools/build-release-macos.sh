@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Branded release build (macOS, Apple Silicon), the counterpart of tools/build-release-linux.sh: the
-# launcher, the runner skies-run and Sys in lib/ModernGekko/build-release-macos, configured for Skies
+# launcher, Sys and (without STANDALONE) the Dolphin runner skies-run in lib/ModernGekko/build-release-macos, configured for Skies
 # (the USA disc GEAE8P, the European GEAP8P and the Japanese GEAJ8P, each with its widescreen DOL patch
 # applied to the player's own main.dol and its game ini), packaged as "Skies of Arcadia Legends.app". Metal is the
 # graphics backend (Vulkan would need MoltenVK, which needs a full Xcode to build); OpenGL is the
@@ -53,6 +53,11 @@ build)
   cp release/launcher-background.png release/CREDITS.md $B/
   ;;
 package)
+  # A tree configured for the standalone has no Dolphin runner of its own (or an old one): its package
+  # needs STANDALONE
+  if grep -q '^MODERNGEKKO_STANDALONE_RUNNER:BOOL=ON$' $B/CMakeCache.txt; then
+    [ -n "${STANDALONE:-}" ] || { echo "$B is configured for the standalone runner: set STANDALONE=DIR" >&2; exit 1; }
+  fi
   MODULE=${2:?usage: tools/build-release-macos.sh package USA.dylib [EUROPE.dylib] [JAPAN.dylib] [VERSION]}
   MODULE_EU= MODULE_JP=
   # Optional European and Japanese modules (.dylib files, told apart by their names:
