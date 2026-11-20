@@ -377,6 +377,7 @@ void FrontendError(const char* title, const std::string& message);
 // The in-game menu's Resolution, back into config.ini (which sets it at the next start)
 void FrontendResolutionChanged(int scale);
 void VideoSetTitleFps(double fps);  // FPS in the title, when config.ini says so (video.cpp)
+u32 VideoTakeInbetweensShown();  // 60 fps in-between pictures shown since the last call (video.cpp)
 
 // ---- settings (settings.cpp) -----------------------------------------------------------------------
 // The Dolphin build's Config/Dolphin.ini, Config/GFX.ini and Config/GCPadNew.ini (controller 1's

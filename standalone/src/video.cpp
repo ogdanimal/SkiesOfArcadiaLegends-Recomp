@@ -707,6 +707,22 @@ void ApplyTestResize()
 #endif
 }  // namespace
 
+namespace
+{
+// The in-between pictures the 60 fps replay kept, for the FPS counter (menu.cpp): the game thread
+// counts the game's frames, the video thread these
+std::atomic<u32> s_inbetweens_shown{0};
+}  // namespace
+
+u32 VideoTakeInbetweensShown()
+{
+#ifdef SKIES_STANDALONE_AURORA
+  return s_inbetweens_shown.exchange(0, std::memory_order_relaxed);
+#else
+  return 0;
+#endif
+}
+
 void VideoSetTitleFps(double fps)
 {
 #ifdef SKIES_STANDALONE_AURORA
@@ -1129,6 +1145,8 @@ void ReplayVideo()
   const int kept = InterpReplayVideo();
   if (kept == 1 && !s_shown.empty())
     s_shown.back().interp = true;
+  if (kept == 1)
+    s_inbetweens_shown.fetch_add(1, std::memory_order_relaxed);
   if (InterpTrace() && kept >= 0 && !s_shown.empty())
     Log("[interp-trace] frame %llu replayed: %s\n", static_cast<unsigned long long>(s_shown.back().frame),
         kept == 1 ? "in-between kept" : "no in-between");

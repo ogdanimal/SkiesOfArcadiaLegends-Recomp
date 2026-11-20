@@ -2814,7 +2814,9 @@ void Draw(float scale)
 void MenuFrame()
 {
   const Clock::time_point now = Clock::now();
-  ++s_fps_frames;
+  // The game's frames and, in 60 fps mode, the in-between pictures shown with them (issue #35: the
+  // counter said 30 with 60 fps on, where the Dolphin build's counted every picture)
+  s_fps_frames += 1 + VideoTakeInbetweensShown();
   if (s_fps_since == Clock::time_point{})
     s_fps_since = now;
   const double elapsed = std::chrono::duration<double>(now - s_fps_since).count();
