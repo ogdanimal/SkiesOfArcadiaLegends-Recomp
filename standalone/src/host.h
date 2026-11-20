@@ -434,6 +434,9 @@ bool MenuInterpHeld();  // 60 fps held off: the game runs fast (field / battle s
 bool MenuTakeRestartRequest();
 // Before each present: the menu, messages and the FPS counter through Aurora's overlay.
 void MenuFrame();
+void MenuShaderProgress(unsigned width, unsigned height, unsigned done, unsigned total, bool touch);
+void MenuShaderProgressEnd();
+void VideoPrepareShaders();
 void MenuMessage(const std::string& text, int milliseconds);
 
 // ---- controllers through Aurora's PAD layer (input.cpp) ---------------------------------------------

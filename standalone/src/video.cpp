@@ -26,7 +26,10 @@
 #include "gxruntime/aurora_backend.h"
 #include "gxruntime/platform.h"
 
+#include <SDL3/SDL_gamepad.h>
+#include <SDL3/SDL_keyboard.h>
 #include <SDL3/SDL_thread.h>
+#include <SDL3/SDL_touch.h>
 #include <SDL3/SDL_video.h>
 #include <aurora/aurora.h>
 #include <aurora/gfx.h>
@@ -975,6 +978,116 @@ bool VideoThreaded()
 std::chrono::steady_clock::duration VideoBusy()
 {
   return std::chrono::nanoseconds(s_busy_ns.load(std::memory_order_relaxed));
+}
+
+#ifdef SKIES_STANDALONE_AURORA
+namespace
+{
+// A button, key or touch down now (the shader preparation's skip)
+bool AnyInputDown(bool* touch)
+{
+  int count = 0;
+  if (const bool* keys = SDL_GetKeyboardState(&count))
+  {
+    for (int i = 0; i < count; ++i)
+      if (keys[i])
+        return true;
+  }
+  bool down = false;
+  if (SDL_JoystickID* pads = SDL_GetGamepads(&count))
+  {
+    for (int i = 0; i < count && !down; ++i)
+    {
+      SDL_Gamepad* pad = SDL_GetGamepadFromID(pads[i]);
+      if (!pad)
+        continue;
+      for (int b = 0; b < SDL_GAMEPAD_BUTTON_COUNT && !down; ++b)
+        down = SDL_GetGamepadButton(pad, static_cast<SDL_GamepadButton>(b));
+    }
+    SDL_free(pads);
+  }
+  if (SDL_TouchID* devices = SDL_GetTouchDevices(&count))
+  {
+    for (int i = 0; i < count && !down; ++i)
+    {
+      *touch = true;
+      int fingers = 0;
+      if (SDL_Finger** list = SDL_GetTouchFingers(devices[i], &fingers))
+      {
+        down = fingers > 0;
+        SDL_free(list);
+      }
+    }
+    SDL_free(devices);
+  }
+  return down;
+}
+}  // namespace
+#endif
+
+// Before the game starts: wait while Aurora compiles the pipelines it already knows (the packaged
+// initial_pipeline_cache.db merged into the player's cache, and that cache's own), with a progress bar
+// (menu.cpp MenuShaderProgress). Aurora skips a draw whose pipeline is still compiling, so without the wait
+// the first scenes drew with pieces missing on a slow compiler (issue #34, an AYN Thor: the Valuan gate came
+// in late in the opening, fine the second time). Later starts find Dawn's own cache and pass in a moment;
+// the bar shows only after 300 ms. Ends early on any button, key or touch (pressed after it began), on quit,
+// or when nothing finished for 15 s. SKIES_SHADER_PREP=0 turns it off.
+void VideoPrepareShaders()
+{
+#ifdef SKIES_STANDALONE_AURORA
+  const char* env = std::getenv("SKIES_SHADER_PREP");
+  if (!s_active || (env && std::atoi(env) == 0))
+    return;
+  const AuroraStats* stats = aurora_get_stats();
+  if (!stats || stats->queuedPipelines == 0)
+    return;
+  // Overlay work runs here directly: the game's thread doesn't exist yet
+  const bool threaded = s_threaded;
+  s_threaded = false;
+  const auto start = std::chrono::steady_clock::now();
+  const u32 created_before = stats->createdPipelines;
+  u32 last_queued = stats->queuedPipelines;
+  auto last_change = start;
+  bool held = true;  // input already down at the start (the launcher's button) doesn't skip
+  bool touch = false, shown = false, skipped = false;
+  for (;;)
+  {
+    PollEvents();
+    if (s_quit.load(std::memory_order_relaxed))
+      break;
+    const bool down = AnyInputDown(&touch);
+    if (down && !held && shown)
+    {
+      skipped = true;
+      break;
+    }
+    held = down;
+    const auto now = std::chrono::steady_clock::now();
+    const u32 queued = stats->queuedPipelines;
+    if (queued == 0)
+      break;
+    if (queued != last_queued)
+      last_queued = queued, last_change = now;
+    if (now - last_change > std::chrono::seconds(15))
+      break;
+    if (now - start >= std::chrono::milliseconds(300))
+    {
+      const u32 done = stats->createdPipelines - created_before;
+      unsigned width = 0, height = 0;
+      if (VideoSurfaceSize(&width, &height))
+        MenuShaderProgress(width, height, done, done + queued, touch);
+      shown = true;
+    }
+    Present(-1);
+    std::this_thread::sleep_for(std::chrono::milliseconds(16));
+  }
+  const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+  Log("[video] shaders prepared: %u pipelines in %.1f s%s\n", stats->createdPipelines - created_before, seconds,
+      skipped ? " (skipped by the player)" : stats->queuedPipelines ? " (stopped waiting)" : "");
+  if (shown)
+    MenuShaderProgressEnd();
+  s_threaded = threaded;
+#endif
 }
 
 void VideoRun(const std::function<void()>& game)

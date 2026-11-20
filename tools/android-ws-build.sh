@@ -62,6 +62,8 @@ if [ "${BRAND:-0}" = 1 ]; then
     cp release/GEAJ8P.ini $B/assets/skies-GEAJ8P.ini
   fi
   cp release/launcher-background.png $B/assets/skies-background.png
+  # The pipelines compiled before the first scene (Aurora opens it through SDL, which reads assets; issue #34)
+  cp release/initial_pipeline_cache.db $B/assets/initial_pipeline_cache.db
   # The GPL and the notices travel with the APK too
   mkdir -p $B/assets/licenses && cp COPYING release/README.md release/THIRD-PARTY.md $B/assets/licenses/ &&
     cp $V/Externals/licenses.md $B/assets/licenses/THIRD-PARTY-DOLPHIN.md && cp -r $V/LICENSES/. $B/assets/licenses/ &&

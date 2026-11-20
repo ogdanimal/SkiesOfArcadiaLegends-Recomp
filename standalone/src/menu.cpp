@@ -2326,6 +2326,19 @@ const char* OnOff(bool value)
   return value ? "On" : "Off";
 }
 
+void OverlayInit()
+{
+  if (s_overlay_init)
+    return;
+  s_overlay_init = true;
+  ImGui::CreateContext();
+  ImGuiIO& io = ImGui::GetIO();
+  io.IniFilename = nullptr;
+  io.LogFilename = nullptr;
+  io.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
+  LoadFonts();
+}
+
 // Text with a dark edge, readable over any picture (messages, FPS)
 void ShadowText(ImDrawList* draw, ImFont* font, float size, ImVec2 at, ImU32 colour, const char* text)
 {
@@ -2811,6 +2824,59 @@ void Draw(float scale)
 }  // namespace
 #endif
 
+// The start's shader preparation (video.cpp VideoPrepareShaders): a progress bar over the black window while
+// Aurora compiles the pipelines it knows the game uses (the packaged initial_pipeline_cache.db and the player's
+// own cache), so the game's first scenes don't draw with pieces missing (issue #34: the Valuan gate came in
+// late on an AYN Thor). Video thread, before the game's thread starts.
+void MenuShaderProgress(unsigned width, unsigned height, unsigned done, unsigned total, bool touch)
+{
+#ifdef SKIES_STANDALONE_AURORA
+  if (width == 0 || height == 0)
+    return;
+  OverlayInit();
+  ImGuiIO& io = ImGui::GetIO();
+  io.DisplaySize = ImVec2(static_cast<float>(width), static_cast<float>(height));
+  io.DeltaTime = 1.0f / 60.0f;
+  ImGui::NewFrame();
+  const float unit = std::max(1.0f, static_cast<float>(height) / 720.0f);
+  ImDrawList* draw = ImGui::GetForegroundDrawList();
+  ImFont* ui = s_ui_font ? s_ui_font : ImGui::GetFont();
+  ImFont* title = s_title_font ? s_title_font : ui;
+  const float cx = static_cast<float>(width) / 2.0f, cy = static_cast<float>(height) / 2.0f;
+  const auto centred = [&](ImFont* font, float size, float y, ImU32 colour, const char* text) {
+    const float w = font->CalcTextSizeA(size, FLT_MAX, 0.0f, text).x;
+    draw->AddText(font, size, ImVec2(std::floor(cx - w / 2.0f), std::floor(y)), colour, text);
+  };
+  centred(title, std::floor(24.0f * unit), cy - 52.0f * unit, IM_COL32(242, 242, 242, 255), "Preparing shaders");
+  const float bar_w = std::min(static_cast<float>(width) * 0.6f, 520.0f * unit), bar_h = std::floor(8.0f * unit);
+  const ImVec2 bar0(std::floor(cx - bar_w / 2.0f), std::floor(cy - bar_h / 2.0f));
+  const ImVec2 bar1(bar0.x + bar_w, bar0.y + bar_h);
+  const float part = total ? std::clamp(static_cast<float>(done) / static_cast<float>(total), 0.0f, 1.0f) : 0.0f;
+  draw->AddRectFilled(bar0, bar1, IM_COL32(255, 255, 255, 40), bar_h / 2.0f);
+  if (part > 0.0f)
+    draw->AddRectFilled(bar0, ImVec2(bar0.x + bar_w * part, bar1.y), IM_COL32(255, 230, 140, 255), bar_h / 2.0f);
+  char count[64];
+  std::snprintf(count, sizeof(count), "%u of %u", done, total);
+  centred(ui, std::floor(15.0f * unit), cy + 16.0f * unit, IM_COL32(242, 242, 242, 200), count);
+  centred(ui, std::floor(14.0f * unit), cy + 44.0f * unit, IM_COL32(242, 242, 242, 140),
+          touch ? "Tap to skip" : "Press any button to skip");
+  ImGui::Render();
+  Sink(ImGui::GetDrawData());
+  s_overlay_shown = true;
+#else
+  (void)width, (void)height, (void)done, (void)total, (void)touch;
+#endif
+}
+
+// The preparation's bar taken off (video thread, the game's thread not started yet)
+void MenuShaderProgressEnd()
+{
+#ifdef SKIES_STANDALONE_AURORA
+  aurora_backend_set_overlay(nullptr, 0, nullptr, 0, nullptr, 0, 0.0f, 0.0f);
+  s_overlay_shown = false;
+#endif
+}
+
 void MenuFrame()
 {
   const Clock::time_point now = Clock::now();
@@ -2852,16 +2918,7 @@ void MenuFrame()
     }
     return;
   }
-  if (!s_overlay_init)
-  {
-    s_overlay_init = true;
-    ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO();
-    io.IniFilename = nullptr;
-    io.LogFilename = nullptr;
-    io.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
-    LoadFonts();
-  }
+  OverlayInit();
   ImGuiIO& io = ImGui::GetIO();
   io.DisplaySize = ImVec2(static_cast<float>(width), static_cast<float>(height));
   const float dt = s_last_frame == Clock::time_point{} ?

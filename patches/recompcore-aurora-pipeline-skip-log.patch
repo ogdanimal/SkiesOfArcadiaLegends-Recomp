@@ -1,0 +1,34 @@
+diff --git a/GXRuntime/graphics/aurora/lib/gfx/pipeline_cache.cpp b/GXRuntime/graphics/aurora/lib/gfx/pipeline_cache.cpp
+index d1d01d5752..15aa790166 100644
+--- a/GXRuntime/graphics/aurora/lib/gfx/pipeline_cache.cpp
++++ b/GXRuntime/graphics/aurora/lib/gfx/pipeline_cache.cpp
+@@ -1249,7 +1249,21 @@ void shutdown_pipeline_cache() {
+   createdPipelines = 0;
+ }
+ 
++// Local (fork): AURORA_LOG_SKIPPED=1 logs each frame's draws skipped because their pipeline was still compiling
++// (the pop-in of issue #34) and the pipelines queued.
++static std::atomic<uint32_t> g_skippedDraws{0};
++static uint32_t g_skipLogFrame = 0;
++
+ void begin_pipeline_frame() {
++  static const bool s_logSkipped = [] {
++    const char* value = std::getenv("AURORA_LOG_SKIPPED");
++    return value != nullptr && value[0] != '0';
++  }();
++  ++g_skipLogFrame;
++  if (const uint32_t skipped = g_skippedDraws.exchange(0, std::memory_order_relaxed); s_logSkipped && skipped != 0) {
++    Log.info("frame {}: {} draws skipped, {} pipelines queued", g_skipLogFrame, skipped,
++             static_cast<uint32_t>(queuedPipelines));
++  }
+   if (!g_hasPipelineThread) {
+     g_pipelinesPerFrame = 0;
+   }
+@@ -1265,6 +1279,7 @@ bool get_pipeline(PipelineRef ref, wgpu::RenderPipeline& pipeline) {
+   std::lock_guard guard{g_pipelineMutex};
+   const auto it = g_pipelines.find(ref);
+   if (it == g_pipelines.end()) {
++    g_skippedDraws.fetch_add(1, std::memory_order_relaxed);
+     return false;
+   }
+   pipeline = it->second.pipeline;

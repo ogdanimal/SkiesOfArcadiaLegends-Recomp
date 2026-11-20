@@ -68,6 +68,8 @@ package)
   P=build/$NAME
   rm -rf "$P" "$P.tar.gz"; mkdir -p "$P/patches" "$P/licenses"
   cp $B/SkiesOfArcadiaLegends $B/skies-run $B/launcher-background.png "$P/"
+  # The pipelines compiled before the first scene (Aurora reads it beside the runner; issue #34)
+  cp release/initial_pipeline_cache.db "$P/"
   [ -n "${STANDALONE:-}" ] && strip --strip-debug -o "$P/skies-run" "$STANDALONE/skies-standalone"
   strip --strip-debug -o "$P/gGEAE8P_recomp.so" "$MODULE"
   [ -n "$MODULE_EU" ] && strip --strip-debug -o "$P/gGEAP8P_recomp.so" "$MODULE_EU"

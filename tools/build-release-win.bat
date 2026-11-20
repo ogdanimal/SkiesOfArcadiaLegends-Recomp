@@ -103,6 +103,8 @@ mkdir %P% || exit /b 1
 for %%F in ("Skies of Arcadia Legends.exe" skies-run.exe gGEAE8P_recomp.dll launcher-background.png) do (
   copy /y "%B%\%%~F" %P%\ >nul || exit /b 1
 )
+rem the pipelines compiled before the first scene (Aurora reads it beside the runner; issue #34)
+copy /y release\initial_pipeline_cache.db %P%\ >nul || exit /b 1
 if defined STANDALONE (
   copy /y "%STANDALONE%\skies-standalone.exe" %P%\skies-run.exe >nul || exit /b 1
   rem every DLL the build put beside it (Dawn, DXC, libpng and its zlib)

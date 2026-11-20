@@ -1204,6 +1204,7 @@ int main(int argc, char** argv)
   MenuApplyGame();  // the picture's shape before the window opens at it
   if (!VideoInit(headless))
     return 1;
+  VideoPrepareShaders();  // the pipelines Aurora knows compiled before the first scene (issue #34)
   if (seconds > 0 && !seconds_relative)
     s_stop_cycles = static_cast<u64>(seconds * CPU_HZ);
   s_stop_relative = seconds_relative ? seconds : 0.0;

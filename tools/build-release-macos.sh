@@ -76,6 +76,8 @@ package)
   [ -n "$MODULE_JP" ] && strip -S -x -o "$APP/Contents/MacOS/gGEAJ8P_recomp.dylib" "$MODULE_JP"
   cp -R $B/Sys "$APP/Contents/Resources/"
   cp release/launcher-background.png release/CREDITS.md "$APP/Contents/Resources/"
+  # The pipelines compiled before the first scene (Aurora reads the bundle's Resources; issue #34)
+  cp release/initial_pipeline_cache.db "$APP/Contents/Resources/"
   cp release/skies-widescreen.dolpatch "$APP/Contents/Resources/patches/"
   [ -n "$MODULE_EU" ] && cp release/skies-widescreen-eu.dolpatch "$APP/Contents/Resources/patches/"
   [ -n "$MODULE_JP" ] && cp release/skies-widescreen-jp.dolpatch "$APP/Contents/Resources/patches/"
