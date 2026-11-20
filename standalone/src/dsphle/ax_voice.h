@@ -222,7 +222,10 @@ u16 AcceleratorGetSample(HLEAccelerator* accelerator)
 // We start getting samples not from sample 0, but 0.<curr_pos_frac>. This
 // avoids discontinuities in the audio stream, especially with very low ratios
 // which interpolate a lot of values between two "real" samples.
-u32 ResampleAudio(std::function<s16(u32)> input_callback, s16* output, u32 count, s16* last_samples,
+// (A template over the callback: it runs per input sample, and a std::function there cost a call
+// through a pointer each time.)
+template <typename InputCallback>
+u32 ResampleAudio(InputCallback&& input_callback, s16* output, u32 count, s16* last_samples,
                   u32 curr_pos, u32 ratio, int srctype, const s16* coeffs)
 {
   int read_samples_count = 0;
