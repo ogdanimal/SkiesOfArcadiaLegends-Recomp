@@ -1217,6 +1217,7 @@ int main(int argc, char** argv)
       StateLoadAtStart(load_state);
     RunCpu();
   });
+  StateFinishWrites();
   Report();
 #ifdef SKIES_STANDALONE_AURORA
   DreamcastShutdown();

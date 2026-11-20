@@ -502,6 +502,7 @@ void StateLoadAtStart(const std::string& path);
 extern bool g_state_request;  // the run loop calls StateRun while set
 void StateRun();
 void StateFrameEnd();  // hw_gpu.cpp, after each display copy
+void StateFinishWrites();  // the saves still being packed and written, before the run ends
 void CpuRestoreBootDol();  // after a load: the DOL's code over a state's older code (cpu.cpp)
 // The parts' state (each file's own), in the order state.cpp runs them
 void SchedDoState(StateIO& p);

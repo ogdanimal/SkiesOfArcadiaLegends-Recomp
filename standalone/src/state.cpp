@@ -24,6 +24,10 @@
 #include <zstd.h>
 
 #include <chrono>
+#include <condition_variable>
+#include <deque>
+#include <mutex>
+#include <thread>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
@@ -187,15 +191,100 @@ bool WriteAtomic(const fs::path& path, const std::vector<u8>& bytes, std::string
   return true;
 }
 
-bool Save(const std::string& path, std::string* error)
+// Compression and the file write run on a background thread: the game thread only serializes (its
+// copy of the machine), so a save no longer holds the game for the whole 130-330 ms. Jobs are written
+// in order; a load or the end of the run waits for them; results come back to the game thread
+// (StateFrameEnd) for the menu's message.
+struct WriteJob
+{
+  std::string path;
+  Header header;
+  std::vector<u8> raw;
+  std::string message;
+  double serialize_ms = 0;
+  u64 frame = 0;
+};
+struct WriteResult
+{
+  bool ok = false;
+  std::string error;
+  std::string message;
+};
+std::mutex s_write_lock;
+std::condition_variable s_write_cv;
+std::deque<WriteJob> s_write_jobs;
+std::vector<WriteResult> s_write_results;
+bool s_write_busy = false;
+bool s_write_quit = false;
+std::thread s_writer;  // joined at the end of the run (a detached one waiting on the condition variable
+                       // hung the exit when the statics were destroyed)
+
+void WriteJobNow(WriteJob& job)
 {
   const auto start = std::chrono::steady_clock::now();
-  std::vector<u8> raw;
-  raw.reserve(72u << 20);
-  StateIO p(&raw, false);
+  WriteResult result{false, {}, job.message};
+  const size_t bound = ZSTD_compressBound(job.raw.size());
+  std::vector<u8> out(sizeof(Header) + bound);
+  std::memcpy(out.data(), &job.header, sizeof(Header));
+  const size_t packed = ZSTD_compress(out.data() + sizeof(Header), bound, job.raw.data(), job.raw.size(), 1);
+  if (ZSTD_isError(packed))
+    result.error = std::string("compression failed: ") + ZSTD_getErrorName(packed);
+  else
+  {
+    out.resize(sizeof(Header) + packed);
+    result.ok = WriteAtomic(job.path, out, &result.error);
+  }
+  if (result.ok)
+  {
+    const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    Log("[state] saved %s at %.3f s guest, frame %llu (%.1f MB, %.1f MB packed; %.0f ms on the game thread, "
+        "%.0f ms packing and writing)\n",
+        job.path.c_str(), job.header.guest_seconds, static_cast<unsigned long long>(job.frame),
+        job.raw.size() / 1048576.0, out.size() / 1048576.0, job.serialize_ms, ms);
+  }
+  std::lock_guard lk(s_write_lock);
+  s_write_results.push_back(std::move(result));
+}
+
+void WriterThread()
+{
+  std::unique_lock lk(s_write_lock);
+  for (;;)
+  {
+    s_write_cv.wait(lk, [] { return !s_write_jobs.empty() || s_write_quit; });
+    if (s_write_jobs.empty())
+      return;
+    WriteJob job = std::move(s_write_jobs.front());
+    s_write_jobs.pop_front();
+    s_write_busy = true;
+    lk.unlock();
+    WriteJobNow(job);
+    lk.lock();
+    s_write_busy = false;
+    s_write_cv.notify_all();
+  }
+}
+
+// Until every queued save is on disk (before a load, which may read one, and at the end of the run)
+void WaitForWrites()
+{
+  std::unique_lock lk(s_write_lock);
+  s_write_cv.wait(lk, [] { return s_write_jobs.empty() && !s_write_busy; });
+}
+
+// Serializes now and queues the rest; false (and the error) only for what fails here.
+bool Save(const std::string& path, const std::string& message)
+{
+  const auto start = std::chrono::steady_clock::now();
+  WriteJob job;
+  job.path = path;
+  job.message = message;
+  job.raw.reserve(72u << 20);
+  StateIO p(&job.raw, false);
   DoAll(p);
 
-  Header header{};
+  Header& header = job.header;
+  header = {};
   std::memcpy(header.game_id, DiscHeader(), 6);
   header.saved_at = static_cast<s64>(std::time(nullptr));
   header.dolphin_time = static_cast<double>(header.saved_at) - DOLPHIN_TIME_OFFSET;
@@ -204,26 +293,33 @@ bool Save(const std::string& path, std::string* error)
   header.dol_hash = DolHash();
   header.module_hash = ModuleFingerprint();
   header.guest_seconds = static_cast<double>(g_cycles) / CPU_HZ;
-  header.raw_size = raw.size();
+  header.raw_size = job.raw.size();
+  job.frame = GpuFrameCount();
+  job.serialize_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
 
-  const size_t bound = ZSTD_compressBound(raw.size());
-  std::vector<u8> out(sizeof(Header) + bound);
-  std::memcpy(out.data(), &header, sizeof(Header));
-  const size_t packed = ZSTD_compress(out.data() + sizeof(Header), bound, raw.data(), raw.size(), 1);
-  if (ZSTD_isError(packed))
-  {
-    *error = std::string("compression failed: ") + ZSTD_getErrorName(packed);
-    return false;
-  }
-  out.resize(sizeof(Header) + packed);
-  if (!WriteAtomic(path, out, error))
-    return false;
-  const double ms =
-      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
-  Log("[state] saved %s at %.3f s guest, frame %llu (%.1f MB, %.1f MB packed, %.0f ms)\n", path.c_str(),
-      header.guest_seconds, static_cast<unsigned long long>(GpuFrameCount()), raw.size() / 1048576.0,
-      out.size() / 1048576.0, ms);
+  std::lock_guard lk(s_write_lock);
+  if (!s_writer.joinable())
+    s_writer = std::thread(WriterThread);
+  s_write_jobs.push_back(std::move(job));
+  s_write_cv.notify_all();
   return true;
+}
+
+// The finished saves' messages, on the game thread (the menu's list is its own)
+void TakeWriteResults()
+{
+  std::vector<WriteResult> results;
+  {
+    std::lock_guard lk(s_write_lock);
+    results.swap(s_write_results);
+  }
+  for (const WriteResult& r : results)
+  {
+    if (!r.ok)
+      MenuMessage("Couldn't save the state: " + r.error, 5000);
+    else if (!r.message.empty())
+      MenuMessage(r.message, 2500);
+  }
 }
 
 // After a load: Aurora gets the EFB copies and the GP registers, the Dreamcast music its song, the
@@ -274,6 +370,7 @@ bool LoadDolphin(const std::string& path, const std::vector<u8>& bytes,
 
 bool Load(const std::string& path, std::string* error)
 {
+  WaitForWrites();
   const auto start = std::chrono::steady_clock::now();
   std::ifstream file(path, std::ios::binary);
   if (!file)
@@ -397,6 +494,7 @@ void StateLoadAtStart(const std::string& path)
 
 void StateFrameEnd()
 {
+  TakeWriteResults();
   if (g_state_request)
     s_frame_ended = true;
   for (TestAt* at : {&s_save_at, &s_load_at})
@@ -419,15 +517,7 @@ void StateRun()
   s_frame_ended = false;
   std::string error;
   if (request.kind == Kind::Save)
-  {
-    if (Save(request.path, &error))
-    {
-      if (!request.message.empty())
-        MenuMessage(request.message, 2500);
-    }
-    else
-      MenuMessage("Couldn't save the state: " + error, 5000);
-  }
+    Save(request.path, request.message);
   else if (request.kind == Kind::Load)
   {
     if (Load(request.path, &error))
@@ -440,5 +530,16 @@ void StateRun()
     else
       MenuMessage("Couldn't load the state: " + error, 5000);
   }
+}
+void StateFinishWrites()
+{
+  {
+    std::lock_guard lk(s_write_lock);
+    s_write_quit = true;
+    s_write_cv.notify_all();
+  }
+  if (s_writer.joinable())
+    s_writer.join();  // after the queued saves (the thread drains them first)
+  TakeWriteResults();
 }
 }  // namespace host
