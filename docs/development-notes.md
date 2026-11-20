@@ -3266,6 +3266,35 @@ build (Dolphin's Vulkan backend on llvmpipe is right).
   a log line. The launcher also kept a stale copy of `Dolphin.ini` and wrote it back over the game process's
   changes (the in-game menu's too): it reloads the settings once the game has ended
   (`recompcore-android-settings-reload.patch`). Both checked on the Pocket 5 (planted marker; then Vulkan again).
+- **#34, 2026-11-20:** the reporter's video shows OpenGL ES closing the same way as Vulkan, so the renderer
+  is unlikely to be the cause. `.6` writes no log on Android; `.7` writes `files/Logs/skies-standalone.log`, which we asked for.
+- **#35** (2026-11-20, Cawl87, Windows, `.7` against the Dolphin perftest build). Three fixes, local commits
+  `a0224ea` and `0194554`:
+  - **Blocky textures:** Aurora read TX_SETMODE0's minification codes 2 and 5 swapped, so GX_LIN_MIP_NEAR
+    textures (railings, hair, the save point's anchor) were sampled nearest
+    (`recompcore-gxruntime-min-filter.patch`).
+  - **FPS counter:** it counted only the game's frames, so it showed 30 with 60 fps on. It now adds the
+    in-betweens.
+  - **Boss battle entry swirl** (Antonio: the boss on black):
+    - What the frame does: after the scene, two R8 copies are drawn back with AND/OR logic ops, the boss is
+      drawn again, and the screen is grabbed as RGB5A3 at 0x80667540. The swirl draws that grab on a
+      paraboloid of 24 strips; the outer ring is behind the camera and clipped on every backend.
+    - Cause: the EFB was RGB8_Z24, but Aurora's resolved copy kept the EFB's leftover alpha (its render
+      textures never got the alpha-1 swizzle the comment describes), so the grab drew see-through.
+    - Fix: such copies go through the RGB565 conversion (`recompcore-gxruntime-copy-no-alpha.patch`).
+    - How it was found: `SKIES_GX_TRACE`, then the grab turned into a display copy for one run. That showed a
+      full scene in the EFB at grab time.
+    - Checks:
+      - WSL: matches the Dolphin build's frames (`moderngekko-run --graphics Vulkan`, EmulationSpeed 0.12 +
+        `shot:`). A state saved mid-swirl reloads right. No regressions in the first battle, corridor battle,
+        world map Start menu or save point beyond WSL's one-frame flicker.
+      - Windows: right on D3D12 and D3D11.
+  - **Speed: no Direct3D 12 problem reproduced here.**
+    - Boss intro, uncapped 2560x1440: D3D12 = D3D11, about 2.3x on the RTX 5080 and 2.0-2.3x on the
+      UHD 770 (`AURORA_LOW_POWER_GPU=1`).
+    - Character menu (1543 draws a frame, no EFB copies): UHD 770 D3D12 1.31x against D3D11 1.43x; RTX
+      equal.
+    - The reporter's 2-9 fps on D3D12 needs their GPU. The sky seams and Fina's flashback are open.
 - **#32** 15-17 fps on a Ryzen 5 3550H + GTX 1650 laptop (v0.83): the Dolphin build takes Vulkan adapter 0 (on
   AMD APU + NVIDIA laptops that can be the integrated GPU); Aurora asks Dawn for HighPerformance. A good tester for
   the standalone.
