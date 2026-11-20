@@ -1,0 +1,30 @@
+diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
+index aaebc9daac..417bd1a4b4 100644
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesLauncherActivity.kt
+@@ -194,16 +194,24 @@ class SkiesLauncherActivity : FragmentActivity() {
+             gameEnding = true
+             if (result.resultCode == SkiesGame.RESULT_RESTART) {
+                 afterGameClosed {
++                    reloadGameSettings()
+                     gameEnding = false
+                     setAutoLoadCard(0)
+                     launch(null)
+                 }
+                 message.text = "Restarting the game…"
+             } else {
+-                afterGameClosed { gameEnding = false; refresh() }
++                afterGameClosed { reloadGameSettings(); gameEnding = false; refresh() }
+             }
+         }
+ 
++    /** The game's process writes Config/Dolphin.ini itself (the in-game menu's settings, the renderer's crash
++     *  safeguard): once it has ended, read the file again, or this process's older copy goes back over it at
++     *  its next save. */
++    private fun reloadGameSettings() {
++        if (SkiesGame.standalone) org.dolphinemu.dolphinemu.NativeLibrary.ReloadConfig()
++    }
++
+     /** The game screen has returned and its process is ending (see playGame). */
+     private var gameEnding = false
+ 

@@ -544,6 +544,36 @@ bool AndroidTestHooks()
   return ends_with(".test") || name == "com.skiesofarcadia.standalone";
 }
 
+// Vulkan's crash safeguard (issue #34): a driver that crashes while Vulkan starts kills the process, so the
+// fallback to OpenGL ES (taken when Vulkan merely fails) never runs. A start with Vulkan leaves a marker in the
+// app's files that goes once the game has shown its first frames (GpuStartSurvived) or main returns; a marker
+// still there at the next start means that one died first, and the Renderer setting goes to OpenGL ES (the
+// launcher reads the settings again when the game returns), with a line in the log.
+std::string s_vulkan_marker;
+
+void VulkanCrashGuard()
+{
+  if (host::SettingGetString(host::SettingFile::Main, "Core", "GFXBackend") == "OGL")
+    return;
+  const char* dir = SDL_GetAndroidExternalStoragePath();
+  if (!dir)
+    return;
+  const std::string marker = std::string(dir) + "/vulkan-start-pending";
+  if (std::remove(marker.c_str()) == 0)
+  {
+    host::SettingSetString(host::SettingFile::Main, "Core", "GFXBackend", "OGL");
+    host::SettingsSave();
+    host::Log("[host] renderer: the last start with Vulkan ended before its first frames (a graphics driver crash?), so "
+        "the Renderer setting is now OpenGL ES (Settings > Graphics > Renderer to go back)\n");
+    return;
+  }
+  if (std::FILE* f = std::fopen(marker.c_str(), "w"))
+  {
+    std::fclose(f);
+    s_vulkan_marker = marker;
+  }
+}
+
 void AndroidSetup(int& argc, char**& argv)
 {
   const char* dir = SDL_GetAndroidExternalStoragePath();
@@ -630,6 +660,20 @@ void AndroidSetup(int& argc, char**& argv)
 }
 }  // namespace
 #endif
+
+namespace host
+{
+void GpuStartSurvived()
+{
+#if defined(__ANDROID__)
+  if (!s_vulkan_marker.empty())
+  {
+    std::remove(s_vulkan_marker.c_str());
+    s_vulkan_marker.clear();
+  }
+#endif
+}
+}  // namespace host
 
 namespace
 {
@@ -980,6 +1024,8 @@ int main(int argc, char** argv)
 #if defined(__ANDROID__)
   // The app's Graphics > Renderer row (the Dolphin build's [Core] GFXBackend): OpenGL ES is the way
   // out of a Vulkan driver that misbehaves. DOL_AURORA_BACKEND (env.txt) still wins for tests.
+  if (!std::getenv("DOL_AURORA_BACKEND"))
+    VulkanCrashGuard();
   if (!std::getenv("DOL_AURORA_BACKEND") && SettingGetString(SettingFile::Main, "Core", "GFXBackend") == "OGL")
   {
     setenv("DOL_AURORA_BACKEND", "gles", 1);
@@ -1064,6 +1110,7 @@ int main(int argc, char** argv)
 #endif
   ExiShutdown();
   VideoShutdown();
+  GpuStartSurvived();  // quit before its first frames: not a crash
   if (s_restart)
     Restart(argc, argv);
   return 0;

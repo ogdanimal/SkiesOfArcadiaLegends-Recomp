@@ -1139,6 +1139,8 @@ void ReplayVideo()
 void VideoFrameEnd()
 {
   ++s_frames;
+  if (s_frames == 300)
+    GpuStartSurvived();
   ApplyPokes();
   CheatsApply();
   MenuVideoFrame();
