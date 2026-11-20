@@ -51,6 +51,10 @@ Simplifications, biggest first:
   - `f4be57a`: #35 60 fps "warping", a model turning round in one frame no longer squashed in the in-between.
   - `717a61c`: docs, `tools/interp-check.py`.
   - The secrets' `8c0c0cb` (local, needs the owner's word to push): EU and JP PGO profiles, -14% to -21% CPU.
+  - `f0bc73d`, `821ccab`, `deaff82`, `170aef6`: #34 shader preparation at start (`release/initial_pipeline_cache.db`,
+    the bar, the MSAA-count fix); reviewed (Fable) and checked on the AYN Thor.
+  - Before tagging: the pipeline list rebuilt from the sweeps' caches (Windows, WSL); a Windows check of the bar
+    (keyboard / controller skip).
   - Checked (2026-11-20, development notes, #35): Windows (C:\dev\SkiesStandalone rebuilt; flashback 9.66 ->
     1.02 ms; the cover costs the UHD 770 25-34% uncapped at 1440p, still >= 1.8x); the Pocket 5 test app
     (`ws35n10`: flashback 12.22 -> 2.56 ms, 1.00x); the Mac mini M4 (battle, #16 digits, cover 2560x1920, flashback 3.15 -> 1.01 ms, 1.00x).

@@ -3447,6 +3447,31 @@ build (Dolphin's Vulkan backend on llvmpipe is right).
   - **The one Windows crash** (1 of 53 launches): an access violation in the stale local Dawn DLL
     (`C:\dev\SkiesStandalone\build\webgpu_dawn.dll`, 2026-10-25). It never shipped: 0 of 60 launches
     crashed with either the new build or `.8`.
+- **#34 after `.8`** (GLEclipseGaming, AYN Thor, 2026-11-20): the Start Game crash fixed; new: the Valuan gate
+  comes in late in the opening (fine the second time), a glitchy texture and missing balcony / pillars in the
+  throne room. **Shader preparation at start** (next build):
+  - Cause of the pop-in: Aurora compiles each new pipeline on a worker thread and skips the draw until it's
+    ready; a phone compiles slowly. `AURORA_LOG_SKIPPED=1` (patch `recompcore-aurora-pipeline-skip-log`) logs
+    each frame's skipped draws. Thor test app, the opening from `01-opening-cutscene.sav`, empty caches:
+    25,009 draws skipped over 45 frames.
+  - Fix, as Dusklight does: every package carries `release/initial_pipeline_cache.db` (render configurations,
+    built by `tools/merge-pipeline-cache.py` from runs on any platform), which Aurora merges into the player's
+    cache; `video.cpp` `VideoPrepareShaders` waits before the first frame with a bar (`menu.cpp`
+    `MenuShaderProgress`: Preparing shaders, N of M; any button, key, touchscreen finger, Android tap or Back
+    skips; shown after 1 s; `SKIES_SHADER_PREP=0` off). Thor: 725 pipelines in 12.6 s, then none skipped; the
+    next start 716 in 0.9 s without the bar; a tap at 7 s (372 done) and the opening still skipped none
+    (earliest used compile first, the rest in the background).
+  - A Fable review found: Android taps never reach SDL (the touch view takes them), cached rows at an MSAA count
+    the device lacks (the list had 8x rows) crashed Dawn on the Thor at the first start
+    (`recompcore-aurora-cache-sample-count`: a row at another count than 1 or the configured one loads at the
+    configured one), a trackpad counted as a touchscreen; all fixed and rechecked on the Thor.
+  - The throne room: not looked at yet (likely the same pop-in; the reporter's video at streamable).
+- **Play-through sweep** (2026-11-20, the cut-over gate): the Mac session warped into all 255 map scripts
+  (`me*.sct`) from `04-valuan-ship-later.sav` on Metal: no crash or hang, 5461 / 5461 everywhere, 2.9x+
+  uncapped; 214 normal, 17 bounced (me098 / me099 go to Crescent Isle), 24 black or odd. Every odd one checked
+  against the Dolphin build on WSL (`build/sweep-dolphin/warp.sh`): me121e and me561a log the same null-pointer
+  writes (0x88 / 0x8c / 0x4c) there, me019a is the same lone building, me032a the same sky, the black ones
+  black: the game's own reaction to an out-of-story warp, not the engine.
 - **#32** 15-17 fps on a Ryzen 5 3550H + GTX 1650 laptop (v0.83): the Dolphin build takes Vulkan adapter 0 (on
   AMD APU + NVIDIA laptops that can be the integrated GPU); Aurora asks Dawn for HighPerformance. A good tester for
   the standalone.
