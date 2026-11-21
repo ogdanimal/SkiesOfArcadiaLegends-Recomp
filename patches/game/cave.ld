@@ -26,6 +26,8 @@ SECTIONS
      * which the frontend reads at its address; ws29: cutscene.c's cs_shot). */
     KEEP(*(.late_bss_ws28))
     KEEP(*(.late_bss_ws29))
+    /* ws36: widescreen.c's ws_banner_slot. */
+    KEEP(*(.late_bss_ws36))
     /* widescreen.c's HUD width, then qol.c's and camera.c's input blocks, at fixed addresses
      * the frontend writes (Core/SkiesSettings.cpp, VideoCommon/SkiesMenu.cpp). */
     ASSERT(. <= 0x80002E9C, "patch data runs into ws_hud_aspect at 0x80002E9C")
@@ -67,6 +69,8 @@ SECTIONS
     *(.trkcave_stubs)
     *(.trkcave .trkcave.*)
     *(.trkcave_late)
+    /* ws36's code after all of that, for the same reason. */
+    *(.trkcave_ws36)
   }
   ASSERT(. <= 0x80257AF8, "patch code doesn't fit in the MetroTRK area (0x802548E8-0x80257AF8)")
   /DISCARD/ : { *(.comment) *(.eh_frame) *(.note*) }

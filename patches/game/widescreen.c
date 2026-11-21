@@ -82,6 +82,9 @@ struct ws_anchor {
  * fullwidth.S). */
 void *ws_ship_plate;
 float *ws_popup_sprite;
+/* The action name banner slot fn_8012F958 is drawing (ws_ship_banner_draw in fullwidth.S). After
+ * every older variable (cave.ld), so those stay where the frontend and older states have them. */
+__attribute__((section(".late_bss_ws36"), used)) int ws_banner_slot;
 
 #define GAME_MODE (*(volatile u32 *)0x803475CC)
 #define MAP_ID (*(volatile int *)0x80311AC4)
@@ -249,12 +252,24 @@ void ws_unwide_end(void) {
 
 /* The battle's screen plane (fn_8003484C, fullwidth.S WIDE_PLANE): its model is as wide as the
  * game's own field of view, so with the widened one it's stretched along its own x to the picture's
- * width, inside the task's push / pop of the matrix (issue #22). */
+ * width, inside the task's push / pop of the matrix (issue #22). ws35's; since ws36 the wrappers call
+ * ws_plane_widen_exact instead, and this stays where it was so nothing after it moves. */
 extern void njScale(void *matrix, float x, float y, float z);
 #define TRK_CAVE_LATE __attribute__((section(".trkcave_late")))
 TRK_CAVE_LATE void ws_plane_widen(void) {
   if (ws_config.factor > 0.0f && ws_config.factor < 1.0f)
     njScale(0, 1.0f / ws_config.factor, 1.0f, 1.0f);
+}
+
+/* ws36: the plane's model sits at the screen distance (the camera manager's screen block, + 0x18)
+ * and is 640 x 480 units, the Dreamcast's screen at an x aspect of 1. The GameCube's x aspect
+ * (GAME_ASPECT_X) draws it 704 pixels wide, so the unpatched game shows the middle 640 / 704 of the
+ * copy stretched 1.1 times across the screen while the plane is up, and ws35 kept that. Here the
+ * plane is stretched to exactly the picture's width: the copy is shown as it was drawn (issue #22).
+ * 4:3 keeps the original stretch (the wrappers draw the game's own way there). */
+__attribute__((section(".trkcave_ws36"))) void ws_plane_widen_exact(void) {
+  if (ws_config.factor > 0.0f && ws_config.factor < 1.0f)
+    njScale(0, 1.0f / (ws_config.factor * GAME_ASPECT_X), 1.0f, 1.0f);
 }
 
 /* Whether a 2D polygon reaches both screen edges. */
@@ -333,7 +348,9 @@ static int in_ram(const u32 *p) {
 /* The anchor code lives in the MetroTRK area (cave.ld): the low-memory gap is full. */
 #define TRK_CAVE __attribute__((section(".trkcave")))
 
-TRK_CAVE static int ws_anchor_find(float *dx, float *dy) {
+/* Since ws36 the callers reach this through ws_anchor_find (fullwidth.S), which asks
+ * ws_anchor_banner first: the code here is ws35's unchanged, so nothing after it moved. */
+TRK_CAVE __attribute__((noinline)) int ws_anchor_table_find(float *dx, float *dy) {
   u32 *frame = __builtin_frame_address(0);
   float hud_factor;
   int depth, i;
@@ -382,6 +399,48 @@ TRK_CAVE static int ws_anchor_find(float *dx, float *dy) {
     }
   }
   return 0;
+}
+
+/* Ship battle action name banners (#25), with their arrows and results: fn_8012F958 and the two
+ * functions after it (fn_8012FB10, fn_8012FE2C) draw eight slots with the same code, 0-3 stacked
+ * up from the bottom left for the party's ship ("Main Cannon"), 4-7 from the bottom right for the
+ * enemy's ("Black Cannon"); ws_banner_slot is the one being drawn. The party's go to the left
+ * edge, the enemy's to the right, unless the ship battle HUD is centred. Not an entry in
+ * ws_config's table: all 18 are taken, and a longer table would move every variable after it,
+ * some of which the frontend reads at their addresses (qol_ship_live, qol_normal_speed) and all
+ * of which a state made with an earlier build has at the old ones. Same checks and the same move
+ * as ws_anchor_table_find; the walk is one frame longer (ws_anchor_find's own). */
+#define BANNER_LO 0x8012F958u
+#define BANNER_SIZE 0x5B0u
+extern int ws_anchor_find(float *dx, float *dy);
+
+__attribute__((section(".trkcave_ws36"))) int ws_anchor_banner(float *dx, float *dy) {
+  u32 *frame = __builtin_frame_address(0);
+  float hud_factor;
+  int depth;
+  ws_check();
+  if (ws_config.anchors[0].lo == 0 || ws_config.factor >= 1.0f || ws_hud_aspect < 0.0f ||
+      ws_ship_hud == 1)
+    return 0;
+  for (depth = 0; depth < 13; depth++) {
+    u32 lr;
+    frame = (u32 *)frame[0];
+    if (!in_ram(frame))
+      return 0;
+    lr = frame[1];
+    if (lr > BANNER_LO && lr <= BANNER_LO + BANNER_SIZE)
+      break;
+  }
+  if (depth == 13)
+    return 0;
+  hud_factor = ws_hud_aspect > 0.0f ? GAME_DISPLAY_ASPECT / ws_hud_aspect : ws_config.factor;
+  if (hud_factor < ws_config.factor)
+    hud_factor = ws_config.factor;
+  if (hud_factor > 1.0f)
+    hud_factor = 1.0f;
+  *dx = (ws_banner_slot < 4 ? -1.0f : 1.0f) * (0.5f * NJ_WIDTH) * (1.0f / hud_factor - 1.0f);
+  *dy = 0.0f;
+  return 1;
 }
 
 /* Optional debug hook (trace2d.c): sees every projection load. */

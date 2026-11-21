@@ -5,7 +5,7 @@
 # counts guest work, so speed doesn't matter), and llvm-profdata merges the runs.
 #   tools/pgo-standalone.sh REGION OUT_PROFDATA STATE...
 #     REGION: us | eu | jp (the original DOL from SECRETS: main.dol, main-eu.dol, main-jp.dol)
-#   env: SECRETS (default ~/skies-secrets), GAME (the extracted game; default build/game/<ID>-ws35),
+#   env: SECRETS (default ~/skies-secrets), GAME (the extracted game; default build/game/<ID>-ws36),
 #        SEMANTICS (default fast), SECS (default 46: 16 s settling + 30 s, as tools/pgo-wsl.sh),
 #        DOLRECOMP (default build/dolrecomp/dolrecomp), STANDALONE (default build/standalone/skies-standalone),
 #        WORK (default build/pgo-sa-REGION)
@@ -20,7 +20,7 @@ case $REGION in
   jp) ID=GEAJ8P SUF=-jp ;;
   *) echo "region: us, eu or jp"; exit 2 ;;
 esac
-SECRETS=${SECRETS:-$HOME/skies-secrets} GAME=${GAME:-build/game/$ID-ws35} SEMANTICS=${SEMANTICS:-fast}
+SECRETS=${SECRETS:-$HOME/skies-secrets} GAME=${GAME:-build/game/$ID-ws36} SEMANTICS=${SEMANTICS:-fast}
 SECS=${SECS:-46} DOLRECOMP=${DOLRECOMP:-build/dolrecomp/dolrecomp}
 STANDALONE=${STANDALONE:-build/standalone/skies-standalone} WORK=$(realpath -m "${WORK:-build/pgo-sa-$REGION}")
 LLVM=/usr/lib/llvm-20/bin  # the LLVM DolRecomp links: its clang, profile runtime and llvm-profdata

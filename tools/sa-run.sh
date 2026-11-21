@@ -12,7 +12,7 @@
 # SKIES_RTC (default 847000789) pins the clock so two runs match; RTC=wall uses the real one. Draws with
 # Vulkan on the CPU (DOL_AURORA_VULKAN_CPU=1: deterministic) and caps the run at 6 GB (systemd-run), since
 # several runs at once can take the WSL VM down. Prints one line: frames, error lines, the last speed.
-# Defaults: the ws35 folders tools/gamepatch.py and tools/module-linux.sh make (docs: HANDOFF-emulator-free,
+# Defaults: the ws36 folders tools/gamepatch.py and tools/module-linux.sh make (docs: HANDOFF-emulator-free,
 # Sweep 2026-11-19); BIN defaults to build/standalone/skies-standalone.
 # SPDX-License-Identifier: GPL-3.0-or-later
 set -u
@@ -21,9 +21,9 @@ OUT=$(realpath -m "${1:?usage: tools/sa-run.sh OUT START REGION SECS [EVERY]}") 
 EVERY=${5:-300}
 BIN=${BIN:-build/standalone/skies-standalone}
 case $REGION in
-  us) GAME=${GAME_US:-build/game/GEAE8P-ws35} MODULE=${MODULE_US:-build/ws35/module/gGEAE8P_recomp.so} REG=USA ;;
-  eu) GAME=${GAME_EU:-build/game/GEAP8P-ws35} MODULE=${MODULE_EU:-build/ws35/module-eu/gGEAP8P_recomp.so} REG=EUR ;;
-  jp) GAME=${GAME_JP:-build/game/GEAJ8P-ws35} MODULE=${MODULE_JP:-build/ws35/module-jp/gGEAJ8P_recomp.so} REG=JAP ;;
+  us) GAME=${GAME_US:-build/game/GEAE8P-ws36} MODULE=${MODULE_US:-build/ws36/module/gGEAE8P_recomp.so} REG=USA ;;
+  eu) GAME=${GAME_EU:-build/game/GEAP8P-ws36} MODULE=${MODULE_EU:-build/ws36/module-eu/gGEAP8P_recomp.so} REG=EUR ;;
+  jp) GAME=${GAME_JP:-build/game/GEAJ8P-ws36} MODULE=${MODULE_JP:-build/ws36/module-jp/gGEAJ8P_recomp.so} REG=JAP ;;
   *) echo "REGION: us, eu or jp"; exit 2 ;;
 esac
 rm -rf "$OUT"; mkdir -p "$OUT/frames"

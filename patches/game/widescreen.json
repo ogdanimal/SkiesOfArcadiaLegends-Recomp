@@ -10,7 +10,8 @@
     "dcmusic.c",
     "cutscene.c",
     "cutscene.S",
-    "pal60.c"
+    "pal60.c",
+    "area.c"
   ],
   "symbols": {
     "FontIsReady": "0x801E34AC",
@@ -44,6 +45,12 @@
   },
   "redirect_sites": [
     {
+      "site": "0x800D2E0C",
+      "target": "fn_800D29B4",
+      "to": "ws_area_list",
+      "why": "fn_800D2CC4 (the party stepped into another area of a field map): the objects the new area's list shows; Sailors' Island's bridge keeps the sky backdrop its list leaves out (area.c, issue #21)"
+    },
+    {
       "site": "0x801F72A8",
       "target": "memcpy",
       "to": "pal_script_copy",
@@ -66,6 +73,12 @@
       "target": "fn_80005D98",
       "to": "ws_popup_draw",
       "why": "fn_8021F330 / fn_8021F0EC: a popup's sprite (widescreen.c anchors ship battle ones by x)"
+    },
+    {
+      "site": "0x8012FA18",
+      "target": "fn_8012FE2C",
+      "to": "ws_ship_banner_draw",
+      "why": "fn_8012F958: a ship battle action name banner's box (widescreen.c anchors by slot: the party's left, the enemy's right)"
     },
     {
       "site": "0x80158994",

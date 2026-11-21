@@ -155,7 +155,7 @@ UNWIDE ws_unwide_80097CA4, fn_80097CA4
  * issue #9; found with trace2d: fn_8003484C+0x158 -> fn_801CF0F8 -> fn_80287B38). Its three model
  * draws, by how the model is animated. ws31 drew them at the game's field of view (UNWIDE), which
  * covered the picture but turned the plane in the squeezed 4:3 space: a tilt sheared the 16:9
- * picture (issue #22). Now the plane is widened along its own x (ws_plane_widen: the model matrix,
+ * picture (issue #22). Now the plane is widened along its own x (ws_plane_widen_exact since ws36: the model matrix,
  * after the game's translate, turn and scale) and drawn with the widened view, so it turns as a
  * 16:9 picture. */
 .macro WIDE_PLANE name, target
@@ -182,7 +182,7 @@ UNWIDE ws_unwide_80097CA4, fn_80097CA4
 	stfd 6, 80(1)
 	stfd 7, 88(1)
 	stfd 8, 96(1)
-	bl ws_plane_widen
+	bl ws_plane_widen_exact
 	lwz 3, 8(1)
 	lwz 4, 12(1)
 	lwz 5, 16(1)
@@ -324,6 +324,44 @@ ws_ship_plate_icon:
 	stw 3, ws_ship_plate@l(12)
 	b fn_80159610
 	.size ws_ship_plate_icon, . - ws_ship_plate_icon
+
+/* Ship battle action name banners (fn_8012F958): note the slot whose box is drawn (the name and
+ * the arrow of the same slot follow it), for ws_anchor_banner (slots 0-3 are the party's, at the
+ * left; 4-7 the enemy's, at the right), then jump on. */
+	.pushsection .trkcave_ws36, "ax"
+	.global ws_ship_banner_draw
+	.type ws_ship_banner_draw, @function
+ws_ship_banner_draw:
+	lis 12, ws_banner_slot@ha
+	stw 3, ws_banner_slot@l(12)
+	b fn_8012FE2C
+	.size ws_ship_banner_draw, . - ws_ship_banner_draw
+
+/* int ws_anchor_find(float *dx, float *dy): the banners first (ws_anchor_banner), then ws_config's
+ * table (ws_anchor_table_find), entered with a jump and this frame gone, so its walk up the stack
+ * starts where it did before ws36. */
+	.global ws_anchor_find
+	.type ws_anchor_find, @function
+ws_anchor_find:
+	stwu 1, -16(1)
+	mflr 0
+	stw 0, 20(1)
+	stw 3, 8(1)
+	stw 4, 12(1)
+	bl ws_anchor_banner
+	mr 5, 3
+	lwz 3, 8(1)
+	lwz 4, 12(1)
+	lwz 0, 20(1)
+	mtlr 0
+	addi 1, 1, 16
+	cmpwi 5, 0
+	beq 1f
+	li 3, 1
+	blr
+1:	b ws_anchor_table_find
+	.size ws_anchor_find, . - ws_anchor_find
+	.popsection
 
 /* Ship battle popups (fn_8021F330, fn_8021F0EC): note the sprite (x, y first), then jump on. */
 	.global ws_popup_draw
