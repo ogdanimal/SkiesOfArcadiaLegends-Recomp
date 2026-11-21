@@ -5,7 +5,7 @@ diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/Sk
          val PICTURE = choices(1 to "Widescreen 16:9", 2 to "Match screen", 0 to "Original 4:3")
          val HUD = choices(2 to "Screen edges", 3 to "21:9 area", 1 to "16:9 area",
              0 to "Original 4:3")
-+        val SHIP_HUD = choices(0 to "Spread out", 1 to "Centred")
++        val SHIP_HUD = choices(0 to "Spread out", 2 to "Bar + grid centred", 1 to "Centred")
          val FRAME_RATE = choices(0 to "30 fps (original)", 1 to "60 fps (interpolated)")
          val RESOLUTION = choices(1 to "Native (480p)", 2 to "2x (720p)", 3 to "3x (1080p)",
              4 to "4x (1440p)", 6 to "6x (4K)")
@@ -14,8 +14,8 @@ diff --git a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/Sk
                      "Where the HUD sits on a wide picture: at the edges, or nearer the middle " +
                          "in a 16:9 or 21:9 area. Original keeps the GameCube's layout.")
 +                configRow(rows, "Ship battle HUD", SHIP_HUD, dolphin, "Skies", "ShipHud", 0,
-+                    "Spread out moves the ship battle HUD to the sides with the rest. Centred " +
-+                        "keeps the game's own layout, with the grid under the Spirit bar.")
++                    "Spread out moves the ship battle HUD to the sides. Bar + grid centred keeps " +
++                        "the Spirit bar and grid in the middle. Centred keeps the game's own layout.")
                  configRow(rows, "Frame rate", FRAME_RATE, dolphin, "Skies", "FrameMode", 0,
                      "60 fps adds in-between frames for smoother motion. 30 fps is the original.")
                  configRow(rows, "Resolution", RESOLUTION, gfx, "Settings", "InternalResolution", 1,

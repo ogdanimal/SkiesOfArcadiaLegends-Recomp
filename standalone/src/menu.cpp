@@ -184,6 +184,8 @@ constexpr std::array SCALINGS{0, 5, 6, 4};
 constexpr std::array PICTURES{1, 2, 0};
 // [Skies] Hud in menu order: the screen's edges, a 21:9 area, a 16:9 area, the original 4:3.
 constexpr std::array HUDS{2, 3, 1, 0};
+// [Skies] ShipHud in menu order: spread out, the Spirit bar and grid centred (the rest spread out), centred.
+constexpr std::array SHIP_HUDS{0, 2, 1};
 
 // The settings' keys (the Dolphin build's: Core/Config/SkiesSettings.cpp, GraphicsSettings.cpp)
 struct Key
@@ -286,7 +288,7 @@ struct Values
 {
   int widescreen = 1;
   int hud = 2;
-  int ship_hud = 0;  // 1 = the ship battle HUD centred (issue #25)
+  int ship_hud = 0;  // 1 = the ship battle HUD centred, 2 = its Spirit bar and grid only (issue #25)
   int frame_mode = 0;
   int efb_scale = 0;
   int msaa = 1;
@@ -495,6 +497,22 @@ constexpr float WIDE_ASPECT = 16.0f / 9.0f;
 constexpr u32 WS_HUD_ASPECT_ADDRESS = 0x80002E9C;
 // The game patch's ws_ship_hud (ws35; free in earlier patches): 0 = spread out, 1 = centred.
 constexpr u32 WS_SHIP_HUD_ADDRESS = 0x80002EEC;
+// ws_config's HUD anchors (patches/game/widescreen.c WS_HUD_ANCHORS), after its six header words: 12 bytes
+// each (lo, size.16 side.8 kind.8, dx.16 dy.16). The ship battle's Spirit bar (5), turn bar (9) and command
+// grid (10) are at the same places in every disc's table. ShipHud 2 (issue #25: those centred, the rest
+// spread out) writes no move into them (side, dx and dy 0: drawn where the game puts them); the others put
+// the patch's own moves back.
+constexpr u32 WS_ANCHORS_ADDRESS = WS_CONFIG_ADDRESS + 24;
+constexpr u32 WS_ANCHOR_SIZE = 12;
+constexpr u32 WS_SHIP_KIND = 0x10;
+struct ShipAnchor
+{
+  u32 index;
+  s8 side;
+  s16 dx, dy;
+};
+constexpr std::array SHIP_CENTRE_ANCHORS{ShipAnchor{5, -100, 0, 0}, ShipAnchor{9, 100, 175, -34},
+                                         ShipAnchor{10, 100, 175, -34}};
 constexpr int MATCH_SCREEN = 2;
 constexpr float MIN_SCREEN_ASPECT = 4.0f / 3.0f;
 constexpr float MAX_SCREEN_ASPECT = 32.0f / 9.0f;
@@ -546,7 +564,7 @@ Values ReadValues()
   values.widescreen = widescreen < 0 ? 1 : widescreen;
   const int hud = Get(HUD);
   values.hud = hud < 0 ? 2 : hud;
-  values.ship_hud = Get(SHIP_HUD) == 1 ? 1 : 0;
+  values.ship_hud = std::clamp(Get(SHIP_HUD), 0, 2);
   values.frame_mode = std::clamp(Get(FRAME_MODE), 0, 2);
   values.efb_scale = Get(EFB_SCALE);
   values.msaa = MsaaRunning(Get(MSAA));
@@ -841,7 +859,7 @@ void Change(Option option, int direction, bool wrap)
     v.hud = Step(HUDS, v.hud, direction, wrap);
     break;
   case Option::ShipHud:
-    v.ship_hud = v.ship_hud ? 0 : 1;
+    v.ship_hud = Step(SHIP_HUDS, v.ship_hud, direction, wrap);
     break;
   case Option::FrameRate:
     v.frame_mode = Step(FRAME_MODES, v.frame_mode, direction, wrap);
@@ -2381,11 +2399,33 @@ void MenuApplyGame()
     const float hud_aspect = hud == 0 ? -1.0f : hud == 1 ? WIDE_ASPECT : hud == 3 ? 64.0f / 27.0f : 0.0f;
     if (Read32(WS_HUD_ASPECT_ADDRESS) != std::bit_cast<u32>(hud_aspect))
       Write32(WS_HUD_ASPECT_ADDRESS, std::bit_cast<u32>(hud_aspect));
-    const u32 ship_hud = Get(SHIP_HUD) == 1 ? 1 : 0;
+    const int ship_mode = std::clamp(Get(SHIP_HUD), 0, 2);
+    const u32 ship_hud = ship_mode == 1 ? 1 : 0;
     if (Read32(WS_SHIP_HUD_ADDRESS) != ship_hud)
-    {
       Write32(WS_SHIP_HUD_ADDRESS, ship_hud);
-      Log("[menu] ship battle HUD %s\n", ship_hud ? "centred" : "spread out");
+    // Every frame: a state load or a boot brings the patch's defaults back (ws_check)
+    for (const ShipAnchor& a : SHIP_CENTRE_ANCHORS)
+    {
+      const u32 entry = WS_ANCHORS_ADDRESS + a.index * WS_ANCHOR_SIZE;
+      const u32 size_side_kind = Read32(entry + 4);
+      if (Read32(entry) == 0 || (size_side_kind & 0xFF) != WS_SHIP_KIND)
+        continue;  // not the table this code knows
+      const bool centre = ship_mode == 2;
+      const u32 want_side = static_cast<u8>(centre ? 0 : a.side);
+      const u32 want_moves = centre ? 0 : (u32(u16(a.dx)) << 16) | u16(a.dy);
+      const u32 want_word = (size_side_kind & 0xFFFF00FF) | (want_side << 8);
+      if (size_side_kind != want_word || Read32(entry + 8) != want_moves)
+      {
+        Write32(entry + 4, want_word);
+        Write32(entry + 8, want_moves);
+      }
+    }
+    static int s_logged_ship_mode = -1;
+    if (s_logged_ship_mode != ship_mode)
+    {
+      s_logged_ship_mode = ship_mode;
+      Log("[menu] ship battle HUD %s\n",
+          ship_mode == 1 ? "centred" : ship_mode == 2 ? "Spirit bar and grid centred" : "spread out");
     }
   }
 #ifdef SKIES_STANDALONE_AURORA
@@ -2734,9 +2774,11 @@ void Draw(float scale)
               "Where the HUD sits on a wide picture: at the edges, or nearer the middle in a 16:9 "
               "or 21:9 area (easier to see on an ultrawide). Original keeps the GameCube's layout."};
     case Option::ShipHud:
-      return {"Ship battle HUD", v.ship_hud ? "Centred" : "Spread out",
-              "Spread out moves the ship battle HUD to the sides with the rest. Centred keeps the "
-              "game's own layout, with the grid under the Spirit bar."};
+      return {"Ship battle HUD",
+              v.ship_hud == 1 ? "Centred" : v.ship_hud == 2 ? "Bar + grid centred" : "Spread out",
+              "Spread out moves the ship battle HUD to the sides with the rest. Bar + grid centred keeps "
+              "the Spirit bar and the grid under it in the middle and spreads out the rest. Centred keeps "
+              "the game's own layout."};
     case Option::FrameRate:
       return {"Frame rate", FrameRateText(v.frame_mode),
               "60 fps adds in-between frames for smoother motion. Display refresh adds one for every "

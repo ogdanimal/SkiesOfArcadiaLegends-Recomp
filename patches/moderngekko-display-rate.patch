@@ -1,10 +1,11 @@
 diff --git a/tools/moderngekko_launcher.cpp b/tools/moderngekko_launcher.cpp
 --- a/tools/moderngekko_launcher.cpp
 +++ b/tools/moderngekko_launcher.cpp
-@@ -2254,8 +2254,8 @@
+@@ -2254,9 +2254,9 @@
          static constexpr std::array<Choice, 4> huds{
              {{2, "Screen edges"}, {3, "21:9 area"}, {1, "16:9 area"}, {0, "Original 4:3"}}};
-         static constexpr std::array<Choice, 2> ship_huds{{{0, "Spread out"}, {1, "Centred"}}};
+         static constexpr std::array<Choice, 3> ship_huds{
+             {{0, "Spread out"}, {2, "Bar + grid centred"}, {1, "Centred"}}};
 -        static constexpr std::array<Choice, 2> frame_rates{
 -            {{0, "30 fps (original)"}, {1, "60 fps (interpolated)"}}};
 +        static constexpr std::array<Choice, 3> frame_rates{
@@ -12,7 +13,7 @@ diff --git a/tools/moderngekko_launcher.cpp b/tools/moderngekko_launcher.cpp
          static constexpr std::array<Choice, 4> msaa_modes{
              {{1, "Off"}, {2, "2x MSAA"}, {4, "4x MSAA"}, {8, "8x MSAA"}}};
          // Dolphin's TextureFilteringMode, AnisotropicFilteringMode (-1 = the game's own) and
-@@ -2318,7 +2318,9 @@
+@@ -2319,7 +2319,9 @@
          if (first <= 2 && last >= 2)
            option("Frame rate", "##skies_frame_rate", SKIES_FRAME_MODE, &skies_frame_mode,
                   config.frame_interpolation ? 1 : 0, frame_rates,
