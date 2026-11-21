@@ -14,7 +14,20 @@ an Android APK that closed at Start Game: only debug test APKs were ever run, an
 | Linux tar.gz / AppImage | WSL or Linux | the same from a state: Vulkan, chunks, log |
 | macOS zip | the Mac | the same; plus battle damage digits (#16, FEAT_AFP) |
 
-## In progress (2026-11-20 night): v0.90.0-standalone.11, the fifth test build (replaces `.10`)
+## Released (2026-11-21): v0.90.0-standalone.11, the fifth test build (replaces `.10`)
+
+- **Published** 2026-11-21 02:19 UTC as a **prerelease** (the owner: "Publish .11"); tag on `94c1a1b`, release run
+  44847089410, all jobs green; `android-sign` approved by the owner. The public downloads match `SHA256SUMS.txt`.
+- **Checked on the draft:** SHA256SUMS; PII scan of 14140 extracted files (only Dolphin's known strings); APK
+  signer, versionName `0.90.0-standalone.11`, not debuggable / testOnly, JNI 97 of 97; the Thor past Start Game
+  over `.10`; Linux and Windows from the save-point state (5461 of 5461, Vulkan / D3D12, 1.00x, logs clean); macOS
+  on the Mac mini (Metal, digits, seeded cache, Display refresh at 144 Hz, the mouse turn settles and lets go).
+- **First release without the Dolphin runner build:** dev's validate 44840065408 green; the Windows launcher step
+  18.3 -> 14.0 min (the job 23 -> 18 min), Linux and macOS unchanged.
+- **Replies posted** on #20 (Display refresh), #34 (shader preparation; the throne room flicker asked about,
+  not looked at yet) and #35 (soft textures, sky seams, 60 fps squash, after Fina's flashback).
+
+### How `.11` was made
 
 - **Why not `.10`:** its draft passed every package check (SHA256SUMS; PII scan of 14166 extracted files: only
   Dolphin's Triforce / BBA / PEM strings and upstream doc emails; APK signer, flags, versionName, JNI 97 of 97;
