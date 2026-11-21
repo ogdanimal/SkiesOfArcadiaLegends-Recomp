@@ -1,0 +1,26 @@
+diff --git a/GXRuntime/graphics/aurora/lib/gfx/texture_convert.cpp b/GXRuntime/graphics/aurora/lib/gfx/texture_convert.cpp
+index b2f791b4a3..d52cbf2bc1 100644
+--- a/GXRuntime/graphics/aurora/lib/gfx/texture_convert.cpp
++++ b/GXRuntime/graphics/aurora/lib/gfx/texture_convert.cpp
+@@ -21,6 +21,7 @@ struct RGBA8 {
+ 
+ namespace {
+ constexpr float kArbMipThreshold = 15.0f;
++constexpr bool kDetectArbitraryMips = false;
+ 
+ size_t calc_size_rgba8(uint32_t width, uint32_t height) {
+   return static_cast<size_t>(width) * static_cast<size_t>(height) * sizeof(RGBA8);
+@@ -78,7 +79,12 @@ float avg_diff(const uint8_t* lhs, const uint8_t* rhs, uint32_t width, uint32_t
+  * difference between the original and downscaled mipmaps.
+  */
+ bool arb_mip_check(uint32_t width, uint32_t height, uint32_t mips, ArrayRef<uint8_t> data) {
+-  if (mips < 2) {
++  // Local (fork): off, as in Dolphin (Enhancements/ArbitraryMipmapDetection defaults to false; only a few
++  // games' GameSettings turn it on, Skies' don't). A flagged texture is sampled at the original
++  // 640x480's level of detail (shader_info.cpp's viewport bias), so at higher resolutions alpha-tested
++  // textures whose small mips the game thinned out (the save point's anchor and glow, railings, hair, the
++  // alarm switch) came out blocky next to the Dolphin build (issue #35).
++  if (!kDetectArbitraryMips || mips < 2) {
+     return false;
+   }
+ 
