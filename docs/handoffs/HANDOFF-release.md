@@ -9,6 +9,9 @@ tags on main only (the `aurora-backend` prerelease exception is gone) and ALWAYS
 `release/release-notes.md` (renamed from `test-build-notes.md`) as its notes: the old normal path published at
 once with a generic text (Android 7+, an old known issue) and generated notes. A `-suffix` tag is still a
 prerelease. Publish by hand after the checks below: `gh release edit vVERSION --draft=false`.
+The owner's picks: the next release is **v0.91.0-beta** (a prerelease, like v0.83.0-beta), and the new engine is
+now the recommended release in both READMEs (v0.83.0-beta: the last Dolphin-engine release; Android 7 / 8 keep
+using the Dolphin engine). `release/release-notes.md` still holds `.11`'s notes: rewrite it for v0.91.0-beta.
 
 Ordering lesson (2026-11-21): GitHub dates a release by its tag's commit and orders same-day releases by version,
 comparing `standalone.11` as text, so `.11` sat below `.9`; moving its tag to a commit of the next UTC day fixed it.

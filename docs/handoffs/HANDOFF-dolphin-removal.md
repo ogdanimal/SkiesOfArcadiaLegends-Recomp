@@ -47,6 +47,10 @@ so publicly: v0.83 recommended for now, the new engine in testing, no more Dolph
 prereleases (`HANDOFF-release.md`, first section). **Started 2026-11-19 with `.6`.**
 
 **Phase 2: the cut-over release** (a major version, e.g. v1.0.0): the new engine as the normal release.
+**Under way 2026-11-21:** main, dev and `aurora-backend` are one line; plain version numbers again (the next is
+v0.91.0-beta, not a major version: the owner's pick); `release.yml` takes tags on main only; both READMEs name the
+new engine the recommended release. Still open from the list below: the Android 7 / 8 decision (`minSdk` or a
+notice; today's APK falls back to the Dolphin engine there) and the desktop launcher's standalone-only mode.
 - Branches: `aurora-backend` already holds everything on dev (v0.83.0 merged 2026-11-18); it becomes the main line
   (merge into dev and main), and `release.yml`'s guard goes back to plain tags on main.
 - The release notes: back up saves first; card saves carry over; the Dolphin engine's states convert when loaded

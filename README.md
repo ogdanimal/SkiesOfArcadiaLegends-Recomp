@@ -6,15 +6,13 @@ widescreen, 60 fps, camera control, save states and quality-of-life options.
 
 ## Where the project stands
 
-- **A new engine:** the game runs on its own GameCube hardware layer instead of inside
+- **The new engine is the release to use.** The game runs on its own GameCube hardware layer instead of inside
   [Dolphin](https://dolphin-emu.org/), drawing through Direct3D 12, Vulkan, Direct3D 11, Metal or OpenGL ES. It has
-  v0.83's features (on Android it needs version 9 or later) and is faster and smoother, most of all on weaker PCs,
-  laptops and Android handhelds. Its newest test build is
-  **[v0.90.0-standalone.11](../../releases/tag/v0.90.0-standalone.11)**; this README describes it. Your saves carry
-  over; back them up first. Please [report](../../issues/new/choose) what you run into, with the log.
-- **[v0.83.0-beta](../../releases/tag/v0.83.0-beta)**, on the Dolphin engine, stays the recommended release until
-  the test builds' reports are in. There will be no more Dolphin-engine releases.
-- **Next:** the new engine becomes the normal release.
+  v0.83's features and is faster and smoother, most of all on weaker PCs, laptops and Android handhelds; this
+  README describes it. Get the newest version from **[Releases](../../releases)**. Coming from v0.83, your saves
+  carry over; back them up first. Please [report](../../issues/new/choose) what you run into, with the log.
+- **[v0.83.0-beta](../../releases/tag/v0.83.0-beta)** was the last release on the Dolphin engine; there will be no
+  more. On Android 7 and 8 (the new engine needs Android 9 or later) the app keeps using the Dolphin engine.
 
 No build contains the game. You need your own copy of the disc.
 

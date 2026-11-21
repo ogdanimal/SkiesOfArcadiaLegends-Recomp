@@ -4,11 +4,10 @@ A native port of **Skies of Arcadia Legends** (GameCube) for Windows, Linux, mac
 recompilation. It doesn't contain the game: you supply your own copy of the disc, and the game's
 data is read from it.
 
-This is a **test build of the new engine** (`v0.90.0-standalone`): the game runs on its own GameCube graphics,
-sound and disc layer, drawing through Direct3D 12, Vulkan, Direct3D 11, Metal or OpenGL ES, instead of inside
-Dolphin. It's faster and smoother than v0.83, most of all on weaker PCs and Android handhelds; v0.83.0-beta stays
-the recommended release until the new engine has been tested more. Back up your saves before you try it
-(**Settings → Saves → Back up saves**). Please report what you run into, with the log (see *Reporting a problem*).
+The game runs on its own GameCube graphics, sound and disc layer, drawing through Direct3D 12, Vulkan,
+Direct3D 11, Metal or OpenGL ES, instead of inside Dolphin as v0.83 and earlier did. It's faster and smoother, most
+of all on weaker PCs and Android handhelds. Coming from v0.83, back up your saves first (**Settings → Saves → Back up
+saves**). Please report what you run into, with the log (see *Reporting a problem*).
 
 ## What you need
 
