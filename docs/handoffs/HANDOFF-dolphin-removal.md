@@ -93,7 +93,7 @@ changes; `tools/regen-recompcore-patch.sh` re-diffs every file a patch owns and 
   `-standalone-launcher`: the launcher parts stay; the runner parts (`src/runtime/dolphin_runtime.cpp`,
   `tools/moderngekko_run.cpp`, `tools/netplay_session.cpp`, the automation protocol's Dolphin side) go in Phase 3.
 - `dolrecomp-*`: the codegen; stay. `highlytheoretical-dsp-shift-wrap`: the Dreamcast music on the new engine; stays.
-  `patches/game/` (the game patch, ws35) and `patches/dawn/`: stay.
+  `patches/game/` (the game patch, ws36 since 2026-11-21) and `patches/dawn/`: stay.
 
 ### CI and tools
 

@@ -19,6 +19,10 @@ three discs, so every install repatches on first start), the notes updated for t
 word for CI. Next: a green validate on dev's head, fast-forward main and `aurora-backend`,
 `tools/release.sh 0.91.0-beta <sha>`, approve `android-sign`, the full draft checks below, then the owner's word
 to publish. After publishing: the replies in `build/issue-replies-1121.md` (#35, #25, #21, #22, #23; #34 posted).
+**Devices (2026-11-21):** both the Thor's and the Pocket 5's test apps (`com.skiesofarcadia.recomp.test`) hold
+`skies-recomp-ws36b-2026-11-21-test.apk` (ws36 + the #34 order-bias trial, off unless `env.txt` sets
+`AURORA_ORDER_BIAS`); their games were repatched to ws36 (the Thor's `Games/GEAE8P` got `sys/main.dol.orig`, the
+Pocket 5's `GEAP8P` the ws36 DOL pushed by hand). The release apps weren't touched.
 
 Ordering lesson (2026-11-21): GitHub dates a release by its tag's commit and orders same-day releases by version,
 comparing `standalone.11` as text, so `.11` sat below `.9`; moving its tag to a commit of the next UTC day fixed it.

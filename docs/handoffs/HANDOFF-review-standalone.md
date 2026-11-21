@@ -87,14 +87,19 @@ found no remote-exploitable issue. Hold the new code to the same bar.
   - Windows (MSVC): `rsync -a standalone/ /mnt/c/dev/SkiesStandalone/standalone/`, then
     `cmd.exe /c "C:\dev\SkiesStandalone\build.bat build"`. Before any Windows test launch, call
     `C:\dev\sync-controls.bat <USER_DIR>` (the owner's rule). The module is
-    `C:\dev\SkiesStandalone\build\modules-ws35\gGEAE8P_recomp.dll`, the game is `C:\dev\SkiesStandalone\games\GEAE8P-ws35`.
+    `C:\dev\SkiesStandalone\build\modules-ws36\gGEAE8P_recomp.dll` (built by `module-ws36.bat` there from
+    CI-style codegen copied to `build\modules-ws36\generated`), the game is `C:\dev\SkiesStandalone\games\GEAE8P-ws36`;
+    `ws36-run.bat LOG USERDIR SECONDS STATE` runs it (2026-11-21; the ws35 ones are kept).
     That `build\` links an old prebuilt Dawn (`webgpu_dawn.dll`): its Vulkan dies right after the pipeline cache
     (2026-11-19), while the release and `dawn-package\test-pkg.bat`'s `dawn-package\build-pkg\` (the same code
     against the Dawn package, as releases) run Vulkan fine: test Vulkan with the latter. Its CMake cache's
     `SKIES_RELEASE_DOL_PATCHES` pointed into the deleted `C:\dev\SkiesPerf`; `reconf.bat` there sets it to
     `release-patches\skies-widescreen.dolpatch`.
   - Android test APK (US module only):
-    `PREGEN=build/ws35/codegen-android/android NAME=ws35t STANDALONE=1 BRAND=1 TEST_ID=1 DOL_EU=/nonexistent DOL_JP=/nonexistent tools/android-ws-build.sh`.
+    `PREGEN=build/ws36/codegen-android/android PREGEN_EU=build/ws36/codegen-android/android-eu PREGEN_JP=build/ws36/codegen-android/android-jp NAME=ws36b STANDALONE=1 BRAND=1 TEST_ID=1 tools/android-ws-build.sh`
+    (2026-11-21; codegen: `TARGETS=android tools/ci-codegen.sh ~/skies-secrets build/ws36/codegen-android`). After a
+    release-patch change a test app whose game has no `sys/main.dol.orig` asks for the disc again: push the retail
+    DOL there as `main.dol.orig` and it repatches (the launcher repatches only the disc it starts).
     Add `DAWN_PACKAGE=` to use a patched Dawn. Copy the APK to `C:\Users\Public\` and run `adb.exe install -r -t`.
 - **Test tools:**
   - `tools/sa-run.sh OUT START REGION SECS`: one capped, deterministic run with frame dumps and an error count;
