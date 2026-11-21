@@ -1,4 +1,4 @@
-The new engine is now the recommended release: the game no longer runs inside Dolphin, and it's faster and smoother, most of all on weaker PCs, laptops and Android handhelds. This release brings everything from the six test builds (v0.90.0-standalone.6 to .11) together for everyone coming from 0.83. If you already play v0.90.0-standalone.11, the game is the same: this is that build as a regular release.
+The new engine is now the recommended release: the game no longer runs inside Dolphin, and it's faster and smoother, most of all on weaker PCs, laptops and Android handhelds. This release brings everything from the six test builds (v0.90.0-standalone.6 to .11) together for everyone coming from 0.83. If you already play v0.90.0-standalone.11, [Since standalone.11](#since-standalone11) lists what changed.
 
 > [!IMPORTANT]
 > **You need your own Skies of Arcadia Legends disc** (GameCube: USA `GEAE8P`, European `GEAP8P` or Japanese `GEAJ8P`) as RVZ, ISO, GCM, GCZ, WIA or CISO.
@@ -6,6 +6,13 @@ The new engine is now the recommended release: the game no longer runs inside Do
 
 > [!WARNING]
 > **Coming from 0.83, back up your saves first** (Settings → Saves → Back up saves). Your saves carry over, but save states made by the new engine don't load in 0.83.
+
+## Since standalone.11
+
+- **Widescreen: the floating rocks and the broken tower stay in the sky** on Sailors' Island's bridge; the original game hides them on the bridge, where 4:3 never showed them ([#21](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/21)).
+- **Ship battle HUD: a third choice, Bar + grid centred** (the Spirit bar and the grid in the middle, the rest at the sides), and **attack names** now sit at the screen's edges with the rest of the HUD ([#25](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/25)).
+- **Widescreen: the effect behind Drachma's victory pose is drawn at the picture's width**; it was 1.1 times too wide, as in the original game ([#22](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/22)).
+- **See-through textures (railings, leaves) no longer look blocky** at higher resolutions ([#35](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/35)).
 
 ## New since 0.83
 
@@ -23,7 +30,7 @@ The new engine is now the recommended release: the game no longer runs inside Do
 - **Controller light** (Settings → Controls): a DualSense, DualShock 4 or Switch Pro controller glows sky blue in the field and red in battle.
 - **Android: touch controls of the game's own** (Settings → Controls → Touch controls), with opacity and size.
 - **Cheat codes** ([#5](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/5)): Action Replay and Gecko codes that write memory, from `Cheats/<disc ID>.ini` in your data folder, with a **Cheats** switch in the in-game menu.
-- **Ship battle HUD setting** (Settings → Graphics) ([#25](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/25)): the Item list no longer runs off the screen in widescreen.
+- **Ship battle HUD setting** (Settings → Graphics: Spread out, Bar + grid centred or Centred) ([#25](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/25)): the Item list no longer runs off the screen in widescreen, and attack names sit at the edges.
 - **Tap or click the in-game menu**, and **F1 saves a state** on desktop ([#19](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/19)).
 - **Drop files on the launcher** (PC and Mac): a disc image, a save, a texture pack or a Dreamcast disc goes where its Select button would take it.
 - **Laptops with two graphics chips use the faster one** ([#32](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/32)).
@@ -36,7 +43,9 @@ The new engine is now the recommended release: the game no longer runs inside Do
 - **Battle damage numbers showed "0"** on Apple M4 Macs and some newer Android phones ([#16](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/16)).
 - **60 fps: faces no longer jump between expressions** ([#18](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/18)), and **characters no longer get squashed** for a frame when they turn quickly ([#35](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/35)).
 - **Dreamcast music is level with the GameCube music**, with more headroom ([#19](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/19)).
-- **Widescreen: the effect behind Drachma's victory pose** turns with the camera shake without shearing ([#22](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/22)).
+- **Widescreen: the effect behind Drachma's victory pose** turns with the camera shake without shearing, at the picture's width ([#22](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/22)).
+- **Widescreen: Sailors' Island's bridge keeps the floating rocks and the tower in the sky** ([#21](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/21)).
+- **See-through textures no longer look blocky** at higher resolutions ([#35](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/35)).
 - **Sharper textures on widescreen screens**: Resolution "window" now fills the window instead of stretching a 4:3 picture ([#35](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/35)).
 - **No more thin lines in the sky** with anti-aliasing (MSAA) ([#35](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/35)).
 - **Security: a crafted save state can no longer make the memory card write a file outside its folder.** Damaged or crafted save states, disc files and texture-pack images are refused instead of crashing.
@@ -49,7 +58,7 @@ The new engine is now the recommended release: the game no longer runs inside Do
 
 ## Installing and updating
 
-Your data folder (moved or portable too), settings, memory card saves and save states carry over, from 0.83 and from the test builds; 0.83's save states are converted when they load. Coming from 0.83, the European and Japanese discs are patched again the first time you start.
+Your data folder (moved or portable too), settings, memory card saves and save states carry over, from 0.83 and from the test builds; 0.83's save states are converted when they load. Your disc is patched again the first time you start, coming from 0.83 or a test build.
 
 - **Windows / Linux / macOS:** unpack the new version and run it. macOS: allow it in System Settings → Privacy & Security the first time (not notarized).
 - **Android:** install the APK over 0.83 or a test build as an update.

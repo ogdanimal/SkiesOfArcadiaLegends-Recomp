@@ -3488,6 +3488,42 @@ build (Dolphin's Vulkan backend on llvmpipe is right).
 - **#27** "not the pinned patched release" at import: needs the reporter's disc (ID, revision, image hash).
 - #29 (high-res fonts), #30 (Switch), #31 (uncensored English text): requests, no code.
 
+## Issues #21-#35 round for v0.91 (2026-11-21, notes-091)
+
+- **#35** blocky alpha-tested textures at high resolutions: Aurora's arbitrary-mipmap detection biased the LOD;
+  `recompcore-gxruntime-no-arb-mips.patch` turns it off, as the Dolphin build had it (823db67).
+- **#25** Ship battle HUD value 2, "Bar + grid centred" (88f931e): `standalone/src/menu.cpp` rewrites ws_config's
+  anchors 5, 9 and 10 every frame (a state load or boot brings the patch's defaults back), no game-patch change.
+  The ship battle's attack-name banners (`fn_8012F958` and the two after it, slots 0-3 the party's, 4-7 the
+  enemy's) move to the HUD's edges in code (ws36, `ws_anchor_banner`), not as a 19th table entry, which would move
+  every variable after `ws_config`.
+- **#21** Sailors' Island's bridge: a field map's objects are drawn only in the areas whose list names them
+  (`fn_800D2CC4` / `fn_800D29B4` stamp them, `fn_800D2924` hides the rest). The bridge (area 901 of `a004a.mld`,
+  the same file on all three discs) leaves out objects 2504-2506 (the rock clouds and the broken tower), which 4:3
+  barely shows from there. ws36's `area.c` stamps them too, widescreen only. The developers' own per-map
+  exceptions are in `fn_801E5608` (maps 13, 28, 17, 250, 10) if more turn up.
+- **#22** the battle screen plane sits at the screen distance, so the game's `njSetAspect(1.1)` draws it 1.1 times
+  the picture's width, on the original too; ws36's `ws_plane_widen_exact` draws it at the picture's width. Not
+  seen in the pose itself (no run reached it).
+- **#23** fortress turrets' black patches: the original art (drop-shadow decals `td16b024` / `td16b011` in the area
+  243 cutscene `me243a.sct`), the same in the Dolphin build. No fix.
+- **#34** Thor throne-room flicker: the game draws one stretch of wall twice, coplanar (about 0.00025 units apart
+  at 220-270, far under one 24-bit z step), outside the 4:3 picture. WSL's float depth always keeps the earlier
+  copy; the Adreno 740 alternates per patch and frame (the FIFO is byte-identical to WSL's). A draw-order depth
+  bias (`build/fable-34/aurora-order-bias.diff`, `AURORA_ORDER_BIAS`: each later perspective draw a little nearer,
+  so the later copy wins as with the GameCube's LEQUAL) fixes it on the Thor at 6e-5 (2e-5 isn't enough), but it
+  moves every scene a little (about 1 % of pixels at the wide margins in the save-point room). Kept out of v0.91
+  by the owner; next: a sweep, then likely Android only. The reporter was answered (2026-11-21).
+- **ws36 gotchas:** growing an old `.trkcave_late` function in place, or adding a new float constant to old
+  code, moves older symbols (the #22 change first did both); keep new code in `.trkcave_ws36` and leave the old
+  function in place. `gamepatch.py --dol` links `files/` beside the DOL's `sys/`: from a folder with only `sys/`,
+  state loads still work but cold boots die in MusyX with null reads. Test a game-patch change with a module
+  regenerated from the new DOL: the standalone runs a changed chunk's OLD compiled code, with no interpreter
+  fallback.
+- **Checked** (ws36): WSL USA / Europe / Japan (cold boots, card Continues, the reporter's bridge state, banners in
+  Spread out and Centred), Pocket 5 (USA states, European banner), Windows D3D12 (USA bridge and banners), Mac
+  M4 Metal (USA, all four runs; the Mac session). Not on Android: Japan (no Japanese game in the test app).
+
 ## Known issues
 
 - **"The game process could not be monitored:" when closing the game from Steam (fixed 2026-10-22,
