@@ -13,7 +13,7 @@ the cut-over: no new Dolphin-engine-only features; items below marked "both buil
 once it ships.
 
 
-## Simplify CI — noted 2026-11-19
+## Simplify CI — noted 2026-11-19 (Dolphin runner build dropped 2026-11-20: Windows job 23 -> 18 min)
 
 The owner asked why CI is so complicated. **Fixed costs** (they stay): no game data may ship or leak (the retail
 DOLs in the private secrets repo, codegen in the `ci` environment, encrypted artifacts between jobs, the publish

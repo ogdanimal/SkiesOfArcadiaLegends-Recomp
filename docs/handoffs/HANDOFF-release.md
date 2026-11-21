@@ -11,7 +11,17 @@ once with a generic text (Android 7+, an old known issue) and generated notes. A
 prerelease. Publish by hand after the checks below: `gh release edit vVERSION --draft=false`.
 The owner's picks: the next release is **v0.91.0-beta** (a prerelease, like v0.83.0-beta), and the new engine is
 now the recommended release in both READMEs (v0.83.0-beta: the last Dolphin-engine release; Android 7 / 8 keep
-using the Dolphin engine). `release/release-notes.md` still holds `.11`'s notes: rewrite it for v0.91.0-beta.
+using the Dolphin engine).
+
+**State at the end of 2026-11-21 (held for the night by the owner):** main, dev and `aurora-backend` are at
+`80441a2` (pushed; dev's validate 44856827880 started on it). The v0.91.0-beta notes are written
+(`release/release-notes.md`: everything since 0.83 from `.6`-`.11`, for 0.83 players; the game is `.11`'s) on the
+LOCAL branch `notes-091` (`df6ccda` + this handoff's commit), waiting for the owner's review. Next: the owner's
+edits, push `notes-091` to the three branches, `tools/release.sh 0.91.0-beta <sha>` (needs a green validate on that
+commit, and the script asks for that exact commit; the notes commits are `.md` changes, which a push doesn't
+validate: start one by hand, `gh workflow run validate.yml --ref dev`, codegen comes from cache),
+approve `android-sign`, the full draft checks below (the release path itself is new, so check everything even
+though the game is `.11`'s), then the owner's word to publish.
 
 Ordering lesson (2026-11-21): GitHub dates a release by its tag's commit and orders same-day releases by version,
 comparing `standalone.11` as text, so `.11` sat below `.9`; moving its tag to a commit of the next UTC day fixed it.
