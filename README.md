@@ -29,8 +29,8 @@ Get a build from the **[Releases](../../releases)** page:
 | macOS (Apple Silicon) | `SkiesOfArcadiaLegends-<version>-macos.zip` |
 | Android | `SkiesOfArcadiaLegends-<version>-android.apk` |
 
-Versions ending in `-beta` (or `-rc1`, `-rc2`, ...) are published as prereleases; versions ending in
-`-standalone.N` are test builds of the new engine.
+Versions ending in `-beta` (or `-rc1`, `-rc2`, ...) are published as prereleases. `v0.90.0-standalone.6` to
+`.11` were the new engine's test builds; its releases use plain version numbers from here on.
 
 ## Getting Started
 

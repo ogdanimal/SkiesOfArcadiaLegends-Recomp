@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
 # Cut a release from a commit on dev that validate passed on: fast-forward main to it, tag it (which
-# starts release.yml), wait for the GitHub Release, then replace its generated text with the notes.
-#   tools/release.sh VERSION SHA NOTES.md      e.g. tools/release.sh 0.9.0-beta 1a2b3c4 notes-0.9.0.md
-# Release notes say what this release adds or fixes, and link the README for the rest.
+# starts release.yml), and wait for the DRAFT release. Its notes are release/release-notes.md at that
+# commit (write them before; they say what this release adds or fixes, and link the README for the rest).
+# Then check every package on its own platform (docs/handoffs/HANDOFF-release.md, Release checks) and
+# publish by hand: gh release edit vVERSION --draft=false
+#   tools/release.sh VERSION SHA      e.g. tools/release.sh 0.91.0 1a2b3c4
 set -euo pipefail
 cd "$(dirname "$0")/.."
-VERSION=${1:?usage: tools/release.sh VERSION SHA NOTES.md}
-SHA=$(git rev-parse --verify "${2:?usage: tools/release.sh VERSION SHA NOTES.md}^{commit}")
-NOTES=$(realpath "${3:?usage: tools/release.sh VERSION SHA NOTES.md}")
+VERSION=${1:?usage: tools/release.sh VERSION SHA}
+SHA=$(git rev-parse --verify "${2:?usage: tools/release.sh VERSION SHA}^{commit}")
 TAG=v$VERSION
 REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
 [[ $TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || { echo "$TAG is not vMAJOR.MINOR.PATCH[-suffix]"; exit 1; }
-[ -s "$NOTES" ] || { echo "$NOTES is empty"; exit 1; }
+[ -n "$(git show "$SHA:release/release-notes.md" 2>/dev/null)" ] || { echo "release/release-notes.md is missing or empty at $SHA"; exit 1; }
 
 git fetch -q origin dev main
 git merge-base --is-ancestor "$SHA" origin/dev || { echo "$SHA is not on origin/dev -- stopping."; exit 1; }
@@ -37,8 +38,7 @@ if [ -z "$(gh run list --repo "$REPO" --workflow release.yml --branch "$TAG" --j
   gh workflow run release.yml --repo "$REPO" --ref "$TAG"
 fi
 
-echo "3/3 waiting for the release workflow to publish (checks every minute)"
+echo "3/3 waiting for the release workflow's draft (checks every minute)"
 until gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; do sleep 60; printf .; done; echo
-gh release edit "$TAG" --repo "$REPO" --notes-file "$NOTES"
-gh release view "$TAG" --repo "$REPO" --json url,assets --jq '.url, (.assets[] | "  \(.name)")'
-echo "Done."
+gh release view "$TAG" --repo "$REPO" --json url,isDraft,assets --jq '.url, "  draft: \(.isDraft)", (.assets[] | "  \(.name)")'
+echo "Draft ready. Check every package on its own platform, then: gh release edit $TAG --repo $REPO --draft=false"

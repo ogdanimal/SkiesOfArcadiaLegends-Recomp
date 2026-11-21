@@ -1,6 +1,7 @@
 # Tagged release: vMAJOR.MINOR.PATCH[-suffix] on a commit on main -> the Windows zip, the Linux
-# tar.gz and AppImage, the macOS app zip and the signed Android APK on a GitHub Release (a -suffix
-# tag is a prerelease).
+# tar.gz and AppImage, the macOS app zip and the signed Android APK on a DRAFT GitHub Release with
+# release/release-notes.md as its notes (a -suffix tag is a prerelease); it is published by hand after
+# every package has been checked on its own platform.
 #
 # Triggers ONLY on tag pushes, so fork PRs cannot reach the game DOL or the signing key. The builds
 # are validate.yml's own steps (workflow_call), not a copy. Nothing published contains game data:
@@ -34,7 +35,6 @@ jobs:
     outputs:
       vname: ${{ steps.ver.outputs.vname }}
       prerelease: ${{ steps.ver.outputs.prerelease }}
-      standalone: ${{ steps.guard.outputs.standalone }}
     steps:
       - name: Checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -42,11 +42,9 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      # Any v* tag on any commit would otherwise publish a signed release. On the aurora-backend branch (the
-      # emulator-free host's opt-in test builds, 2026-11-18) a prerelease tag (vX.Y.Z-suffix) may also be on that
-      # branch instead: it publishes as a GitHub prerelease, never the latest release. Dev and main keep the
-      # main-only guard (this file is read from the tagged commit).
-      - name: Guard -- tag commit must be on main (or a prerelease on aurora-backend)
+      # Any v* tag on any commit would otherwise publish a signed release: the tag must be on main
+      # (tools/release.sh fast-forwards main to a validated dev commit, then tags it).
+      - name: Guard -- tag commit must be on main
         id: guard
         run: |
           if [ "$GITHUB_REF_TYPE" != tag ]; then
@@ -54,19 +52,10 @@ jobs:
             exit 1
           fi
           git fetch --no-tags origin main
-          if git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD; then
-            exit 0
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD; then
+            echo "::error::Tag ${GITHUB_REF_NAME} (${GITHUB_SHA}) is not on main; refusing to publish."
+            exit 1
           fi
-          if printf '%s' "$GITHUB_REF_NAME" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+-[0-9A-Za-z.]+$'; then
-            git fetch --no-tags origin aurora-backend
-            if git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD; then
-              echo "Prerelease ${GITHUB_REF_NAME} on aurora-backend"
-              echo "standalone=true" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-          fi
-          echo "::error::Tag ${GITHUB_REF_NAME} (${GITHUB_SHA}) is not on main (nor a prerelease on aurora-backend); refusing to publish."
-          exit 1
 
       - name: Derive version from tag
         id: ver
@@ -139,7 +128,7 @@ jobs:
             release/skies-widescreen.dolpatch
             release/skies-widescreen-eu.dolpatch
             release/skies-widescreen-jp.dolpatch
-            release/test-build-notes.md
+            release/release-notes.md
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -204,9 +193,8 @@ jobs:
                    '-macos\.zip/[^/]+/Skies of Arcadia Legends\.app/Contents/MacOS/gGEAJ8P_recomp\.dylib'; do
             grep -qE -e "$m\$" list.txt || { echo "::error::A package is missing its recompiled module ($m)."; exit 1; }
           done
-          # The test build's notes (the release step appends them), out of src before it goes; a
-          # branch without the file (main) has none
-          cp src/release/test-build-notes.md test-build-notes.md 2>/dev/null || true
+          # The release's notes (the release step uses them), out of src before it goes
+          cp src/release/release-notes.md release-notes.md
           rm -rf x list.txt sums.txt nested other src
           echo "No disc image, DOL or generated code in any package (module allowed by name)."
 
@@ -217,45 +205,20 @@ jobs:
           sha256sum *.zip *.tar.gz *.AppImage *.apk > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
-      - name: Publish GitHub Release
+      # Always a draft: the owner's rule (docs/handoffs/HANDOFF-release.md, Release checks) is that every package is
+      # downloaded from the draft and tested on its own platform before the release is published by hand.
+      # The notes are release/release-notes.md as a whole, written per release.
+      - name: Create the draft release
         env:
           GH_TOKEN: ${{ github.token }}
           PRERELEASE: ${{ needs.guard.outputs.prerelease }}
-          STANDALONE: ${{ needs.guard.outputs.standalone }}
         run: |
-          FLAGS=()
+          [ -s release-notes.md ] || { echo "::error::release/release-notes.md is missing or empty."; exit 1; }
+          FLAGS=(--draft)
           if [ "$PRERELEASE" = "true" ]; then FLAGS+=(--prerelease); fi
-          # The emulator-free host's test builds: a draft, published by hand after the notes are read
-          if [ "$STANDALONE" = "true" ]; then FLAGS+=(--draft); fi
-          cat > notes.md <<'EOF'
-          **You need your own Skies of Arcadia Legends disc (GameCube, USA `GEAE8P`, European
-          `GEAP8P` or Japanese `GEAJ8P`, Eternal Arcadia Legends)** as RVZ, ISO, GCM, GCZ, WIA or CISO. Nothing here contains game data: the launcher imports your disc and
-          patches it.
-
-          - **Windows** (64-bit Windows 10 / 11): unzip, run `Skies of Arcadia Legends.exe`, choose
-            Select Disc.
-          - **Linux** (x86_64): the `.AppImage` is one file with the libraries it needs inside: make
-            it executable (`chmod +x`, or the file's Properties) and run it. Or extract the `.tar.gz`
-            and run `./SkiesOfArcadiaLegends` from inside the folder. Then choose Select Disc.
-          - **macOS** (Apple Silicon, macOS 13+): unzip and open Skies of Arcadia Legends. The app
-            isn't notarized: the first time, macOS says it can't check it; allow it in System
-            Settings → Privacy & Security (Open Anyway). Then choose Select Disc.
-          - **Android** (arm64, Android 7+): install the APK, open Skies of Arcadia Legends and pick
-            your disc image.
-
-          Known issue: changing the battle speed while a round plays out can freeze the battle;
-          change it while choosing commands. See README.md in the download for controls and settings.
-          EOF
-          if [ "$STANDALONE" = "true" ]; then
-            # A test build's notes are release/test-build-notes.md as a whole (written per build, in the layout of
-            # the normal releases' notes)
-            [ -f test-build-notes.md ] || { echo "::error::release/test-build-notes.md is missing."; exit 1; }
-            cp test-build-notes.md notes.md
-          fi
           gh release create "$GITHUB_REF_NAME" out/* \
             --repo "$GITHUB_REPOSITORY" \
             --title "Skies of Arcadia Legends: Recompiled $GITHUB_REF_NAME" \
-            --notes "$(cat notes.md)" \
-            $([ "$STANDALONE" = "true" ] || echo --generate-notes) \
+            --notes-file release-notes.md \
             --verify-tag \
             "${FLAGS[@]}"

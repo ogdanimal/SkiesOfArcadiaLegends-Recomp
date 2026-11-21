@@ -1,5 +1,18 @@
 # Handoff: releases (Windows, Linux, macOS, Android)
 
+## Versions and the release path (the owner, 2026-11-21)
+
+"We drop the standalone addition and go back to normal versioning": no more `-standalone.N` tags. main, dev and
+`aurora-backend` hold the same line (the new engine), so releases are cut the normal way again:
+`tools/release.sh VERSION SHA` fast-forwards main to a validated dev commit and tags it. `release.yml` now accepts
+tags on main only (the `aurora-backend` prerelease exception is gone) and ALWAYS makes a draft, with
+`release/release-notes.md` (renamed from `test-build-notes.md`) as its notes: the old normal path published at
+once with a generic text (Android 7+, an old known issue) and generated notes. A `-suffix` tag is still a
+prerelease. Publish by hand after the checks below: `gh release edit vVERSION --draft=false`.
+
+Ordering lesson (2026-11-21): GitHub dates a release by its tag's commit and orders same-day releases by version,
+comparing `standalone.11` as text, so `.11` sat below `.9`; moving its tag to a commit of the next UTC day fixed it.
+
 ## Release checks (the owner's rule, 2026-11-20)
 
 Every release, before publishing: download the draft's own files and test **each platform's package on that
