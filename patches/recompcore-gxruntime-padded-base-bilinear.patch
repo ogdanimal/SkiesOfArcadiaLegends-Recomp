@@ -1,0 +1,92 @@
+diff --git a/GXRuntime/graphics/aurora/lib/gx/gx.cpp b/GXRuntime/graphics/aurora/lib/gx/gx.cpp
+index e09bd22..4057695 100644
+--- a/GXRuntime/graphics/aurora/lib/gx/gx.cpp
++++ b/GXRuntime/graphics/aurora/lib/gx/gx.cpp
+@@ -765,11 +765,15 @@ static absl::flat_hash_map<const gfx::TextureRef*, PaddedCopy> s_paddedCopies;
+ 
+ static void clear_padded_copies() noexcept { s_paddedCopies.clear(); }
+ 
+-// The bound texture's memory decoded and stretched (nearest) to the padded texture's size, as its
+-// base; only for an RGBA8 or BGRA8 padded texture (a render texture has the surface's format: BGRA8
+-// on D3D12) and a format that decodes to RGBA8. The copy area reads zero in memory (the host clears
+-// what a copy covers), and the copy goes over it after.
+-static void upload_padded_base(const gfx::TextureRef& dst, const GXTexObj_& obj, u32 bytes) noexcept {
++// The bound texture's memory decoded and stretched to the padded texture's size, as its base; only
++// for an RGBA8 or BGRA8 padded texture (a render texture has the surface's format: BGRA8 on D3D12)
++// and a format that decodes to RGBA8. The copy area reads zero in memory (the host clears what a copy
++// covers), and the copy goes over it after, so the stretch skips it (copyWidth x copyHeight, padded
++// texels) and doesn't blend its zeros in at the edge (copyTexelsX x copyTexelsY, the texture's texels). Local (fork): stretched bilinearly, as the texture's own texels would be sampled: Skies' camp
++// menu draws a few texels of the clouds right of the start menu's screen grab over each side of a 16:9
++// picture, and stretched nearest they came out as flat blocks (issue #37).
++static void upload_padded_base(const gfx::TextureRef& dst, const GXTexObj_& obj, u32 bytes, u32 copyWidth,
++                               u32 copyHeight, u32 copyTexelsX, u32 copyTexelsY) noexcept {
+   const bool bgra = dst.format == wgpu::TextureFormat::BGRA8Unorm;
+   if (dst.format != wgpu::TextureFormat::RGBA8Unorm && !bgra) {
+     return;
+@@ -784,12 +788,51 @@ static void upload_padded_base(const gfx::TextureRef& dst, const GXTexObj_& obj,
+   const u32 w = dst.size.width;
+   const u32 h = dst.size.height;
+   std::vector<u32> scaled(static_cast<size_t>(w) * h);
+-  const auto* src = reinterpret_cast<const u32*>(converted.data.data());
++  const auto* src = reinterpret_cast<const u8*>(converted.data.data());
++  // Texel-centre aligned: output texel x samples source x' = (x + 0.5) * width / w - 0.5, clamped
++  struct Tap {
++    u32 i0, i1;
++    u32 f;  // weight of i1, 0..256
++  };
++  const auto taps = [](u32 outSize, u32 inSize) {
++    std::vector<Tap> list(outSize);
++    for (u32 o = 0; o < outSize; ++o) {
++      const double at = std::clamp((o + 0.5) * inSize / outSize - 0.5, 0.0, static_cast<double>(inSize - 1));
++      const u32 i0 = static_cast<u32>(at);
++      list[o] = Tap{i0, std::min(i0 + 1, inSize - 1), static_cast<u32>(std::lround((at - i0) * 256.0))};
++    }
++    return list;
++  };
++  auto xs = taps(w, width);
++  auto ys = taps(h, height);
++  // Beside the copy (right of it) the taps stay right of its texels; below it, below them
++  const auto keep_out = [](std::vector<Tap>& list, u32 from, u32 first) {
++    for (u32 o = from; o < list.size(); ++o) {
++      if (list[o].i0 < first && first < list.size()) {
++        list[o] = Tap{first, first, 0};
++      }
++    }
++  };
++  auto xsBeside = xs;
++  if (copyTexelsX < width) {
++    keep_out(xsBeside, copyWidth, copyTexelsX);
++  }
++  if (copyTexelsY < height) {
++    keep_out(ys, copyHeight, copyTexelsY);
++  }
+   for (u32 y = 0; y < h; ++y) {
+-    const u32* row = src + static_cast<size_t>(static_cast<u64>(y) * height / h) * width;
+-    u32* out = scaled.data() + static_cast<size_t>(y) * w;
+-    for (u32 x = 0; x < w; ++x) {
+-      out[x] = row[static_cast<u64>(x) * width / w];
++    const u8* r0 = src + static_cast<size_t>(ys[y].i0) * width * 4;
++    const u8* r1 = src + static_cast<size_t>(ys[y].i1) * width * 4;
++    const u32 fy = ys[y].f;
++    const auto& xs_row = y < copyHeight ? xsBeside : xs;
++    auto* out = reinterpret_cast<u8*>(scaled.data() + static_cast<size_t>(y) * w);
++    for (u32 x = y < copyHeight ? copyWidth : 0; x < w; ++x) {
++      const u32 a = xs_row[x].i0 * 4, b = xs_row[x].i1 * 4, fx = xs_row[x].f;
++      for (u32 c = 0; c < 4; ++c) {
++        const u32 top = r0[a + c] * (256 - fx) + r0[b + c] * fx;
++        const u32 bottom = r1[a + c] * (256 - fx) + r1[b + c] * fx;
++        out[x * 4 + c] = static_cast<u8>((top * (256 - fy) + bottom * fy + 32768) >> 16);
++      }
+     }
+   }
+   if (bgra) {
+@@ -832,7 +875,8 @@ static gfx::TextureHandle padded_copy_texture(const GXState::CopyTextureRef& cop
+     // (Skies after Fina's flashback, issue #35) had the whole 1024x512 buffer decoded on the CPU and
+     // uploaded every frame (~8 ms of the video thread on an i7-12700K); the copy alone changes the corner.
+     if (bytes != 0 && (padded.revision == UINT32_MAX || padded.ramFingerprint != fingerprint)) {
+-      upload_padded_base(*padded.texture, obj, bytes);
++      upload_padded_base(*padded.texture, obj, bytes, src->size.width, src->size.height, copy.logicalWidth,
++                         copy.logicalHeight);
+     }
+     gfx::queue_texture_copy(wgpu::TexelCopyTextureInfo{.texture = src->texture},
+                             wgpu::TexelCopyTextureInfo{.texture = padded.texture->texture}, src->size);
