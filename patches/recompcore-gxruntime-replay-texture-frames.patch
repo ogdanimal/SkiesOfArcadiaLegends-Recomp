@@ -55,7 +55,7 @@ index 83d110b..e09bd22 100644
 +bool s_keyFromHistory = false;
 +// AURORA_REPLAY_TEXHASH_CHECK=1: every 2000 replay binds, how many took their frame's hashes, how many of
 +// those differ from RAM now (would have drawn other texels), and how many found no hashes of their frame
-+const bool s_replayHashCheck = std::getenv("AURORA_REPLAY_TEXHASH_CHECK") != nullptr;
++bool replay_hash_check() { static const bool on = std::getenv("AURORA_REPLAY_TEXHASH_CHECK") != nullptr; return on; }
 +u32 s_replayCheck[4] = {};  // binds, from their frame, differing from RAM, without their frame
 +
 +void count_replay_bind(bool fromFrame, bool differs) noexcept {
@@ -91,7 +91,7 @@ index 83d110b..e09bd22 100644
 +          key.texHash = entry.texHash;
 +          key.tlutHash = entry.tlutHash;
 +          s_keyFromHistory = replay;
-+          if (replay && s_replayHashCheck) {
++          if (replay && replay_hash_check()) {
 +            count_replay_bind(true, hash_bytes(obj.data, size) != key.texHash);
 +          }
 +          return true;
@@ -101,7 +101,7 @@ index 83d110b..e09bd22 100644
      key.texHash = hash_bytes(obj.data, size);
      key.tlutHash = hasTlut ? hash_bytes(tlut->data, tlutBytes) : 0;
 +    if (replay) {
-+      if (s_replayHashCheck) {
++      if (replay_hash_check()) {
 +        count_replay_bind(false, false);
 +      }
 +      return true;  // RAM as it is now: not the replayed frame's, so not remembered as its
