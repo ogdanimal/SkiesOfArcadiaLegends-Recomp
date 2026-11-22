@@ -3563,6 +3563,88 @@ build (Dolphin's Vulkan backend on llvmpipe is right).
   Spread out and Centred), Pocket 5 (USA states, European banner), Windows D3D12 (USA bridge and banners), Mac
   M4 Metal (USA, all four runs; the Mac session). Not on Android: Japan (no Japanese game in the test app).
 
+## Issue #34 follow-up: GameCube depth, the Cutscene bars setting, #25's banners and #23's shadows (2026-11-22, notes-091, unreleased)
+
+- **The throne room flicker, fixed for good** (`recompcore-gxruntime-gc-depth.patch`). The Valuan throne room draws
+  stretches of wall twice, from two models, in the same plane, a fraction of one GameCube z step apart, outside
+  the 4:3 picture. The GameCube rounds both to the same 24-bit z and its LEQUAL lets the later draw win; Aurora's
+  float reversed-Z keeps the difference (about 10 float steps), and the Adreno 740 picked one copy or the other
+  from frame to frame. Dusklight's Aurora has exactly the same depth design (Depth32Float, reversed-Z, no
+  fragment depth): Twilight Princess just has no such duplicates. The fragment shader now writes its depth
+  rounded to a fixed step, so the copies tie and draw order decides, as on the console. At 24 bits the copies
+  still straddle a step on some pixels (dotted speckle on the balcony's red band); 22 bits (a step 4 times the
+  GameCube's) is clean and is the default. Checked: WSL throne room (panels and band steady on the later copy),
+  six other states change by 0-104 pixels (the draw-order bias trial changed about 1 % of the save-point
+  room); the AYN Thor: without it the wall changes on every displayed frame, with it only when the game draws a
+  new one; GPU cost: the Thor's EFB pass +35-50 % in the intro's heavy scenes (3.3 -> 5.0 ms), the Pocket 5
+  stays at 1.00x (worst EFB window 10.5 -> 11.9 ms). `AURORA_GC_DEPTH=0` turns it off,
+  `AURORA_GC_DEPTH_BITS=N` sets the step. The order-bias trial (`AURORA_ORDER_BIAS`) is dropped.
+  **Android only, by default** (same day, after the Mac check): on the M4 (Metal) the right-hand wall lost its
+  framed panels to the plain copy with gold dots that move from frame to frame, which off doesn't have; WSL
+  shows the same dots there once you look at that wall (the balcony band was the part checked before).
+  Rounding can't make every pixel tie: the copies differ by a little, and wherever they straddle a step the
+  earlier one shows through. Rounding the stored depth directly instead of 1 - z (more precise: 1 - z near 1
+  keeps only about 4 float steps per 22-bit step) didn't help: more dots, not fewer. So the default is on
+  only on Android, where the Adreno alternated whole panels; desktop GPUs and Metal keep the earlier copy (the
+  framed panels) steadily without it. `AURORA_GC_DEPTH=1` / `0` overrides on any platform. Checked: WSL's
+  default frames are byte-identical to `AURORA_GC_DEPTH=0` (frames 2193-2201); the Android build's shader is the
+  one the Thor and the Pocket 5 tested.
+- **Cutscene bars** (game patch ws37, `[Skies] CutsceneBars`, the reporter's request). The attract intro (Gilder
+  in his chair, after the title screen sits idle, about frame 7500 of a cold boot) draws two black letterbox
+  bars, x -32..672, y 0..48 and 432..480, as two `eff_Sprite2D` effects (`fn_800A9D24`) through the effect
+  polygon code (`fn_800A1BA4` -> `fn_801CCD90` -> `fn_8000610C` -> `fn_80290ED4`), and draws its glow and
+  explosion flashes over them (the original does too). `ws_poly_bars` skips those polygons when `ws_bars`
+  (`0x80002EE8`) is 1; widescreen only. Shown is the default. Checked: WSL (frames 7800-9600, both settings;
+  five states byte-identical to ws36; seven states identical with the bars hidden), the Thor (the whole intro
+  without bars, 5461/5461), the Pocket 5 (boots, 5461/5461, 1.00x), Windows D3D12 (both settings,
+  5461/5461). Not checked: macOS; story cutscenes that might use the same bars (the opening has none). The
+  settings row is in the in-game menu, the launcher (`moderngekko-cutscene-bars.patch`) and the Android panel
+  (`recompcore-cutscene-bars.patch`); not in the Dolphin engine that Android 7/8 keep.
+- **Mac (M4, Metal, the Mac session):** Cutscene bars PASS (cold boot, 0 / 1, bars 128 of 1280 rows each / none),
+  normal play PASS (5461/5461, 1.00x, damage digits, no user paths), GPU time not measurable there.
+- **Ship battle banners in from the edges** (game patch ws38, #25's follow-up: "the bottom right element is
+  slightly clipping off the edge of the screen"). The enemy's result box sits past its banner, so with ws36's
+  move to exactly the edge a four-digit damage was cut off. ws38 moves both sides' banners 12 HUD pixels less
+  (`ws_banner_pull_in`; details in `patches/game/README.md`). Checked on WSL from `17b.sav` with the ship
+  presses: the only frames that differ from ws37 are the four banner windows (Main Cannon, Evasive Action,
+  Black Cannon twice), the 1820 box now clear of the edge (`build/i1122/s25run/i25-before-after.png`).
+- **#23, the turrets' shadows showing what's behind the wall** (`standalone/src/disc.cpp`, `FixedFile`). The reporter's
+  second look was right: the 48 drop-shadow decals of the Grand Fortress gate (area 243 cutscene,
+  `field/a243ac01.mld`; textures `td16b024` / `td16b011`, black, alpha in 8 steps) draw with z update on and alpha
+  test > 0 (GX trace: BP 0x40 = 000017, 0xF3 = 3c0000), and 5415 of the frame's 5941 draws come after the first of
+  them, 2917 opaque. Where a later wall lands under a decal's soft edge it fails the depth test, and the dark
+  tower body drawn before shows through as a teal wedge. The Dolphin build does the same, so the original very
+  likely does too. No model flag turns z writes off (strip flag 0x0A is ignore-specular + use-alpha; the model
+  renderers never call `GXSetZMode`), and moving the turret nodes later crashed the load. The fix: the disc
+  reader serves that one file with the two decal palettes hard-edged (alpha levels 0-3 -> 0, which the alpha
+  test drops; 4-7 -> opaque), only when the file is the disc's own (size and FNV-1a 64 pinned; the same bytes on
+  all three discs), recompressed (AKLZ) to the file's exact size: the game's decompressor runs to the end of the
+  file, not to the size in its header, and the worker's shorter prototype (2978471 of 2978506 bytes) wrote past
+  its buffer (33 unmapped reads at `0xcccbbcd0`). The encoder spells out a few matches near the end to land on
+  the size exactly. `SKIES_TURRET_SHADOWS=0` serves the original. Checked: WSL frames 4680 / 4720 identical to
+  the worker's prototype, 0 unmapped reads; Windows D3D12 and the Thor (the log line, the gate shot, 1.00x,
+  5461/5461). The cost: the shadows' edge is hard, 1-2 px narrower. Evidence `build/fable-23b/` (REPORT.md,
+  img/zoom_4680_fringe_before_after.png). Not in the Dolphin engine (Android 7/8).
+- **#22, Drachma's pose found and measured** (worker, `build/fable-22c/REPORT.md`). The pose with the screen copy is
+  Drachma's own healthy victory pose (`bchara/ma0030.std`, motion 27): two type-0x42 (TEXCOPYMODEL) records at
+  motion frames 0x19-0x1e (the first slam) and 0x2d-0x37 (the second, tilted and shrinking). Aika's low-HP pose
+  (motion 26) has one too; Vyse's 0x30 is in an attack. Earlier forcing missed it because the pose needs Drachma
+  healthy in a won battle, not a forced poser alone. Recipe (deterministic): a debug DOL (ws38 + `shipdebug.json`,
+  the copy-gate hooks dropped to fit), `07-valuan-red-alarm.sav`, Encounters 10000, `8031AA20=50545903` (Drachma
+  joins), D-pad up then A presses (`build/fable-22c/run.sh`); copies at frames 59805-59812 and 59825-59837 (16:9).
+  Measured (image registration, `reg-16x9.txt` / `reg-4x3.txt`): at 16:9 the plane's first frame is already at the
+  picture's width (x scale 0.998 at copy on, 0.997-1.003 through the first burst); the only scale change is the
+  game's own shake zoom (1.5-1.8 % in y, up to 0.9 % in x), the same at 4:3, where the unpatched width step
+  (x 1.10 at every copy on / off) shows what ws36 removed. So the reporter's "slight bit of expanding" at the first
+  slam is the shake, the original's; no change. The black frame in their 60 fps video isn't reproduced on WSL
+  (no dark real or in-between frame at the copy start), nor on Windows D3D12 with 60 fps on (the debug module for
+  Windows, the same copy frames; every real and in-between picture from 59798 to 59816 at brightness 41-43).
+- **Device and Windows checks of ws38** (test APK `skies-recomp-ws38-2026-11-22-test.apk`, with the 60 fps fix):
+  Pocket 5 ship battle from `17b.sav` (banners in, 1.00x, 5461/5461, 0 unmapped), the Thor gate shot (above),
+  Windows D3D12 ship battle (banners in, 5461/5461).
+- **The "missing pillars"** the reporter sees on the left: their v0.91 video, WSL's v0.91 and our Thor's v0.91
+  release app show the same three pillars under the left balcony; not reproduced, reporter to point at it.
+
 ## Known issues
 
 - **"The game process could not be monitored:" when closing the game from Steam (fixed 2026-10-22,

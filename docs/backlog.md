@@ -32,6 +32,25 @@ Simplifications, biggest first:
 - Build the patched Dawn once per Dawn version and publish the packages as release assets that CI downloads
   (small and independent: the suggested first step).
 
+## After v0.91 — 2026-11-22 (local, uncommitted in the issues worktree)
+
+- **#34 throne-room flicker:** GameCube-style 22-bit fragment depth (`recompcore-gxruntime-gc-depth.patch`),
+  Thor-checked; replaces the draw-order bias plan; **on by default on Android only** (Metal and WSL show moving
+  dots on the right-hand wall with it, and keep one copy steadily without it). Watch GPU cost on weak devices (Thor
+  EFB pass +35-50 % in heavy scenes; Pocket 5 still 1.00x).
+- **Cutscene bars setting** (game patch ws37): hides the attract intro's letterbox bars; WSL, Thor, Pocket 5,
+  Windows and macOS checked. Needs a release with the new dolpatches (every install repatches).
+- **#25 banners clipped** (game patch ws38): both sides 12 HUD px in from the edges; WSL, Windows, Pocket 5.
+- **#18 / #24 60 fps warping** (`interp60.cpp`, other session's `547ada5`, applied here): flipbook and depth-sorted
+  sprites paired right; FPS counter counts presented pictures. Not seen on a real 144 Hz VRR screen.
+- **#23 turret shadows** (`disc.cpp`, the decal palettes hard-edged in the served `a243ac01.mld`): WSL, Windows, Thor.
+- **#22 first arm slam "expanding":** the pose forced and measured (Drachma's motion 27): no width step at 16:9, the
+  1-2 % is the game's own shake zoom (same at 4:3). The one black 60 fps frame in the reporter's video is not
+  reproduced on WSL or Windows D3D12 (same copy frames 59805-59812; every real and in-between picture 41-43 brightness).
+- **#34 "missing pillars":** not reproduced; ask the reporter where.
+- **RetroAchievements:** researched by another session (`~/projects/skies-ra`, branch `ra`,
+  `docs/handoffs/HANDOFF-retroachievements.md`): a set exists for the European disc only; ask RA first.
+
 ## v0.91.0-beta issue round — 2026-11-21 (RELEASED in v0.91.0-beta, 2026-11-22, tag on `21e6c02`)
 
 - **Done, in v0.91:** #35 blocky see-through textures (`823db67`), #25 Ship battle HUD "Bar + grid centred" (`88f931e`),
