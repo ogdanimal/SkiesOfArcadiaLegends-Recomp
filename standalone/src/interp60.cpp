@@ -210,10 +210,16 @@ std::unordered_map<u32, u32> s_dl_tasks;  // block address (physical) -> task, t
 u32 s_dl_task = 0;                        // the top-level display list being replayed
 bool s_in_dl = false;
 u32 s_top_task = 0;                       // the top-level command being applied
-bool s_tasks_on = [] {  // SKIES_INTERP_TASKS=0: don't use the objects (to compare)
-  const char* env = std::getenv("SKIES_INTERP_TASKS");
-  return !env || env[0] != '0';
-}();
+// SKIES_INTERP_TASKS=0: don't use the objects (to compare). Read on first use, not at static init:
+// Android sets env.txt's variables after the library's static initializers have run.
+bool TasksOn()
+{
+  static const bool on = [] {
+    const char* env = std::getenv("SKIES_INTERP_TASKS");
+    return !env || env[0] != '0';
+  }();
+  return on;
+}
 
 // The game's addresses per region (USA; Europe and Japan from tools/dolmatch.py's map, exact matches):
 // the running task, TaskRunAll (0x244 bytes) and TaskRunDeferred (0x164 bytes)
@@ -1402,7 +1408,7 @@ bool Replay(const Frame& frame, const std::vector<u8>& stream, int slot)
 
 void InterpDisplayListRecorded(u32 base)
 {
-  if (s_on_game && s_recording && s_tasks_on)
+  if (s_on_game && s_recording && TasksOn())
     s_dl_tasks[base & 0x01FFFFFFu] = DrawTask();
 }
 
@@ -1421,7 +1427,7 @@ void InterpDisplayListCall(u32 address, int depth, bool begin)
 
 u32 InterpDrawTask()
 {
-  if (!s_on_game || !s_recording || !s_tasks_on)
+  if (!s_on_game || !s_recording || !TasksOn())
     return 0;
   // At every 32-byte FIFO burst: while the same function (stack pointer, the two innermost return
   // addresses) is writing, the answer can't have changed
