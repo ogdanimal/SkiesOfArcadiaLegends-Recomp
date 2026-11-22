@@ -811,6 +811,18 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
       }
     };
     static std::vector<Candidate> candidates;
+    // Objects that draw at most a few draws of a key this frame (a particle: one task each)
+    static std::unordered_map<u64, u32> per_object;
+    per_object.clear();
+    for (const Prim& prim : cur_frame.prims)
+    {
+      if (prim.task != 0)
+        ++per_object[(u64{prim.task} << 32) ^ prim.key];
+    }
+    const auto small_object = [&](const Prim& prim) {
+      const auto it = per_object.find((u64{prim.task} << 32) ^ prim.key);
+      return it != per_object.end() && it->second <= 4;
+    };
     u32 repaired = 0;
     size_t a = 0, b = 0;
     while (a < lone_cur.size() && b < lone_prev.size() && repair_on)
@@ -840,9 +852,11 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
             const Prim& old = prev_frame.prims[pj];
             // Same texture: the alignment above left it unpaired on purpose (a particle that went,
             // another that came), unless both were a released pair's
-            // (or the same object's: the alignment's band can miss an object that moved far in the draw order)
+            // (or the same small object's: the alignment's band can miss a particle that moved far in the draw
+            // order; not an object drawing many of these, such as the map, whose pieces are told apart by
+            // nothing but their place)
             if (old.texture == prim.texture && !(cur_released[ci] && prev_released[pj]) &&
-                !(prim.task != 0 && prim.task == old.task))
+                !(prim.task != 0 && prim.task == old.task && small_object(prim)))
               continue;
             if (apart(prim, old))
               continue;
