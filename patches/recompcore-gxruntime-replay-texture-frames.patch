@@ -1,0 +1,185 @@
+diff --git a/GXRuntime/backends/aurora/aurora_graphics.cpp b/GXRuntime/backends/aurora/aurora_graphics.cpp
+index 878d738..1e7f5c7 100644
+--- a/GXRuntime/backends/aurora/aurora_graphics.cpp
++++ b/GXRuntime/backends/aurora/aurora_graphics.cpp
+@@ -920,6 +920,19 @@ int aurora_backend_in_replay_context(void) {
+     return aurora::gx::in_replay_context() ? 1 : 0;
+ }
+ 
++// The texture-hash frame of the game's draws parsed so far (its display copy ends one), and the one the
++// replay context's draws take their texture hashes from (0: from RAM as it is): a frame replayed after
++// the game has rewritten its textures for the next one draws with the textures it had (issue #37).
++unsigned aurora_backend_texture_frame(void) {
++    aurora::gx::fifo::drain();
++    return aurora::gx::texture_frame();
++}
++
++void aurora_backend_replay_texture_frame(unsigned frame) {
++    aurora::gx::fifo::drain();
++    aurora::gx::set_replay_texture_frame(frame);
++}
++
+ static std::array<aurora::webgpu::TextureWithSampler, 8> s_kept_pictures;
+ 
+ int aurora_backend_keep_picture(int slot) {
+diff --git a/GXRuntime/graphics/aurora/lib/gx/gx.cpp b/GXRuntime/graphics/aurora/lib/gx/gx.cpp
+index 83d110b..e09bd22 100644
+--- a/GXRuntime/graphics/aurora/lib/gx/gx.cpp
++++ b/GXRuntime/graphics/aurora/lib/gx/gx.cpp
+@@ -164,13 +164,41 @@ struct HashMemoKey {
+     return H::combine(std::move(h), key.data, key.size, key.tlutData, key.tlutBytes);
+   }
+ };
++// Local (fork): the last few frames' hashes, newest first. A host's frame interpolation replays a
++// frame after the game has gone on to the next one (the replay context): a texture the game rewrites
++// in place every frame (Skies' glyph ring: 512 small textures reused in turn) then holds the next
++// frame's texels, and hashing it again drew the wrong letters (issue #37). The replay looks up the
++// hash its frame saw instead (s_replayTextureFrame), which names the texture that frame drew with.
+ struct HashMemo {
+-  u64 texHash;
+-  u64 tlutHash;
+-  u32 frame;
++  struct Entry {
++    u64 texHash = 0;
++    u64 tlutHash = 0;
++    u32 frame = 0;
++  };
++  std::array<Entry, 4> entries;
+ };
+ absl::flat_hash_map<HashMemoKey, HashMemo> s_hashMemo;
+ u32 s_textureFrame = 1;
++u32 s_replayTextureFrame = 0;  // the texture frame the replay context draws (0: not known)
++// Set by make_retail_key when the hashes came from an earlier frame (the replay): on a cache miss
++// the texture is made from RAM as it is now, so the key is hashed again from RAM first
++// (rehash_retail_key), or the cache would keep the new texels under the old frame's hash.
++bool s_keyFromHistory = false;
++// AURORA_REPLAY_TEXHASH_CHECK=1: every 2000 replay binds, how many took their frame's hashes, how many of
++// those differ from RAM now (would have drawn other texels), and how many found no hashes of their frame
++const bool s_replayHashCheck = std::getenv("AURORA_REPLAY_TEXHASH_CHECK") != nullptr;
++u32 s_replayCheck[4] = {};  // binds, from their frame, differing from RAM, without their frame
++
++void count_replay_bind(bool fromFrame, bool differs) noexcept {
++  ++s_replayCheck[0];
++  s_replayCheck[fromFrame ? 1 : 3] += 1;
++  s_replayCheck[2] += differs ? 1 : 0;
++  if (s_replayCheck[0] >= 2000) {
++    std::fprintf(stderr, "[aurora] replay texture binds: %u, from their frame %u, differing from RAM %u, without "
++                 "their frame %u\n", s_replayCheck[0], s_replayCheck[1], s_replayCheck[2], s_replayCheck[3]);
++    std::fill(std::begin(s_replayCheck), std::end(s_replayCheck), 0u);
++  }
++}
+ const bool s_hashEveryBind = std::getenv("AURORA_RETAIL_TEXHASH_EVERY_BIND") != nullptr;
+ constexpr size_t kHashMemoMax = 8192;
+ 
+@@ -194,19 +222,39 @@ bool make_retail_key(const GXTexObj_& obj, const GXTlutObj_* tlut, RetailTexture
+   if (hasTlut) {
+     key.tlutFormat = static_cast<u32>(tlut->format) | (static_cast<u32>(tlut->numEntries) << 8);
+   }
++  s_keyFromHistory = false;
+   if (!s_hashEveryBind) {
+     const HashMemoKey memoKey{obj.data, size, hasTlut ? tlut->data : nullptr, tlutBytes};
+-    if (const auto it = s_hashMemo.find(memoKey); it != s_hashMemo.end() && it->second.frame == s_textureFrame) {
+-      key.texHash = it->second.texHash;
+-      key.tlutHash = it->second.tlutHash;
+-      return true;
++    const bool replay = in_replay_context() && s_replayTextureFrame != 0;
++    const u32 frame = replay ? s_replayTextureFrame : s_textureFrame;
++    const auto it = s_hashMemo.find(memoKey);
++    if (it != s_hashMemo.end()) {
++      for (const auto& entry : it->second.entries) {
++        if (entry.frame == frame) {
++          key.texHash = entry.texHash;
++          key.tlutHash = entry.tlutHash;
++          s_keyFromHistory = replay;
++          if (replay && s_replayHashCheck) {
++            count_replay_bind(true, hash_bytes(obj.data, size) != key.texHash);
++          }
++          return true;
++        }
++      }
+     }
+     key.texHash = hash_bytes(obj.data, size);
+     key.tlutHash = hasTlut ? hash_bytes(tlut->data, tlutBytes) : 0;
++    if (replay) {
++      if (s_replayHashCheck) {
++        count_replay_bind(false, false);
++      }
++      return true;  // RAM as it is now: not the replayed frame's, so not remembered as its
++    }
+     if (s_hashMemo.size() >= kHashMemoMax) {
+       s_hashMemo.clear();
+     }
+-    s_hashMemo[memoKey] = HashMemo{key.texHash, key.tlutHash, s_textureFrame};
++    auto& entries = s_hashMemo[memoKey].entries;
++    std::move_backward(entries.begin(), entries.end() - 1, entries.end());
++    entries[0] = HashMemo::Entry{key.texHash, key.tlutHash, s_textureFrame};
+     return true;
+   }
+   key.texHash = hash_bytes(obj.data, size);
+@@ -216,6 +264,19 @@ bool make_retail_key(const GXTexObj_& obj, const GXTlutObj_* tlut, RetailTexture
+   return true;
+ }
+ 
++// A replay's key from an earlier frame's hashes that missed the cache: hashed from RAM as it is now,
++// the texels the texture is about to be made from
++void rehash_retail_key(const GXTexObj_& obj, const GXTlutObj_* tlut, RetailTextureKey& key) noexcept {
++  if (!s_keyFromHistory) {
++    return;
++  }
++  s_keyFromHistory = false;
++  key.texHash = hash_bytes(obj.data, recomp::texture_byte_size(obj));
++  key.tlutHash = tlut != nullptr && tlut->data != nullptr
++                     ? hash_bytes(tlut->data, static_cast<size_t>(tlut->numEntries) * 2u)
++                     : 0;
++}
++
+ void store_retail_texture(const RetailTextureKey& key, const gfx::TextureHandle& handle) {
+   if (s_retailTextureCache.size() >= kRetailTextureCacheMax) {
+     s_retailTextureCache.clear();
+@@ -343,6 +404,9 @@ gfx::TextureHandle resolve_static_texture(const GXTexObj_& obj) {
+       pendingHandle = it->second;
+     }
+   }
++  if (retail) {
++    rehash_retail_key(obj, nullptr, retailKey);
++  }
+ 
+   gfx::TextureHandle handle;
+   const uint32_t generation = gfx::texture_replacement::load_generation();
+@@ -403,6 +467,9 @@ gfx::TextureHandle resolve_static_palette_texture(const GXTexObj_& obj, const GX
+       pendingHandle = it->second;
+     }
+   }
++  if (retail) {
++    rehash_retail_key(obj, &tlut, retailKey);
++  }
+ 
+   gfx::TextureHandle handle;
+   const uint32_t generation = gfx::texture_replacement::load_generation();
+@@ -632,6 +699,10 @@ bool in_replay_context() noexcept { return s_replayContext; }
+ 
+ void texture_frame_tick() noexcept { ++s_textureFrame; }
+ 
++u32 texture_frame() noexcept { return s_textureFrame; }
++
++void set_replay_texture_frame(u32 frame) noexcept { s_replayTextureFrame = frame; }
++
+ static void clear_padded_copies() noexcept;
+ 
+ void clear_copy_texture_cache() noexcept {
+diff --git a/GXRuntime/graphics/aurora/lib/gx/gx.hpp b/GXRuntime/graphics/aurora/lib/gx/gx.hpp
+index 40b6ed8..73ad358 100644
+--- a/GXRuntime/graphics/aurora/lib/gx/gx.hpp
++++ b/GXRuntime/graphics/aurora/lib/gx/gx.hpp
+@@ -433,6 +433,11 @@ bool in_replay_context() noexcept;
+ // Starts a new texture-hash frame (the host's display copy): retail textures are hashed once per
+ // frame (see make_retail_key).
+ void texture_frame_tick() noexcept;
++// The texture-hash frame now (the one the game's draws since its last display copy belong to), and
++// the one the replay context's draws should use the hashes of (0: hash RAM as it is): a host's frame
++// interpolation replays a frame after the game has rewritten textures for the next one.
++u32 texture_frame() noexcept;
++void set_replay_texture_frame(u32 frame) noexcept;
+ void evict_copy_texture(const void* dest) noexcept;
+ u64 copy_ram_fingerprint(const void* dest, u32 bytes) noexcept;
+ void evict_texture_object(u32 texObjId) noexcept;

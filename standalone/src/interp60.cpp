@@ -56,6 +56,8 @@ bool aurora_backend_drain_if_over(u32 bytes);
 void aurora_backend_replay_context(int enter);
 int aurora_backend_keep_picture(int slot);
 int aurora_backend_in_replay_context(void);
+unsigned aurora_backend_texture_frame(void);
+void aurora_backend_replay_texture_frame(unsigned frame);
 }
 #endif
 
@@ -129,6 +131,10 @@ struct Frame
   u64 serial = 0;      // set when the recording is handed over (BuildBlendedStream's plan key)
   GpRegisters start;   // the registers when the frame began (the previous frame's XFB copy done)
   bool has_start = false;
+  // Aurora's texture-hash frame of the frame's draws (InterpFrameEndVideo): the replay draws with the
+  // textures they had. The game rewrites some in place every frame (the glyph ring the menus' text goes
+  // through), and by the replay RAM holds the next frame's: other letters (issue #37).
+  u32 texture_frame = 0;
 
   void Clear()
   {
@@ -143,6 +149,7 @@ struct Frame
     sorted = false;
     serial = 0;
     has_start = false;
+    texture_frame = 0;
   }
 };
 
@@ -1338,6 +1345,7 @@ bool Replay(const Frame& frame, const std::vector<u8>& stream, int slot)
       Log("[interp] Aurora's replay context could not be entered: no in-between picture\n");
     return false;
   }
+  aurora_backend_replay_texture_frame(frame.texture_frame);
   static std::vector<u8> cmd;
   cmd.clear();
   DffRegisterCommands(frame.start, cmd);
@@ -1667,6 +1675,7 @@ int InterpFrameEndVideo(const InterpHandoff& handoff, int real_slot, u64 id)
     s_pending.keep_seconds = std::chrono::duration<double>(Clock::now() - t0).count();
     s_ms[0] += s_pending.keep_seconds * 1e3;
   }
+  frame->texture_frame = aurora_backend_texture_frame();
 #else
   (void)real_slot;
 #endif

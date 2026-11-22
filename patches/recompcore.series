@@ -68,3 +68,4 @@ aurora-cache-sample-count
 aurora-upstream-gx
 android-display-rate
 gxruntime-no-arb-mips
+gxruntime-replay-texture-frames
