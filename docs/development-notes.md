@@ -1957,6 +1957,44 @@ pacing statistics' `s_last_picture_kind` side by side; `Present.cpp` already had
   5's test app (ws35 module, `PREGEN` from `ci-codegen.sh TARGETS=android`) re-patched its import to ws35 and
   loaded its ws34 auto-save; the Graphics tab has the Ship battle HUD row.
 
+### Issue #37: menu text garbling at 60 fps, and the menu's blocky side clouds (2026-11-22)
+
+**Text.** The game draws every glyph into one of 512 small I4 textures in turn (`glyph_ring` at `0x8034773C`, its
+position `glyph_ring_pos` at `0x80347738`; decomp `text.c`, `docs/ui.md` "Text queue") and binds that slot for the
+glyph's quad. The 60 fps replay feeds the recorded stream again later, and Aurora hashed the slot's texels from RAM
+again: when the game had already refilled the slot for a later frame, the in-between drew another letter ("Vyse"
+became "hSic" in the reporter's video). Worse, a replay after the frame's display copy (a new texture-hash frame)
+stored that RAM hash as the current frame's, so a real picture could take it too: runs of garbled pictures, real
+ones included. The first glyphs drawn garble (the party's names and HP), the later ones (ship, stats) don't: the next
+frame's last glyphs land in this frame's first slots once a frame draws more than 256.
+Fix (patch `recompcore-gxruntime-replay-texture-frames`, host `interp60.cpp`): the retail-texture hash memo keeps
+four frames per texture; `InterpFrameEndVideo` notes each recording's texture frame
+(`aurora_backend_texture_frame()`, before its display copy is parsed) and `Replay` hands it over
+(`aurora_backend_replay_texture_frame()`); the replay context takes that frame's hashes, which name the texture the
+real frame drew with, and stores none. A key from the history that misses the cache is hashed from RAM before the
+texture is made, so the cache never keeps new texels under an old hash.
+`AURORA_REPLAY_TEXHASH_CHECK=1` prints, every 2000 replay binds, how many took their frame's hashes, how many of those
+RAM no longer matches (binds the old code got wrong or stored), and how many found none (about a quarter: the
+camp menu's 1024x512 buffer, a padded EFB copy in the real context, which the replay context reads from RAM as
+before). Checks (state `build/i1824/state18`, X opens the status menu; `SKIES_POKE="80347738|=00000100"` keeps
+consecutive frames on shared slots with the 3-member party, which draws about 220 glyphs):
+- WSL 60 fps: 0 mismatches with or without the poke (the replay always runs before the game refills the ring there).
+- WSL Display refresh at 144 Hz with the poke: 319 of 2000 binds per block mismatched; Windows RTX Display refresh at
+  240 Hz: 129 in one block without the poke, 364,758 over 16 s with it, all drawn with their frame's texture now.
+  Windows 60 fps: 0. No garbled picture was caught on screen in either build (PrintWindow shots, frame dumps), so
+  the visual check is the reporter's; Android not run.
+
+**Clouds.** The camp menu's side backdrop is drawn from the 1024x512 RGB5A3 buffer at `0x667540` (texcoords about
+0.70, right of column 640): a few texels magnified over each side of a 16:9 picture. The ship's start menu (and the
+battle transition) copies the 640x480 screen into the same buffer's top left (the copy's stride is the buffer's),
+and from then on Aurora draws the buffer as a padded copy (patch 0053): the memory around the copy decoded and
+stretched to the render size, nearest, so each cloud texel became a flat block, until a restart. Fix (patch
+`recompcore-gxruntime-padded-base-bilinear`): the stretch is bilinear (texel-centre aligned), skips the copy's area
+and keeps its taps off the copy's texels (zero in memory). Checked on WSL and Windows from
+`10-worldmap-android.sav` with Start, B, X: the sides match a run without the start menu, and the start menu's own
+picture is unchanged. 1.5x field speed alone (Windows, FPS 45) didn't make the clouds blocky in that state; the
+reporter's speed trigger is probably a copy made on the way (not found).
+
 ### 60 fps: draws know their game object (2026-11-22, after #18 / #24)
 
 **Why.** The 60 fps blend pairs each draw with the previous frame's by what the GX stream shows (vertex

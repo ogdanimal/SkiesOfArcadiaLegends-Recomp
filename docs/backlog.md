@@ -13,6 +13,18 @@ the cut-over: no new Dolphin-engine-only features; items below marked "both buil
 once it ships.
 
 
+## Issue #37: menu text at 60 fps and the menu's blocky clouds — 2026-11-22 (local branch `interp60-warp`, not pushed)
+
+- **Commits:** `6bc2b0f` replays draw with their frame's textures (patch `recompcore-gxruntime-replay-texture-frames`
+  + `interp60.cpp`); `f048d44` the padded copy's base stretched bilinearly (patch
+  `recompcore-gxruntime-padded-base-bilinear`). Also `6f5bd51`, the release session's fix for `SKIES_INTERP_TASKS`
+  being ignored on Android (read before env.txt). Details: development notes, "Issue #37".
+- **Checked:** WSL and Windows (RTX, 240 Hz) for both; the text by counter (`AURORA_REPLAY_TEXHASH_CHECK=1`), not by
+  a garbled picture (none was caught in the old build either). Not: Android, Japan/Europe, the reporter's 4-member
+  menu. Windows test folder `C:\dev\SkiesI37` (its own copy of the sources; `shot37.ps1`); owner decides on cleanup.
+- **Reply to draft:** both fixed for the next build; the field-speed trigger for the clouds wasn't reproduced
+  separately (the start menu one was).
+
 ## 60 fps: object pairing and issue #24 — 2026-11-22 (local branch `interp60-warp`, not pushed)
 
 - **Commits** (worktree `~/projects/skies-interp`, noreply author): `547ada5` the #18 / #24 sprite fix and the FPS
