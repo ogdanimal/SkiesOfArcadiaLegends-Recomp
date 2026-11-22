@@ -28,6 +28,8 @@ SECTIONS
     KEEP(*(.late_bss_ws29))
     /* ws36: widescreen.c's ws_banner_slot. */
     KEEP(*(.late_bss_ws36))
+    /* ws38: widescreen.c's ws_banner_saved. */
+    KEEP(*(.late_bss_ws38))
     /* widescreen.c's HUD width, then qol.c's and camera.c's input blocks, at fixed addresses
      * the frontend writes (Core/SkiesSettings.cpp, VideoCommon/SkiesMenu.cpp). */
     ASSERT(. <= 0x80002E9C, "patch data runs into ws_hud_aspect at 0x80002E9C")
@@ -37,6 +39,9 @@ SECTIONS
     KEEP(*(.qol_input))
     . = 0x80002EC0;
     KEEP(*(.cam_input))
+    /* widescreen.c's letterbox bars (ws37; free before, after the end of cam_input). */
+    . = 0x80002EE8;
+    KEEP(*(.ws_bars))
     /* widescreen.c's ship battle HUD layout (ws35; free before). */
     . = 0x80002EEC;
     KEEP(*(.ws_ship_hud))
@@ -64,6 +69,9 @@ SECTIONS
     *camera.c.o(.trkcave .trkcave.*) *qol.c.o(.trkcave .trkcave.*) *qol.S.o(.trkcave .trkcave.*)
     *autoload.c.o(.trkcave .trkcave.*) *dcmusic.c.o(.trkcave .trkcave.*)
     *cutscene.c.o(.trkcave .trkcave.*)
+    /* Since ws38, new code also fills the bytes left free before the stubs (0x44 in ws36; ws38's
+     * ws_banner_pull_in), since with ws39 and ws40 the area's end is full. */
+    *(.trkcave_gap)
     ASSERT(. <= ADDR(.trkcave) + 0x26F4, "MetroTRK-area code runs into the pinned cutscene stubs")
     . = ADDR(.trkcave) + 0x26F4;
     *(.trkcave_stubs)
@@ -71,7 +79,12 @@ SECTIONS
     *(.trkcave_late)
     /* ws36's code after all of that, for the same reason. */
     *(.trkcave_ws36)
-    /* ws39's (qol.c, issue #36), after ws37's and ws38's when those are in. */
+    /* Then ws37's. */
+    *(.trkcave_ws37)
+    /* Then ws38's. */
+    *(.trkcave_ws38)
+    *(.trkcave_ws38_rodata)
+    /* ws39's (qol.c, issue #36), after ws37's and ws38's. */
     *(.trkcave_ws39)
     /* ws40's (qol.c, issue #36). */
     *(.trkcave_ws40)
