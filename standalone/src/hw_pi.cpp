@@ -101,6 +101,7 @@ void PiWrite(u32 offset, u32 value)
     return;
   case 0x0C:
     g_pi_fifo_base = value & 0xFFFFFFE0u;
+    InterpDisplayListRecorded(g_pi_fifo_base);
     return;
   case 0x10:
     g_pi_fifo_end = value & 0xFFFFFFE0u;

@@ -9,7 +9,8 @@
 // the lists of alike ones aligned by their first vertices) are averaged, values that jump (a camera
 // cut, the menu's fade quad) snap, and a frame with too few counterparts (a scene change) isn't
 // interpolated. Skies transforms vertices on the CPU (Ninja), so positions matter as much as
-// matrices. The blend, Align, Blendable and VertexJumps are the Dolphin build's.
+// matrices. The blend, Align, Blendable and VertexJumps are the Dolphin build's. [Skies] Each draw also
+// records which game object (task) drew it (DrawTask), and two objects' draws are never paired.
 //
 // The game's thread records (InterpCommand, from hw_gpu.cpp); at the frame's XFB copy the recording
 // goes to the video thread (video.cpp) with the frame end, which keeps the real picture there
@@ -93,6 +94,7 @@ struct Prim
   u8 pos_count;     // 2 or 3
   u64 key;
   u32 texture;      // texture unit 0's image address: draws of one object share it
+  u32 task = 0;     // the game object (task) that drew it, 0 if not known (DrawTask)
 };
 
 // Vertex array data a draw reads by index, copied when it was drawn.
@@ -186,6 +188,64 @@ u64 s_stat_loads = 0, s_stat_prims = 0, s_stat_loads_blended = 0, s_stat_prims_b
     s_stat_words_changed = 0, s_stat_draws = 0, s_stat_prims_changed = 0;
 u64 s_stat_repaired = 0;  // draws paired across a texture change (issue #18)
 u64 s_stat_collapsed = 0, s_stat_matrix_snaps = 0;  // draws and matrices snapped as turning round (issue #35)
+u64 s_stat_tasked = 0, s_stat_kept_apart = 0;  // draws with a known object; pairings refused as two objects'
+// Which game object drew each draw (the game's thread). Skies runs every object as a task (decomp
+// docs/draw.md: TaskRunAll calls each task's function, which updates and draws it), and the running task is
+// at 0x80311A7C (USA), so a draw made inside TaskRunAll's call belongs to that task. Most draws go straight into
+// the FIFO: hw_gpu.cpp takes the object at the FIFO burst that brought a command's first bytes, which is
+// while the game writes it (the GPU runs synchronously). The draw queue's display lists (battles, cutscene
+// models) are recorded inside the task's call and replayed later, sorted by depth: the object is taken
+// when GXBeginDisplayList points the CPU FIFO at the block (the PI FIFO base) and looked up when the block
+// is called. Draws made outside TaskRunAll (TaskRunDeferred doesn't update the running task; the 2D layer) get
+// 0. The pairing below never pairs two different objects' draws: alike sprites of two objects that depth
+// sorting swaps (#18, #24) stay apart; an object's own draws are paired as before.
+std::unordered_map<u32, u32> s_dl_tasks;  // block address (physical) -> task, this frame
+u32 s_dl_task = 0;                        // the top-level display list being replayed
+bool s_in_dl = false;
+u32 s_top_task = 0;                       // the top-level command being applied
+bool s_tasks_on = [] {  // SKIES_INTERP_TASKS=0: don't use the objects (to compare)
+  const char* env = std::getenv("SKIES_INTERP_TASKS");
+  return !env || env[0] != '0';
+}();
+
+// The game's addresses per region (USA; Europe and Japan from tools/dolmatch.py's map, exact matches):
+// the running task, TaskRunAll (0x244 bytes) and TaskRunDeferred (0x164 bytes)
+struct TaskAddresses
+{
+  u32 running, run_all, run_deferred;
+};
+const TaskAddresses& Tasks()
+{
+  static constexpr TaskAddresses USA{0x80311A7C, 0x8022642C, 0x80226984};
+  static constexpr TaskAddresses EUR{0x803150FC, 0x802290DC, 0x80229634};
+  static constexpr TaskAddresses JAP{0x803114FC, 0x802261A4, 0x802266FC};
+  const u8 code = DiscHeader()[3];  // the game id's region letter
+  return code == 'P' ? EUR : code == 'J' ? JAP : USA;
+}
+
+// The running task, if the guest is inside TaskRunAll's call of it now: a saved return address on the
+// guest stack (each frame's back chain word, the caller's return address at the frame above +4) inside
+// TaskRunAll and none inside TaskRunDeferred first.
+u32 DrawTask()
+{
+  const TaskAddresses& t = Tasks();
+  u32 sp = g_cpu.gpr[1];
+  for (int i = 0; i < 32; ++i)
+  {
+    if (sp < 0x80000000u || sp >= 0x81800000u)
+      return 0;
+    const u32 next = Read32(sp);
+    if (next < 0x80000000u || next >= 0x81800000u || next <= sp)
+      return 0;
+    const u32 ret = Read32(next + 4);
+    if (ret >= t.run_all && ret < t.run_all + 0x244)
+      return Read32(t.running);
+    if (ret >= t.run_deferred && ret < t.run_deferred + 0x164)
+      return 0;
+    sp = next;
+  }
+  return 0;
+}
 // The game's thread
 std::vector<size_t> s_unkeyed;  // loads in s_current still waiting for the draw that uses them
 bool s_on_game = false;         // recording
@@ -607,7 +667,16 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
   // without a partner is drawn as it is. partner[i]: the previous frame's draw for prims[i].
   static std::vector<const Prim*> partner;
   partner.assign(cur_frame.prims.size(), nullptr);
+  // Two different objects' draws (DrawTask) are never paired
+  const auto apart = [](const Prim& cur, const Prim& prev) { return cur.task != 0 && prev.task != 0 && cur.task != prev.task; };
+  for (const Prim& prim : cur_frame.prims)
+    s_stat_tasked += prim.task != 0 ? 1 : 0;
   const auto set_partner = [&](const Prim* cur, const Prim* prev) {
+    if (apart(*cur, *prev))
+    {
+      ++s_stat_kept_apart;
+      return;
+    }
     partner[static_cast<size_t>(cur - cur_frame.prims.data())] = prev;
   };
   static std::vector<const Prim*> cur_list, prev_list;
@@ -657,6 +726,8 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
     first_vertices(cur_frame, cur_list, &cur_first);
     first_vertices(prev_frame, prev_list, &prev_first);
     const auto distance = [&](int i, int j) {
+      if (apart(*cur_list[i], *prev_list[j]))
+        return 1e30f;
       const float sum = std::fabs(cur_first[i][0] - prev_first[j][0]) +
                         std::fabs(cur_first[i][1] - prev_first[j][1]) +
                         std::fabs(cur_first[i][2] - prev_first[j][2]);
@@ -769,7 +840,11 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
             const Prim& old = prev_frame.prims[pj];
             // Same texture: the alignment above left it unpaired on purpose (a particle that went,
             // another that came), unless both were a released pair's
-            if (old.texture == prim.texture && !(cur_released[ci] && prev_released[pj]))
+            // (or the same object's: the alignment's band can miss an object that moved far in the draw order)
+            if (old.texture == prim.texture && !(cur_released[ci] && prev_released[pj]) &&
+                !(prim.task != 0 && prim.task == old.task))
+              continue;
+            if (apart(prim, old))
               continue;
             const u8* prev = first_position(prev_frame, old);
             if (VertexJumps(cur, prev, prim.pos_count))
@@ -1086,7 +1161,8 @@ void NoteDraw(const u8* p, u32 len)
   {
     frame.prims.push_back(Prim{static_cast<u32>(frame.stream.size() + 3), num_vertices,
                                static_cast<u16>(size / num_vertices), pos_offset,
-                               static_cast<u8>(pos_format), static_cast<u8>(pos_count), key, texture});
+                               static_cast<u8>(pos_format), static_cast<u8>(pos_count), key, texture,
+                               s_in_dl ? s_dl_task : s_top_task});
   }
   // Not the vertex data itself: CPU-skinned models change it every frame.
   for (size_t index : s_unkeyed)
@@ -1302,6 +1378,55 @@ bool Replay(const Frame& frame, const std::vector<u8>& stream, int slot)
 #endif
 }  // namespace
 
+void InterpDisplayListRecorded(u32 base)
+{
+  if (s_on_game && s_recording && s_tasks_on)
+    s_dl_tasks[base & 0x01FFFFFFu] = DrawTask();
+}
+
+void InterpDisplayListCall(u32 address, int depth, bool begin)
+{
+  if (depth != 0)
+    return;
+  s_in_dl = begin;
+  s_dl_task = 0;
+  if (!begin)
+    return;
+  const auto it = s_dl_tasks.find(address & 0x01FFFFFFu);
+  if (it != s_dl_tasks.end())
+    s_dl_task = it->second;
+}
+
+u32 InterpDrawTask()
+{
+  if (!s_on_game || !s_recording || !s_tasks_on)
+    return 0;
+  // At every 32-byte FIFO burst: while the same function (stack pointer, the two innermost return
+  // addresses) is writing, the answer can't have changed
+  static u32 last_sp = 0, last_ret = 0, last_ret2 = 0, last_running = 0, last_task = 0;
+  const u32 sp = g_cpu.gpr[1];
+  const u32 back = sp >= 0x80000000u && sp < 0x81800000u ? Read32(sp) : 0;
+  const bool back_ok = back >= 0x80000000u && back < 0x81800000u;
+  const u32 ret = back_ok ? Read32(back + 4) : 0;
+  const u32 back2 = back_ok ? Read32(back) : 0;
+  const u32 ret2 = back2 >= 0x80000000u && back2 < 0x81800000u ? Read32(back2 + 4) : 0;
+  const u32 running = Read32(Tasks().running);
+  if (sp != last_sp || ret != last_ret || ret2 != last_ret2 || running != last_running)
+  {
+    last_sp = sp;
+    last_ret = ret;
+    last_ret2 = ret2;
+    last_running = running;
+    last_task = DrawTask();
+  }
+  return last_task;
+}
+
+void InterpTopLevelTask(u32 task)
+{
+  s_top_task = task;
+}
+
 void InterpCommand(const u8* p, u32 len)
 {
   if (!s_recording)
@@ -1387,6 +1512,7 @@ InterpHandoff InterpFrameEndGame()
       load.occurrence = seen[LoadId{load.key, (u32{load.address} << 8) | load.count}]++;
   }
   s_unkeyed.clear();
+  s_dl_tasks.clear();
   handoff.complete = s_recording && s_current->has_start && !s_current->stream.empty();
   s_current->serial = ++s_serial;
   handoff.frame = s_current;
@@ -1460,16 +1586,17 @@ void LogStats()
   if (s_stats)
   {
     Log("[interp] per blend %.1f draws, %.1f matrix loads (%.1f blended, %.1f changed), %.1f with "
-        "positions (%.1f blended, %.1f changed, %.2f paired across a texture change, %.2f snapped turning, %.2f matrices snapped turning); ms per frame: keep real %.2f, blend %.2f, enter "
+        "positions (%.1f blended, %.1f changed, %.2f paired across a texture change, %.2f snapped turning, %.2f matrices snapped turning, %.1f with their object, %.2f kept apart); ms per frame: keep real %.2f, blend %.2f, enter "
         "%.2f, feed %.2f, keep in-between %.2f, leave %.2f\n",
         s_stat_draws / 600.0, s_stat_loads / 600.0, s_stat_loads_blended / 600.0,
         s_stat_words_changed / 600.0, s_stat_prims / 600.0, s_stat_prims_blended / 600.0,
         s_stat_prims_changed / 600.0, s_stat_repaired / 600.0, s_stat_collapsed / 600.0, s_stat_matrix_snaps / 600.0,
-        s_ms[0] / 600, s_ms[1] / 600, s_ms[2] / 600, s_ms[3] / 600,
+        s_stat_tasked / 600.0, s_stat_kept_apart / 600.0, s_ms[0] / 600, s_ms[1] / 600, s_ms[2] / 600, s_ms[3] / 600,
         s_ms[4] / 600, s_ms[5] / 600);
   }
   s_stat_loads = s_stat_prims = s_stat_loads_blended = s_stat_prims_blended = s_stat_words_changed =
-      s_stat_draws = s_stat_prims_changed = s_stat_repaired = s_stat_collapsed = s_stat_matrix_snaps = 0;
+      s_stat_draws = s_stat_prims_changed = s_stat_repaired = s_stat_collapsed = s_stat_matrix_snaps =
+      s_stat_tasked = s_stat_kept_apart = 0;
   std::fill(std::begin(s_ms), std::end(s_ms), 0.0);
 }
 }  // namespace

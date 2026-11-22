@@ -396,7 +396,12 @@ Effect Apply(const u8* p, u32 len, int depth)
   case 0x61:
     return BpWrite(p[1], (u32(p[2]) << 16) | (u32(p[3]) << 8) | p[4]);
   case 0x40:
-    return ParseDisplayList(BE32(p + 1), BE32(p + 5), depth + 1) ? Effect::Sync : Effect::None;
+  {
+    InterpDisplayListCall(BE32(p + 1), depth, true);
+    const bool sync = ParseDisplayList(BE32(p + 1), BE32(p + 5), depth + 1);
+    InterpDisplayListCall(BE32(p + 1), depth, false);
+    return sync ? Effect::Sync : Effect::None;
+  }
   default:
     return Effect::None;
   }
@@ -428,6 +433,9 @@ bool ParseDisplayList(u32 address, u32 size, int depth)
 
 // FIFO bytes not yet forming a whole command
 std::vector<u8> s_pending;
+// For 60 fps (interp60.cpp): the game object drawing when each 32-byte chunk of s_pending came in
+// (offset, task), which is while the game writes it (the GPU runs synchronously)
+std::vector<std::pair<u32, u32>> s_pending_tasks;
 
 // Whether Aurora reads guest RAM for the command: draws (indexed arrays, textures), display lists,
 // indexed XF loads, TLUT loads and TMEM preloads (BP 0x60-0x67)
@@ -448,6 +456,12 @@ void ProcessCommands()
     const u32 len = CommandLength(s_vtx, data + pos, size - pos);
     if (len == 0)
       break;
+    {
+      size_t k = 0;
+      while (k + 1 < s_pending_tasks.size() && s_pending_tasks[k + 1].first <= pos)
+        ++k;
+      InterpTopLevelTask(k < s_pending_tasks.size() ? s_pending_tasks[k].second : 0);
+    }
     const Effect effect = Apply(data + pos, len, 0);
     reads_ram |= ReadsRam(data + pos);
     if (effect == Effect::Sync)
@@ -477,11 +491,21 @@ void ProcessCommands()
   if (pos > sent)
     VideoCommands(data + sent, pos - sent, reads_ram);
   s_pending.erase(s_pending.begin(), s_pending.begin() + pos);
+  // The chunk holding the new first byte stays, at offset 0
+  size_t k = 0;
+  while (k + 1 < s_pending_tasks.size() && s_pending_tasks[k + 1].first <= pos)
+    ++k;
+  s_pending_tasks.erase(s_pending_tasks.begin(), s_pending_tasks.begin() + static_cast<long>(k));
+  for (auto& chunk : s_pending_tasks)
+    chunk.first = chunk.first > pos ? chunk.first - pos : 0;
+  if (s_pending.empty())
+    s_pending_tasks.clear();
 }
 
 void RunGpu()
 {
   bool consumed = false;
+  const u32 task = InterpDrawTask();
   while ((s_cp_ctrl & CTRL_READ_ENABLE) && s_fifo.distance > 0)
   {
     if ((s_cp_ctrl & CTRL_BP_ENABLE) && s_fifo.rp == s_fifo.bp)
@@ -492,6 +516,7 @@ void RunGpu()
       Log("[gpu] FIFO read pointer %08x outside RAM\n", s_fifo.rp);
       break;
     }
+    s_pending_tasks.emplace_back(static_cast<u32>(s_pending.size()), task);
     s_pending.insert(s_pending.end(), src, src + 32);
     s_fifo.rp = s_fifo.rp == s_fifo.end ? s_fifo.base : s_fifo.rp + 32;
     s_fifo.distance -= 32;
@@ -587,6 +612,7 @@ void GpuInit()
   s_vtx = {};
   s_vsize_valid = 0;
   s_pending.clear();
+  s_pending_tasks.clear();
   s_gp_ptr = s_gp;
 }
 

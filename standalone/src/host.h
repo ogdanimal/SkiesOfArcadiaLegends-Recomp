@@ -233,6 +233,14 @@ void DffRegisterCommands(const GpRegisters& regs, std::vector<u8>& fifo);
 // interp60.cpp: 60 fps, the Dolphin build's frame interpolation (VideoCommon/FrameInterpolator).
 // Every command of a game frame, top level and inside display lists (hw_gpu.cpp Apply).
 void InterpCommand(const u8* p, u32 len);
+// The game object (task) drawing now, 0 if not known (interp60.cpp DrawTask): at a FIFO burst (hw_gpu.cpp),
+// and the one of the top-level command about to be applied
+u32 InterpDrawTask();
+void InterpTopLevelTask(u32 task);
+// The CPU FIFO pointed at a new base (GXSetCPUFifo: a display list's recording begins there), hw_pi.cpp
+void InterpDisplayListRecorded(u32 base);
+// A top-level CALL_DL (depth 0) begins or ends (hw_gpu.cpp Apply): its draws carry the block's object
+void InterpDisplayListCall(u32 address, int depth, bool begin);
 // The frame's XFB copy on the game's thread: the frame's recording, for the video thread.
 struct InterpHandoff
 {

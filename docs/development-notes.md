@@ -1957,6 +1957,67 @@ pacing statistics' `s_last_picture_kind` side by side; `Present.cpp` already had
   5's test app (ws35 module, `PREGEN` from `ci-codegen.sh TARGETS=android`) re-patched its import to ws35 and
   loaded its ws34 auto-save; the Graphics tab has the Ship battle HUD row.
 
+### 60 fps: draws know their game object (2026-11-22, after #18 / #24)
+
+**Why.** The 60 fps blend pairs each draw with the previous frame's by what the GX stream shows (vertex
+format, count, texture, first vertices). Skies draws most objects with alike quads and sorts see-through
+ones by depth, so two objects' draws could pair with each other (the #18 / #24 class), and the matcher
+could only guess. The decompilation (decomp `docs/draw.md`) shows the game knows: every object is a
+task, `TaskRunAll` (`0x8022642C`, 0x244 bytes) calls each task's function, which updates and draws it, and
+the running task is at `0x80311A7C` (Europe `0x803150FC` / `0x802290DC`, Japan `0x803114FC` /
+`0x802261A4`, from dolmatch's map, exact matches). No game patch is needed.
+
+**How (`interp60.cpp` `DrawTask`, `hw_gpu.cpp`, `hw_pi.cpp`).**
+- A draw's object is the running task if the guest is inside `TaskRunAll`'s call of it: walking the guest
+  stack's back chain (each frame's saved return address at the frame above +4) finds a return address in
+  `TaskRunAll` before one in `TaskRunDeferred` (`0x80226984`, which doesn't update the running task: its
+  draws, and the 2D layer's, get no object). The recompiled code keeps `r1` and the saved LRs in guest RAM,
+  so the walk works; a trace showed the expected chains (`GXBeginDisplayList` <- `DrawDlBegin` <-
+  `DrawModelRecord` <- wrapper <- object code <- `TaskRunAll`).
+- Most draws go straight into the FIFO (the pyramid: 1,762 of 1,836 per frame; the draw queue is used for
+  battles and cutscene models). The GPU runs synchronously, so `hw_gpu.cpp` takes the object at each
+  32-byte burst (`InterpDrawTask`, cached while the stack pointer and two innermost return addresses
+  stay the same) and gives each top-level command the object of the burst that brought its first byte.
+- The draw queue records display lists inside the task's call and replays them sorted at the frame's end:
+  the object is taken when `GXBeginDisplayList` points the CPU FIFO at the block (the PI FIFO base write)
+  and looked up when the replay's top-level `CALL_DL` reaches that block.
+- `BuildPlan`: two different objects' draws are never paired (the alignment's distance, the pairs it
+  makes, the texture-change pass). The texture-change pass may now pair two leftover draws of the same
+  texture if they are the same object's (the alignment's band misses an object that moved far in the
+  draw order); before, same-texture leftovers stayed apart on purpose (a particle that went, another that
+  came), which the object now tells apart. `SKIES_INTERP_TASKS=0` turns it off (to compare). Stats:
+  "with their object", "kept apart".
+
+**What didn't work** (each measured, then dropped):
+- Pairing by an identity of call chain + task + occurrence number. A particle pool is drawn by two code
+  paths and its quads move between them, and a tree sorts its leaves by depth each frame, so the
+  occurrence number isn't identity: jumps, and the tree's in-between drawn denser than both frames.
+- Inside one object, pairing by nearest whole draw: a tree's swaying leaf triangles are nearer to their
+  neighbour than to themselves a frame later. The stream order within an object is meaningful.
+- Snapping per object instead of per texture when a draw jumps or turns round: a tree's billboards turn
+  together, and snapping only the turning ones tore the tree.
+
+**Checked (WSL, USA unless said, `SKIES_INTERP=1`, 600 frames each, per frame):**
+| Scene (state) | Draws | With their object | Blended, objects off -> on | Notes |
+|---|---|---|---|---|
+| Opening cutscene (`01`) | 4,210 | 4,111 | 4,178.0 -> 4,209.8 | 31.8 more paired, all by the same-object rule of the texture-change pass |
+| First battle (`02`) | 1,068 | 984 | 1,067.6 -> 1,067.6 | |
+| World map (`10`) | 1,910 | 715 | 1,909.8 -> 1,909.8 | most draws outside `TaskRunAll` |
+| Save point (`05`) | 2,326 | 2,297 | 2,325.7 -> 2,325.7 | |
+| Antonio (`19`) | 3,560 | 3,324 | 3,560.1 -> 3,560.1 | |
+| Pirate Isle (`21`, pal60 states) | 2,074 | 2,055 | 2,021.0 -> 2,022.2 | each smoke particle (one task each) now pairs with itself, not its neighbour |
+| Pyramid flames (#18 state) | 1,822 | 1,581 | 1,771.1 -> 1,772.5 | |
+
+No pairing was refused outright ("kept apart" 0): the objects change the alignment's choices (its distance)
+and let the texture-change pass pair an object's own leftovers. The gain is small where the matcher was
+already right; what changes is that a pair can no longer join two objects.
+In-betweens compared (`tools/interp-check.py`, 30 each): Pirate Isle 0 out-of-range tiles with and without
+(an earlier identity variant made a whole tile out of range on its tree); the opening the same small
+score both ways. Europe (`eu-05-pirate-base-ws23.sav`, ws36 module): 2,324 of 2,349 draws with their
+object. Blend cost unchanged (the blend's ms within noise).
+**Not checked:** Japan (addresses only), Windows, Android, the game thread's cost on a weak device (the
+walk runs at most once per FIFO burst while the caller changes).
+
 ### 60 fps: sprites drawn a frame ahead, and the FPS counter (2026-11-22, issues #18 and #24)
 
 **What the reporter saw (v0.91.0-beta, the new engine):** #18, the pyramid's flames jump at 60 fps and are
