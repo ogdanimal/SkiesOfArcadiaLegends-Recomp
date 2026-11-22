@@ -13,6 +13,16 @@ the cut-over: no new Dolphin-engine-only features; items below marked "both buil
 once it ships.
 
 
+## Issue #36: ship battle at 0 HP with Invincible on — 2026-11-22 (local branch `interp60-warp`, not pushed)
+
+- **Fix:** ws39, `qol_ship_phase_ws39` refills a ship at 0 before a phase while Invincible is on (development
+  notes, "Issue #36"). `release/*.dolpatch` regenerated from this branch (ws36 + ws39); when the release
+  session's ws37 / ws38 come in, `.trkcave_ws39` goes after theirs and the three patches are made again.
+- **Checked:** WSL, Recumen (map 506) by warp, ws36 vs ws39, cheat on and off; an old mid-battle state.
+  Not: Windows, Android, Europe, Japan (the same game code; the European / Japanese patches are built and
+  their symbols checked, not run). How the reporter's ship reached 0 with the cheat on is not known.
+- **Reply to draft:** fixed for the next build; ask whether the cheat was turned on during the fight.
+
 ## Issue #37: menu text at 60 fps and the menu's blocky clouds — 2026-11-22 (local branch `interp60-warp`, not pushed)
 
 - **Commits:** `6bc2b0f` replays draw with their frame's textures (patch `recompcore-gxruntime-replay-texture-frames`

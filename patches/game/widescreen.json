@@ -203,8 +203,8 @@
     {
       "site": "0x80144E3C",
       "target": "fn_8014419C",
-      "to": "qol_ship_phase",
-      "why": "fn_80144CE4: a ship battle phase's HP changes (qol.c, Invincible)"
+      "to": "qol_ship_phase_ws39",
+      "why": "fn_80144CE4: a ship battle phase's HP changes (qol.c, Invincible; ws39: a ship at 0 HP refilled first, issue #36)"
     },
     {
       "site": "0x801DC4D8",

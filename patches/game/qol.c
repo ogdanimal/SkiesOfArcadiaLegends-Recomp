@@ -456,3 +456,17 @@ TRK_CAVE void qol_frame(void) {
 /* 0x801DC4D8 (qol_wait_retrace in qol.S, which tail-calls VIWaitForRetrace so the game never waits
  * inside patch code): skipped in a frame qol_frame gave no retrace. Returns nonzero to skip it. */
 TRK_CAVE int qol_skip_wait(void) { return qol_fast() && qol_frame_retraces == 0; }
+
+/* ws39 (issue #36): the phase hook at 0x80144E3C, ahead of qol_ship_phase (left in place). With Invincible on, a
+ * ship already at 0 HP is refilled first: BtlShipApplyPhase ends the battle whenever the party's ship is at 0 after
+ * any phase, the party's own included, and qol_refill_ship only refills a ship above 0. A ship left at 0 (Recumen's
+ * fight goes on after its Red Ray whatever the ship's HP, so with Invincible turned on late it stayed at 0) then
+ * lost at the next turn's first phase although nothing hit it. */
+__attribute__((section(".trkcave_ws39"))) void qol_ship_phase_ws39(int phase, int side) {
+  if (qol_on() && qol_input.invincible && qol_ram(SHIP_BATTLE_DATA)) {
+    unsigned char *ship = *(unsigned char **)(SHIP_BATTLE_DATA + 0x20);
+    if (qol_ram(ship) && *(int *)(ship + 0x18) <= 0 && *(int *)(ship + 0x14) > 0)
+      *(int *)(ship + 0x18) = *(int *)(ship + 0x14);
+  }
+  qol_ship_phase(phase, side);
+}

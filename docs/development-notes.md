@@ -1957,6 +1957,33 @@ pacing statistics' `s_last_picture_kind` side by side; `Present.cpp` already had
   5's test app (ws35 module, `PREGEN` from `ci-codegen.sh TARGETS=android`) re-patched its import to ws35 and
   loaded its ws34 auto-save; the Graphics tab has the Ship battle HUD row.
 
+### Issue #36: ship battle at 0 HP with Invincible on (2026-11-22, ws39)
+
+**What happened.** The reporter's fight is Recumen (map 506, Nasr). After its Red Ray the party talks, and Vyse's
+"I never give up" keeps the fight going into a second phase (the other answer ends it); it is a dialogue choice,
+not a game-over retry. The fight goes on whatever the ship's HP: with the ship at 0 the second phase opens at
+"Hp 0", as in the reporter's screenshot. `BtlShipApplyPhase` (`fn_8014419C`) then ends the battle (outcome 3,
+`lbl_80347278` = 3) whenever the party's ship is at 0 after any phase, the party's own included, and Invincible's
+per-frame refill (`qol_refill_ship`) only refills a ship above 0, so with the cheat on the ship still lost at the
+next turn. How the reporter's ship got to 0 with the cheat on isn't known: with Invincible on from the start no
+damage lands at all (no writes to the HP through the Red Ray and two later phases); turning the cheat on during the
+fight, or a state from before, would do it.
+**Fix (ws39, `qol.c` `qol_ship_phase_ws39`, the redirect at `0x80144E3C`):** with Invincible on, a ship at 0 HP is
+refilled before the phase is applied, then `qol_ship_phase` runs as before (left in place; the new code is in
+`.trkcave_ws39`, no older symbol moved). The "HP full at command selection, damage shown during the turn" the
+reporter also saw is how Invincible works: the hook restores the damage figures after zeroing them, so the hits
+still animate.
+**Test route** (`build/i36/run501.sh`, WSL): `10-worldmap-android.sav` (before the Little Jack) with the Little
+Jack's record poked in (`0x8030CD5C`: ship 0, name, HP 10000 at `+0x14`, weapons `0x0190`, `0x019A` at `+0x18`),
+then the map warp (`me506a.sct` into `0x80305CF0`, `0x0F` into `0x80311AEC`); the battle's HP word is `0x80306640`
+(the party side `0x803063F0 + 0x238 + 0x18`), the battle data `0x80E86E60` (outcome at `+4`). Other ship battle
+maps: 501 Valuan cruiser, 503 Baltor, 509/514 Chameleon, 510 Valuan gunboat, 513 Roc, 519 Fortress Gate, 530
+Draco; Gigas scripts: 506, 531, 535, 547 (from the `me5xxa.sct` scripts, AKLZ-decompressed with
+`build/i36/tools/aklz.py`). Checks: Invincible on, HP poked to 0 at +40 s: ws36 keeps 0 and sets outcome 3 at the
+next turn; ws39 refills it at the turn's plan (`80144dcc`), outcome 0, through four more turns. Invincible off:
+the Red Ray takes 10000 to 6620 on both. The Baltor state (`17b`, made mid-battle) loads and runs on ws39.
+Windows and Android not run: the change is game code, recompiled the same for every target.
+
 ### Issue #37: menu text garbling at 60 fps, and the menu's blocky side clouds (2026-11-22)
 
 **Text.** The game draws every glyph into one of 512 small I4 textures in turn (`glyph_ring` at `0x8034773C`, its

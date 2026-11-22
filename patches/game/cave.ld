@@ -71,6 +71,8 @@ SECTIONS
     *(.trkcave_late)
     /* ws36's code after all of that, for the same reason. */
     *(.trkcave_ws36)
+    /* ws39's (qol.c, issue #36), after ws37's and ws38's when those are in. */
+    *(.trkcave_ws39)
   }
   ASSERT(. <= 0x80257AF8, "patch code doesn't fit in the MetroTRK area (0x802548E8-0x80257AF8)")
   /DISCARD/ : { *(.comment) *(.eh_frame) *(.note*) }
