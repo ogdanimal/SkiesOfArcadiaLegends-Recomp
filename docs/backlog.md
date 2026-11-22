@@ -13,6 +13,14 @@ the cut-over: no new Dolphin-engine-only features; items below marked "both buil
 once it ships.
 
 
+## After the next release — decided 2026-11-22
+
+The owner: the follow-ups from the 2026-11-22 comments wait until after the release: #25 (the bottom-right HUD
+element clips a little on a miss), #22 (a slight stretch on Drachma's first arm slam), #23 (the turret shadows
+make two textures in `field/a116c.mld` see-through, hashes `2d1b88e460bcc6bd`, `5c19e6aa4e74d492`), #34 (the black
+bars in the second intro). Check what the release session's `notes-091` work covers first. The #36 / #37 replies
+go out after the release.
+
 ## Issue #36: ship sunk with Invincible on, retry at 0 HP — 2026-11-22 (local branch `interp60-warp`, not pushed)
 
 - **Fixes:** ws40 (the cause: the playback's HP gauge sank the ship) and ws39 (a ship at 0 refilled before a phase);
@@ -21,7 +29,8 @@ once it ships.
 - **Checked:** WSL USA, ws36 vs ws40 with the release session's repro, cheat on and off; Pocket 5 (ws40 APK, the
   same repro, cheat on: HP 10000 through 330 s, no loss). Not: Windows, Europe / Japan run (built, symbols and
   tables checked).
-- **Reply to draft:** fixed for the next build: with Infinite HP on, the bar no longer counts hits, the ship can't
+- **Reply:** drafted (`build/i37/replies-36-37.md`, local), to post after the release on the owner's word.
+- (old note) fixed for the next build: with Infinite HP on, the bar no longer counts hits, the ship can't
   sink, and a ship left at 0 by an earlier build is refilled.
 
 ## Issue #37: menu text at 60 fps and the menu's blocky clouds — 2026-11-22 (local branch `interp60-warp`, not pushed)
@@ -33,7 +42,7 @@ once it ships.
 - **Checked:** WSL, Windows (RTX, 240 Hz), Pocket 5 and Thor for both; the text by counter
   (`AURORA_REPLAY_TEXHASH_CHECK=1`), not by a garbled picture (none was caught in the old build either). Not:
   Japan/Europe, the reporter's 4-member menu. Test APK on both devices' .test app: `skies-recomp-i40b` (this branch). Windows test folder `C:\dev\SkiesI37` (its own copy of the sources; `shot37.ps1`); owner decides on cleanup.
-- **Reply to draft:** both fixed for the next build; the field-speed trigger for the clouds wasn't reproduced
+- **Reply:** drafted with #36's (`build/i37/replies-36-37.md`), to post after the release. (old note) both fixed for the next build; the field-speed trigger for the clouds wasn't reproduced
   separately (the start menu one was).
 
 ## 60 fps: object pairing and issue #24 — 2026-11-22 (local branch `interp60-warp`, not pushed)
