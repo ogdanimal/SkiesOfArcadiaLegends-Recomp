@@ -32,18 +32,24 @@ Simplifications, biggest first:
 - Build the patched Dawn once per Dawn version and publish the packages as release assets that CI downloads
   (small and independent: the suggested first step).
 
-## v0.91.0-beta issue round — 2026-11-21 (on `origin/dev` `21e6c02`, unreleased)
+## v0.91.0-beta issue round — 2026-11-21 (RELEASED in v0.91.0-beta, 2026-11-22, tag on `21e6c02`)
 
 - **Done, in v0.91:** #35 blocky see-through textures (`823db67`), #25 Ship battle HUD "Bar + grid centred" (`88f931e`),
   game patch ws36 (`d9b5384`): #21 Sailors' Island bridge scenery, #25 attack names at the edges, #22 screen plane at
   the picture's width. Checked on WSL (all discs), Windows, the Pocket 5 and the Mac (development notes, *Issues
   #21-#35 round*). #22 not yet seen in Drachma's pose itself.
-- **#23:** the original art (drop-shadow decals); answer after the release, no fix.
+- **#23:** the original art (drop-shadow decals); no fix, answered 2026-11-22.
 - **#34 throne-room flicker on Adreno (owner: not in v0.91):** the draw-order depth bias
   (`build/fable-34/aurora-order-bias.diff` in the issues worktree, `AURORA_ORDER_BIAS`) fixes it on the Thor at 6e-5.
   Next: a sweep of many states with and without it (every difference looked at), then probably on by default on
   Android only. Reporter answered 2026-11-21.
-- **After publishing:** the replies in `build/issue-replies-1121.md` (#35, #25, #21, #22, #23).
+- **Replies posted** 2026-11-22 after publishing: #35, #25, #21, #22, #23. #16 (damage digits on M4) confirmed
+  fixed by the reporter and closed.
+- **#29 HD fonts (open):** shoopkid's font textures (78 glyphs, one character per Dolphin `tex1_24x24_` texture,
+  8x) work through the HD texture import as they are (checked with the v0.91 Linux build: dialogue and battle
+  names go sharp, the number font doesn't change); BC7 DDS won't load on most phones (use the PNG set), and the
+  "?" file in both zips carries a stray `(1)` in its name. Never bundle them (game-derived art, no licence).
+  Possible next step: a font-only import / separate switch so fonts don't need a full pack. Results posted.
 
 ## Uncapped frame rate — BUILT 2026-11-20 (#20), on `origin/aurora-backend` (`bab367e`, Android `ec84654`)
 
