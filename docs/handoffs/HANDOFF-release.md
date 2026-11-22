@@ -250,7 +250,8 @@ an Android APK that closed at Start Game: only debug test APKs were ever run, an
   folders in `C:\dev\SkiesStandalone`, plus the Dolphin-era test folders `C:\dev\SkiesAuroraRun`, `SkiesUncensor`,
   `SkiesPerf`, `SkiesLang`, `SkiesCI`, `SkiesPal60`, `SkiesGfx`, `apk`, `fmabench`, `skiesperf-src.tar` and old Skies
   APKs in `C:\Users\Public` (~45 GB). Kept: `SkiesRecomp` and `SkiesRomhack` (the Dolphin side of the performance
-  comparison, for the cut-over's re-measurement), `SkiesIssues` (the owner's #24 VRR test), `SkiesStandalone`,
+  comparison, for the cut-over's re-measurement), `SkiesIssues` (the owner's #24 VRR test), `SkiesInterp` (2026-11-22: the `interp60-warp` build, its
+  run folder and test logs; `lib` there is a junction to `SkiesStandalone\lib`, so delete only the junction), `SkiesStandalone`,
   `SkiesAurora` (its build takes Dawn / libpng / zlib from there), `dawn-src`, the LLVM toolchain. Handoffs that
   name the deleted folders describe past work.
 

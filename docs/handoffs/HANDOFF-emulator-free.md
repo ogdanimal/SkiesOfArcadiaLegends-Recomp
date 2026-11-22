@@ -1248,6 +1248,9 @@ a CI symbol upload with an auth token and a consent screen).
   1 s with 10% room), and `ReplayFits` ignores replays in this mode. `SKIES_DISPLAY_TRACE`, `SKIES_DISPLAY_HZ`,
   `SKIES_MAX_FPS` / `[Skies] MaxFrameRate`. Launchers: `moderngekko-display-rate.patch`,
   `recompcore-android-display-rate.patch`.
+  2026-11-22 (local branch `interp60-warp`): the FPS counter counts presented pictures (`547ada5`), and each draw
+  carries its game object so two objects never pair (`b8772b2`, `ab10b24`); see the backlog's "60 fps: object
+  pairing and issue #24".
 - `90fecab` **Crash reports** (`crash.cpp`): signal / exception, native stack as module + offset, the game CPU's
   last registers, into the log; Windows minidump `crash-<time>.dmp` (threads, no heap) and `abort()`; then the
   previous handler (Android's tombstone, the renderer's crash safeguard). Logs `.1`-`.3` kept. Tested WSL +
