@@ -13,7 +13,7 @@ The owner's picks: the next release is **v0.91.0-beta** (a prerelease, like v0.8
 now the recommended release in both READMEs (v0.83.0-beta: the last Dolphin-engine release; Android 7 / 8 keep
 using the Dolphin engine).
 
-**State 2026-11-21 afternoon:** the owner kept the v0.91.0-beta notes and added a round of fixes: #35 (823db67),
+**State 2026-11-21 afternoon (history; released, see below):** the owner kept the v0.91.0-beta notes and added a round of fixes: #35 (823db67),
 #25's Bar + grid HUD (88f931e), game patch ws36 (d9b5384: #21, #25 banners, #22; new release patches for all
 three discs, so every install repatches on first start), the notes updated for them. Pushed to dev at the owner's
 word for CI. Next: a green validate on dev's head, fast-forward main and `aurora-backend`,
@@ -26,6 +26,20 @@ Pocket 5's `GEAP8P` the ws36 DOL pushed by hand). The release apps weren't touch
 
 Ordering lesson (2026-11-21): GitHub dates a release by its tag's commit and orders same-day releases by version,
 comparing `standalone.11` as text, so `.11` sat below `.9`; moving its tag to a commit of the next UTC day fixed it.
+
+## Released (2026-11-22): v0.91.0-beta, the first normal release of the new engine
+
+- **Published** 2026-11-22 00:57 UTC as a prerelease (the owner: "Publish it"); tag on `21e6c02` (main = dev),
+  release run 44961345404, all jobs green. `android-sign` is gated by the GitHub environment named `release`
+  (approve that one on the run's pending deployments). The public downloads match `SHA256SUMS.txt`.
+- **Checked on the draft:** SHA256SUMS; PII scan of 14166 extracted files (only the known Dolphin / PEM / doc
+  strings); APK signer, versionName `0.91.0-beta`, not debuggable / testOnly, JNI 97 of 97; the Thor's release app
+  over `.11` (it repatched its disc to ws36) past Start Game, 5461 of 5461, 1.00x; Linux tar.gz and the AppImage's
+  own binary from the save-point state (5461 of 5461, Vulkan); Windows (D3D12, 5461 of 5461, 1.00x); macOS on
+  the Mac mini (Metal, digits, the #21 bridge, the #25 banners).
+- **Windows lesson:** with the PC's display asleep every build runs at 0.20x (`.11` too); check with the screen on.
+- **Replies posted** on #35, #25, #21, #22, #23 (after publishing), #16 closed (confirmed on an M4), #29's font
+  textures tried (they work as an HD texture pack; results posted).
 
 ## Release checks (the owner's rule, 2026-11-20)
 
