@@ -13,6 +13,36 @@ the cut-over: no new Dolphin-engine-only features; items below marked "both buil
 once it ships.
 
 
+## 60 fps: object pairing and issue #24 — 2026-11-22 (local branch `interp60-warp`, not pushed)
+
+- **Commits** (worktree `~/projects/skies-interp`, noreply author): `547ada5` the #18 / #24 sprite fix and the FPS
+  counter (also applied, uncommitted, to `notes-091` by the release session); `b8772b2` each draw knows its game
+  object (the running task, read off the guest stack; no game patch) and two objects never pair; `ab10b24` the
+  same-object rule only for small objects (the map is one task); `7c6654f` notes. Details and measurements:
+  development notes, "60 fps: draws know their game object" and "60 fps: sprites drawn a frame ahead".
+- **Checked:** WSL (seven scenes, in-betweens compared); Windows RTX at 240 Hz and 144 forced (Display refresh at
+  full speed, the FPS counter equal to RTSS); Europe (objects found). Not: Android (asked of the release session
+  on a Retroid), Japan (addresses only), a real 144 Hz screen.
+- **#24:** the reporter's place is Sailors' Island's lighthouse bridge (area 901) with the rock clouds behind.
+  Route: the reporter's state, `SKIES_WARP="scene:me004a"`, Vyse poked to x -140 y 26.3 z 111
+  (`build/w24/bridge.sh`, `winbridge.sh`, `winmode2.sh`, `timeline.py` in the worktree). No warp there on WSL or
+  Windows in any version (v0.91's pairing included); the Display refresh timeline is even. Open: the reporter's
+  orange sky (another story point or time of day), Android, asking the reporter for a save at that spot.
+- **Next, if wanted:** blend per object from the object's matrix (decomp `docs/draw.md`, "Hook points") instead of
+  vertices, which would need a game patch for the draw queue's object (`DrawObj`).
+
+## Decompilation research and the story warp — 2026-11-22
+
+The decomp's branch `research-1122` (`~/projects/soal-decomp-research`, not pushed; the decomp is public, so a
+personal-details sweep first) has `docs/draw.md`, `script.md`, `battle.md`, `save.md`, `cutscene_camera.md` with
+headers and 321 names, part of it checked in the game. Uses here: per-object 60 fps (above); achievements (each
+doc's "Addresses for achievements"; `~/projects/skies-ra/docs/handoffs/HANDOFF-retroachievements.md`); a
+complete cutscene shot list for automatic widescreen framing (`cutscene_camera.md`, option A); battle and save
+checks still open (ship battles, spells, Discoveries). The story warp for bug reports, `SKIES_WARP`
+(`chapter:B..L`, `scene:meNNNx@KEY`, `stage:`, `flag:`, `byte:`), is on the release session's local branch `warp`
+(`5901cd3`, `~/projects/skies-warp`); its notes are in that branch's development notes, "Story warp for bug
+reports".
+
 ## Simplify CI — noted 2026-11-19 (Dolphin runner build dropped 2026-11-20: Windows job 23 -> 18 min)
 
 The owner asked why CI is so complicated. **Fixed costs** (they stay): no game data may ship or leak (the retail
@@ -52,6 +82,10 @@ Simplifications, biggest first:
   Possible next step: a font-only import / separate switch so fonts don't need a full pack. Results posted.
 
 ## Uncapped frame rate — BUILT 2026-11-20 (#20), on `origin/aurora-backend` (`bab367e`, Android `ec84654`)
+
+**2026-11-22:** its FPS counter read about 30 too high (a frame plus its in-betweens counted, most of which a
+fast display never shows); it now counts presented pictures (`547ada5`). Windows at 240 Hz: 240, and 144 with
+`SKIES_DISPLAY_HZ=144`, equal to RTSS.
 
 Frame rate **Display refresh** (`[Skies] FrameMode` 2, `SKIES_INTERP=2`): `video.cpp` *FrameMode 2* (the timeline) and
 `interp60.cpp` (`InterpDisplayReplay`, the blend plan cached per pair). Windows RTX 5080 at 239 Hz: field / world map
