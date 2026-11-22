@@ -7,6 +7,7 @@
 #include "host.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -52,6 +53,231 @@ void AddSystemFile(u64 offset, std::vector<u8> data, const char* name)
   e.path = name;
   e.data = std::move(data);
   s_extents.push_back(std::move(e));
+}
+
+// Issue #23: the Grand Fortress gate's turrets (the area 243 cutscene, field/a243ac01.mld, the same bytes
+// on all three discs) have drop-shadow decals whose soft edge writes depth (z update on, alpha test > 0):
+// wherever a later draw of the wall lands under that edge it fails the depth test, and the dark layer
+// drawn before shows through (the original does it too; the Dolphin build shows the same). The decals'
+// two 16-entry palettes (black, alpha in steps) get a hard edge instead: alpha levels 0-3 become 0, which
+// the alpha test drops, 4-7 become opaque. Only the disc's own file, by its hash; served from memory,
+// recompressed (AKLZ) to the file's exact size. SKIES_TURRET_SHADOWS=0 serves the original.
+std::vector<u8> AklzDecompress(const std::vector<u8>& in)
+{
+  if (in.size() < 16 || std::memcmp(in.data(), "AKLZ", 4) != 0)
+    return {};
+  const size_t size = BE32(&in[12]);
+  std::vector<u8> out;
+  out.reserve(size);
+  u8 ring[4096] = {};
+  u32 r = 4078;
+  size_t p = 16;
+  while (out.size() < size && p < in.size())
+  {
+    const u8 flags = in[p++];
+    for (int b = 0; b < 8 && out.size() < size; ++b)
+    {
+      if (flags & (1 << b))
+      {
+        if (p >= in.size())
+          return {};
+        out.push_back(ring[r] = in[p++]);
+        r = (r + 1) & 0xFFF;
+        continue;
+      }
+      if (p + 1 >= in.size())
+        return {};
+      const u32 off = in[p] | ((in[p + 1] & 0xF0u) << 4), len = (in[p + 1] & 0xFu) + 3;
+      p += 2;
+      for (u32 k = 0; k < len && out.size() < size; ++k)
+      {
+        out.push_back(ring[r] = ring[(off + k) & 0xFFF]);
+        r = (r + 1) & 0xFFF;
+      }
+    }
+  }
+  return out.size() == size ? out : std::vector<u8>{};
+}
+
+// The same LZSS (4 KB window, matches of 3-18 bytes, a flag byte per 8 items, literal = 1), greedy with a
+// hash chain, to exactly SIZE bytes (the game's decompressor runs to the end of the file, not to the size
+// in the header, so padding would decode into garbage past the buffer): a few matches near the end are
+// spelled out (match(L) -> match(L-1) + literal: one byte and one item more; match(3) -> 3 literals: one
+// byte and two items) until the stream is SIZE long. The header's first 12 bytes are the original's.
+std::vector<u8> AklzCompress(const std::vector<u8>& raw, const u8* header, size_t size)
+{
+  constexpr u32 kWindow = 4078, kHashSize = 1u << 16;
+  const size_t n = raw.size();
+  std::vector<int> head(kHashSize, -1), prev(n + 1, -1);
+  const auto hash = [&](size_t i) { return ((raw[i] << 8) ^ (raw[i + 1] << 4) ^ raw[i + 2]) & (kHashSize - 1); };
+  const auto insert = [&](size_t i) {
+    if (i + 3 <= n)
+    {
+      const u32 h = hash(i);
+      prev[i] = head[h];
+      head[h] = static_cast<int>(i);
+    }
+  };
+  struct Token
+  {
+    u32 at;   // position in raw
+    u16 off;  // ring offset (a match)
+    u8 len;   // 0: a literal
+  };
+  std::vector<Token> tokens;
+  size_t i = 0;
+  while (i < n)
+  {
+    u32 best = 0;
+    size_t best_at = 0;
+    if (i + 3 <= n)
+    {
+      int tries = 100000;
+      for (int j = head[hash(i)]; j >= 0 && tries-- > 0 && i - j <= kWindow; j = prev[j])
+      {
+        u32 l = 0;
+        while (l < 18 && i + l < n && raw[j + l] == raw[i + l])
+          ++l;
+        if (l > best)
+        {
+          best = l;
+          best_at = j;
+        }
+      }
+    }
+    if (best >= 3)
+    {
+      tokens.push_back({static_cast<u32>(i), static_cast<u16>((kWindow + best_at) & 0xFFF), static_cast<u8>(best)});
+      for (u32 k = 0; k < best; ++k)
+        insert(i + k);
+      i += best;
+    }
+    else
+    {
+      tokens.push_back({static_cast<u32>(i), 0, 0});
+      insert(i);
+      ++i;
+    }
+  }
+  const auto bytes_for = [&](size_t items, size_t token_bytes) { return 16 + token_bytes + (items + 7) / 8; };
+  size_t token_bytes = 0;
+  for (const Token& t : tokens)
+    token_bytes += t.len ? 2 : 1;
+  const size_t base = bytes_for(tokens.size(), token_bytes);
+  if (base > size)
+    return {};
+  // a steps of match(L >= 4) -> match(L-1) + literal, b of match(3) -> 3 literals, from the end
+  int steps_a = -1, steps_b = 0;
+  for (int b = 0; b <= 3 && steps_a < 0; ++b)
+    for (size_t a = 0; a <= size - base && steps_a < 0; ++a)
+      if (bytes_for(tokens.size() + a + 2 * b, token_bytes + a + b) == size)
+        steps_a = static_cast<int>(a), steps_b = b;
+  if (steps_a < 0)
+    return {};
+  std::vector<u8> split(tokens.size(), 0);  // 1: A, 2: B
+  for (size_t t = tokens.size(); t-- > 0 && (steps_a > 0 || steps_b > 0);)
+  {
+    if (tokens[t].len >= 4 && steps_a > 0)
+      split[t] = 1, --steps_a;
+    else if (tokens[t].len == 3 && steps_b > 0)
+      split[t] = 2, --steps_b;
+  }
+  if (steps_a > 0 || steps_b > 0)
+    return {};
+  std::vector<u8> out(header, header + 12);
+  for (int k = 3; k >= 0; --k)
+    out.push_back(static_cast<u8>(n >> (8 * k)));
+  size_t flag_at = 0;
+  int item = 0;
+  const auto put = [&](bool literal, u8 b0, u8 b1, bool two) {
+    if (item == 0)
+    {
+      flag_at = out.size();
+      out.push_back(0);
+    }
+    if (literal)
+      out[flag_at] |= 1 << item;
+    out.push_back(b0);
+    if (two)
+      out.push_back(b1);
+    item = (item + 1) & 7;
+  };
+  const auto match = [&](u16 off, u32 len) {
+    put(false, static_cast<u8>(off), static_cast<u8>(((off >> 4) & 0xF0) | (len - 3)), true);
+  };
+  for (size_t t = 0; t < tokens.size(); ++t)
+  {
+    const Token& tk = tokens[t];
+    if (tk.len == 0 || split[t] == 2)
+    {
+      for (u32 k = 0; k < std::max<u32>(tk.len, 1); ++k)
+        put(true, raw[tk.at + k], 0, false);
+    }
+    else if (split[t] == 1)
+    {
+      match(tk.off, tk.len - 1u);
+      put(true, raw[tk.at + tk.len - 1], 0, false);
+    }
+    else
+    {
+      match(tk.off, tk.len);
+    }
+  }
+  return out;
+}
+
+std::vector<u8> FixTurretShadows(const std::string& path, u64 size)
+{
+  constexpr u64 kSize = 2978506, kHash = 0x8545bf446c54770full;  // FNV-1a 64 of the disc's file
+  constexpr u32 kPalettes[] = {0x33CC00, 0x3523C0};          // td16b011, td16b024 (decompressed)
+  static const u8 kOriginal[32] = {0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x10, 0x00, 0x20, 0x00, 0x20,
+                                   0x00, 0x30, 0x00, 0x30, 0x00, 0x40, 0x00, 0x40, 0x00, 0x50, 0x00,
+                                   0x50, 0x00, 0x60, 0x00, 0x60, 0x00, 0x70, 0x00, 0x80, 0x00};
+  if (size != kSize)
+    return {};
+  std::vector<u8> file = ReadAll(path);
+  u64 h = 0xcbf29ce484222325ull;
+  for (const u8 c : file)
+    h = (h ^ c) * 0x100000001b3ull;
+  if (file.size() != kSize || h != kHash)
+    return {};
+  std::vector<u8> raw = AklzDecompress(file);
+  for (const u32 at : kPalettes)
+  {
+    if (raw.size() < at + 32 || std::memcmp(&raw[at], kOriginal, 32) != 0)
+      return {};
+    for (int k = 0; k < 16; ++k)
+    {
+      raw[at + 2 * k] = k < 8 ? 0x00 : 0x70;
+      raw[at + 2 * k + 1] = 0x00;
+    }
+  }
+  std::vector<u8> out = AklzCompress(raw, file.data(), kSize);
+  if (out.size() != kSize || AklzDecompress(out) != raw)
+    return {};
+  return out;
+}
+
+// The served copy of a file the host fixes, or null: the disc's own file
+const std::vector<u8>* FixedFile(const std::string& path, u64 size)
+{
+  static const bool s_on = [] {
+    const char* env = std::getenv("SKIES_TURRET_SHADOWS");
+    return env == nullptr || env[0] != '0';
+  }();
+  const std::string_view name(path);
+  if (!s_on || (!name.ends_with("field/a243ac01.mld") && !name.ends_with("field\\a243ac01.mld")))
+    return nullptr;
+  static std::string s_path;
+  static std::vector<u8> s_data;
+  if (s_path != path)
+  {
+    s_path = path;
+    s_data = FixTurretShadows(path, size);
+    Log("[disc] %s: %s\n", std::filesystem::path(path).filename().string().c_str(),
+        s_data.empty() ? "not the disc's own file, served as is" : "turret shadows with a hard edge (#23)");
+  }
+  return s_data.empty() ? nullptr : &s_data;
 }
 
 std::ifstream* Stream(const std::string& path)
@@ -339,6 +565,14 @@ bool DiscRead(u64 offset, void* out, u32 length)
 #else
     const std::string& path = it->path;
 #endif
+    if (path == it->path)
+    {
+      if (const std::vector<u8>* fixed = FixedFile(path, it->size); fixed && in_file + n <= fixed->size())
+      {
+        std::memcpy(dst + (from - offset), fixed->data() + in_file, n);
+        continue;
+      }
+    }
     if (ReadFile(path, in_file, dst + (from - offset), n))
       continue;
     // A served copy that went away (removed with the game running, a cache cleared): the disc's
