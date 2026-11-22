@@ -1249,8 +1249,19 @@ a CI symbol upload with an auth token and a consent screen).
   `SKIES_MAX_FPS` / `[Skies] MaxFrameRate`. Launchers: `moderngekko-display-rate.patch`,
   `recompcore-android-display-rate.patch`.
   2026-11-22 (local branch `interp60-warp`): the FPS counter counts presented pictures (`547ada5`), and each draw
-  carries its game object so two objects never pair (`b8772b2`, `ab10b24`); see the backlog's "60 fps: object
-  pairing and issue #24".
+  carries its game object so two objects never pair (`b8772b2`, `ab10b24`; `SKIES_INTERP_TASKS` read on first use,
+  `6f5bd51`); see the backlog's "60 fps: object pairing and issue #24". Issue #37 (same branch): a replay draws with
+  the textures its frame drew with (`6bc2b0f`, patch `recompcore-gxruntime-replay-texture-frames`; the glyph ring
+  refilled under a late replay drew other letters; `AURORA_REPLAY_TEXHASH_CHECK=1` counts it, `9036894`), and the
+  padded EFB copy's base is stretched bilinearly (`f048d44`, patch `recompcore-gxruntime-padded-base-bilinear`; the
+  camp menu's side clouds). Checked WSL, Windows, Pocket 5, Thor; development notes "Issue #37".
+- **Game patch ws39 / ws40 (issue #36, local branch `interp60-warp`, `c8e6e0a`, `109ed79`):** with Invincible on,
+  a ship battle's hits no longer take anything off the HP gauge the turn playback sinks the ship with
+  (`qol_ship_hit_ws40`, `fn_80159F28`'s two calls), and a ship at 0 is refilled before a phase
+  (`qol_ship_phase_ws39`). Built on ws36: when the release session's ws37 / ws38 (`notes-091`, uncommitted) come
+  in, `.trkcave_ws39` / `_ws40` go after theirs in `cave.ld` and all three `release/*.dolpatch` are made again.
+  Test route `build/i36/run501.sh` (any ship battle map by warp), the release session's `build/i36/rretry.sh`.
+  Checked WSL and Pocket 5; development notes "Issue #36".
 - `90fecab` **Crash reports** (`crash.cpp`): signal / exception, native stack as module + offset, the game CPU's
   last registers, into the log; Windows minidump `crash-<time>.dmp` (threads, no heap) and `abort()`; then the
   previous handler (Android's tombstone, the renderer's crash safeguard). Logs `.1`-`.3` kept. Tested WSL +
