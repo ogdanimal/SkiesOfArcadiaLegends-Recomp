@@ -1957,32 +1957,34 @@ pacing statistics' `s_last_picture_kind` side by side; `Present.cpp` already had
   5's test app (ws35 module, `PREGEN` from `ci-codegen.sh TARGETS=android`) re-patched its import to ws35 and
   loaded its ws34 auto-save; the Graphics tab has the Ship battle HUD row.
 
-### Issue #36: ship battle at 0 HP with Invincible on (2026-11-22, ws39)
+### Issue #36: ship sunk with Invincible on, and the retry at 0 HP (2026-11-22, ws39 + ws40)
 
-**What happened.** The reporter's fight is Recumen (map 506, Nasr). After its Red Ray the party talks, and Vyse's
-"I never give up" keeps the fight going into a second phase (the other answer ends it); it is a dialogue choice,
-not a game-over retry. The fight goes on whatever the ship's HP: with the ship at 0 the second phase opens at
-"Hp 0", as in the reporter's screenshot. `BtlShipApplyPhase` (`fn_8014419C`) then ends the battle (outcome 3,
-`lbl_80347278` = 3) whenever the party's ship is at 0 after any phase, the party's own included, and Invincible's
-per-frame refill (`qol_refill_ship`) only refills a ship above 0, so with the cheat on the ship still lost at the
-next turn. How the reporter's ship got to 0 with the cheat on isn't known: with Invincible on from the start no
-damage lands at all (no writes to the HP through the Red Ray and two later phases); turning the cheat on during the
-fight, or a state from before, would do it.
-**Fix (ws39, `qol.c` `qol_ship_phase_ws39`, the redirect at `0x80144E3C`):** with Invincible on, a ship at 0 HP is
-refilled before the phase is applied, then `qol_ship_phase` runs as before (left in place; the new code is in
-`.trkcave_ws39`, no older symbol moved). The "HP full at command selection, damage shown during the turn" the
-reporter also saw is how Invincible works: the hook restores the damage figures after zeroing them, so the hits
-still animate.
-**Test route** (`build/i36/run501.sh`, WSL): `10-worldmap-android.sav` (before the Little Jack) with the Little
-Jack's record poked in (`0x8030CD5C`: ship 0, name, HP 10000 at `+0x14`, weapons `0x0190`, `0x019A` at `+0x18`),
-then the map warp (`me506a.sct` into `0x80305CF0`, `0x0F` into `0x80311AEC`); the battle's HP word is `0x80306640`
-(the party side `0x803063F0 + 0x238 + 0x18`), the battle data `0x80E86E60` (outcome at `+4`). Other ship battle
-maps: 501 Valuan cruiser, 503 Baltor, 509/514 Chameleon, 510 Valuan gunboat, 513 Roc, 519 Fortress Gate, 530
-Draco; Gigas scripts: 506, 531, 535, 547 (from the `me5xxa.sct` scripts, AKLZ-decompressed with
-`build/i36/tools/aklz.py`). Checks: Invincible on, HP poked to 0 at +40 s: ws36 keeps 0 and sets outcome 3 at the
-next turn; ws39 refills it at the turn's plan (`80144dcc`), outcome 0, through four more turns. Invincible off:
-the Red Ray takes 10000 to 6620 on both. The Baltor state (`17b`, made mid-battle) loads and runs on ws39.
-Windows and Android not run: the change is game code, recompiled the same for every target.
+**What happened** (the reporter's fight is Recumen, map 506, Nasr). The turn playback plays each hit with
+`fn_80159F28(side)` (calls at `0x8015BE44` / `0x8015C138` in `fn_8015BB58`). On the party's side it takes the hit
+off the HP gauge's counter (`lbl_803472B0`'s gauge `+0x8`) from the acting record's damage (`lbl_80306E38` or
+`+0x90`, field `+0xC`), and when the gauge empties it writes 0 into the ship's HP at `0x8015A1A8`: the ship sinks
+("Would you like to try again?"). Invincible zeroed only the damage `BtlShipApplyPhase` uses (`+0x130`), so the
+gauge still counted every hit ("the bar shows damage during actions") and a turn worth more than the bar sank the
+ship. The battle hadn't been flagged lost (outcome `+4` stays 0), so the results' write-back (`0x801452E8` ->
+`fn_80134900`, the store at `0x80134A00`) put the 0 into the save's ship record (`0x8030CD70`), and "I never give
+up!" rebuilt the ship from it at 0 HP; `BtlShipApplyPhase` then lost at the first phase, since it ends the battle
+whenever the ship is at 0 after any phase and Invincible's refill skips a ship at 0. Without the cheat the battle
+is flagged lost and the retry restores the record's HP. (The cause was found by the release session's watch on the
+HP word; my first reading took "I never give up" for a dialogue choice, wrongly.)
+**Fixes:** ws40 `qol_ship_hit_ws40` (both playback calls): with Invincible on, a hit on the party plays with no
+damage, so the gauge neither moves nor empties. ws39 `qol_ship_phase_ws39` (the phase hook): a ship at 0 is
+refilled before a phase, for a save whose record is already at 0. Old code stays in place (`.trkcave_ws39` /
+`_ws40`; no older symbol moved, all three regions).
+**Checks** (WSL, USA): the release session's `build/i36/rretry.sh` (Recumen from the Baltor state, the record's HP
+poked to 1 so the first Red Ray empties the gauge, then A through "I never give up"): ws36 cheat on: HP and record
+0, the retry at "Hp 0" (the reporter's screenshot); ws40 cheat on: HP 10000 for the whole 330 s, record untouched,
+no loss, the Red Ray's hit still plays; cheat off: ws36 and ws40 identical (sunk, the retry restores the record's
+HP). ws39 alone (`build/i36/run501.sh`, the ship poked to 0 at a command turn, cheat on): ws36 keeps 0 and sets
+outcome 3, ws39 refills it at the next turn's plan; cheat off the Red Ray takes 10000 to 6620 on both. An old
+mid-battle state (Baltor `17b`) loads and runs. Test route and battle maps: `build/i36/run501.sh` (the Little
+Jack's record poked into `10-worldmap-android.sav`, then the map warp `me5xxa.sct` -> `0x80305CF0`, `0x0F` ->
+`0x80311AEC`): 501 Valuan cruiser, 503 Baltor, 506 Recumen, 509/514 Chameleon, 510 Valuan gunboat, 513 Roc, 519
+Fortress Gate, 530 Draco; Gigas scripts 506, 531, 535, 547 (`build/i36/tools/aklz.py` decompresses the scripts).
 
 ### Issue #37: menu text garbling at 60 fps, and the menu's blocky side clouds (2026-11-22)
 

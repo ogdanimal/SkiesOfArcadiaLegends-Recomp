@@ -201,6 +201,18 @@
       "why": "fn_8015C6C8: a ship battle's data allocated (qol.c: the live flag; the game never clears the pointer after freeing)"
     },
     {
+      "site": "0x8015BE44",
+      "target": "fn_80159F28",
+      "to": "qol_ship_hit_ws40",
+      "why": "the ship battle turn playback: one hit on a side's HP gauge, which sinks the ship when it empties (qol.c, Invincible; ws40, issue #36)"
+    },
+    {
+      "site": "0x8015C138",
+      "target": "fn_80159F28",
+      "to": "qol_ship_hit_ws40",
+      "why": "the same, the playback's other call (ws40, issue #36)"
+    },
+    {
       "site": "0x80144E3C",
       "target": "fn_8014419C",
       "to": "qol_ship_phase_ws39",

@@ -67,6 +67,7 @@ extern u32 fn_80144E60(u32, u32, u32, u32, u32, u32, u32, u32); /* ship battle r
 extern u32 VIGetRetraceCount(void);
 extern void fn_8002DC14(unsigned char *action, int target); /* battle damage */
 extern void fn_8014419C(int phase, int side); /* ship battle: a phase's HP changes */
+extern void fn_80159F28(int side); /* ship battle playback: one hit on a side's HP gauge (ws40) */
 extern void fn_801453D0(void); /* ship battle: allocates its data into lbl_8034727C */
 extern void fn_80085064(void *task); /* the party's spell / S-move action */
 extern void fn_80087074(void *task); /* the enemies' spell / special action */
@@ -459,9 +460,9 @@ TRK_CAVE int qol_skip_wait(void) { return qol_fast() && qol_frame_retraces == 0;
 
 /* ws39 (issue #36): the phase hook at 0x80144E3C, ahead of qol_ship_phase (left in place). With Invincible on, a
  * ship already at 0 HP is refilled first: BtlShipApplyPhase ends the battle whenever the party's ship is at 0 after
- * any phase, the party's own included, and qol_refill_ship only refills a ship above 0. A ship left at 0 (Recumen's
- * fight goes on after its Red Ray whatever the ship's HP, so with Invincible turned on late it stayed at 0) then
- * lost at the next turn's first phase although nothing hit it. */
+ * any phase, the party's own included, and qol_refill_ship only refills a ship above 0. A ship that starts a battle
+ * at 0 (a save record left at 0 by the sinking ws40 prevents, which "I never give up" rebuilt the ship from) lost
+ * at its first turn although nothing hit it. */
 __attribute__((section(".trkcave_ws39"))) void qol_ship_phase_ws39(int phase, int side) {
   if (qol_on() && qol_input.invincible && qol_ram(SHIP_BATTLE_DATA)) {
     unsigned char *ship = *(unsigned char **)(SHIP_BATTLE_DATA + 0x20);
@@ -469,4 +470,27 @@ __attribute__((section(".trkcave_ws39"))) void qol_ship_phase_ws39(int phase, in
       *(int *)(ship + 0x18) = *(int *)(ship + 0x14);
   }
   qol_ship_phase(phase, side);
+}
+
+/* ws40 (issue #36, found by the release session): the turn playback plays each hit with fn_80159F28(side)
+ * (called at 0x8015BE44 and 0x8015C138). On the party's side it takes the hit off the HP gauge's counter
+ * (lbl_803472B0's gauge +0x8), from the acting record's damage (lbl_80306E38 or +0x90, whichever's +0x11 is the
+ * side; +0xC), and when the gauge reaches 0 it writes 0 into the ship's HP itself (0x8015A1A8): the ship sank
+ * although qol_ship_phase had zeroed the same hits' damage in BtlShipApplyPhase. The battle had not been flagged
+ * lost, so its results wrote the 0 into the save's ship record (fn_80134900) and "I never give up" rebuilt the ship
+ * at 0 HP. With Invincible on, a hit on the party plays with no damage: the gauge doesn't move (it showed the
+ * damage before, then the full HP again at the next turn) and can't empty. */
+__attribute__((section(".trkcave_ws40"))) void qol_ship_hit_ws40(int side) {
+  if (side != 0 && qol_invincible()) {
+    unsigned char *record = (unsigned char *)SHIP_ACTIONS;
+    if ((s8)record[0x11] != side)
+      record += 0x90;
+    int *damage = (int *)(record + 0xC);
+    const int saved = *damage;
+    *damage = 0;
+    fn_80159F28(side);
+    *damage = saved;
+    return;
+  }
+  fn_80159F28(side);
 }
