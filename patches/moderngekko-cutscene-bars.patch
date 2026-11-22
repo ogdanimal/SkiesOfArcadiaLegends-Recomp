@@ -1,0 +1,38 @@
+--- a/tools/moderngekko_launcher.cpp
++++ b/tools/moderngekko_launcher.cpp
+@@ -1417,6 +1417,7 @@
+   constexpr DolphinOption SKIES_WIDESCREEN{"Dolphin.ini", "Skies", "Widescreen"};
+   constexpr DolphinOption SKIES_HUD{"Dolphin.ini", "Skies", "Hud"};
+   constexpr DolphinOption SKIES_SHIP_HUD{"Dolphin.ini", "Skies", "ShipHud"};
++  constexpr DolphinOption SKIES_CUTSCENE_BARS{"Dolphin.ini", "Skies", "CutsceneBars"};
+   constexpr DolphinOption SKIES_FRAME_MODE{"Dolphin.ini", "Skies", "FrameMode"};
+   constexpr DolphinOption GFX_MSAA{"GFX.ini", "Settings", "MSAA"};
+   constexpr DolphinOption GFX_TEXTURE_FILTERING{"GFX.ini", "Enhancements", "ForceTextureFiltering"};
+@@ -1425,6 +1426,7 @@
+   int skies_widescreen = ReadDolphinOption(user_directory, SKIES_WIDESCREEN);
+   int skies_hud = ReadDolphinOption(user_directory, SKIES_HUD);
+   int skies_ship_hud = ReadDolphinOption(user_directory, SKIES_SHIP_HUD);
++  int skies_cutscene_bars = ReadDolphinOption(user_directory, SKIES_CUTSCENE_BARS);
+   int skies_frame_mode = ReadDolphinOption(user_directory, SKIES_FRAME_MODE);
+   int msaa = ReadDolphinOption(user_directory, GFX_MSAA);
+   int texture_filtering = ReadDolphinOption(user_directory, GFX_TEXTURE_FILTERING);
+@@ -2297,6 +2299,7 @@
+             {{2, "Screen edges"}, {3, "21:9 area"}, {1, "16:9 area"}, {0, "Original 4:3"}}};
+         static constexpr std::array<Choice, 3> ship_huds{
+             {{0, "Spread out"}, {2, "Bar + grid centred"}, {1, "Centred"}}};
++        static constexpr std::array<Choice, 2> cutscene_bars{{{0, "Shown"}, {1, "Hidden"}}};
+         static constexpr std::array<Choice, 3> frame_rates{
+             {{0, "30 fps (original)"}, {1, "60 fps (interpolated)"}, {2, "Display refresh"}}};
+         static constexpr std::array<Choice, 4> msaa_modes{
+@@ -2358,6 +2361,11 @@
+                  ship_huds,
+                  "Spread out moves the ship battle HUD to the sides. Bar + grid centred keeps the "
+                  "Spirit bar and grid in the middle. Centred keeps the game's own layout.");
++        if (first <= 1 && last >= 1)
++          option("Cutscene bars", "##skies_cutscene_bars", SKIES_CUTSCENE_BARS, &skies_cutscene_bars, 0,
++                 cutscene_bars,
++                 "The black bars above and below some cutscenes, like the intro that plays at the "
++                 "title screen. Hidden lets the picture and its effects fill the screen. Widescreen only.");
+         if (first <= 2 && last >= 2)
+           option("Frame rate", "##skies_frame_rate", SKIES_FRAME_MODE, &skies_frame_mode,
+                  config.frame_interpolation ? 1 : 0, frame_rates,

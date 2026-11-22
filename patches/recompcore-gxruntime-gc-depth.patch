@@ -1,0 +1,78 @@
+--- a/GXRuntime/graphics/aurora/lib/gx/shader.cpp
++++ b/GXRuntime/graphics/aurora/lib/gx/shader.cpp
+@@ -9,6 +9,7 @@
+ #include <dolphin/gx/GXEnum.h>
+ 
+ #include <absl/container/flat_hash_set.h>
++#include <cstdlib>
+ #include <mutex>
+ #include <string_view>
+ #include <utility>
+@@ -1707,6 +1708,48 @@
+       at = close + 1 + kCentroid.size();
+     }
+   }
++  // Local (fork): GameCube depth. The GameCube keeps 24-bit integer z and the game's LEQUAL makes the later of two
++  // draws win when they round to the same z. Skies draws some walls twice in the same plane from different models
++  // (the Valuan throne room, #34): the copies differ by a fraction of one 24-bit step, so with float depth the
++  // GPU picks one or the other by a few float steps, and an Adreno alternates between them from frame to frame.
++  // Each fragment's depth is rounded to the GameCube's 24-bit step, as the hardware does, so those ties resolve
++  // in draw order again. The step is 22 bits, 4 of the GameCube's: at 24 the copies still straddle a step on
++  // some pixels (dotted speckle on the throne room's balcony), at 22 they tie; other scenes change by a few
++  // pixels. AURORA_GC_DEPTH=0 turns it off (writing depth costs the GPU's early depth test: on the Thor the
++  // EFB pass takes 35-50 % longer in the intro's heavy scenes); AURORA_GC_DEPTH_BITS=N (tests) sets the bits.
++  // On by default only on Android, where the flicker was seen (the Adreno alternates between the copies).
++  // Rounding can't make every pixel tie: the copies differ by a little, and where they straddle a step the
++  // earlier one shows through in dots. Desktop GPUs and Metal keep the earlier copy steadily without it
++  // (Metal speckled with it on, 2026-11-22), so they leave it off. AURORA_GC_DEPTH=1 / 0 overrides.
++  static const bool gcDepth = [] {
++    const char* env = std::getenv("AURORA_GC_DEPTH");
++#ifdef __ANDROID__
++    return env == nullptr || env[0] != '0';
++#else
++    return env != nullptr && env[0] != '0';
++#endif
++  }();
++  static const std::string gcDepthSteps = [] {
++    const char* env = std::getenv("AURORA_GC_DEPTH_BITS");
++    const int bits = env != nullptr ? std::atoi(env) : 22;
++    return fmt::format("{:.1f}", static_cast<double>((1u << (bits > 8 && bits <= 24 ? bits : 22)) - 1u));
++  }();
++  std::string fragOutDecl;
++  std::string fragOutType = "@location(0) vec4f";
++  std::string fragReturn = "    return prev;";
++  if (gcDepth) {
++    fragOutDecl = "struct FragmentOutput {\n    @location(0) color: vec4f,\n    @builtin(frag_depth) depth: f32,\n}\n";
++    fragOutType = "FragmentOutput";
++    fragReturn = UseReversedZ
++                     ? fmt::format("    var fragOut: FragmentOutput;\n    fragOut.color = prev;\n"
++                                   "    fragOut.depth = 1.0 - round((1.0 - in.pos.z) * {0}) / {0};\n"
++                                   "    return fragOut;",
++                                   gcDepthSteps)
++                     : fmt::format("    var fragOut: FragmentOutput;\n    fragOut.color = prev;\n"
++                                   "    fragOut.depth = round(in.pos.z * {0}) / {0};\n"
++                                   "    return fragOut;",
++                                   gcDepthSteps);
++  }
+   const auto shaderSource = fmt::format(R"""(
+ fn bswap32(v: u32, le: bool) -> u32 {{
+   if (le) {{
+@@ -2063,13 +2106,15 @@
+     return out;
+ }}
+ 
++{9}
+ @fragment
+-fn fs_main(in: VertexOutput) -> @location(0) vec4f {{{6}{5}
+-    return prev;
++fn fs_main(in: VertexOutput) -> {10} {{{6}{5}
++{11}
+ }}
+ )""",
+                                         uniBufAttrs, texBindings, vtxOutAttrs, vtxInAttrs, vtxXfrAttrs, fragmentFn,
+-                                        fragmentFnPre, vtxXfrAttrsPre, uniformPre);
++                                        fragmentFnPre, vtxXfrAttrsPre, uniformPre, fragOutDecl, fragOutType,
++                                        fragReturn);
+   if (EnableDebugPrints) {
+     Log.info("Generated shader (hash {:x}): {}", hash, shaderSource);
+   }

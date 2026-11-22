@@ -530,3 +530,63 @@ void ws_text_flush_wide(void) {
 
 /* main's call to the end-of-frame function goes to ws_frame_end (fullwidth.S), which calls
  * ws_apply and then jumps to fn_801DC420. */
+
+/* The letterbox bars: 0 = the game's (shown), 1 = hidden. Written by the frontend like ws_ship_hud (ws37;
+ * a word no earlier build used). Issue #34's request: the attract intro (the one that starts with
+ * Gilder in his chair) draws two black bars, and its flames and explosion flashes are drawn over them. */
+__attribute__((section(".ws_bars"), used)) u32 ws_bars;
+
+/* Whether a 2D polygon is one of those bars: four black vertices (x, y, z, ARGB colour; the alpha is not
+ * looked at) across the whole width, 48 of the 480 lines high, at the top or the bottom edge. The intro's
+ * effect script spawns them as two eff_Sprite2D effects, x -32..672, drawn by the effect polygon code
+ * through fn_80290ED4 (docs/development-notes.md, issue #34). */
+__attribute__((section(".trkcave_ws37"))) static int ws_is_bar(const float *v, int count) {
+  /* In whole pixels (the bars' coordinates are whole numbers): float constants would go with the
+   * older constants (cave.ld's .text) and move them. */
+  int left, right, top, bottom, i;
+  if (count != 4)
+    return 0;
+  left = right = (int)v[0];
+  top = bottom = (int)v[1];
+  for (i = 0; i < 4; i++, v += 4) {
+    const int x = (int)v[0], y = (int)v[1];
+    if ((*(const u32 *)&v[3] & 0x00FFFFFFu) != 0)
+      return 0;
+    if (x < left)
+      left = x;
+    if (x > right)
+      right = x;
+    if (y < top)
+      top = y;
+    if (y > bottom)
+      bottom = y;
+  }
+  return left <= 0 && right >= 640 && bottom - top == 48 && (top == 0 || bottom == 480);
+}
+
+/* ws_poly's widescreen path (fullwidth.S): the bars skipped when hidden, the rest as before. */
+__attribute__((section(".trkcave_ws37"))) void ws_poly_bars(const float *vertices, int count, int mode) {
+  if (ws_bars == 1 && ws_is_bar(vertices, count))
+    return;
+  ws_poly_wide(vertices, count, mode);
+}
+
+/* ws38 (#25): the ship battle banners moved by ws_anchor_banner end flush with the screen edge, and
+ * the enemy's result box (the damage, MISS) sits a little past its banner, so it was cut off at the
+ * right. ws_anchor_banner_in (fullwidth.S) calls ws_anchor_banner without a frame of its own, so its
+ * walk up the stack is unchanged, keeping its return address and dx here, then ends in
+ * ws_banner_pull_in, which moves the banners back in by ws_banner_inset HUD pixels (never past where
+ * the game put them). The inset is a word after the ws38 code, not a literal: a new literal would go to
+ * .text's constants and move older ones. */
+__attribute__((section(".late_bss_ws38"), used)) u32 ws_banner_saved[2];
+__attribute__((section(".trkcave_ws38_rodata"), used)) const float ws_banner_inset = 12.0f;
+__attribute__((section(".trkcave_ws38"))) int ws_banner_pull_in(int moved, float *dx) {
+  const float inset = *(const volatile float *)&ws_banner_inset;
+  if (moved) {
+    if (*dx > inset)
+      *dx -= inset;
+    else if (*dx < -inset)
+      *dx += inset;
+  }
+  return moved;
+}

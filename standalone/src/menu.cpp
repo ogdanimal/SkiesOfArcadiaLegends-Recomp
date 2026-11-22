@@ -80,6 +80,7 @@ enum class Option
   Picture,
   Hud,
   ShipHud,
+  CutsceneBars,
   FrameRate,
   Resolution,
   Antialiasing,
@@ -117,6 +118,7 @@ enum class Option
 
 constexpr std::array SAVES_ROWS{Option::SaveState, Option::LoadState, Option::AutoSave, Option::Quit};
 constexpr std::array GRAPHICS_ROWS{Option::Picture,    Option::Hud,          Option::ShipHud,
+                                   Option::CutsceneBars,
                                    Option::FrameRate,  Option::Resolution,   Option::Antialiasing,
                                    Option::TextureFilter, Option::Anisotropy, Option::Scaling,
 #if defined(__ANDROID__) || defined(__APPLE__)
@@ -186,6 +188,8 @@ constexpr std::array PICTURES{1, 2, 0};
 constexpr std::array HUDS{2, 3, 1, 0};
 // [Skies] ShipHud in menu order: spread out, the Spirit bar and grid centred (the rest spread out), centred.
 constexpr std::array SHIP_HUDS{0, 2, 1};
+// [Skies] CutsceneBars: 0 = the game's letterbox bars, 1 = hidden (widescreen only; the game patch's ws_bars).
+constexpr std::array CUTSCENE_BARS{0, 1};
 
 // The settings' keys (the Dolphin build's: Core/Config/SkiesSettings.cpp, GraphicsSettings.cpp)
 struct Key
@@ -200,6 +204,7 @@ constexpr Key WIDESCREEN{SettingFile::Main, "Skies", "Widescreen", -1};
 constexpr Key HUD{SettingFile::Main, "Skies", "Hud", -1};
 // 0 = the ship battle HUD spread out with the rest, 1 = centred (issue #25)
 constexpr Key SHIP_HUD{SettingFile::Main, "Skies", "ShipHud", 0};
+constexpr Key CUTSCENE_BARS_KEY{SettingFile::Main, "Skies", "CutsceneBars", 0};
 // -1 (unset) and 0: 30 fps, 1: 60 fps (interp60.cpp)
 constexpr Key FRAME_MODE{SettingFile::Main, "Skies", "FrameMode", -1};
 constexpr Key CAMERA_CONTROL{SettingFile::Main, "Skies", "CameraControl", 1};
@@ -289,6 +294,7 @@ struct Values
   int widescreen = 1;
   int hud = 2;
   int ship_hud = 0;  // 1 = the ship battle HUD centred, 2 = its Spirit bar and grid only (issue #25)
+  int cutscene_bars = 0;  // 1 = the letterbox bars hidden (issue #34's request)
   int frame_mode = 0;
   int efb_scale = 0;
   int msaa = 1;
@@ -497,6 +503,8 @@ constexpr float WIDE_ASPECT = 16.0f / 9.0f;
 constexpr u32 WS_HUD_ASPECT_ADDRESS = 0x80002E9C;
 // The game patch's ws_ship_hud (ws35; free in earlier patches): 0 = spread out, 1 = centred.
 constexpr u32 WS_SHIP_HUD_ADDRESS = 0x80002EEC;
+// The game patch's ws_bars (ws37; free in earlier patches): 1 = the letterbox bars hidden.
+constexpr u32 WS_BARS_ADDRESS = 0x80002EE8;
 // ws_config's HUD anchors (patches/game/widescreen.c WS_HUD_ANCHORS), after its six header words: 12 bytes
 // each (lo, size.16 side.8 kind.8, dx.16 dy.16). The ship battle's Spirit bar (5), turn bar (9) and command
 // grid (10) are at the same places in every disc's table. ShipHud 2 (issue #25: those centred, the rest
@@ -565,6 +573,7 @@ Values ReadValues()
   const int hud = Get(HUD);
   values.hud = hud < 0 ? 2 : hud;
   values.ship_hud = std::clamp(Get(SHIP_HUD), 0, 2);
+  values.cutscene_bars = std::clamp(Get(CUTSCENE_BARS_KEY), 0, 1);
   values.frame_mode = std::clamp(Get(FRAME_MODE), 0, 2);
   values.efb_scale = Get(EFB_SCALE);
   values.msaa = MsaaRunning(Get(MSAA));
@@ -624,6 +633,7 @@ void Apply(const Values& values, const Values& before)
   set(WIDESCREEN, values.widescreen, before.widescreen);
   set(HUD, values.hud, before.hud);
   set(SHIP_HUD, values.ship_hud, before.ship_hud);
+  set(CUTSCENE_BARS_KEY, values.cutscene_bars, before.cutscene_bars);
   set(FRAME_MODE, values.frame_mode, before.frame_mode);
   set(EFB_SCALE, values.efb_scale, before.efb_scale);
   if (values.efb_scale != before.efb_scale)
@@ -860,6 +870,9 @@ void Change(Option option, int direction, bool wrap)
     break;
   case Option::ShipHud:
     v.ship_hud = Step(SHIP_HUDS, v.ship_hud, direction, wrap);
+    break;
+  case Option::CutsceneBars:
+    v.cutscene_bars = Step(CUTSCENE_BARS, v.cutscene_bars, direction, wrap);
     break;
   case Option::FrameRate:
     v.frame_mode = Step(FRAME_MODES, v.frame_mode, direction, wrap);
@@ -2403,6 +2416,9 @@ void MenuApplyGame()
     const u32 ship_hud = ship_mode == 1 ? 1 : 0;
     if (Read32(WS_SHIP_HUD_ADDRESS) != ship_hud)
       Write32(WS_SHIP_HUD_ADDRESS, ship_hud);
+    const u32 bars = std::clamp(Get(CUTSCENE_BARS_KEY), 0, 1) == 1 ? 1 : 0;
+    if (Read32(WS_BARS_ADDRESS) != bars)
+      Write32(WS_BARS_ADDRESS, bars);
     // Every frame: a state load or a boot brings the patch's defaults back (ws_check)
     for (const ShipAnchor& a : SHIP_CENTRE_ANCHORS)
     {
@@ -2779,6 +2795,10 @@ void Draw(float scale)
               "Spread out moves the ship battle HUD to the sides with the rest. Bar + grid centred keeps "
               "the Spirit bar and the grid under it in the middle and spreads out the rest. Centred keeps "
               "the game's own layout."};
+    case Option::CutsceneBars:
+      return {"Cutscene bars", v.cutscene_bars == 1 ? "Hidden" : "Shown",
+              "The black bars above and below some cutscenes, like the intro that plays at the title "
+              "screen. Hidden lets the picture and its effects fill the screen. Widescreen only."};
     case Option::FrameRate:
       return {"Frame rate", FrameRateText(v.frame_mode),
               "60 fps adds in-between frames for smoother motion. Display refresh adds one for every "

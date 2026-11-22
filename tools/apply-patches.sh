@@ -21,6 +21,7 @@ apply $MG moderngekko-renderer.patch
 apply $MG moderngekko-display-rate.patch
 apply $MG moderngekko-launcher-drop.patch
 apply $MG moderngekko-no-dolphin-runner.patch
+apply $MG moderngekko-cutscene-bars.patch
 for p in $(grep -v '^#' "$P/recompcore.series"); do
   apply $RC recompcore-$p.patch
 done

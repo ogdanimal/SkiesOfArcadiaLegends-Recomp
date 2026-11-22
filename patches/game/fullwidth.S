@@ -284,7 +284,7 @@ TEXTANCHOR ws_text_printf, TextPrintf
 GATE ws_text_draw_node, TextDrawNode, ws_text_draw_node_wide
 GATE ws_text_flush, TextFlush, ws_text_flush_wide
 GATE ws_project_hud, njProjectScreen, ws_project_hud_wide
-GATE ws_poly, fn_80290ED4, ws_poly_wide
+GATE ws_poly, fn_80290ED4, ws_poly_bars
 GATE ws_tex_poly, fn_80291064, ws_tex_poly_wide
 
 /* Replaces main's call to fn_801DC420 (end of frame: copy to XFB, wait for retrace, flip): apply
@@ -348,7 +348,7 @@ ws_anchor_find:
 	stw 0, 20(1)
 	stw 3, 8(1)
 	stw 4, 12(1)
-	bl ws_anchor_banner
+	bl ws_anchor_banner_in
 	mr 5, 3
 	lwz 3, 8(1)
 	lwz 4, 12(1)
@@ -361,6 +361,28 @@ ws_anchor_find:
 	blr
 1:	b ws_anchor_table_find
 	.size ws_anchor_find, . - ws_anchor_find
+	.popsection
+
+/* ws38 (#25): ws_anchor_banner, then ws_banner_pull_in (widescreen.c) on its result. No frame here:
+ * ws_anchor_banner's walk up the stack must start where it did; the return address and dx wait in
+ * ws_banner_saved instead (never nested). */
+	.pushsection .trkcave_ws38, "ax"
+	.global ws_anchor_banner_in
+	.type ws_anchor_banner_in, @function
+ws_anchor_banner_in:
+	mflr 0
+	lis 12, ws_banner_saved@ha
+	addi 12, 12, ws_banner_saved@l
+	stw 0, 0(12)
+	stw 3, 4(12)
+	bl ws_anchor_banner
+	lis 12, ws_banner_saved@ha
+	addi 12, 12, ws_banner_saved@l
+	lwz 0, 0(12)
+	mtlr 0
+	lwz 4, 4(12)
+	b ws_banner_pull_in
+	.size ws_anchor_banner_in, . - ws_anchor_banner_in
 	.popsection
 
 /* Ship battle popups (fn_8021F330, fn_8021F0EC): note the sprite (x, y first), then jump on. */

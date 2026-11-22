@@ -28,6 +28,8 @@ SECTIONS
     KEEP(*(.late_bss_ws29))
     /* ws36: widescreen.c's ws_banner_slot. */
     KEEP(*(.late_bss_ws36))
+    /* ws38: widescreen.c's ws_banner_saved. */
+    KEEP(*(.late_bss_ws38))
     /* widescreen.c's HUD width, then qol.c's and camera.c's input blocks, at fixed addresses
      * the frontend writes (Core/SkiesSettings.cpp, VideoCommon/SkiesMenu.cpp). */
     ASSERT(. <= 0x80002E9C, "patch data runs into ws_hud_aspect at 0x80002E9C")
@@ -37,6 +39,9 @@ SECTIONS
     KEEP(*(.qol_input))
     . = 0x80002EC0;
     KEEP(*(.cam_input))
+    /* widescreen.c's letterbox bars (ws37; free before, after the end of cam_input). */
+    . = 0x80002EE8;
+    KEEP(*(.ws_bars))
     /* widescreen.c's ship battle HUD layout (ws35; free before). */
     . = 0x80002EEC;
     KEEP(*(.ws_ship_hud))
@@ -71,6 +76,11 @@ SECTIONS
     *(.trkcave_late)
     /* ws36's code after all of that, for the same reason. */
     *(.trkcave_ws36)
+    /* Then ws37's. */
+    *(.trkcave_ws37)
+    /* Then ws38's. */
+    *(.trkcave_ws38)
+    *(.trkcave_ws38_rodata)
   }
   ASSERT(. <= 0x80257AF8, "patch code doesn't fit in the MetroTRK area (0x802548E8-0x80257AF8)")
   /DISCARD/ : { *(.comment) *(.eh_frame) *(.note*) }

@@ -1,0 +1,21 @@
+--- a/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
++++ b/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/skies/SkiesSettingsPanel.kt
+@@ -76,6 +76,7 @@
+         val HUD = choices(2 to "Screen edges", 3 to "21:9 area", 1 to "16:9 area",
+             0 to "Original 4:3")
+         val SHIP_HUD = choices(0 to "Spread out", 2 to "Bar + grid centred", 1 to "Centred")
++        val CUTSCENE_BARS = choices(0 to "Shown", 1 to "Hidden")
+         val FRAME_RATE = choices(0 to "30 fps (original)", 1 to "60 fps (interpolated)",
+             2 to "Display refresh")
+         val RESOLUTION = choices(1 to "Native (480p)", 2 to "2x (720p)", 3 to "3x (1080p)",
+@@ -248,6 +249,10 @@
+                 configRow(rows, "Ship battle HUD", SHIP_HUD, dolphin, "Skies", "ShipHud", 0,
+                     "Spread out moves the ship battle HUD to the sides. Bar + grid centred keeps " +
+                         "the Spirit bar and grid in the middle. Centred keeps the game's own layout.")
++                configRow(rows, "Cutscene bars", CUTSCENE_BARS, dolphin, "Skies", "CutsceneBars", 0,
++                    "The black bars above and below some cutscenes, like the intro that plays at " +
++                        "the title screen. Hidden lets the picture and its effects fill the screen. " +
++                        "Widescreen only.")
+                 configRow(rows, "Frame rate", FRAME_RATE, dolphin, "Skies", "FrameMode", 0,
+                     "60 fps adds in-between frames for smoother motion. Display refresh adds one " +
+                         "for every refresh of the screen (120 Hz and up), a frame later than 60 fps. " +
