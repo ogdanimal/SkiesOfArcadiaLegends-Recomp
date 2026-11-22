@@ -1979,7 +1979,7 @@ refilled before a phase, for a save whose record is already at 0. Old code stays
 poked to 1 so the first Red Ray empties the gauge, then A through "I never give up"): ws36 cheat on: HP and record
 0, the retry at "Hp 0" (the reporter's screenshot); ws40 cheat on: HP 10000 for the whole 330 s, record untouched,
 no loss, the Red Ray's hit still plays; cheat off: ws36 and ws40 identical (sunk, the retry restores the record's
-HP). ws39 alone (`build/i36/run501.sh`, the ship poked to 0 at a command turn, cheat on): ws36 keeps 0 and sets
+HP). Pocket 5 (ws40 APK, the same repro, cheat on): HP 10000 through 330 s, no loss. ws39 alone (`build/i36/run501.sh`, the ship poked to 0 at a command turn, cheat on): ws36 keeps 0 and sets
 outcome 3, ws39 refills it at the next turn's plan; cheat off the Red Ray takes 10000 to 6620 on both. An old
 mid-battle state (Baltor `17b`) loads and runs. Test route and battle maps: `build/i36/run501.sh` (the Little
 Jack's record poked into `10-worldmap-android.sav`, then the map warp `me5xxa.sct` -> `0x80305CF0`, `0x0F` ->
@@ -2011,7 +2011,12 @@ consecutive frames on shared slots with the 3-member party, which draws about 22
 - WSL Display refresh at 144 Hz with the poke: 319 of 2000 binds per block mismatched; Windows RTX Display refresh at
   240 Hz: 129 in one block without the poke, 364,758 over 16 s with it, all drawn with their frame's texture now.
   Windows 60 fps: 0. No garbled picture was caught on screen in either build (PrintWindow shots, frame dumps), so
-  the visual check is the reporter's; Android not run.
+  the visual check is the reporter's.
+- Android (test APK `skies-recomp-i40b`, `build/i37/dev37.sh`, the same state and poke, 16 s): Display refresh at 60 Hz:
+  Pocket 5 78,490 and Thor 90,995 binds mismatched, all drawn with their frame's texture; 60 fps mode 0 on both.
+  The counter read its switch at static init at first, which Android's `env.txt` comes after (fixed, `9036894`).
+  Pocket 5 speed in the status menu at 60 fps: 0.89-0.90x with the fix, 0.85-0.86x with the release session's w24
+  build (the same scene runs under full speed before the change too).
 
 **Clouds.** The camp menu's side backdrop is drawn from the 1024x512 RGB5A3 buffer at `0x667540` (texcoords about
 0.70, right of column 640): a few texels magnified over each side of a 16:9 picture. The ship's start menu (and the
@@ -2021,7 +2026,7 @@ stretched to the render size, nearest, so each cloud texel became a flat block, 
 `recompcore-gxruntime-padded-base-bilinear`): the stretch is bilinear (texel-centre aligned), skips the copy's area
 and keeps its taps off the copy's texels (zero in memory). Checked on WSL and Windows from
 `10-worldmap-android.sav` with Start, B, X: the sides match a run without the start menu, and the start menu's own
-picture is unchanged. 1.5x field speed alone (Windows, FPS 45) didn't make the clouds blocky in that state; the
+picture is unchanged; Pocket 5 too (the old build blocky, the fix smooth, one shot each). 1.5x field speed alone (Windows, FPS 45) didn't make the clouds blocky in that state; the
 reporter's speed trigger is probably a copy made on the way (not found).
 
 ### 60 fps: draws know their game object (2026-11-22, after #18 / #24)

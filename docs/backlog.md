@@ -18,8 +18,9 @@ once it ships.
 - **Fixes:** ws40 (the cause: the playback's HP gauge sank the ship) and ws39 (a ship at 0 refilled before a phase);
   development notes, "Issue #36". `release/*.dolpatch` regenerated from this branch (ws36 + ws39 + ws40); when the
   release session's ws37 / ws38 come in, the new sections go after theirs and the three patches are made again.
-- **Checked:** WSL USA, ws36 vs ws40 with the release session's repro, cheat on and off. Android: see below.
-  Not: Windows, Europe / Japan run (built, symbols and tables checked).
+- **Checked:** WSL USA, ws36 vs ws40 with the release session's repro, cheat on and off; Pocket 5 (ws40 APK, the
+  same repro, cheat on: HP 10000 through 330 s, no loss). Not: Windows, Europe / Japan run (built, symbols and
+  tables checked).
 - **Reply to draft:** fixed for the next build: with Infinite HP on, the bar no longer counts hits, the ship can't
   sink, and a ship left at 0 by an earlier build is refilled.
 
@@ -29,9 +30,9 @@ once it ships.
   + `interp60.cpp`); `f048d44` the padded copy's base stretched bilinearly (patch
   `recompcore-gxruntime-padded-base-bilinear`). Also `6f5bd51`, the release session's fix for `SKIES_INTERP_TASKS`
   being ignored on Android (read before env.txt). Details: development notes, "Issue #37".
-- **Checked:** WSL and Windows (RTX, 240 Hz) for both; the text by counter (`AURORA_REPLAY_TEXHASH_CHECK=1`), not by
-  a garbled picture (none was caught in the old build either). Not: Android, Japan/Europe, the reporter's 4-member
-  menu. Windows test folder `C:\dev\SkiesI37` (its own copy of the sources; `shot37.ps1`); owner decides on cleanup.
+- **Checked:** WSL, Windows (RTX, 240 Hz), Pocket 5 and Thor for both; the text by counter
+  (`AURORA_REPLAY_TEXHASH_CHECK=1`), not by a garbled picture (none was caught in the old build either). Not:
+  Japan/Europe, the reporter's 4-member menu. Test APK on both devices' .test app: `skies-recomp-i40b` (this branch). Windows test folder `C:\dev\SkiesI37` (its own copy of the sources; `shot37.ps1`); owner decides on cleanup.
 - **Reply to draft:** both fixed for the next build; the field-speed trigger for the clouds wasn't reproduced
   separately (the start menu one was).
 
