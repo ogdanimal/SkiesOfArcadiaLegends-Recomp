@@ -1957,6 +1957,45 @@ pacing statistics' `s_last_picture_kind` side by side; `Present.cpp` already had
   5's test app (ws35 module, `PREGEN` from `ci-codegen.sh TARGETS=android`) re-patched its import to ws35 and
   loaded its ws34 auto-save; the Graphics tab has the Ship battle HUD row.
 
+### 60 fps: sprites drawn a frame ahead, and the FPS counter (2026-11-22, issues #18 and #24)
+
+**What the reporter saw (v0.91.0-beta, the new engine):** #18, the pyramid's flames jump at 60 fps and are
+fine at 30; #24, objects warp at 60 fps (FrameMode 1) and more at Display refresh (FrameMode 2), whose FPS
+counter also read over 144 on a 144 Hz screen.
+
+**Cause** (reporter's state `state-skies-slot2.sav`, USA, the pyramid beside the flames; a temporary pairing
+trace in `BuildPlan`): two ways a sprite in an in-between picture was drawn at the next frame's position while
+the rest of the picture was blended, so it moved ahead of its holder and back at every picture.
+- **Texture flipbooks.** All the flames (~140 quads: two per flame, textures `03fa2d`, `03fce1`, `03ff95` in one
+  frame, `03f8d3`, `03fb87`, `03fe3b` in the next) change picture at once. Their key changes, so the aligned
+  pass leaves them all unpaired, and the texture-change pass (#18's first fix) looked at only the first 64
+  candidates of a shape: half the flames stayed unpaired, drawn as they are.
+- **Depth-sorted sprites changing places.** The game sorts see-through sprites back to front; two alike flames
+  that swap places between frames were paired each with the other one by the order-keeping alignment, which
+  jumps (`VertexJumps`), and a jump snaps the pair **and every draw with its texture**.
+Display refresh made it worse: its pictures mostly sit early between two frames (at 144 Hz, t ≈ 0.2 / 0.4 /
+0.6 / 0.8), where a sprite drawn at the next frame is furthest off: measured flame offsets against their place
+at t were 32 px at t = 0.25, 21 px at 0.5, 8 px at 0.75 (1707x1280 picture).
+
+**Fix (`interp60.cpp` `BuildPlan`):** pairs whose first vertices jump are released before the texture-change pass;
+that pass now takes, per shape, the closest pairs of all left-over draws first (every candidate, up to 65,536
+pairs per shape, so a scene change still costs little), between another texture or two released draws; a
+released draw left without a partner snaps its texture's group as before (the battle-entry shatter).
+`SKIES_INTERP_REPAIR=0` skips both passes. **FPS counter:** counted where each picture is presented
+(`video.cpp` `CountPicture`: the 30 fps present, the retrace presents, the timeline's), not as a frame plus its
+in-betweens, since at the display's rate most frames' real pictures never show.
+
+**Checked (WSL, the reporter's state, camera turning with the C-stick, `SKIES_INTERP=1`, frames dumped; real
+frames byte-identical before and after):** flame offsets in the in-betweens from their place at t: t 0.5 before
+-4.9 / -8.9 / -20.9 / -11.7 px, after +0.7..+1.8; t 0.25 (`SKIES_INTERP_T`, as Display refresh's early pictures)
+before -9.4..-32.1, after +0.5..+1.2; t 0.75 before -1.8..-8.0, after +0.5..+2.3. Trace: the flipbook frame left
+~70 quads unpaired before, none after; the swapped pair is paired with its own flame. Opening cutscene and first
+battle: no in-between changed (87 / 88). Sailors' Island (warped in with `me004a.sct`, Vyse's position poked at
+`0x80E53FB8` / `0x80E53FC0`, the rock clouds of #24 in view): every pair already right, no change. Blend cost
+the same (pyramid 0.51 / 0.41 ms per frame, before / after, noise). FPS counter: a throttled FrameMode 2 run
+(`SKIES_DISPLAY_HZ=144`, WSL presents ~42 pictures a second) read 43 with 630 pictures traced in 15 s.
+**Not checked:** a real 144 Hz screen (Windows), the exact #24 bridge view, Android.
+
 ### Battle screen plane: Drachma's victory pose (2026-10-22, ws31, issue #9)
 
 Sandbowl (v0.80.0-beta, with a video): in 16:9, Drachma's victory pose "reverts back to 4:3". The

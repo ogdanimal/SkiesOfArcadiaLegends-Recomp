@@ -396,6 +396,14 @@ struct Shown
 std::deque<Shown> s_shown;
 std::atomic<bool> s_retrace_presents{false};  // the video thread's (and the render worker's)
 bool s_retrace_presents_wanted = false;  // the game's thread: 60 fps on at the last frame end
+// The game's pictures presented, real and in-between, for the FPS counter (menu.cpp): counted where each is
+// presented, since at the display's rate (FrameMode 2) most frames' real pictures never show (the pictures
+// fall between frames), and counting a frame plus its in-betweens read over the display's rate (issue #24)
+std::atomic<u32> s_pictures_shown{0};
+void CountPicture()
+{
+  s_pictures_shown.fetch_add(1, std::memory_order_relaxed);
+}
 // SKIES_INTERP_TRACE=1: each frame end and retrace present in the log (read at first use, as above)
 bool InterpTrace()
 {
@@ -738,19 +746,12 @@ void ApplyTestResize()
 #endif
 }  // namespace
 
-namespace
-{
-// The in-between pictures the 60 fps replay kept, for the FPS counter (menu.cpp): the game thread
-// counts the game's frames, the video thread these
-std::atomic<u32> s_inbetweens_shown{0};
-}  // namespace
-
-u32 VideoTakeInbetweensShown()
+u32 VideoTakePicturesShown()
 {
 #ifdef SKIES_STANDALONE_AURORA
-  return s_inbetweens_shown.exchange(0, std::memory_order_relaxed);
+  return s_pictures_shown.exchange(0, std::memory_order_relaxed);
 #else
-  return 0;
+  return 1;  // no pictures without Aurora: the game's frames
 #endif
 }
 
@@ -1538,6 +1539,7 @@ void DisplayPresentAt(std::chrono::steady_clock::time_point at, int slot)
 #endif
   aurora_backend_set_present_time(ns);
   Present(slot);
+  CountPicture();
   s_disp_last = at;
 }
 
@@ -1585,7 +1587,6 @@ void DisplayTickNow()
     {
       slot = in_between;
       ++s_disp_count;
-      s_inbetweens_shown.fetch_add(1, std::memory_order_relaxed);
     }
     else
     {
@@ -1721,6 +1722,7 @@ void FrameEndVideo(const FrameEnd& end)
   }
   else
     Present(-1);
+  CountPicture();
   if (dump)
     DumpFrame(end.frame, "");
 }
@@ -1733,8 +1735,6 @@ void ReplayVideo()
     return;  // FrameMode 2: the frame joined the timeline's
   if (kept == 1 && !s_shown.empty())
     s_shown.back().interp = true;
-  if (kept == 1)
-    s_inbetweens_shown.fetch_add(1, std::memory_order_relaxed);
   if (InterpTrace() && kept >= 0 && !s_shown.empty())
     Log("[interp-trace] frame %llu replayed: %s\n", static_cast<unsigned long long>(s_shown.back().frame),
         kept == 1 ? "in-between kept" : "no in-between");
@@ -2019,6 +2019,7 @@ void RetraceVideo(std::chrono::steady_clock::time_point wall)
   }
   SchedulePresent(wall);
   Present(RealSlot(current->frame) + (interp ? 1 : 0));
+  CountPicture();
   if (dump)
     DumpFrame(current->frame, interp ? "-interp" : "");
 }

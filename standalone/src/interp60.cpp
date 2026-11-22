@@ -664,12 +664,44 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
     };
     Align(n_cur, n_prev, distance, [&](int i, int j) { set_partner(cur_list[i], prev_list[j]); });
   }
+  // SKIES_INTERP_REPAIR=0 skips the two passes below (to compare).
+  static const bool repair_on = [] {
+    const char* env = std::getenv("SKIES_INTERP_REPAIR");
+    return !env || env[0] != '0';
+  }();
+  const auto first_position = [](const Frame& frame, const Prim& prim) {
+    return frame.stream.data() + prim.data_offset + prim.pos_offset;
+  };
+  // Pairs whose first vertices jump, let go to be paired again below (issues #18 and #24). The alignment
+  // keeps draw order, but the game sorts see-through sprites by depth (the pyramid's flames, Pirate Isle's
+  // rocks), so two alike sprites that change places between frames were paired each with the other one:
+  // a jump, which snapped the pair and every draw with its texture to the new frame while the rest of the
+  // picture moved halfway (a jump forward at every in-between, more often seen at the display's rate).
+  // A released draw that finds no partner below snaps its texture's group as before.
+  static std::vector<u8> cur_released, prev_released;
+  cur_released.assign(cur_frame.prims.size(), 0);
+  prev_released.assign(prev_frame.prims.size(), 0);
+  for (size_t index = 0; index < cur_frame.prims.size() && repair_on; ++index)
+  {
+    const Prim& prim = cur_frame.prims[index];
+    const Prim* old = partner[index];
+    if (!old || prim.pos_format != FORMAT_FLOAT || old->pos_format != FORMAT_FLOAT || old->pos_count != prim.pos_count)
+      continue;
+    if (VertexJumps(first_position(cur_frame, prim), first_position(prev_frame, *old), prim.pos_count))
+    {
+      cur_released[index] = 1;
+      prev_released[static_cast<size_t>(old - prev_frame.prims.data())] = 1;
+      partner[index] = nullptr;
+    }
+  }
   // Draws still without a partner, paired again without the texture: a draw whose texture changed
-  // between the frames (Fina's face changing expression) has a new key, and drawn as it is while
-  // the rest of the model moved halfway, the model's edges showed around it (issue #18). It pairs
-  // with the nearest previous draw of the same shape (vertex format, count and size) and another
-  // texture that has no partner either, if their first vertices don't jump (VertexJumps). The
-  // Dolphin build's pass (recompcore-interp-pacing.patch).
+  // between the frames (Fina's face changing expression, a flame's next picture) has a new key, and
+  // drawn as it is while the rest of the model moved halfway, the model's edges showed around it
+  // (issue #18). Per shape (vertex format, count and size), the closest pairs of draws left over in
+  // the two frames are taken first, if their first vertices don't jump (VertexJumps), between
+  // another texture or a released pair. Every candidate counts: an animated texture changes on all
+  // its sprites at once (the pyramid has ~140 flame quads), where looking at the first 64 left half
+  // of them unpaired, drawn a whole frame ahead.
   {
     static std::vector<u8> prev_taken;
     prev_taken.assign(prev_frame.prims.size(), 0);
@@ -679,59 +711,95 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
         prev_taken[static_cast<size_t>(p - prev_frame.prims.data())] = 1;
     }
     const auto shape = [](const Prim& prim) { return prim.key ^ (u64{prim.texture} << 20); };
-    static std::vector<std::pair<u64, u32>> lone_prev;  // shape, index
+    static std::vector<std::pair<u64, u32>> lone_prev, lone_cur;  // shape, index
     lone_prev.clear();
+    lone_cur.clear();
     for (u32 j = 0; j < prev_frame.prims.size(); ++j)
     {
       const Prim& prim = prev_frame.prims[j];
       if (!prev_taken[j] && prim.pos_format == FORMAT_FLOAT)
         lone_prev.emplace_back(shape(prim), j);
     }
-    std::sort(lone_prev.begin(), lone_prev.end());
-    // A scene change leaves everything unpaired: only look at a few candidates per draw.
-    constexpr ptrdiff_t MAX_CANDIDATES = 64;
-    // SKIES_INTERP_REPAIR=0 skips this pass (to compare).
-    static const bool repair_on = [] {
-      const char* env = std::getenv("SKIES_INTERP_REPAIR");
-      return !env || env[0] != '0';
-    }();
-    u32 repaired = 0;
-    for (size_t index = 0; index < cur_frame.prims.size() && !lone_prev.empty(); ++index)
+    for (u32 i = 0; i < cur_frame.prims.size(); ++i)
     {
-      const Prim& prim = cur_frame.prims[index];
-      if (partner[index] || prim.pos_format != FORMAT_FLOAT)
+      const Prim& prim = cur_frame.prims[i];
+      if (!partner[i] && prim.pos_format == FORMAT_FLOAT)
+        lone_cur.emplace_back(shape(prim), i);
+    }
+    std::sort(lone_prev.begin(), lone_prev.end());
+    std::sort(lone_cur.begin(), lone_cur.end());
+    // A scene change leaves everything unpaired: a shape with more candidate pairs than this is left so
+    constexpr size_t MAX_PAIRS = 1u << 16;
+    struct Candidate
+    {
+      float distance;
+      u32 cur, prev;
+      bool operator<(const Candidate& o) const
+      {
+        return std::tie(distance, cur, prev) < std::tie(o.distance, o.cur, o.prev);
+      }
+    };
+    static std::vector<Candidate> candidates;
+    u32 repaired = 0;
+    size_t a = 0, b = 0;
+    while (a < lone_cur.size() && b < lone_prev.size() && repair_on)
+    {
+      const u64 key = lone_cur[a].first;
+      if (key != lone_prev[b].first)
+      {
+        if (key < lone_prev[b].first)
+          ++a;
+        else
+          ++b;
         continue;
-      const u64 key = shape(prim);
-      auto it = std::lower_bound(lone_prev.begin(), lone_prev.end(), std::make_pair(key, 0u));
-      const auto end = it + std::min(MAX_CANDIDATES, lone_prev.end() - it);
-      const u8* cur = cur_frame.stream.data() + prim.data_offset + prim.pos_offset;
-      int best = -1;
-      float best_distance = 1e30f;
-      for (; it != end && it->first == key; ++it)
-      {
-        const Prim& old = prev_frame.prims[it->second];
-        // Same texture: the alignment above already left it unpaired on purpose (a particle that
-        // went, another that came).
-        if (prev_taken[it->second] || old.texture == prim.texture)
-          continue;
-        const u8* prev = prev_frame.stream.data() + old.data_offset + old.pos_offset;
-        if (VertexJumps(cur, prev, prim.pos_count))
-          continue;
-        float distance = 0.0f;
-        for (u32 k = 0; k < prim.pos_count; ++k)
-          distance += std::fabs(ReadFloat(cur + k * 4) - ReadFloat(prev + k * 4));
-        if (distance < best_distance)
-          best_distance = distance, best = static_cast<int>(it->second);
       }
-      if (best >= 0)
+      const size_t a_end = std::upper_bound(lone_cur.begin() + a, lone_cur.end(), std::make_pair(key, ~0u)) - lone_cur.begin();
+      const size_t b_end = std::upper_bound(lone_prev.begin() + b, lone_prev.end(), std::make_pair(key, ~0u)) - lone_prev.begin();
+      if ((a_end - a) * (b_end - b) <= MAX_PAIRS)
       {
-        prev_taken[static_cast<size_t>(best)] = 1;
-        if (repair_on)
-          partner[index] = &prev_frame.prims[static_cast<size_t>(best)];
-        ++repaired;
+        candidates.clear();
+        for (size_t i = a; i < a_end; ++i)
+        {
+          const u32 ci = lone_cur[i].second;
+          const Prim& prim = cur_frame.prims[ci];
+          const u8* cur = first_position(cur_frame, prim);
+          for (size_t j = b; j < b_end; ++j)
+          {
+            const u32 pj = lone_prev[j].second;
+            const Prim& old = prev_frame.prims[pj];
+            // Same texture: the alignment above left it unpaired on purpose (a particle that went,
+            // another that came), unless both were a released pair's
+            if (old.texture == prim.texture && !(cur_released[ci] && prev_released[pj]))
+              continue;
+            const u8* prev = first_position(prev_frame, old);
+            if (VertexJumps(cur, prev, prim.pos_count))
+              continue;
+            float distance = 0.0f;
+            for (u32 k = 0; k < prim.pos_count; ++k)
+              distance += std::fabs(ReadFloat(cur + k * 4) - ReadFloat(prev + k * 4));
+            candidates.push_back(Candidate{distance, ci, pj});
+          }
+        }
+        std::sort(candidates.begin(), candidates.end());
+        for (const Candidate& c : candidates)
+        {
+          if (partner[c.cur] || prev_taken[c.prev])
+            continue;
+          partner[c.cur] = &prev_frame.prims[c.prev];
+          prev_taken[c.prev] = 1;
+          ++repaired;
+        }
       }
+      a = a_end;
+      b = b_end;
     }
     s_stat_repaired += repaired;
+  }
+  // A released draw left without a partner jumped: its texture's group snaps, as when it was paired
+  for (size_t index = 0; index < cur_frame.prims.size(); ++index)
+  {
+    if (cur_released[index] && !partner[index])
+      plan->jumping_textures.push_back(cur_frame.prims[index].texture);
   }
   // Which paired draws jump (VertexJumps; with the two added, a full-screen quad Skies moves from
   // z = 100 to 0.001 after a menu passed covered the scene halfway). When one draw jumps, every draw
