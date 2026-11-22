@@ -1983,9 +1983,11 @@ the running task is at `0x80311A7C` (Europe `0x803150FC` / `0x802290DC`, Japan `
   and looked up when the replay's top-level `CALL_DL` reaches that block.
 - `BuildPlan`: two different objects' draws are never paired (the alignment's distance, the pairs it
   makes, the texture-change pass). The texture-change pass may now pair two leftover draws of the same
-  texture if they are the same object's (the alignment's band misses an object that moved far in the
-  draw order); before, same-texture leftovers stayed apart on purpose (a particle that went, another that
-  came), which the object now tells apart. `SKIES_INTERP_TASKS=0` turns it off (to compare). Stats:
+  texture if they are the same small object's: one that draws at most four draws of that key (a particle,
+  one task each; the alignment's band misses one that moved far in the draw order). Before, same-texture
+  leftovers stayed apart on purpose (a particle that went, another that came), which the object now tells
+  apart. Not for big objects: the map is one task drawing hundreds of terrain pieces, and on Sailors'
+  Island's lighthouse bridge that pairing joined two grass pieces and cut the slope open (ab10b24). `SKIES_INTERP_TASKS=0` turns it off (to compare). Stats:
   "with their object", "kept apart".
 
 **What didn't work** (each measured, then dropped):
@@ -2000,7 +2002,7 @@ the running task is at `0x80311A7C` (Europe `0x803150FC` / `0x802290DC`, Japan `
 **Checked (WSL, USA unless said, `SKIES_INTERP=1`, 600 frames each, per frame):**
 | Scene (state) | Draws | With their object | Blended, objects off -> on | Notes |
 |---|---|---|---|---|
-| Opening cutscene (`01`) | 4,210 | 4,111 | 4,178.0 -> 4,209.8 | 31.8 more paired, all by the same-object rule of the texture-change pass |
+| Opening cutscene (`01`) | 4,210 | 4,111 | 4,178.0 -> 4,178.0 | (4,209.8 before the small-object limit: those were big objects' pieces) |
 | First battle (`02`) | 1,068 | 984 | 1,067.6 -> 1,067.6 | |
 | World map (`10`) | 1,910 | 715 | 1,909.8 -> 1,909.8 | most draws outside `TaskRunAll` |
 | Save point (`05`) | 2,326 | 2,297 | 2,325.7 -> 2,325.7 | |
@@ -2015,8 +2017,21 @@ In-betweens compared (`tools/interp-check.py`, 30 each): Pirate Isle 0 out-of-ra
 (an earlier identity variant made a whole tile out of range on its tree); the opening the same small
 score both ways. Europe (`eu-05-pirate-base-ws23.sav`, ws36 module): 2,324 of 2,349 draws with their
 object. Blend cost unchanged (the blend's ms within noise).
-**Not checked:** Japan (addresses only), Windows, Android, the game thread's cost on a weak device (the
-walk runs at most once per FIFO burst while the caller changes).
+**Windows (RTX, 240 Hz display, D3D12):** Display refresh holds 240 pictures a second at 1.00x, and 144 with
+`SKIES_DISPLAY_HZ=144`; the game's FPS counter reads 240 / 144 like RTSS. 60 fps frame dumps of the #24 route
+below match WSL's within 0.1%.
+
+**Issue #24's place** (the reporter's videos: Sailors' Island's lighthouse bridge, the rock clouds behind):
+from the reporter's state, `SKIES_WARP="scene:me004a"`, Vyse poked onto area 901 ("hasi", the bridge:
+x -140, y 26.3, z 111 from the map table's entry; `0x80E53FB8` in that state), the camera turned left over the
+rock clouds (`build/w24/bridge.sh` in the worktree). 50 in-betweens: v0.91's pairing (`SKIES_INTERP_REPAIR=0
+SKIES_INTERP_TASKS=0`), the #18/#24 fix and the objects differ by under 0.4% (interp-check sums 21.94M /
+21.86M / 21.91M), with no visible warp in any; WSL and Windows the same. Display refresh on Windows with
+`SKIES_DISPLAY_TRACE=1`: every picture a step forward (0.124 of a frame at 240 Hz, 0.208 at 144), none back or
+repeated. So the warp is not reproduced there on desktop; the reporter's sky is orange (another story point or
+time), which the state's isn't.
+**Not checked:** Android, Japan (addresses only), a real 144 Hz screen, the game thread's cost on a weak
+device (the walk runs at most once per FIFO burst while the caller changes).
 
 ### 60 fps: sprites drawn a frame ahead, and the FPS counter (2026-11-22, issues #18 and #24)
 
