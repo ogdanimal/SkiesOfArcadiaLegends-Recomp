@@ -9,14 +9,19 @@ A round of fixes on top of 0.91: smoother 60 fps, ship battles that respect Invi
 
 ## Since 0.91
 
-- **60 fps: flames, sprites and small objects no longer jump ahead** of the rest of the picture, most visible at Display refresh ([#18](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/18), [#24](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/24)). The in-between pictures now keep each object's draws apart, so two look-alike objects can't be mixed up.
-- **The FPS counter counts the pictures actually shown**; it read too high at Display refresh ([#24](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/24)).
-- **Menu text no longer garbles at 60 fps**, and **the clouds behind the menu no longer turn blocky** after the ship's start menu ([#37](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/37)).
-- **Invincible keeps your ship in ship battles**: hits no longer sink it at the end of a turn, and a ship already at 0 HP is refilled before the next one ([#36](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/36)).
-- **Cutscene bars setting** (Settings → Graphics, widescreen only): hide the black bars above and below cutscenes like the intro after the title screen ([#34](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/34)).
-- **Ship battle HUD: the banners sit a little in from the screen's edges**, so a four-digit result next to the enemy's banner is no longer cut off ([#25](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/25)).
-- **Android: the Valuan throne room's walls no longer flicker** ([#34](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/34)).
-- **The Grand Fortress gate's turret shadows no longer show what's behind the wall** ([#23](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/23)). Their edge is a little harder.
+**New**
+
+- **Cutscene bars setting** (Settings → Graphics, widescreen only): hide the black letterbox bars in cutscenes such as the intro that plays at the title screen ([#34](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/34)).
+
+**Fixed**
+
+- **Smoother 60 fps and Display refresh:** torch flames, sprites and small objects no longer jump ahead of everything else, and two similar objects side by side no longer get mixed up ([#18](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/18), [#24](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/24)).
+- **The FPS counter** shows the frames that actually reach your screen; at Display refresh it used to read too high ([#24](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/24)).
+- **Menu text** no longer garbles at 60 fps, and the clouds behind the menu no longer turn blocky after the ship's start menu ([#37](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/37)).
+- **Ship battles with Invincible on:** your ship can no longer be sunk, and a ship already left at 0 HP is refilled ([#36](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/36)).
+- **Ship battle HUD:** the banners sit slightly in from the screen's edges, so big damage numbers next to the enemy's banner are no longer cut off ([#25](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/25)).
+- **Android:** the walls of the Valuan throne room no longer flicker ([#34](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/34)).
+- **Grand Fortress gate:** the turrets' shadows no longer make the wall see-through; their edges are a little sharper now ([#23](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/23)).
 
 ## New since 0.83
 
