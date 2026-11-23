@@ -2117,6 +2117,31 @@ time), which the state's isn't.
 **Not checked:** Android, Japan (addresses only), a real 144 Hz screen, the game thread's cost on a weak
 device (the walk runs at most once per FIFO burst while the caller changes).
 
+### 60 fps: Maramba's pier and the pyramid's flames after v0.92 (2026-11-23, issues #18 and #24)
+
+**Places:** #24 is Maramba's port (the reporter's 11-23 state; the Sailors' Island bridge above was the wrong
+place), #18 the pyramid's torches (the reporter's 11-22 state). Test: `SKIES_INTERP_T=0`, where an in-between must
+equal the previous real frame; per in-between, the pixels differing from both real frames (`build/i24b/art.sh` in
+the worktree). The pyramid's torchlight flickers, so there a flame-to-holder tracker on the dumps instead.
+**Causes and fixes** (`interp60.cpp`):
+- The sky haze sends culled strips as zeros, so Align's gap (4x the median) was 0 and the one visible strip went
+  unpaired (a band): a per-item gap floor of 0.1 x |position| (`SKIES_INTERP_GAP_FLOOR=0` off), pairing by mean
+  vertex (`SKIES_INTERP_CENTROID=0` off) and the repair pass's distance over every vertex.
+- Depth-sorted flames swapping places released a pair, which snapped every flame on screen: a trigger now snaps
+  only its own object's draws, or object-less draws near it (`SKIES_INTERP_LOCAL_SNAP=0` off).
+- Deferred tasks (flames, glows, haze: `TaskRunDeferred`, r30 = the list slot) now get their object, and an object
+  whose draws are alike one for one in both frames pairs them by number (`SKIES_INTERP_ORDINAL=0` off).
+- The game clips some pier pieces to another vertex count as the camera turns (no partner), and alike planks
+  paired with their neighbours; a released one snapped every wood draw of the map task. Per object, the rigid
+  motion of its paired draws is fitted (Horn's quaternion method, up to 512 points, two refits without far points;
+  rigid when 70% of the points follow it within 0.5% of their distance): unpaired or jumping draws move back by
+  it, and in an object of 32 draws or more a draw that doesn't follow it is paired with the previous frame's piece
+  the motion takes it to (`SKIES_INTERP_RIGID=0` off).
+**Results:** Maramba 2575 14,409 -> 1,693, 2587 61,230 -> 3,122, 2588 86,956 (the object-tag build) -> 2,263 (v0.92 -> now); pyramid
+draws snapped 2,943 -> 201, the tracked flame in line; the battle-entry shatter and the first two cutscenes
+byte-identical; WSL, Windows D3D12 (same numbers), Pocket 5 and Thor (same numbers on both; 60 fps at 1.00x,
+blend 2.8 / 2.3 ms). About 0.2-0.3 ms more per blend on WSL.
+
 ### 60 fps: sprites drawn a frame ahead, and the FPS counter (2026-11-22, issues #18 and #24)
 
 **What the reporter saw (v0.91.0-beta, the new engine):** #18, the pyramid's flames jump at 60 fps and are
