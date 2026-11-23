@@ -3768,23 +3768,23 @@ build (Dolphin's Vulkan backend on llvmpipe is right).
   (`ws_banner_pull_in`; details in `patches/game/README.md`). Checked on WSL from `17b.sav` with the ship
   presses: the only frames that differ from ws37 are the four banner windows (Main Cannon, Evasive Action,
   Black Cannon twice), the 1820 box now clear of the edge (`build/i1122/s25run/i25-before-after.png`).
-- **#23, the turrets' shadows showing what's behind the wall** (`standalone/src/disc.cpp`, `FixedFile`). The reporter's
-  second look was right: the 48 drop-shadow decals of the Grand Fortress gate (area 243 cutscene,
-  `field/a243ac01.mld`; textures `td16b024` / `td16b011`, black, alpha in 8 steps) draw with z update on and alpha
-  test > 0 (GX trace: BP 0x40 = 000017, 0xF3 = 3c0000), and 5415 of the frame's 5941 draws come after the first of
-  them, 2917 opaque. Where a later wall lands under a decal's soft edge it fails the depth test, and the dark
-  tower body drawn before shows through as a teal wedge. The Dolphin build does the same, so the original very
-  likely does too. No model flag turns z writes off (strip flag 0x0A is ignore-specular + use-alpha; the model
-  renderers never call `GXSetZMode`), and moving the turret nodes later crashed the load. The fix: the disc
-  reader serves that one file with the two decal palettes hard-edged (alpha levels 0-3 -> 0, which the alpha
-  test drops; 4-7 -> opaque), only when the file is the disc's own (size and FNV-1a 64 pinned; the same bytes on
-  all three discs), recompressed (AKLZ) to the file's exact size: the game's decompressor runs to the end of the
-  file, not to the size in its header, and the worker's shorter prototype (2978471 of 2978506 bytes) wrote past
-  its buffer (33 unmapped reads at `0xcccbbcd0`). The encoder spells out a few matches near the end to land on
-  the size exactly. `SKIES_TURRET_SHADOWS=0` serves the original. Checked: WSL frames 4680 / 4720 identical to
-  the worker's prototype, 0 unmapped reads; Windows D3D12 and the Thor (the log line, the gate shot, 1.00x,
-  5461/5461). The cost: the shadows' edge is hard, 1-2 px narrower. Evidence `build/fable-23b/` (REPORT.md,
-  img/zoom_4680_fringe_before_after.png). Not in the Dolphin engine (Android 7/8).
+- **#23, the turrets' shadows, soft again** (round 3: `patches/recompcore-gxruntime-sorted-decals.patch`, Aurora's
+  `gx/gx.cpp`, `gfx/common.cpp`). v0.92 served `a243ac01.mld` with hard-edged decal palettes to stop the see-through
+  hole; the reporter then found the shadows "solid black with no fading", and shoopkid pointed out that the same two
+  textures (`td16b011`, `td16b024`) are in `a116c.mld` (the field view of the gate; byte-identical texels, checked)
+  and look like soft ambient shading on the original console. The cause stays: the decals blend with z update on,
+  and the Dreamcast sorts translucent polygons after the opaque ones, the GameCube original does not. Fix: the
+  renderer draws them the Dreamcast way. A draw that samples a texture marked `sortLastDecal` (set in
+  `resolve_static_palette_texture` for two texel hashes, 128x128 C4: `314df8f182fd5493`, `4cbc6e18ddf8c0da`, the
+  same on all three discs; not the palette, not an HD pack's replacement) is not recorded in the pass's command
+  list but in `RenderPass::deferred`, with the viewport and scissor of the moment, and `seal_pass` appends it
+  after the pass's other commands. Every pass ends there (EFB copy, context swap, offscreen, present), so the decal
+  blends over the finished wall, inside the same pass (before the copy), with the original alpha ramp. The host's
+  hard-edge file fix (`FixedFile`, the AKLZ recompressor in `disc.cpp`) is gone. `AURORA_DECAL_SORT=0` draws them in
+  order again (A/B); `AURORA_DECAL_LOG=1` prints the hashes of C4 128x128 textures as they are made. Cost: a bit
+  test per sampled texture per draw and one vector push per decal draw (48 a frame in the gate shot). Nothing in it
+  is backend specific (it reorders WebGPU commands before encoding). Evidence: `build/t/img/` of the `i23`
+  worktree (original, v0.92, new at 3x, frame 4680 / 4720).
 - **#22, Drachma's pose found and measured** (worker, `build/fable-22c/REPORT.md`). The pose with the screen copy is
   Drachma's own healthy victory pose (`bchara/ma0030.std`, motion 27): two type-0x42 (TEXCOPYMODEL) records at
   motion frames 0x19-0x1e (the first slam) and 0x2d-0x37 (the second, tilted and shrinking). Aika's low-HP pose
