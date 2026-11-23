@@ -34,7 +34,9 @@
 // times every 600 frames. SKIES_INTERP_TRACE=1 (video.cpp): each frame end and retrace present. To compare
 // (issues #18 and #24), =0 turns off: SKIES_INTERP_CENTROID (pairing by mean vertex), SKIES_INTERP_GAP_FLOOR (the
 // least cost of leaving a draw unpaired), SKIES_INTERP_ORDINAL (an object's draws paired by number) and
-// SKIES_INTERP_LOCAL_SNAP (a jump snaps its object, or nearby object-less draws, not every draw with its texture).
+// SKIES_INTERP_LOCAL_SNAP (a jump snaps its object, or nearby object-less draws, not every draw with its texture) and
+// SKIES_INTERP_RIGID (an object that moved as one rigid body, the map with the camera: its draws without a partner of
+// their shape, or that jumped, follow that motion, and a draw that doesn't follow it finds its partner by it).
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "host.h"
 
@@ -201,7 +203,7 @@ u64 s_stat_loads = 0, s_stat_prims = 0, s_stat_loads_blended = 0, s_stat_prims_b
     s_stat_words_changed = 0, s_stat_draws = 0, s_stat_prims_changed = 0;
 u64 s_stat_repaired = 0;  // draws paired across a texture change (issue #18)
 u64 s_stat_collapsed = 0, s_stat_matrix_snaps = 0;  // draws and matrices snapped as turning round (issue #35)
-u64 s_stat_tasked = 0, s_stat_kept_apart = 0, s_stat_by_number = 0;  // draws with a known object; pairings refused as two objects'
+u64 s_stat_tasked = 0, s_stat_kept_apart = 0, s_stat_by_number = 0, s_stat_moved = 0, s_stat_rigid_repaired = 0;  // draws with a known object; pairings refused as two objects'
 // Which game object drew each draw (the game's thread). Skies runs every object as a task (decomp
 // docs/draw.md: TaskRunAll calls each task's function, which updates and draws it), and the running task is
 // at 0x80311A7C (USA), so a draw made inside TaskRunAll's call belongs to that task. Most draws go straight into
@@ -724,6 +726,16 @@ struct BlendPlan
     std::array<float, 3> at;
   };
   std::vector<Trigger> triggers;
+  // [Skies] Draws of an object with no usable partner (a map piece the game clipped to another vertex count: issue
+  // #24's pier), moved by the rigid motion fitted to that object's paired draws: prev = r (cur - from) + to
+  struct Moved
+  {
+    u32 index;
+    std::array<float, 9> r;
+    std::array<float, 3> from, to;
+    float limit = 0.0f;  // the miss a draw that follows the motion stays within
+  };
+  std::vector<Moved> moved;
   size_t total = 0;
 };
 
@@ -739,12 +751,118 @@ BlendPlan::Trigger MakeTrigger(const Frame& frame, const Prim& prim)
   return trigger;
 }
 
+// [Skies] The largest eigenvector of a symmetric 4x4 matrix (Jacobi rotations)
+std::array<double, 4> LargestEigenvector(std::array<std::array<double, 4>, 4> a)
+{
+  std::array<std::array<double, 4>, 4> v{};
+  for (int i = 0; i < 4; ++i)
+    v[i][i] = 1.0;
+  for (int sweep = 0; sweep < 32; ++sweep)
+  {
+    double off = 0.0;
+    for (int i = 0; i < 4; ++i)
+      for (int j = i + 1; j < 4; ++j)
+        off += a[i][j] * a[i][j];
+    if (off < 1e-24)
+      break;
+    for (int p = 0; p < 4; ++p)
+    {
+      for (int q = p + 1; q < 4; ++q)
+      {
+        if (std::fabs(a[p][q]) < 1e-30)
+          continue;
+        const double theta = (a[q][q] - a[p][p]) / (2.0 * a[p][q]);
+        const double tt = (theta >= 0 ? 1.0 : -1.0) / (std::fabs(theta) + std::sqrt(theta * theta + 1.0));
+        const double c = 1.0 / std::sqrt(tt * tt + 1.0), sn = tt * c;
+        for (int k = 0; k < 4; ++k)
+        {
+          const double akp = a[k][p], akq = a[k][q];
+          a[k][p] = c * akp - sn * akq;
+          a[k][q] = sn * akp + c * akq;
+        }
+        for (int k = 0; k < 4; ++k)
+        {
+          const double apk = a[p][k], aqk = a[q][k];
+          a[p][k] = c * apk - sn * aqk;
+          a[q][k] = sn * apk + c * aqk;
+        }
+        for (int k = 0; k < 4; ++k)
+        {
+          const double vkp = v[k][p], vkq = v[k][q];
+          v[k][p] = c * vkp - sn * vkq;
+          v[k][q] = sn * vkp + c * vkq;
+        }
+      }
+    }
+  }
+  int best = 0;
+  for (int i = 1; i < 4; ++i)
+    if (a[i][i] > a[best][best])
+      best = i;
+  return {v[0][best], v[1][best], v[2][best], v[3][best]};
+}
+
+// [Skies] The rotation and translation that best take the points cur to prev (Horn's quaternion method, over the
+// points with keep set), as BlendPlan::Moved's r / from / to; the mean distance left over in *residual
+bool FitRigid(const std::vector<std::array<float, 3>>& cur, const std::vector<std::array<float, 3>>& prev,
+              const std::vector<u8>& keep, BlendPlan::Moved* fit)
+{
+  double cc[3] = {}, cp[3] = {};
+  size_t n = 0;
+  for (size_t i = 0; i < cur.size(); ++i)
+  {
+    if (!keep[i])
+      continue;
+    for (int k = 0; k < 3; ++k)
+      cc[k] += cur[i][k], cp[k] += prev[i][k];
+    ++n;
+  }
+  if (n < 8)
+    return false;
+  for (int k = 0; k < 3; ++k)
+    cc[k] /= n, cp[k] /= n;
+  double m[3][3] = {};
+  for (size_t i = 0; i < cur.size(); ++i)
+  {
+    if (!keep[i])
+      continue;
+    for (int r = 0; r < 3; ++r)
+      for (int c = 0; c < 3; ++c)
+        m[r][c] += (cur[i][r] - cc[r]) * (prev[i][c] - cp[c]);
+  }
+  const double sxx = m[0][0], sxy = m[0][1], sxz = m[0][2], syx = m[1][0], syy = m[1][1], syz = m[1][2],
+               szx = m[2][0], szy = m[2][1], szz = m[2][2];
+  const std::array<std::array<double, 4>, 4> nm = {{{sxx + syy + szz, syz - szy, szx - sxz, sxy - syx},
+                                                     {syz - szy, sxx - syy - szz, sxy + syx, szx + sxz},
+                                                     {szx - sxz, sxy + syx, -sxx + syy - szz, syz + szy},
+                                                     {sxy - syx, szx + sxz, syz + szy, -sxx - syy + szz}}};
+  const std::array<double, 4> q = LargestEigenvector(nm);
+  const double w = q[0], x = q[1], y = q[2], z = q[3];
+  const double r[9] = {w * w + x * x - y * y - z * z, 2 * (x * y - w * z),         2 * (x * z + w * y),
+                       2 * (x * y + w * z),         w * w - x * x + y * y - z * z, 2 * (y * z - w * x),
+                       2 * (x * z - w * y),         2 * (y * z + w * x),         w * w - x * x - y * y + z * z};
+  for (int k = 0; k < 9; ++k)
+    fit->r[k] = static_cast<float>(r[k]);
+  for (int k = 0; k < 3; ++k)
+    fit->from[k] = static_cast<float>(cc[k]), fit->to[k] = static_cast<float>(cp[k]);
+  return true;
+}
+
+std::array<float, 3> MoveBack(const BlendPlan::Moved& fit, const float* c)
+{
+  const float d[3] = {c[0] - fit.from[0], c[1] - fit.from[1], c[2] - fit.from[2]};
+  return {fit.r[0] * d[0] + fit.r[1] * d[1] + fit.r[2] * d[2] + fit.to[0],
+          fit.r[3] * d[0] + fit.r[4] * d[1] + fit.r[5] * d[2] + fit.to[1],
+          fit.r[6] * d[0] + fit.r[7] * d[1] + fit.r[8] * d[2] + fit.to[2]};
+}
+
 void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
 {
   plan->loads.clear();
   plan->prims.clear();
   plan->jumping_textures.clear();
   plan->triggers.clear();
+  plan->moved.clear();
   const auto blend_load = [&](const Load& load, const Load& match) {
     const u8* cur = cur_frame.stream.data() + load.data_offset;
     const u8* prev = prev_frame.stream.data() + match.data_offset;
@@ -1138,10 +1256,148 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
     }
     s_stat_repaired += repaired;
   }
+  // [Skies] An object's draws left without a partner of the same shape (issue #24: the game clips pier pieces of the
+  // map to another vertex count as the camera turns, so they have no counterpart) were drawn a frame ahead, and a
+  // released one snapped its texture's whole group with it. When the object's paired draws moved as one rigid
+  // body (the map, transformed into view space on the CPU, moves only with the camera), the leftovers move back
+  // by that motion instead. SKIES_INTERP_RIGID=0 turns it off.
+  static const bool rigid_moves = [] {
+    const char* env = std::getenv("SKIES_INTERP_RIGID");
+    return !env || env[0] != '0';
+  }();
+  std::vector<u8> moved_prim(cur_frame.prims.size(), 0);
+  const auto layout_matches = [](const Prim& prim, const Prim& old) {
+    return old.num_vertices == prim.num_vertices && old.vertex_size == prim.vertex_size &&
+           old.pos_offset == prim.pos_offset && old.pos_format == prim.pos_format && old.pos_count == prim.pos_count;
+  };
+  // The rigid motion of an object's paired same-shape float draws (cached per object), false when they didn't move
+  // as one body (a character, particles) or are too few
+  static std::unordered_map<u32, std::pair<bool, BlendPlan::Moved>> fits;
+  fits.clear();
+  // Each frame's float draws of an object: (task, index) sorted, a task's run found by binary search
+  static std::vector<std::pair<u32, u32>> cur_tasks, prev_tasks;
+  cur_tasks.clear();
+  prev_tasks.clear();
+  if (rigid_moves)
+  {
+    for (size_t index = 0; index < cur_frame.prims.size(); ++index)
+      if (cur_frame.prims[index].task != 0 && cur_frame.prims[index].pos_format == FORMAT_FLOAT)
+        cur_tasks.emplace_back(cur_frame.prims[index].task, static_cast<u32>(index));
+    for (size_t index = 0; index < prev_frame.prims.size(); ++index)
+      if (prev_frame.prims[index].task != 0 && prev_frame.prims[index].pos_format == FORMAT_FLOAT)
+        prev_tasks.emplace_back(prev_frame.prims[index].task, static_cast<u32>(index));
+    std::sort(cur_tasks.begin(), cur_tasks.end());
+    std::sort(prev_tasks.begin(), prev_tasks.end());
+  }
+  struct Run
+  {
+    const std::pair<u32, u32>* first;
+    const std::pair<u32, u32>* last;
+    size_t size() const { return static_cast<size_t>(last - first); }
+    const std::pair<u32, u32>* begin() const { return first; }
+    const std::pair<u32, u32>* end() const { return last; }
+  };
+  const auto task_run = [](const std::vector<std::pair<u32, u32>>& list, u32 task) {
+    const auto lo = std::lower_bound(list.begin(), list.end(), std::make_pair(task, 0u));
+    const auto hi = std::lower_bound(lo, list.end(), std::make_pair(task + 1, 0u));
+    return Run{list.data() + (lo - list.begin()), list.data() + (hi - list.begin())};
+  };
+  std::vector<std::array<float, 3>> pc, pp;
+  std::vector<u8> keep;
+  std::vector<float> residual, sorted;
+  const auto fit_for = [&](u32 task, BlendPlan::Moved* out) {
+    const auto found = fits.find(task);
+    if (found != fits.end())
+    {
+      *out = found->second.second;
+      return found->second.first;
+    }
+    pc.clear();
+    pp.clear();
+    size_t vertices = 0;
+    const auto usable = [&](size_t index) {
+      const Prim& prim = cur_frame.prims[index];
+      return prim.task == task && partner[index] && prim.pos_format == FORMAT_FLOAT && prim.pos_count == 3 &&
+             layout_matches(prim, *partner[index]);
+    };
+    const Run mine = task_run(cur_tasks, task);
+    for (const auto& [unused, index] : mine)
+      vertices += usable(index) ? cur_frame.prims[index].num_vertices : 0;
+    // Every vertex, up to about 512 points (plenty for a rigid motion; the fit's cost goes with them)
+    const size_t stride = std::max<size_t>(1, vertices / 512);
+    size_t counter = 0;
+    for (const auto& [unused, index] : mine)
+    {
+      if (!usable(index))
+        continue;
+      const Prim& prim = cur_frame.prims[index];
+      const Prim& old = *partner[index];
+      for (u32 v = 0; v < prim.num_vertices; ++v, ++counter)
+      {
+        if (counter % stride)
+          continue;
+        const u8* c = cur_frame.stream.data() + prim.data_offset + v * prim.vertex_size + prim.pos_offset;
+        const u8* p = prev_frame.stream.data() + old.data_offset + v * old.vertex_size + old.pos_offset;
+        pc.push_back({ReadFloat(c), ReadFloat(c + 4), ReadFloat(c + 8)});
+        pp.push_back({ReadFloat(p), ReadFloat(p + 4), ReadFloat(p + 8)});
+      }
+    }
+    BlendPlan::Moved fit{};
+    bool good = pc.size() >= 24;
+    if (good)
+    {
+      // Fit, drop the points left far off (pieces that moved on their own, a mispaired draw), fit again
+      keep.assign(pc.size(), 1);
+      good = FitRigid(pc, pp, keep, &fit);
+      for (int round = 0; round < 3 && good; ++round)
+      {
+        residual.resize(pc.size());
+        double spread = 0.0;
+        for (size_t i = 0; i < pc.size(); ++i)
+        {
+          const std::array<float, 3> m = MoveBack(fit, pc[i].data());
+          const float dx = m[0] - pp[i][0], dy = m[1] - pp[i][1], dz = m[2] - pp[i][2];
+          residual[i] = std::sqrt(dx * dx + dy * dy + dz * dz);
+          spread += std::sqrt(pc[i][0] * pc[i][0] + pc[i][1] * pc[i][1] + pc[i][2] * pc[i][2]);
+        }
+        spread /= static_cast<double>(pc.size());
+        sorted = residual;
+        std::nth_element(sorted.begin(), sorted.begin() + sorted.size() / 2, sorted.end());
+        const float median = sorted[sorted.size() / 2];
+        // Within 1% of the points' distance, or three times the typical miss
+        const float limit = std::max(static_cast<float>(0.01 * spread), 3.0f * median);
+        size_t kept = 0;
+        for (size_t i = 0; i < pc.size(); ++i)
+          kept += (keep[i] = residual[i] <= limit) ? 1 : 0;
+        // A rigid body: most points (70%) follow it closely
+        // A rigid body: after two refits without the far points, most points (70%) follow it closely
+        good = kept * 10 >= pc.size() * 7 && (round < 2 ? FitRigid(pc, pp, keep, &fit) : median <= 0.005 * spread);
+        fit.limit = limit;
+      }
+    }
+    fits.emplace(task, std::make_pair(good, fit));
+    *out = fit;
+    return good;
+  };
+  const auto move_with_object = [&](size_t index) {
+    const Prim& prim = cur_frame.prims[index];
+    if (!rigid_moves || prim.task == 0 || prim.pos_format != FORMAT_FLOAT || prim.pos_count != 3)
+      return false;
+    BlendPlan::Moved fit;
+    if (!fit_for(prim.task, &fit))
+      return false;
+    fit.index = static_cast<u32>(index);
+    plan->moved.push_back(fit);
+    moved_prim[index] = 1;
+    return true;
+  };
+  for (size_t index = 0; index < cur_frame.prims.size(); ++index)
+    if (!partner[index] || !layout_matches(cur_frame.prims[index], *partner[index]))
+      move_with_object(index);
   // A released draw left without a partner jumped: its texture's group snaps, as when it was paired
   for (size_t index = 0; index < cur_frame.prims.size(); ++index)
   {
-    if (cur_released[index] && !partner[index])
+    if (cur_released[index] && !partner[index] && !moved_prim[index])
     {
       plan->jumping_textures.push_back(cur_frame.prims[index].texture);
       plan->triggers.push_back(MakeTrigger(cur_frame, cur_frame.prims[index]));
@@ -1161,9 +1417,50 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
     if (!partner[index])
       continue;
     const Prim& prim = cur_frame.prims[index];
-    const Prim& old = *partner[index];
-    if (!same_layout(prim, old))
+    if (!same_layout(prim, *partner[index]))
       continue;
+    // [Skies] A draw of a rigidly moving object that doesn't follow its motion was paired with another piece (the
+    // map's alike pier planks, issue #24): the previous frame's piece of that object that the motion takes it to is
+    // its partner. None (a limb moving on its own): the pairing stands.
+    const Prim* better = nullptr;
+    // (only an object of many draws: alike pieces told apart by nothing but their place; a fit costs)
+    if (rigid_moves && prim.task != 0 && prim.pos_format == FORMAT_FLOAT && prim.pos_count == 3 &&
+        task_run(cur_tasks, prim.task).size() >= 32)
+    {
+      BlendPlan::Moved fit;
+      if (fit_for(prim.task, &fit))
+      {
+        const auto miss = [&](const Prim& candidate) {
+          float sum = 0.0f;
+          for (u32 v = 0; v < prim.num_vertices; ++v)
+          {
+            const u8* c = cur_frame.stream.data() + prim.data_offset + v * prim.vertex_size + prim.pos_offset;
+            const u8* p = prev_frame.stream.data() + candidate.data_offset + v * candidate.vertex_size + candidate.pos_offset;
+            const float cv[3] = {ReadFloat(c), ReadFloat(c + 4), ReadFloat(c + 8)};
+            const std::array<float, 3> m = MoveBack(fit, cv);
+            const float dx = m[0] - ReadFloat(p), dy = m[1] - ReadFloat(p + 4), dz = m[2] - ReadFloat(p + 8);
+            sum += std::sqrt(dx * dx + dy * dy + dz * dz);
+          }
+          return sum;
+        };
+        const float allowed = fit.limit * static_cast<float>(prim.num_vertices);
+        if (miss(*partner[index]) > allowed)
+        {
+          float best = allowed;
+          for (const auto& [unused, j] : task_run(prev_tasks, prim.task))
+          {
+            const Prim& candidate = prev_frame.prims[j];
+            if (candidate.key != prim.key || !same_layout(prim, candidate))
+              continue;
+            const float m = miss(candidate);
+            if (m <= best)
+              best = m, better = &candidate;
+          }
+          s_stat_rigid_repaired += better ? 1 : 0;
+        }
+      }
+    }
+    const Prim& old = better ? *better : *partner[index];
     bool jump = false;
     if (prim.pos_format == FORMAT_FLOAT)
     {
@@ -1173,7 +1470,7 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
         jump = VertexJumps(cur_frame.stream.data() + prim.data_offset + at,
                            prev_frame.stream.data() + old.data_offset + at, prim.pos_count);
       }
-      if (jump)
+      if (jump && !move_with_object(index))
       {
         plan->jumping_textures.push_back(prim.texture);
         plan->triggers.push_back(MakeTrigger(cur_frame, prim));
@@ -1315,6 +1612,22 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
           dst[k] = static_cast<u8>(static_cast<s32>(std::lround(pf + (c - pf) * t)));
         }
       }
+    }
+  }
+  for (const BlendPlan::Moved& move : plan.moved)
+  {
+    const Prim& prim = cur_frame.prims[move.index];
+    if (group_snaps_prim(prim))
+      continue;
+    ++s_stat_moved;
+    for (u32 v = 0; v < prim.num_vertices; ++v)
+    {
+      const u32 at = prim.data_offset + v * prim.vertex_size + prim.pos_offset;
+      const float c[3] = {ReadFloat(cur_frame.stream.data() + at), ReadFloat(cur_frame.stream.data() + at + 4),
+                          ReadFloat(cur_frame.stream.data() + at + 8)};
+      const std::array<float, 3> p = MoveBack(move, c);
+      for (u32 k = 0; k < 3; ++k)
+        WriteFloat(out->data() + at + k * 4, p[k] + (c[k] - p[k]) * t);
     }
   }
   return plan.total != 0 && paired * 2 >= plan.total;
@@ -1906,17 +2219,17 @@ void LogStats()
   if (s_stats)
   {
     Log("[interp] per blend %.1f draws, %.1f matrix loads (%.1f blended, %.1f changed), %.1f with "
-        "positions (%.1f blended, %.1f changed, %.2f paired across a texture change, %.2f snapped turning, %.2f matrices snapped turning, %.1f with their object, %.1f paired by number, %.2f kept apart); ms per frame: keep real %.2f, blend %.2f, enter "
+        "positions (%.1f blended, %.1f changed, %.2f paired across a texture change, %.2f snapped turning, %.2f matrices snapped turning, %.1f with their object, %.1f paired by number, %.2f moved with their object, %.2f re-paired by it, %.2f kept apart); ms per frame: keep real %.2f, blend %.2f, enter "
         "%.2f, feed %.2f, keep in-between %.2f, leave %.2f\n",
         s_stat_draws / 600.0, s_stat_loads / 600.0, s_stat_loads_blended / 600.0,
         s_stat_words_changed / 600.0, s_stat_prims / 600.0, s_stat_prims_blended / 600.0,
         s_stat_prims_changed / 600.0, s_stat_repaired / 600.0, s_stat_collapsed / 600.0, s_stat_matrix_snaps / 600.0,
-        s_stat_tasked / 600.0, s_stat_by_number / 600.0, s_stat_kept_apart / 600.0, s_ms[0] / 600, s_ms[1] / 600, s_ms[2] / 600, s_ms[3] / 600,
+        s_stat_tasked / 600.0, s_stat_by_number / 600.0, s_stat_moved / 600.0, s_stat_rigid_repaired / 600.0, s_stat_kept_apart / 600.0, s_ms[0] / 600, s_ms[1] / 600, s_ms[2] / 600, s_ms[3] / 600,
         s_ms[4] / 600, s_ms[5] / 600);
   }
   s_stat_loads = s_stat_prims = s_stat_loads_blended = s_stat_prims_blended = s_stat_words_changed =
       s_stat_draws = s_stat_prims_changed = s_stat_repaired = s_stat_collapsed = s_stat_matrix_snaps =
-      s_stat_tasked = s_stat_by_number = s_stat_kept_apart = 0;
+      s_stat_tasked = s_stat_by_number = s_stat_moved = s_stat_rigid_repaired = s_stat_kept_apart = 0;
   std::fill(std::begin(s_ms), std::end(s_ms), 0.0);
 }
 }  // namespace
