@@ -195,7 +195,9 @@ if [ "${AURORA:-0}" = 1 ]; then
   fi
 fi
 cd $V/Source/Android && ./gradlew :app:$TASK \
-  -Pandroid.injected.build.abi=arm64-v8a -Pandroid.injected.testOnly=false -PrecompJniLibs=$A/jniLibs-$NAME "-PrecompNativeFlags=-mno-outline-atomics $PREFIX_MAP" "${BRAND_ARGS[@]}" "${SIGN_ARGS[@]}" "${AURORA_ARGS[@]}" > $A/apk-$NAME.log 2>&1
+  -Pandroid.injected.build.abi=arm64-v8a -Pandroid.injected.testOnly=false -PrecompJniLibs=$A/jniLibs-$NAME "-PrecompNativeFlags=-mno-outline-atomics $PREFIX_MAP" "${BRAND_ARGS[@]}" "${SIGN_ARGS[@]}" "${AURORA_ARGS[@]}" > $A/apk-$NAME.log 2>&1 ||
+  { echo "the APK's Gradle build failed:"; grep -E "error|FAILED|What went wrong|Could not" $A/apk-$NAME.log | head -20
+    echo "--- end of $A/apk-$NAME.log:"; tail -60 $A/apk-$NAME.log; exit 1; }
 if [ "${RELEASE:-0}" = 1 ]; then
   # No keystore property, so Gradle leaves it unsigned (app-release-unsigned.apk)
   UNSIGNED=(app/build/intermediates/apk/release/*.apk)
