@@ -130,8 +130,7 @@
     },
     {
       "sites": [
-        "0x80029D44",
-        "0x8002B020"
+        "0x80029D44"
       ],
       "target": "njProjectScreen",
       "to": "ws_project_hud",
@@ -201,15 +200,27 @@
       "why": "fn_8015C6C8: a ship battle's data allocated (qol.c: the live flag; the game never clears the pointer after freeing)"
     },
     {
+      "site": "0x8002B020",
+      "target": "njProjectScreen",
+      "to": "ws_label_project",
+      "why": "fn_8002A574: the enemy end of the target box's pointer, moved back with the box (widescreen.c, issue #38)"
+    },
+    {
+      "site": "0x8002AA1C",
+      "target": "fn_80029B70",
+      "to": "ws_label_place",
+      "why": "fn_8002A574 (BattleHudDraw): a battle label placed; the enemy target box (mode 2) moves with the portrait columns (widescreen.c, issue #38)"
+    },
+    {
       "site": "0x8015BE44",
       "target": "fn_80159F28",
-      "to": "qol_ship_hit_ws40",
-      "why": "the ship battle turn playback: one hit on a side's HP gauge, which sinks the ship when it empties (qol.c, Invincible; ws40, issue #36)"
+      "to": "qol_ship_hit_ws41",
+      "why": "the ship battle turn playback: one hit on a side's HP gauge, which sinks the ship when it empties (qol.c, Invincible; ws40, ws41: the panel shows, issue #36)"
     },
     {
       "site": "0x8015C138",
       "target": "fn_80159F28",
-      "to": "qol_ship_hit_ws40",
+      "to": "qol_ship_hit_ws41",
       "why": "the same, the playback's other call (ws40, issue #36)"
     },
     {

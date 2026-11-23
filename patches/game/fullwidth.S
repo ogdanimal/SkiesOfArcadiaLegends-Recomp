@@ -393,3 +393,30 @@ ws_popup_draw:
 	stw 3, ws_popup_sprite@l(12)
 	b fn_80005D98
 	.size ws_popup_draw, . - ws_popup_draw
+
+/* ws41 (#38): ws_anchor_find with the target box's label first (ws_label_dx, widescreen.c), in its place for
+ * ws_set_projection and ws_text_anchor. Entered the same way ws_anchor_find enters the table: a jump with this
+ * frame gone, so the table's walk up the stack starts where it did. */
+	.pushsection .trkcave_ws41, "ax"
+	.global ws_anchor_find_ws41
+	.type ws_anchor_find_ws41, @function
+ws_anchor_find_ws41:
+	stwu 1, -16(1)
+	mflr 0
+	stw 0, 20(1)
+	stw 3, 8(1)
+	stw 4, 12(1)
+	bl ws_label_dx
+	mr 5, 3
+	lwz 3, 8(1)
+	lwz 4, 12(1)
+	lwz 0, 20(1)
+	mtlr 0
+	addi 1, 1, 16
+	cmpwi 5, 0
+	beq 1f
+	li 3, 1
+	blr
+1:	b ws_anchor_find
+	.size ws_anchor_find_ws41, . - ws_anchor_find_ws41
+	.popsection

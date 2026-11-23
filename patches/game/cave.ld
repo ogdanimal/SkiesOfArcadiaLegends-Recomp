@@ -30,6 +30,8 @@ SECTIONS
     KEEP(*(.late_bss_ws36))
     /* ws38: widescreen.c's ws_banner_saved. */
     KEEP(*(.late_bss_ws38))
+    /* ws41: widescreen.c's ws_label_edge. */
+    KEEP(*(.late_bss_ws41))
     /* widescreen.c's HUD width, then qol.c's and camera.c's input blocks, at fixed addresses
      * the frontend writes (Core/SkiesSettings.cpp, VideoCommon/SkiesMenu.cpp). */
     ASSERT(. <= 0x80002E9C, "patch data runs into ws_hud_aspect at 0x80002E9C")
@@ -64,6 +66,14 @@ SECTIONS
    * those back. Since ws32 the stubs (cutscene.S's ".trkcave_stubs") are pinned where ws29-ws31
    * had them, 0x26F4 into the area on every disc, after the code of the sources before them, so
    * code before them can shrink. */
+  /* ws41: a third code area just before it, 0x80254228-0x802548E8 (0x6C0 bytes): MetroTRK's nub, event queue,
+   * serial handler and dispatcher (fn_80254228 through TRKInitializeDispatcher), which only InitMetroTRK / TRK_main
+   * reach (checked: no other caller or pointer, tools/gamepatch.py TRK_CAVE2). Code of ws41 and later goes in
+   * ".trkcave_ws41"; the first area is full. */
+  .trkcave2 0x80254228 : {
+    *(.trkcave_ws41)
+  }
+  ASSERT(. <= 0x802548E8, "ws41 code doesn't fit in the third area (0x80254228-0x802548E8)")
   .trkcave 0x802548E8 : {
     *widescreen.c.o(.trkcave .trkcave.*) *fullwidth.S.o(.trkcave .trkcave.*)
     *camera.c.o(.trkcave .trkcave.*) *qol.c.o(.trkcave .trkcave.*) *qol.S.o(.trkcave .trkcave.*)
@@ -86,7 +96,7 @@ SECTIONS
     *(.trkcave_ws38_rodata)
     /* ws39's (qol.c, issue #36), after ws37's and ws38's. */
     *(.trkcave_ws39)
-    /* ws40's (qol.c, issue #36). */
+    /* ws40's qol_ship_hit_ws40 is gone (ws41 replaces it, in the third area); its section stays listed. */
     *(.trkcave_ws40)
   }
   ASSERT(. <= 0x80257AF8, "patch code doesn't fit in the MetroTRK area (0x802548E8-0x80257AF8)")
