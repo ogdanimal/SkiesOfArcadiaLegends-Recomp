@@ -1,4 +1,4 @@
-The new engine is now the recommended release: the game no longer runs inside Dolphin, and it's faster and smoother, most of all on weaker PCs, laptops and Android handhelds. This release brings everything from the six test builds (v0.90.0-standalone.6 to .11) together for everyone coming from 0.83. If you already play v0.90.0-standalone.11, [Since standalone.11](#since-standalone11) lists what changed.
+A round of fixes on top of 0.91: smoother 60 fps, ship battles that respect Invincible, clean menu text, a Cutscene bars setting and an Android wall flicker gone. Coming from 0.83? Everything the new engine brings is listed below too, from [New since 0.83](#new-since-083).
 
 > [!IMPORTANT]
 > **You need your own Skies of Arcadia Legends disc** (GameCube: USA `GEAE8P`, European `GEAP8P` or Japanese `GEAJ8P`) as RVZ, ISO, GCM, GCZ, WIA or CISO.
@@ -7,12 +7,16 @@ The new engine is now the recommended release: the game no longer runs inside Do
 > [!WARNING]
 > **Coming from 0.83, back up your saves first** (Settings → Saves → Back up saves). Your saves carry over, but save states made by the new engine don't load in 0.83.
 
-## Since standalone.11
+## Since 0.91
 
-- **Widescreen: the floating rocks and the broken tower stay in the sky** on Sailors' Island's bridge; the original game hides them on the bridge, where 4:3 never showed them ([#21](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/21)).
-- **Ship battle HUD: a third choice, Bar + grid centred** (the Spirit bar and the grid in the middle, the rest at the sides), and **attack names** now sit at the screen's edges with the rest of the HUD ([#25](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/25)).
-- **Widescreen: the effect behind Drachma's victory pose is drawn at the picture's width**; it was 1.1 times too wide, as in the original game ([#22](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/22)).
-- **See-through textures (railings, leaves) no longer look blocky** at higher resolutions ([#35](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/35)).
+- **60 fps: flames, sprites and small objects no longer jump ahead** of the rest of the picture, most visible at Display refresh ([#18](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/18), [#24](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/24)). The in-between pictures now keep each object's draws apart, so two look-alike objects can't be mixed up.
+- **The FPS counter counts the pictures actually shown**; it read too high at Display refresh ([#24](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/24)).
+- **Menu text no longer garbles at 60 fps**, and **the clouds behind the menu no longer turn blocky** after the ship's start menu ([#37](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/37)).
+- **Invincible keeps your ship in ship battles**: hits no longer sink it at the end of a turn, and a ship already at 0 HP is refilled before the next one ([#36](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/36)).
+- **Cutscene bars setting** (Settings → Graphics, widescreen only): hide the black bars above and below cutscenes like the intro after the title screen ([#34](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/34)).
+- **Ship battle HUD: the banners sit a little in from the screen's edges**, so a four-digit result next to the enemy's banner is no longer cut off ([#25](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/25)).
+- **Android: the Valuan throne room's walls no longer flicker** ([#34](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/34)).
+- **The Grand Fortress gate's turret shadows no longer show what's behind the wall** ([#23](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/23)). Their edge is a little harder.
 
 ## New since 0.83
 
@@ -58,15 +62,15 @@ The new engine is now the recommended release: the game no longer runs inside Do
 
 ## Installing and updating
 
-Your data folder (moved or portable too), settings, memory card saves and save states carry over, from 0.83 and from the test builds; 0.83's save states are converted when they load. Your disc is patched again the first time you start, coming from 0.83 or a test build.
+Your data folder (moved or portable too), settings, memory card saves and save states carry over, from 0.91, 0.83 and the test builds; 0.83's save states are converted when they load. Your disc is patched again the first time you start, coming from 0.91, 0.83 or a test build.
 
 - **Windows / Linux / macOS:** unpack the new version and run it. macOS: allow it in System Settings → Privacy & Security the first time (not notarized).
-- **Android:** install the APK over 0.83 or a test build as an update.
+- **Android:** install the APK over 0.91, 0.83 or a test build as an update.
 - **Going back to 0.83:** load a memory card save (0.83's Continue may pick the new engine's newest save state and refuse it). On Android, going back means uninstalling first, which deletes the app's data unless you moved the data folder: back up your saves.
 
 ## Thanks
 
-To everyone who tried the test builds and reported what they found, especially [Cawl87](https://github.com/Cawl87), [GLEclipseGaming](https://github.com/GLEclipseGaming), [doc-haz](https://github.com/doc-haz), [ghettowario](https://github.com/ghettowario), [workmax67-create](https://github.com/workmax67-create) and [chrisbrasington](https://github.com/chrisbrasington). Several features come from [Dusklight](https://github.com/TwilitRealm/dusklight), the Twilight Princess port on the same [Aurora](https://github.com/encounter/aurora) renderer: thank you to both projects.
+To everyone who tried 0.91 and the test builds and reported what they found, especially [Cawl87](https://github.com/Cawl87), [GLEclipseGaming](https://github.com/GLEclipseGaming), [doc-haz](https://github.com/doc-haz), [ghettowario](https://github.com/ghettowario), [workmax67-create](https://github.com/workmax67-create) and [chrisbrasington](https://github.com/chrisbrasington). Several features come from [Dusklight](https://github.com/TwilitRealm/dusklight), the Twilight Princess port on the same [Aurora](https://github.com/encounter/aurora) renderer: thank you to both projects.
 
 ---
 
