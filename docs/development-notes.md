@@ -1985,6 +1985,18 @@ mid-battle state (Baltor `17b`) loads and runs. Test route and battle maps: `bui
 Jack's record poked into `10-worldmap-android.sav`, then the map warp `me5xxa.sct` -> `0x80305CF0`, `0x0F` ->
 `0x80311AEC`): 501 Valuan cruiser, 503 Baltor, 506 Recumen, 509/514 Chameleon, 510 Valuan gunboat, 513 Roc, 519
 Fortress Gate, 530 Draco; Gigas scripts 506, 531, 535, 547 (`build/i36/tools/aklz.py` decompresses the scripts).
+**Merged with ws37 / ws38** (`notes-091`, 2026-11-22 evening; `patches/game/README.md`, ws40 row): the merged DOL
+(USA `2b51fa7d`, Europe `5ec79e79`, Japan `66521522`) differs from the release session's checked ws38 DOL only in
+ws38's `ws_banner_pull_in` (moved before the stubs), the three ws39 / ws40 call sites and their code; ws37's code is
+byte-identical at the same addresses. Checks: WSL USA, the same binary, `rretry.sh` cheat off: ws38 and merged
+identical (19 of 19 frames, every peek; the Red Ray sinks the ship at 1 HP, the retry restores it), cheat on: the
+ship keeps 10000 through 330 s, no loss. Note: against ws36-based builds the same presses reach the first turn
+about 32 s sooner (cheat on or off), from ws37 / ws38 alone (ws38 = merged there), so compare runs only within one
+base. Windows D3D12 (`C:\dev\SkiesI37`, `run40m.ps1`): the ship survives the Red Ray at 1 HP with the cheat on,
+1.00x; the #37 counter in the status menu (Display refresh, the ring poke) catches 319-638 of 2000 binds, text clean,
+from a ws36 state. Pocket 5 (test APK `skies-recomp-i41`, `dev37.sh`): the same #36 result, 1.01x, 0 unmapped; Thor:
+the #37 counter catches binds, text clean, 1.00x. Europe and Japan: cold boots to the attract demos in 16:9, 0
+unmapped (WSL). Not run: the Cutscene bars setting itself (ws37 unchanged), macOS.
 
 ### Issue #37: menu text garbling at 60 fps, and the menu's blocky side clouds (2026-11-22)
 

@@ -24,11 +24,12 @@ go out after the release.
 ## Issue #36: ship sunk with Invincible on, retry at 0 HP — 2026-11-22 (local branch `interp60-warp`, not pushed)
 
 - **Fixes:** ws40 (the cause: the playback's HP gauge sank the ship) and ws39 (a ship at 0 refilled before a phase);
-  development notes, "Issue #36". `release/*.dolpatch` regenerated from this branch (ws36 + ws39 + ws40); when the
-  release session's ws37 / ws38 come in, the new sections go after theirs and the three patches are made again.
-- **Checked:** WSL USA, ws36 vs ws40 with the release session's repro, cheat on and off; Pocket 5 (ws40 APK, the
-  same repro, cheat on: HP 10000 through 330 s, no loss). Not: Windows, Europe / Japan run (built, symbols and
-  tables checked).
+  development notes, "Issue #36".
+- **Merged (2026-11-22 evening, the owner: all of `interp60-warp` into the next build):** `notes-091`'s ws37 / ws38,
+  GC depth and #23 committed and merged (`063ad78`); `release/*.dolpatch` are ws36-ws40 (`2b51fa7d`, `5ec79e79`,
+  `66521522`). The MetroTRK patch area is full now. Checked: WSL (ws38 vs merged identical with the cheat off, the
+  cheat on keeps the ship), Windows, Pocket 5, Thor (#37), Europe / Japan boots. Not pushed: dev still needs the
+  owner's word.
 - **Reply:** drafted (`build/i37/replies-36-37.md`, local), to post after the release on the owner's word.
 - (old note) fixed for the next build: with Infinite HP on, the bar no longer counts hits, the ship can't
   sink, and a ship left at 0 by an earlier build is refilled.
