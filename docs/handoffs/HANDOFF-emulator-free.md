@@ -173,8 +173,9 @@ see *Save states*). Memory card saves are plain GCI files and carry over.
 5. **Android shell** (*started 2026-10-25: test app, last section*), then standalone builds released beside the
    Dolphin builds until parity.
 
-Where the work lives: the local branch `aurora-backend` (worktree `~/projects/skies-aurora-backend`, cut
-from origin/dev a7aa0f8). It is deliberately kept local: no upstream, pushes blocked
+Where the work lives (**now dev**: the branch was pushed 2026-11-18, became the one line with dev and main
+2026-11-21, and is frozen at `090d2b5` since 2026-11-22; history follows): the local branch `aurora-backend`
+(worktree `~/projects/skies-aurora-backend`, cut from origin/dev a7aa0f8). It was deliberately kept local: no upstream, pushes blocked
 (`branch.aurora-backend.pushRemote = no-push`), not rebased onto newer dev, not merged. Phase 1 starts
 from this branch, whose vendored GXRuntime carries the fork fixes and the overlay.
 
@@ -1267,6 +1268,7 @@ a CI symbol upload with an auth token and a consent screen).
   free bytes before the pinned stubs (`.trkcave_gap`). **The area is now full** (8 bytes in the gap, none at the
   end): the next game patch code needs a new home (another dead MetroTRK / debug function range, or shrinking).
   `release/*.dolpatch` outputs `2b51fa7d` / `5ec79e79` / `66521522`. Checks in the development notes, "Issue #36".
+  Pushed to dev 2026-11-22 evening (`090d2b5..3813448`; dev only, `aurora-backend` is no longer pushed); not released.
 - `90fecab` **Crash reports** (`crash.cpp`): signal / exception, native stack as module + offset, the game CPU's
   last registers, into the log; Windows minidump `crash-<time>.dmp` (threads, no heap) and `abort()`; then the
   previous handler (Android's tombstone, the renderer's crash safeguard). Logs `.1`-`.3` kept. Tested WSL +

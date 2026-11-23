@@ -52,7 +52,8 @@ v0.91.0-beta, not a major version: the owner's pick); `release.yml` takes tags o
 new engine the recommended release. Still open from the list below: the Android 7 / 8 decision (`minSdk` or a
 notice; today's APK falls back to the Dolphin engine there) and the desktop launcher's standalone-only mode.
 - Branches: `aurora-backend` already holds everything on dev (v0.83.0 merged 2026-11-18); it becomes the main line
-  (merge into dev and main), and `release.yml`'s guard goes back to plain tags on main.
+  (merge into dev and main), and `release.yml`'s guard goes back to plain tags on main. *Done 2026-11-21;
+  since 2026-11-22 only dev moves (`aurora-backend` frozen at `090d2b5`, no longer pushed).*
 - The release notes: back up saves first; card saves carry over; the Dolphin engine's states convert when loaded
   (one way: the new engine's states don't load in v0.83); Android 7 / 8 stay on v0.83.1; what's gone (the File
   menu, netplay, Dolphin's video backends and their settings).

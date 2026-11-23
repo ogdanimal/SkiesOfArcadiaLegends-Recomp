@@ -9,6 +9,9 @@ tags on main only (the `aurora-backend` prerelease exception is gone) and ALWAYS
 `release/release-notes.md` (renamed from `test-build-notes.md`) as its notes: the old normal path published at
 once with a generic text (Android 7+, an old known issue) and generated notes. A `-suffix` tag is still a
 prerelease. Publish by hand after the checks below: `gh release edit vVERSION --draft=false`.
+**Branches (2026-11-22):** dev is the only working line. `aurora-backend` stays frozen at `090d2b5` (v0.91.0-beta's
+docs): no workflow builds it and nothing pushes to it any more (the first dev-only push: `090d2b5..3813448`, the
+`interp60-warp` merge). Deleting it on GitHub is the owner's call. Release path: dev, then fast-forward main, tag.
 The owner's picks: the next release is **v0.91.0-beta** (a prerelease, like v0.83.0-beta), and the new engine is
 now the recommended release in both READMEs (v0.83.0-beta: the last Dolphin-engine release; Android 7 / 8 keep
 using the Dolphin engine).

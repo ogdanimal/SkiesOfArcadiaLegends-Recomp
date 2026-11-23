@@ -21,20 +21,20 @@ make two textures in `field/a116c.mld` see-through, hashes `2d1b88e460bcc6bd`, `
 bars in the second intro). Check what the release session's `notes-091` work covers first. The #36 / #37 replies
 go out after the release.
 
-## Issue #36: ship sunk with Invincible on, retry at 0 HP — 2026-11-22 (local branch `interp60-warp`, not pushed)
+## Issue #36: ship sunk with Invincible on, retry at 0 HP — 2026-11-22 (on dev `3813448`, pushed 2026-11-22 evening; not released)
 
 - **Fixes:** ws40 (the cause: the playback's HP gauge sank the ship) and ws39 (a ship at 0 refilled before a phase);
   development notes, "Issue #36".
 - **Merged (2026-11-22 evening, the owner: all of `interp60-warp` into the next build):** `notes-091`'s ws37 / ws38,
   GC depth and #23 committed and merged (`063ad78`); `release/*.dolpatch` are ws36-ws40 (`2b51fa7d`, `5ec79e79`,
   `66521522`). The MetroTRK patch area is full now. Checked: WSL (ws38 vs merged identical with the cheat off, the
-  cheat on keeps the ship), Windows, Pocket 5, Thor (#37), Europe / Japan boots. Not pushed: dev still needs the
-  owner's word.
+  cheat on keeps the ship), Windows, Pocket 5, Thor (#37), Europe / Japan boots. Pushed to dev at the owner's word
+  (`090d2b5..3813448`, dev only: `aurora-backend` is no longer pushed).
 - **Reply:** drafted (`build/i37/replies-36-37.md`, local), to post after the release on the owner's word.
 - (old note) fixed for the next build: with Infinite HP on, the bar no longer counts hits, the ship can't
   sink, and a ship left at 0 by an earlier build is refilled.
 
-## Issue #37: menu text at 60 fps and the menu's blocky clouds — 2026-11-22 (local branch `interp60-warp`, not pushed)
+## Issue #37: menu text at 60 fps and the menu's blocky clouds — 2026-11-22 (on dev `3813448`, pushed 2026-11-22 evening; not released)
 
 - **Commits:** `6bc2b0f` replays draw with their frame's textures (patch `recompcore-gxruntime-replay-texture-frames`
   + `interp60.cpp`); `f048d44` the padded copy's base stretched bilinearly (patch
@@ -46,7 +46,7 @@ go out after the release.
 - **Reply:** drafted with #36's (`build/i37/replies-36-37.md`), to post after the release. (old note) both fixed for the next build; the field-speed trigger for the clouds wasn't reproduced
   separately (the start menu one was).
 
-## 60 fps: object pairing and issue #24 — 2026-11-22 (local branch `interp60-warp`, not pushed)
+## 60 fps: object pairing and issue #24 — 2026-11-22 (on dev `3813448`, pushed 2026-11-22 evening; not released)
 
 - **Commits** (worktree `~/projects/skies-interp`, noreply author): `547ada5` the #18 / #24 sprite fix and the FPS
   counter (also applied, uncommitted, to `notes-091` by the release session); `b8772b2` each draw knows its game
@@ -545,7 +545,7 @@ intermediate EFB passes no longer skipped under the 60 fps replay or before a ke
 at full speed on both Retroids with Vulkan's on-screen cadence; the Picture option applies; the in-game
 menu and OSD draw through a Dear ImGui overlay (fork 0026). Inside Dolphin it is at parity with Vulkan, not
 ahead, and Dolphin's HD packs don't apply under it, so it stays opt-in there. Committed as patches on the
-local branch `aurora-backend`, kept local on purpose (not rebased, merged or pushed).
+branch `aurora-backend` (kept local until 2026-11-18); on dev since the Dolphin removal (2026-11-21).
 
 ## Cheat codes from the GameCube databases — issue #5, requested 2026-10-21
 

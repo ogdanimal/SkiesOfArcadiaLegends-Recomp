@@ -153,7 +153,7 @@ only the USA module (`REGIONS="us eu"`: the USA and European games; `package` te
 modules apart by their names). Dolphin's libraries (bzip2, zstd, zlib and the rest) are its own bundled copies, linked
 in (`USE_SYSTEM_LIBS=OFF`), so the package doesn't need the build machine's distribution.
 
-On the local branch `aurora-backend` only (not on dev): add `-DMODERNGEKKO_ENABLE_AURORA=ON` to the ModernGekko configure to build the experimental Aurora
+Add `-DMODERNGEKKO_ENABLE_AURORA=ON` to the ModernGekko configure to build the experimental Aurora
 video backend as well (`--graphics Aurora`; Dawn's prebuilt package is fetched; `docs/handoffs/HANDOFF-aurora.md`).
 
 ```sh
@@ -239,7 +239,7 @@ dependencies never run alongside the signing secrets. The build stays arm64-only
 APK `android:testOnly` (installable only with `adb install -t`); the script also passes
 `-Pandroid.injected.testOnly=false`, and `tools/sign-apk.sh` refuses a test-only APK.
 
-On the local branch `aurora-backend` only (not on dev), `AURORA=1` builds the experimental Aurora video backend into the app (GXRuntime's WebGPU renderer
+`AURORA=1` builds the experimental Aurora video backend into the app (GXRuntime's WebGPU renderer
 through Dawn; `docs/handoffs/HANDOFF-aurora.md`). Gradle then gets `-PrecompAurora=1`, which turns
 `ENABLE_AURORA_BACKEND` on and needs CMake 3.25 or newer (the SDK's `cmake;3.31.0` package; the plain
 app keeps 3.22.1). The build fetches Dawn's prebuilt `android-aarch64` package and a few libraries;
@@ -247,9 +247,9 @@ app keeps 3.22.1). The build fetches Dawn's prebuilt `android-aarch64` package a
 The output is dated (`build/android/apk/skies-recomp-NAME-<date>[-test].apk`), so a build after
 midnight is a new file; install the newest one.
 
-### The standalone runner (branch `aurora-backend`)
+### The standalone runner
 
-On `aurora-backend` the release's runner is the emulator-free host (`standalone/`: the recompiled game on
+The release's runner is the emulator-free host (`standalone/`: the recompiled game on
 GXRuntime + Aurora, no Dolphin core; `docs/handoffs/HANDOFF-emulator-free.md`). The launcher and the
 Android app's launcher, imports and settings stay as above. Build the host first, then pass its folder as
 `STANDALONE=` to the package steps (configure too: the launcher gets `MODERNGEKKO_STANDALONE_RUNNER=ON`):
@@ -327,10 +327,9 @@ GitHub Actions builds every platform the same way:
 
 Neither runs on pull requests, so code from forks never reaches the secrets.
 
-On the `aurora-backend` branch only, `release.yml` also takes a **prerelease tag on that branch**
-(`vX.Y.Z-suffix`, e.g. `v0.90.0-standalone.4`): it builds the standalone packages and publishes a **draft**
-prerelease with the test build's notes, which the owner reads and publishes by hand. `main`'s guard is
-unchanged.
+`release.yml` always publishes a **draft** with `release/release-notes.md` as its notes, which the owner reads
+and publishes by hand. (Until 2026-11-21 it also took prerelease tags on the `aurora-backend` branch, e.g.
+`v0.90.0-standalone.4`; that exception is gone, and the branch is frozen at `090d2b5`.)
 
 Secrets (in the `ci` environment, and `release` for signing; none at repository level):
 
