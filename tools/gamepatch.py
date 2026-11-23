@@ -39,6 +39,9 @@ REGIONS = {
 # MetroTRK's message handlers and the functions after them, dead without a debugger: the second
 # code area (cave.ld), in USA addresses (translated like the rest for another region).
 TRK_CAVE = (0x802548E8, 0x80257AF8)
+# ws41: MetroTRK's nub and event functions just before it (fn_80254228 through TRKInitializeDispatcher, reached
+# only from InitMetroTRK / TRK_main), the third code area (".trkcave2").
+TRK_CAVE2 = (0x80254228, 0x802548E8)
 # A C suffix (0x80302F94u) must not hide an address: the European and Japanese builds once kept the
 # USA one that way (review D1). Every match is translated, and one missing from the table stops the
 # build, so only the table's identity entries (0x80000000) pass through unchanged.
@@ -195,10 +198,10 @@ def build(specs, work, region):
     addresses = {}
     for line in run(f"{LLVM}/llvm-objdump", "-h", elf).splitlines():
         cols = line.split()
-        if len(cols) >= 4 and cols[1] in (".text", ".data", ".trkcave"):
+        if len(cols) >= 4 and cols[1] in (".text", ".data", ".trkcave", ".trkcave2"):
             addresses[cols[1]] = int(cols[3], 16)
     sections = {}
-    for name in [n for n in (".text", ".data", ".trkcave") if n in addresses]:
+    for name in [n for n in (".text", ".data", ".trkcave", ".trkcave2") if n in addresses]:
         out = os.path.join(work, name[1:] + ".bin")
         run(f"{LLVM}/llvm-objcopy", "-O", "binary", f"--only-section={name}", elf, out)
         sections[name] = (addresses[name], open(out, "rb").read())
@@ -224,6 +227,7 @@ def main():
     region = Region(sha1)
     args.out_root = args.out_root or os.path.join(ROOT, f"build/game/{region.game_id}-patched")
     trk_cave = (region.address(TRK_CAVE[0]), region.address(TRK_CAVE[1]))
+    trk_cave2 = (region.address(TRK_CAVE2[0]), region.address(TRK_CAVE2[1]))
     dol = Dol(original)
     os.makedirs(args.out_root, exist_ok=True)
     with tempfile.TemporaryDirectory() as work:
@@ -270,16 +274,17 @@ def main():
                 dol.set_word(addr, to)
                 log.append(f"0x{addr:08X}  .4byte {r['target']} -> .4byte {r['to']}")
 
-    # The second code area (cave.ld) overwrites dead game code in place.
-    if ".trkcave" in sections and sections[".trkcave"][1]:
-        base, code = sections[".trkcave"]
-        if base < trk_cave[0] or base + len(code) > trk_cave[1] or len(code) % 4:
-            sys.exit(f".trkcave at 0x{base:08X} +0x{len(code):X} is outside 0x{trk_cave[0]:08X}-0x{trk_cave[1]:08X}")
-        for i in range(0, len(code), 4):
-            dol.set_word(base + i, struct.unpack(">I", code[i:i + 4])[0])
-        log.append(f"0x{base:08X}  .trkcave 0x{len(code):X} bytes written in place")
-    else:
-        sections.pop(".trkcave", None)
+    # The second and third code areas (cave.ld) overwrite dead game code in place.
+    for name, area in ((".trkcave", trk_cave), (".trkcave2", trk_cave2)):
+        if name in sections and sections[name][1]:
+            base, code = sections[name]
+            if base < area[0] or base + len(code) > area[1] or len(code) % 4:
+                sys.exit(f"{name} at 0x{base:08X} +0x{len(code):X} is outside 0x{area[0]:08X}-0x{area[1]:08X}")
+            for i in range(0, len(code), 4):
+                dol.set_word(base + i, struct.unpack(">I", code[i:i + 4])[0])
+            log.append(f"0x{base:08X}  {name} 0x{len(code):X} bytes written in place")
+        else:
+            sections.pop(name, None)
     dol.add_section(dol.text, *sections[".text"])
     dol.add_section(dol.dat, *sections[".data"])
     patched = dol.save()

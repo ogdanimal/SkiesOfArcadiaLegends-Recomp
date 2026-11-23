@@ -472,24 +472,38 @@ __attribute__((section(".trkcave_ws39"))) void qol_ship_phase_ws39(int phase, in
   qol_ship_phase(phase, side);
 }
 
-/* ws40 (issue #36, found by the release session): the turn playback plays each hit with fn_80159F28(side)
- * (called at 0x8015BE44 and 0x8015C138). On the party's side it takes the hit off the HP gauge's counter
- * (lbl_803472B0's gauge +0x8), from the acting record's damage (lbl_80306E38 or +0x90, whichever's +0x11 is the
- * side; +0xC), and when the gauge reaches 0 it writes 0 into the ship's HP itself (0x8015A1A8): the ship sank
- * although qol_ship_phase had zeroed the same hits' damage in BtlShipApplyPhase. The battle had not been flagged
- * lost, so its results wrote the 0 into the save's ship record (fn_80134900) and "I never give up" rebuilt the ship
- * at 0 HP. With Invincible on, a hit on the party plays with no damage: the gauge doesn't move (it showed the
- * damage before, then the full HP again at the next turn) and can't empty. */
-__attribute__((section(".trkcave_ws40"))) void qol_ship_hit_ws40(int side) {
+/* ws41 (issue #36, the leftover; replaces ws40's qol_ship_hit_ws40): the turn playback plays each hit with
+ * fn_80159F28(side) (called at 0x8015BE44 and 0x8015C138). On the party's side it takes the hit off the HP gauge's
+ * counter (lbl_803472B0's gauge +0x8, fn_80129D40 finds it), from the acting record's damage (lbl_80306E38 or +0x90,
+ * whichever's +0x11 is the side; +0xC), and when the gauge reaches 0 it writes 0 into the ship's HP itself
+ * (0x8015A1A8): the ship sank although qol_ship_phase had zeroed the same hits' damage in BtlShipApplyPhase (the
+ * battle wasn't flagged lost, so the results saved the 0 into the ship's record and "I never give up" rebuilt the ship
+ * at 0 HP). ws40 played the hit with no damage, but then fn_80159F28 returns before showing the ship's name and HP
+ * panel (damage 0, no status change). Now the real damage is played, held back so the counter stays at 1 or more (the
+ * ship's own HP is never touched: only an empty counter sinks it), the panel's "before" HP is full so the bar drops
+ * from full as in a character battle, and afterwards the record and the counter are put back: the ship ends every
+ * turn at full HP, the panel showed the hit. */
+extern unsigned char *fn_80129D40(u32 id); /* ship HUD: the gauge entry of a ship id (0xFFFF: the party's) */
+__attribute__((section(".trkcave_ws41"))) void qol_ship_hit_ws41(int side) {
   if (side != 0 && qol_invincible()) {
     unsigned char *record = (unsigned char *)SHIP_ACTIONS;
     if ((s8)record[0x11] != side)
       record += 0x90;
     int *damage = (int *)(record + 0xC);
     const int saved = *damage;
-    *damage = 0;
+    unsigned char *gauge = fn_80129D40(*(u32 *)0x803472B0);
+    unsigned char *panel = *(unsigned char **)0x80306DB8; /* the party ship's HUD panel (slot 0) */
+    int *counter = qol_ram(gauge) ? (int *)(gauge + 8) : 0;
+    if (counter) {
+      if (saved >= *counter)
+        *damage = *counter > 1 ? *counter - 1 : 0;
+      if (qol_ram(panel))
+        *(int *)(panel + 0x28) = *(int *)(panel + 0x2C);
+    }
     fn_80159F28(side);
     *damage = saved;
+    if (counter)
+      *counter = *(int *)(gauge + 0xC);
     return;
   }
   fn_80159F28(side);

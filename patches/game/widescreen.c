@@ -413,6 +413,7 @@ TRK_CAVE __attribute__((noinline)) int ws_anchor_table_find(float *dx, float *dy
 #define BANNER_LO 0x8012F958u
 #define BANNER_SIZE 0x5B0u
 extern int ws_anchor_find(float *dx, float *dy);
+extern int ws_anchor_find_ws41(float *dx, float *dy);
 
 __attribute__((section(".trkcave_ws36"))) int ws_anchor_banner(float *dx, float *dy) {
   u32 *frame = __builtin_frame_address(0);
@@ -443,6 +444,67 @@ __attribute__((section(".trkcave_ws36"))) int ws_anchor_banner(float *dx, float 
   return 1;
 }
 
+/* Issue #38: the battle's enemy target box (BattleLabelPlace's mode 2: the name plate with its HP bar and the
+ * pointer to the enemy, one per enemy in the columns beside the portraits) is placed at the fixed x 502 of the
+ * 4:3 HUD, next to the portrait columns (BattleIconColumnDraw, at the right edge since ws9): in a wide picture the
+ * portraits moved and the box stayed. BattleHudDraw (0x8002A574) calls BattleLabelPlace once per label, at
+ * 0x8002AA1C; the call goes through ws_label_place, which notes whether it was a mode 2 label (ws_label_edge).
+ * While BattleHudDraw draws such a label (ws_label_dx finds it up the stack) its 2D moves like the right edge's
+ * anchors: half the HUD area's width gained, projection moved and unclipped. The pointer's far end, the enemy's
+ * projected position (the call at 0x8002B020), is moved back by the same (ws_label_project), so the pointer
+ * still reaches the enemy. Mode 0 and 1 labels (placed at a projected enemy, already in HUD units) don't move.
+ * The 4:3 HUD (ws_hud_aspect < 0, display aspect 0) moves nothing, as for the anchors. */
+extern void fn_80029B70(void *label, int mode, int slot);
+extern void ws_project_hud(void *matrix, const float *point, float *screen);
+__attribute__((section(".late_bss_ws41"), used)) int ws_label_edge;
+
+#define LABEL_LO 0x8002A574u
+#define LABEL_SIZE 0xBB0u
+
+__attribute__((section(".trkcave_ws41"))) void ws_label_place(void *label, int mode, int slot) {
+  fn_80029B70(label, mode, slot);
+  ws_label_edge = mode == 2;
+}
+
+/* The move for a mode 2 label being drawn (the right edge's, as ws_anchor_table_find works it out), else 0. */
+__attribute__((section(".trkcave_ws41"))) int ws_label_dx(float *dx, float *dy) {
+  u32 *frame = __builtin_frame_address(0);
+  float hud_factor;
+  int depth;
+  if (!ws_label_edge)
+    return 0;
+  ws_check();
+  if (ws_config.anchors[0].lo == 0 || ws_config.factor >= 1.0f || ws_hud_aspect < 0.0f)
+    return 0;
+  for (depth = 0; depth < 12; depth++) {
+    u32 lr;
+    frame = (u32 *)frame[0];
+    if (!in_ram(frame))
+      return 0;
+    lr = frame[1];
+    if (lr > LABEL_LO && lr <= LABEL_LO + LABEL_SIZE)
+      break;
+  }
+  if (depth == 12)
+    return 0;
+  hud_factor = ws_hud_aspect > 0.0f ? GAME_DISPLAY_ASPECT / ws_hud_aspect : ws_config.factor;
+  if (hud_factor < ws_config.factor)
+    hud_factor = ws_config.factor;
+  if (hud_factor > 1.0f)
+    hud_factor = 1.0f;
+  *dx = 0.5f * NJ_WIDTH * (1.0f / hud_factor - 1.0f);
+  *dy = 0.0f;
+  return 1;
+}
+
+/* 0x8002B020: the enemy's projected position for the pointer, moved back by what its label moved. */
+__attribute__((section(".trkcave_ws41"))) void ws_label_project(void *matrix, const float *point, float *screen) {
+  float dx, dy;
+  ws_project_hud(matrix, point, screen);
+  if (ws_label_dx(&dx, &dy))
+    screen[0] -= dx;
+}
+
 /* Optional debug hook (trace2d.c): sees every projection load. */
 extern void trace_projection(const float matrix[4][4], int type) __attribute__((weak));
 
@@ -462,7 +524,7 @@ void ws_set_projection(const float matrix[4][4], int type) {
   ws_check();
   if (trace_projection)
     trace_projection(matrix, type);
-  if (matrix == ORTHO_MATRIX && ws_anchor_find(&dx, &dy)) {
+  if (matrix == ORTHO_MATRIX && ws_anchor_find_ws41(&dx, &dy)) {
     float moved[4][4];
     int i, j;
     for (i = 0; i < 4; i++)
@@ -489,7 +551,7 @@ void ws_set_projection(const float matrix[4][4], int type) {
  * draw them without the 4:3 clip. */
 TRK_CAVE void *ws_text_anchor(void *node) {
   float dx, dy;
-  if (node != 0 && ws_anchor_find(&dx, &dy)) {
+  if (node != 0 && ws_anchor_find_ws41(&dx, &dy)) {
     float *pos = (float *)((char *)node + 4);
     float *clip = (float *)((char *)node + 0x18);
     pos[0] += dx;
