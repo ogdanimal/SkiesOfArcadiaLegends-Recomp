@@ -1,0 +1,168 @@
+diff --git a/GXRuntime/graphics/aurora/lib/gfx/common.cpp b/GXRuntime/graphics/aurora/lib/gfx/common.cpp
+index 36010ae9c3..12bbc14fc5 100644
+--- a/GXRuntime/graphics/aurora/lib/gfx/common.cpp
++++ b/GXRuntime/graphics/aurora/lib/gfx/common.cpp
+@@ -201,6 +201,14 @@ struct RenderPass {
+   bool captureDepthSnapshot = false;
+   bool sealed = false;
+   std::vector<tex_palette_conv::ConvRequest> paletteConvs;
++  // Local (fork): sorted decal draws (gx::DrawData::sortLast), appended after the pass's other commands
++  // when it is sealed, each with the viewport and scissor it was recorded under
++  struct DeferredDraw {
++    Viewport viewport;
++    ClipRect scissor;
++    ShaderDrawCommand draw;
++  };
++  std::vector<DeferredDraw> deferred;
+ };
+ 
+ struct TextureCopy {
+@@ -465,6 +473,12 @@ static void seal_pass(FramePacket& frame, uint32_t passIndex) {
+   if (pass.sealed) {
+     return;
+   }
++  for (const auto& d : pass.deferred) {
++    pass.commands.push_back({.type = CommandType::SetViewport, .data = {.setViewport = d.viewport}});
++    pass.commands.push_back({.type = CommandType::SetScissor, .data = {.setScissor = d.scissor}});
++    pass.commands.push_back({.type = CommandType::Draw, .data = {.draw = d.draw}});
++  }
++  pass.deferred.clear();
+   pass.sealed = true;
+ }
+ 
+@@ -639,6 +653,9 @@ bool clear_at_frame_start(bool clearColor, bool clearAlpha, bool clearDepth, con
+   if (g_cachedScissor != full) {
+     return false;
+   }
++  if (!pass.deferred.empty()) {
++    return false;
++  }
+   for (const auto& cmd : pass.commands) {
+     if (cmd.type != CommandType::SetViewport && cmd.type != CommandType::SetScissor) {
+       return false;
+@@ -1023,6 +1040,17 @@ void end_offscreen() {
+ 
+ template <>
+ void push_draw_command(gx::DrawData data) {
++  if (data.sortLast && g_currentRenderPass != UINT32_MAX) {
++    current_render_passes()[g_currentRenderPass].deferred.push_back(RenderPass::DeferredDraw{
++        g_cachedViewport, g_cachedScissor, ShaderDrawCommand{.type = ShaderType::GX, .gx = data}});
++    ++g_drawCallCount;
++    static const bool log = std::getenv("AURORA_DECAL_LOG") != nullptr;
++    static uint64_t sorted = 0;
++    if (log && (++sorted % 500) == 1) {
++      std::fprintf(stderr, "[decal] %llu draws recorded at the end of their pass\n", static_cast<unsigned long long>(sorted));
++    }
++    return;
++  }
+   push_draw_command(ShaderDrawCommand{.type = ShaderType::GX, .gx = data});
+ }
+ 
+diff --git a/GXRuntime/graphics/aurora/lib/gfx/texture.hpp b/GXRuntime/graphics/aurora/lib/gfx/texture.hpp
+index 945750b68f..292dbb5fb5 100644
+--- a/GXRuntime/graphics/aurora/lib/gfx/texture.hpp
++++ b/GXRuntime/graphics/aurora/lib/gfx/texture.hpp
+@@ -46,6 +46,9 @@ struct TextureRef {
+   // The game's own texture, drawn while its replacement decodes (texture_replacement.cpp): the
+   // caches ask again once the loads finished count differs from the one it was made at
+   bool replacementPending = false;
++  // Local (fork): a translucent decal the original hardware drew after the opaque geometry (Skies of
++  // Arcadia's turret drop shadows, gx.cpp is_sorted_decal): its draws go to the end of their pass
++  bool sortLastDecal = false;
+   uint32_t replacementGeneration = 0;
+ 
+   TextureRef(wgpu::Texture texture, wgpu::TextureView sampleTextureView, wgpu::TextureView attachmentTextureView,
+diff --git a/GXRuntime/graphics/aurora/lib/gx/command_processor.cpp b/GXRuntime/graphics/aurora/lib/gx/command_processor.cpp
+index 8a370cf128..eb17e32c65 100644
+--- a/GXRuntime/graphics/aurora/lib/gx/command_processor.cpp
++++ b/GXRuntime/graphics/aurora/lib/gx/command_processor.cpp
+@@ -2935,6 +2935,7 @@ static void push_gx_draw(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, gfx::Rang
+       .cullMode = g_gxState.cullMode,
+       .fmt = fmt,
+       .vaRanges = ranges.vaRanges,
++      .sortLast = draws_sorted_decal(info),
+   });
+   if (config.minMax != 0) {
+     // Nothing merges into it: a merged primitive's destination may be this one's output, no longer 0x00/0xFF
+diff --git a/GXRuntime/graphics/aurora/lib/gx/gx.cpp b/GXRuntime/graphics/aurora/lib/gx/gx.cpp
+index 3b497282cc..feacb79265 100644
+--- a/GXRuntime/graphics/aurora/lib/gx/gx.cpp
++++ b/GXRuntime/graphics/aurora/lib/gx/gx.cpp
+@@ -266,6 +266,26 @@ bool make_retail_key(const GXTexObj_& obj, const GXTlutObj_* tlut, RetailTexture
+ 
+ // A replay's key from an earlier frame's hashes that missed the cache: hashed from RAM as it is now,
+ // the texels the texture is about to be made from
++// Local (fork): Skies of Arcadia's turret drop shadows (td16b011, td16b024: 128x128 C4, an all-black
++// palette with an alpha ramp, drawn blended with Z update on) sit in their model's node order
++// before wall geometry; their soft edge then writes depth and hides the wall drawn later (a hole).
++// The Dreamcast original sorts translucent polygons after the opaque ones; these draws are
++// recorded at the end of their pass instead. Keyed by the texel data (not the palette, which the
++// host's hard-edge fix changes, nor an HD pack's replacement).
++bool is_sorted_decal(const GXTexObj_& obj, const RetailTextureKey& key) noexcept {
++  static const bool off = [] { const char* e = std::getenv("AURORA_DECAL_SORT"); return e != nullptr && e[0] == '0'; }();
++  static const bool log = std::getenv("AURORA_DECAL_LOG") != nullptr;
++  if (key.texHash == 0 || obj.width() != 128 || obj.height() != 128 || obj.format() != GX_TF_C4) {
++    return false;
++  }
++  if (log) {
++    std::fprintf(stderr, "[decal] C4 128x128 texHash=%016llx tlutHash=%016llx\n",
++                 static_cast<unsigned long long>(key.texHash), static_cast<unsigned long long>(key.tlutHash));
++  }
++  // td16b011 and td16b024 (the disc's bytes, the same on the USA, European and Japanese discs)
++  return !off && (key.texHash == 0x314df8f182fd5493ull || key.texHash == 0x4cbc6e18ddf8c0daull);
++}
++
+ void rehash_retail_key(const GXTexObj_& obj, const GXTlutObj_* tlut, RetailTextureKey& key) noexcept {
+   if (!s_keyFromHistory) {
+     return;
+@@ -498,6 +518,7 @@ gfx::TextureHandle resolve_static_palette_texture(const GXTexObj_& obj, const GX
+     store_cached_texture(obj, handle, tlut.tlutObjId, tlut.tlutDataVersion);
+   }
+   if (retail && handle) {
++    handle->sortLastDecal = is_sorted_decal(obj, retailKey);
+     store_retail_texture(retailKey, handle);
+   }
+   return handle;
+@@ -923,6 +944,15 @@ void evict_copy_texture(const void* dest) noexcept {
+   }
+ }
+ 
++bool draws_sorted_decal(const ShaderInfo& info) noexcept {
++  for (u32 i = 0; i < MaxTextures; ++i) {
++    if (info.sampledTextures.test(i) && g_gxState.textures[i].ref && g_gxState.textures[i].ref->sortLastDecal) {
++      return true;
++    }
++  }
++  return false;
++}
++
+ void resolve_sampled_textures(const ShaderInfo& info) noexcept {
+   ZoneScoped;
+ 
+diff --git a/GXRuntime/graphics/aurora/lib/gx/gx.hpp b/GXRuntime/graphics/aurora/lib/gx/gx.hpp
+index 73ad358133..7a31f216d7 100644
+--- a/GXRuntime/graphics/aurora/lib/gx/gx.hpp
++++ b/GXRuntime/graphics/aurora/lib/gx/gx.hpp
+@@ -452,6 +452,9 @@ void set_render_scissor(const gfx::ClipRect& scissor) noexcept;
+ void copy_tex(const void* dest, GXBool clear) noexcept;
+ const gfx::TextureBind& get_texture(GXTexMapID id) noexcept;
+ void resolve_sampled_textures(const ShaderInfo& info) noexcept;
++// Local (fork): whether the draw just resolved samples a sorted decal (a texture the original hardware
++// drew after the opaque geometry of its pass; AURORA_DECAL_SORT=0 off)
++bool draws_sorted_decal(const ShaderInfo& info) noexcept;
+ 
+ inline float clear_depth_value() {
+   const float normalizedDepth = static_cast<float>(g_gxState.clearDepth) / 16777215.f;
+diff --git a/GXRuntime/graphics/aurora/lib/gx/pipeline.hpp b/GXRuntime/graphics/aurora/lib/gx/pipeline.hpp
+index e1943dbb83..670e98b764 100644
+--- a/GXRuntime/graphics/aurora/lib/gx/pipeline.hpp
++++ b/GXRuntime/graphics/aurora/lib/gx/pipeline.hpp
+@@ -21,6 +21,8 @@ struct DrawData {
+   // indexed vertex arrays (a later draw with the same state, format and ranges appends).
+   GXVtxFmt fmt;
+   std::array<gfx::Range, 12> vaRanges;
++  // Local (fork): the draw samples a sorted decal (TextureRef::sortLastDecal): recorded at the end of its pass
++  bool sortLast;
+ };
+ 
+ constexpr uint32_t GXPipelineConfigVersion = 15;
