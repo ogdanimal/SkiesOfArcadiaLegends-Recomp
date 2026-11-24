@@ -237,6 +237,7 @@ u64 s_stat_loads = 0, s_stat_prims = 0, s_stat_loads_blended = 0, s_stat_prims_b
 u64 s_stat_repaired = 0;  // draws paired across a texture change (issue #18)
 u64 s_stat_loads_apart = 0;  // matrix pairings refused as two objects' (issue #24)
 u64 s_stat_loads_by_object = 0;  // [Skies] groups of loads paired by object alone, their kinds unmatched (issue #24)
+u64 s_stat_colours_held = 0;    // [Skies] blended draws whose colours stayed: another draw of their object's couldn't blend
 u64 s_stat_jumps_explained = 0;  // [Skies] paired draws past the jump test that their object's motion explains (issue #24)
 u64 s_stat_collapsed = 0, s_stat_matrix_snaps = 0;  // draws and matrices snapped as turning round (issue #35)
 u64 s_stat_camera_paired = 0;  // [Skies] draws re-paired by the camera's motion (issue #24)
@@ -2182,7 +2183,7 @@ std::vector<u8> s_copy_blended;
 // A paired draw's indexed colours and float texture coordinates blended, vertex by vertex: the element a vertex of the
 // current draw reads, and the one its partner read. A texture coordinate that moved by more than half a texture
 // (a scroll that wrapped) stays the current one.
-void BlendArrays(const Frame& cur_frame, const Frame& prev_frame, const Prim& prim, const Prim& old, float t)
+void BlendArrays(const Frame& cur_frame, const Frame& prev_frame, const Prim& prim, const Prim& old, float t, bool colours)
 {
   const auto find_draw = [](const Frame& frame, const Prim& p) -> const Draw* {
     const u32 offset = p.data_offset - 3;
@@ -2197,7 +2198,7 @@ void BlendArrays(const Frame& cur_frame, const Frame& prev_frame, const Prim& pr
   for (u32 i = cd->arrays_begin; i < cd->arrays_end; ++i)
   {
     const ArrayCopy& ac = cur_frame.array_copies[i];
-    if (ac.kind == 0)
+    if (ac.kind == 0 || (ac.kind == 1 && !colours))
       continue;
     const ArrayCopy* bc = nullptr;
     for (u32 j = pd->arrays_begin; j < pd->arrays_end; ++j)
@@ -2378,20 +2379,72 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
     return std::any_of(plan.triggers.begin(), plan.triggers.end(), near) ||
            std::any_of(collapse_triggers.begin(), collapse_triggers.end(), near);
   };
+  // [Skies] Which pairs blend (not jumping, turning round or snapped with their group)
+  static std::vector<u8> blends;
+  blends.assign(plan.prims.size(), 0);
+  for (size_t i = 0; i < plan.prims.size(); ++i)
+  {
+    const BlendPlan::PrimPair& pair = plan.prims[i];
+    blends[i] = !pair.jumps && !collapsed[i] && !group_snaps_prim(cur_frame.prims[pair.index]);
+  }
+  // [Skies] Colours blend all or nothing per object (task; task 0, the 2D layers and other draws of no object, as one):
+  // only when every draw of it with colours (direct, or read from an indexed colour array) has a same-texture partner
+  // that blends. A 2D screen fading in from black (the first battle's results) had most of its tiles blended halfway
+  // dark and the rest, unpaired or snapped, at full brightness: a patchwork for one picture.
+  static std::vector<u32> colours_off;  // the objects whose colours stay the current frame's, sorted
+  colours_off.clear();
+  if (ColourMask() & 12)
+  {
+    static std::vector<u8> colour_partner;  // by cur_frame.prims index
+    colour_partner.assign(cur_frame.prims.size(), 0);
+    for (size_t i = 0; i < plan.prims.size(); ++i)
+    {
+      const BlendPlan::PrimPair& pair = plan.prims[i];
+      const Prim& prim = cur_frame.prims[pair.index];
+      bool ok = blends[i] && prim.texture == pair.old->texture;
+      for (int c = 0; c < 2 && ok; ++c)
+        ok = prim.col_off[c] == 0xFF || (pair.old->col_off[c] == prim.col_off[c] && pair.old->col_fmt[c] == prim.col_fmt[c]);
+      colour_partner[pair.index] = ok;
+    }
+    const auto indexed_colours = [&](const Prim& prim) {
+      const u32 offset = prim.data_offset - 3;
+      const auto it = std::lower_bound(cur_frame.draws.begin(), cur_frame.draws.end(), offset,
+                                       [](const Draw& d, u32 value) { return d.offset < value; });
+      if (it == cur_frame.draws.end() || it->offset != offset)
+        return false;
+      for (u32 k = it->arrays_begin; k < it->arrays_end; ++k)
+        if (cur_frame.array_copies[k].kind == 1)
+          return true;
+      return false;
+    };
+    for (size_t i = 0; i < cur_frame.prims.size(); ++i)
+    {
+      const Prim& prim = cur_frame.prims[i];
+      if (colour_partner[i])
+        continue;
+      const bool direct = ((ColourMask() & 4) && (prim.col_off[0] != 0xFF || prim.col_off[1] != 0xFF));
+      if (direct || ((ColourMask() & 8) && indexed_colours(prim)))
+        colours_off.push_back(prim.task);
+    }
+    std::sort(colours_off.begin(), colours_off.end());
+    colours_off.erase(std::unique(colours_off.begin(), colours_off.end()), colours_off.end());
+  }
   for (size_t i = 0; i < plan.prims.size(); ++i)
   {
     const BlendPlan::PrimPair& pair = plan.prims[i];
     const Prim& prim = cur_frame.prims[pair.index];
     const Prim& old = *pair.old;
-    if (pair.jumps || collapsed[i] || group_snaps_prim(prim))
+    if (!blends[i])
       continue;
     ++paired;
     ++s_stat_prims_blended;
+    const bool colours = !std::binary_search(colours_off.begin(), colours_off.end(), prim.task);
+    s_stat_colours_held += colours ? 0 : 1;
     if ((ColourMask() & 8) && prim.texture == old.texture)
-      BlendArrays(cur_frame, prev_frame, prim, old, t);
+      BlendArrays(cur_frame, prev_frame, prim, old, t, colours);
     if ((ColourMask() & 16) && prim.texture == old.texture)
       BlendDirectTexture(cur_frame, prev_frame, prim, old, out->data(), t);
-    if ((ColourMask() & 4) && prim.texture == old.texture)
+    if ((ColourMask() & 4) && prim.texture == old.texture && colours)
       for (int c = 0; c < 2; ++c)
         if (prim.col_off[c] != 0xFF && old.col_off[c] == prim.col_off[c] && old.col_fmt[c] == prim.col_fmt[c])
           for (u32 v = 0; v < prim.num_vertices; ++v)
@@ -3116,17 +3169,17 @@ void LogStats()
   if (s_stats)
   {
     Log("[interp] per blend %.1f draws, %.1f matrix loads (%.1f blended, %.1f changed), %.1f with "
-        "positions (%.1f blended, %.1f changed, %.2f paired across a texture change, %.2f snapped turning, %.2f matrices snapped turning, %.1f with their object, %.1f paired by number, %.2f moved with their object, %.2f re-paired by it, %.2f re-paired by its or the camera's motion, %.2f kept apart, %.2f load groups by object, %.2f jumps explained); ms per frame: keep real %.2f, blend %.2f, enter "
+        "positions (%.1f blended, %.1f changed, %.2f paired across a texture change, %.2f snapped turning, %.2f matrices snapped turning, %.1f with their object, %.1f paired by number, %.2f moved with their object, %.2f re-paired by it, %.2f re-paired by its or the camera's motion, %.2f kept apart, %.2f load groups by object, %.2f colours held, %.2f jumps explained); ms per frame: keep real %.2f, blend %.2f, enter "
         "%.2f, feed %.2f, keep in-between %.2f, leave %.2f\n",
         s_stat_draws / 600.0, s_stat_loads / 600.0, s_stat_loads_blended / 600.0,
         s_stat_words_changed / 600.0, s_stat_prims / 600.0, s_stat_prims_blended / 600.0,
         s_stat_prims_changed / 600.0, s_stat_repaired / 600.0, s_stat_collapsed / 600.0, s_stat_matrix_snaps / 600.0,
-        s_stat_tasked / 600.0, s_stat_by_number / 600.0, s_stat_moved / 600.0, s_stat_rigid_repaired / 600.0, s_stat_camera_paired / 600.0, s_stat_kept_apart / 600.0, s_stat_loads_by_object / 600.0, s_stat_jumps_explained / 600.0, s_ms[0] / 600, s_ms[1] / 600, s_ms[2] / 600, s_ms[3] / 600,
+        s_stat_tasked / 600.0, s_stat_by_number / 600.0, s_stat_moved / 600.0, s_stat_rigid_repaired / 600.0, s_stat_camera_paired / 600.0, s_stat_kept_apart / 600.0, s_stat_loads_by_object / 600.0, s_stat_colours_held / 600.0, s_stat_jumps_explained / 600.0, s_ms[0] / 600, s_ms[1] / 600, s_ms[2] / 600, s_ms[3] / 600,
         s_ms[4] / 600, s_ms[5] / 600);
   }
   s_stat_loads = s_stat_prims = s_stat_loads_blended = s_stat_prims_blended = s_stat_words_changed =
       s_stat_draws = s_stat_prims_changed = s_stat_repaired = s_stat_collapsed = s_stat_matrix_snaps =
-      s_stat_tasked = s_stat_by_number = s_stat_moved = s_stat_rigid_repaired = s_stat_camera_paired = s_stat_kept_apart = s_stat_loads_by_object = s_stat_jumps_explained = 0;
+      s_stat_tasked = s_stat_by_number = s_stat_moved = s_stat_rigid_repaired = s_stat_camera_paired = s_stat_kept_apart = s_stat_loads_by_object = s_stat_colours_held = s_stat_jumps_explained = 0;
   std::fill(std::begin(s_ms), std::end(s_ms), 0.0);
 }
 }  // namespace
