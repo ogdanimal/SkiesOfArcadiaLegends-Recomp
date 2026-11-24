@@ -924,6 +924,7 @@ struct BlendPlan
   std::vector<u32> new_loads, new_prims;
   size_t total = 0;
   bool cut = false;  // [Skies] the camera cut to another shot: no in-between (ApplyPlan's false)
+  u64 version = 0;   // [Skies] a new number at each BuildPlan (ApplyPlan's decisions are kept by it)
 };
 
 BlendPlan::Trigger MakeTrigger(const Frame& frame, const Prim& prim)
@@ -1114,6 +1115,8 @@ const FrameLists& ListsFor(const Frame& frame)
 
 void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
 {
+  static u64 s_version = 0;
+  plan->version = ++s_version;
   const FrameLists& prev_lists = ListsFor(prev_frame);  // (the previous one first: the current one's never evicts it)
   const FrameLists& cur_lists = ListsFor(cur_frame);
   static std::vector<u8> load_had_partner;
@@ -2325,7 +2328,43 @@ bool TexStepped(const std::vector<float>& c, const std::vector<float>& p, u32 el
 // A paired draw's direct texture coordinates (vertex data) blended, vertex by vertex; a coordinate that moved by more
 // than half a texture, or a flipbook step (TexStepped), takes the previous frame's value for the first half of the
 // way and the current frame's after
-void BlendDirectTexture(const Frame& cur_frame, const Frame& prev_frame, const Prim& prim, const Prim& old, u8* out, float t)
+// [Skies] What ApplyPlan decides without t, for a plan (by its version), decided at its first blend: at the display's
+// rate a frame pair is blended at several t, and deciding these again at each cost the JP battle start 0.14 ms an
+// in-between more than v0.93's blend (#24 display rate). The same tests on the same data: the same pictures.
+struct ApplyDecisions
+{
+  u64 version = 0;
+  std::vector<u8> unchanged_load;           // by plan.loads index: UnchangedLoad
+  std::vector<u8> collapsed, blends, turning;  // by plan.prims index
+  size_t collapsed_count = 0;
+  std::vector<u32> colours_off_before, colours_off_after;  // the objects whose colours stay (t < 0.5, t >= 0.5), sorted
+  std::vector<u8> moved_by_jump, moved_turning;  // by plan.moved index: snapped with a jumping / turning draw's group
+  // Per plan.prims index, the array copies and direct texture units that changed (an entries range), and whether its
+  // direct colours 0 / 1 changed at all
+  struct ArrayEntry
+  {
+    u32 copy;               // cur_frame.array_copies index
+    const ArrayCopy* prev;  // its partner copy
+    bool wrapped;           // TexStepped (texture coordinates)
+  };
+  struct TexEntry
+  {
+    u8 unit;
+    bool wrapped;
+  };
+  std::vector<ArrayEntry> arrays;
+  std::vector<TexEntry> texs;
+  std::vector<std::array<u32, 4>> ranges;  // arrays begin, end, texs begin, end
+  std::vector<u8> colour_changed;           // bit c: direct colour c changed in some vertex
+};
+
+// A paired draw's direct texture coordinates (vertex data) blended, vertex by vertex; a coordinate that moved by more
+// than half a texture, or a flipbook step (TexStepped), takes the previous frame's value for the first half of the
+// way and the current frame's after. Decide: the units that changed (unchanged coordinates, most draws', blend to
+// themselves: the copy holds them; not for floats that are -0, infinite or not a number, which the blend writes
+// otherwise) and whether each stepped.
+void DecideDirectTexture(const Frame& cur_frame, const Frame& prev_frame, const Prim& prim, const Prim& old,
+                         std::vector<ApplyDecisions::TexEntry>* out)
 {
   for (u32 u = 0; u < 4; ++u)
   {
@@ -2336,23 +2375,19 @@ void BlendDirectTexture(const Frame& cur_frame, const Frame& prev_frame, const P
     const u32 comp = a.format <= FORMAT_BYTE ? 1u : a.format <= FORMAT_SHORT ? 2u : 4u;
     const u8* cur = cur_frame.stream.data() + prim.data_offset + a.off;
     const u8* prev = prev_frame.stream.data() + old.data_offset + a.off;
-    // [Skies] Unchanged coordinates (most draws') blend to themselves: the copy holds them. Not for floats that are -0,
-    // infinite or not a number, which the blend writes otherwise.
+    bool same = true;
+    for (u32 v = 0; v < prim.num_vertices && same; ++v)
     {
-      bool same = true;
-      for (u32 v = 0; v < prim.num_vertices && same; ++v)
+      const u8* c = cur + v * prim.vertex_size;
+      same = SameBytes(c, prev + v * prim.vertex_size, a.elems * comp);
+      for (u32 k = 0; k < a.elems && same && a.format == FORMAT_FLOAT; ++k)
       {
-        const u8* c = cur + v * prim.vertex_size;
-        same = SameBytes(c, prev + v * prim.vertex_size, a.elems * comp);
-        for (u32 k = 0; k < a.elems && same && a.format == FORMAT_FLOAT; ++k)
-        {
-          const u32 word = BE32(c + k * 4);
-          same = word != 0x80000000u && std::isfinite(std::bit_cast<float>(word));
-        }
+        const u32 word = BE32(c + k * 4);
+        same = word != 0x80000000u && std::isfinite(std::bit_cast<float>(word));
       }
-      if (same)
-        continue;
     }
+    if (same)
+      continue;
     static std::vector<float> cv, pv;
     cv.clear();
     pv.clear();
@@ -2362,7 +2397,20 @@ void BlendDirectTexture(const Frame& cur_frame, const Frame& prev_frame, const P
         cv.push_back(ReadTexComponent(a.format, a.frac, cur + v * prim.vertex_size + k * comp));
         pv.push_back(ReadTexComponent(a.format, a.frac, prev + v * prim.vertex_size + k * comp));
       }
-    const bool wrapped = TexStepped(cv, pv, a.elems);
+    out->push_back({static_cast<u8>(u), TexStepped(cv, pv, a.elems)});
+  }
+}
+
+void BlendDirectTexture(const Frame& cur_frame, const Frame& prev_frame, const Prim& prim, const Prim& old, u8* out, float t,
+                        const ApplyDecisions::TexEntry* first, const ApplyDecisions::TexEntry* last)
+{
+  for (const ApplyDecisions::TexEntry* e = first; e != last; ++e)
+  {
+    const Prim::TexAttr& a = prim.tex[e->unit];
+    const u32 comp = a.format <= FORMAT_BYTE ? 1u : a.format <= FORMAT_SHORT ? 2u : 4u;
+    const u8* cur = cur_frame.stream.data() + prim.data_offset + a.off;
+    const u8* prev = prev_frame.stream.data() + old.data_offset + a.off;
+    const bool wrapped = e->wrapped;
     if (wrapped && t >= 0.5f)
       continue;
     for (u32 v = 0; v < prim.num_vertices; ++v)
@@ -2384,10 +2432,28 @@ bool s_arrays_blended = false;
 // s_blended_arrays and read from it (copying all the array data for each in-between cost the Pocket 5 ~0.5 ms)
 std::vector<u8> s_copy_blended;
 
-// A paired draw's indexed colours and float texture coordinates blended, vertex by vertex: the element a vertex of the
-// current draw reads, and the one its partner read. A texture coordinate that moved by more than half a texture
-// (a scroll that wrapped) stays the current one.
-void BlendArrays(const Frame& cur_frame, const Frame& prev_frame, const Prim& prim, const Prim& old, float t, bool colours)
+// A paired draw's indexed colours and float texture coordinates, vertex by vertex: the element a vertex of the current
+// draw reads, and the one its partner read. Decide: the copies that changed (nothing to blend when every vertex reads
+// the same bytes in both frames: most draws, the map's texture coordinates; blending them cost the Pocket 5 1.75 ms an
+// in-between) and whether texture coordinates stepped (a flipbook cell or a wrapped scroll, TexStepped).
+u32 ArraySpan(const ArrayCopy& ac)
+{
+  const u32 comp = ac.tex_format <= FORMAT_BYTE ? 1u : ac.tex_format <= FORMAT_SHORT ? 2u : 4u;
+  return ac.kind == 2 ? ac.elems * comp : (ac.colour_format == 1 ? 3u : ac.colour_format == 0 || ac.colour_format == 3 ? 2u : 4u);
+}
+
+// The byte offset in a copy of the element vertex v (of a draw whose vertex data is at `stream`) reads, or ~0 if it lies
+// outside the copy
+u32 ArrayWhere(const u8* stream, u32 vertex_size, const ArrayCopy& copy, u32 span, u32 v)
+{
+  const u8* q = stream + v * vertex_size + copy.idx_off;
+  const u32 index = copy.idx_size == 1 ? q[0] : BE16(q);
+  const u64 at = static_cast<u64>(index) * copy.stride;
+  return at < copy.lo || at - copy.lo + span > copy.size ? ~0u : static_cast<u32>(at - copy.lo);
+}
+
+void DecideArrays(const Frame& cur_frame, const Frame& prev_frame, const Prim& prim, const Prim& old,
+                  std::vector<ApplyDecisions::ArrayEntry>* out)
 {
   const auto find_draw = [](const Frame& frame, const Prim& p) -> const Draw* {
     const u32 offset = p.data_offset - 3;
@@ -2402,7 +2468,7 @@ void BlendArrays(const Frame& cur_frame, const Frame& prev_frame, const Prim& pr
   for (u32 i = cd->arrays_begin; i < cd->arrays_end; ++i)
   {
     const ArrayCopy& ac = cur_frame.array_copies[i];
-    if (ac.kind == 0 || (ac.kind == 1 && !colours))
+    if (ac.kind == 0)
       continue;
     const ArrayCopy* bc = nullptr;
     for (u32 j = pd->arrays_begin; j < pd->arrays_end; ++j)
@@ -2412,34 +2478,20 @@ void BlendArrays(const Frame& cur_frame, const Frame& prev_frame, const Prim& pr
         bc->colour_format != ac.colour_format || bc->elems != ac.elems || bc->tex_format != ac.tex_format || bc->frac != ac.frac || ac.stride == 0)
       continue;
     const u32 comp = ac.tex_format <= FORMAT_BYTE ? 1u : ac.tex_format <= FORMAT_SHORT ? 2u : 4u;
-    const u32 span = ac.kind == 2 ? ac.elems * comp : (ac.colour_format == 1 ? 3u : ac.colour_format == 0 || ac.colour_format == 3 ? 2u : 4u);
+    const u32 span = ArraySpan(ac);
     const u8* cur_stream = cur_frame.stream.data() + prim.data_offset;
     const u8* prev_stream = prev_frame.stream.data() + old.data_offset;
-    // The byte offset in each copy of the element a vertex reads, or ~0 if it lies outside the copy
-    const auto where = [&](const u8* stream, const ArrayCopy& copy, u32 v) -> u32 {
-      const u8* q = stream + v * prim.vertex_size + copy.idx_off;
-      const u32 index = copy.idx_size == 1 ? q[0] : BE16(q);
-      const u64 at = static_cast<u64>(index) * copy.stride;
-      return at < copy.lo || at - copy.lo + span > copy.size ? ~0u : static_cast<u32>(at - copy.lo);
-    };
-    const auto read = [&](const u8* q) { return ReadTexComponent(ac.tex_format, ac.frac, q); };
-    // Nothing to blend when every vertex reads the same bytes in both frames (most draws: the map's texture coordinates;
-    // checking costs a compare per vertex, blending them cost the Pocket 5 1.75 ms an in-between)
+    bool same = true;
+    const u8* cur_data = cur_frame.array_data.data() + ac.data_offset;
+    const u8* prev_data = prev_frame.array_data.data() + bc->data_offset;
+    for (u32 v = 0; v < prim.num_vertices && same; ++v)
     {
-      bool same = true;
-      const u8* cur_data = cur_frame.array_data.data() + ac.data_offset;
-      const u8* prev_data = prev_frame.array_data.data() + bc->data_offset;
-      for (u32 v = 0; v < prim.num_vertices && same; ++v)
-      {
-        const u32 a = where(cur_stream, ac, v), b = where(prev_stream, *bc, v);
-        same = a == ~0u || b == ~0u || SameBytes(cur_data + a, prev_data + b, span);
-      }
-      if (same)
-        continue;
+      const u32 a = ArrayWhere(cur_stream, prim.vertex_size, ac, span, v), b = ArrayWhere(prev_stream, prim.vertex_size, *bc, span, v);
+      same = a == ~0u || b == ~0u || SameBytes(cur_data + a, prev_data + b, span);
     }
-
-    const auto write = [&](u8* q, float value) { WriteTexComponent(ac.tex_format, ac.frac, q, value); };
-    bool step_prev = false;
+    if (same)
+      continue;
+    bool wrapped = false;
     if (ac.kind == 2)
     {
       static std::vector<float> cv, pv;
@@ -2447,25 +2499,44 @@ void BlendArrays(const Frame& cur_frame, const Frame& prev_frame, const Prim& pr
       pv.clear();
       for (u32 v = 0; v < prim.num_vertices; ++v)
       {
-        const u32 a = where(cur_stream, ac, v), b = where(prev_stream, *bc, v);
+        const u32 a = ArrayWhere(cur_stream, prim.vertex_size, ac, span, v), b = ArrayWhere(prev_stream, prim.vertex_size, *bc, span, v);
         if (a == ~0u || b == ~0u)
           continue;
         for (u32 k = 0; k < ac.elems; ++k)
         {
-          cv.push_back(read(cur_frame.array_data.data() + ac.data_offset + a + k * comp));
-          pv.push_back(read(prev_frame.array_data.data() + bc->data_offset + b + k * comp));
+          cv.push_back(ReadTexComponent(ac.tex_format, ac.frac, cur_data + a + k * comp));
+          pv.push_back(ReadTexComponent(ac.tex_format, ac.frac, prev_data + b + k * comp));
         }
       }
-      const bool wrapped = TexStepped(cv, pv, ac.elems);
-      // A flipbook cell or a wrapped scroll can't be blended: the previous frame's coordinates for the first half of the
-      // way, the current frame's after (the picture changes at the middle, as a frame of the game would)
-      step_prev = wrapped && t < 0.5f;
-      if (wrapped && !step_prev)
-        continue;
+      wrapped = TexStepped(cv, pv, ac.elems);
     }
+    out->push_back({i, bc, wrapped});
+  }
+}
+
+// Blend the decided copies at t into s_blended_arrays; a texture coordinate copy that stepped takes the previous frame's
+// coordinates for the first half of the way and the current frame's after (the picture changes at the middle, as a
+// frame of the game would); colour copies only when `colours`
+void BlendArrays(const Frame& cur_frame, const Frame& prev_frame, const Prim& prim, const Prim& old, float t, bool colours,
+                 const ApplyDecisions::ArrayEntry* first, const ApplyDecisions::ArrayEntry* last)
+{
+  for (const ApplyDecisions::ArrayEntry* e = first; e != last; ++e)
+  {
+    const u32 i = e->copy;
+    const ArrayCopy& ac = cur_frame.array_copies[i];
+    const ArrayCopy* bc = e->prev;
+    if (ac.kind == 1 && !colours)
+      continue;
+    const u32 comp = ac.tex_format <= FORMAT_BYTE ? 1u : ac.tex_format <= FORMAT_SHORT ? 2u : 4u;
+    const u32 span = ArraySpan(ac);
+    const u8* cur_stream = cur_frame.stream.data() + prim.data_offset;
+    const u8* prev_stream = prev_frame.stream.data() + old.data_offset;
+    const bool step_prev = ac.kind == 2 && e->wrapped && t < 0.5f;
+    if (ac.kind == 2 && e->wrapped && !step_prev)
+      continue;
     for (u32 v = 0; v < prim.num_vertices; ++v)
     {
-      const u32 a = where(cur_stream, ac, v), b = where(prev_stream, *bc, v);
+      const u32 a = ArrayWhere(cur_stream, prim.vertex_size, ac, span, v), b = ArrayWhere(prev_stream, prim.vertex_size, *bc, span, v);
       if (a == ~0u || b == ~0u)
         continue;
       if (!s_copy_blended[i])
@@ -2487,8 +2558,8 @@ void BlendArrays(const Frame& cur_frame, const Frame& prev_frame, const Prim& pr
       {
         for (u32 k = 0; k < ac.elems; ++k)
         {
-          const float c = read(cur + k * comp), p = read(prev + k * comp);
-          write(dst + k * comp, p + (c - p) * t);
+          const float c = ReadTexComponent(ac.tex_format, ac.frac, cur + k * comp), p = ReadTexComponent(ac.tex_format, ac.frac, prev + k * comp);
+          WriteTexComponent(ac.tex_format, ac.frac, dst + k * comp, p + (c - p) * t);
         }
       }
       else
@@ -2526,17 +2597,192 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
     s_arrays_blended = false;
     return false;
   }
+  static ApplyDecisions d;
+  if (d.version != plan.version || plan.version == 0)
+  {
+    d.version = plan.version;
+    d.unchanged_load.resize(plan.loads.size());
+    for (size_t k = 0; k < plan.loads.size(); ++k)
+    {
+      const Load& load = *plan.loads[k].first;
+      d.unchanged_load[k] = UnchangedLoad(load, cur_frame.stream.data() + load.data_offset,
+                                          prev_frame.stream.data() + plan.loads[k].second->data_offset);
+    }
+    // Draws turning round in one frame (Collapses) snap with their texture's group too. [Skies] Decided at the middle
+    // (t = 0.5) for every t, as KeepMatrixScale, to the previous frame's places before the middle and the current
+    // frame's after: at the display's rate the pictures stepped new -> shrunken -> new.
+    static std::vector<u64> collapsing;
+    static std::vector<BlendPlan::Trigger> collapse_triggers;
+    collapse_triggers.clear();
+    collapsing.clear();
+    d.collapsed.assign(plan.prims.size(), 0);
+    d.collapsed_count = 0;
+    for (size_t i = 0; i < plan.prims.size(); ++i)
+    {
+      const BlendPlan::PrimPair& pair = plan.prims[i];
+      if (!pair.check_collapse)
+        continue;
+      const Prim& prim = cur_frame.prims[pair.index];
+      if (Collapses(cur_frame.stream.data() + prim.data_offset, prev_frame.stream.data() + pair.old->data_offset, prim,
+                    0.5f))
+      {
+        d.collapsed[i] = 1;
+        collapsing.push_back(prim.texture);
+        collapse_triggers.push_back(MakeTrigger(cur_frame, prim));
+        ++d.collapsed_count;
+      }
+    }
+    std::sort(collapsing.begin(), collapsing.end());
+    // (by_jump: a jumping draw's group, which shows the current frame at every t; else a turning one's)
+    const auto group_snaps_texture = [&](u64 texture, bool by_jump) {
+      return by_jump ? std::binary_search(plan.jumping_textures.begin(), plan.jumping_textures.end(), texture)
+                     : std::binary_search(collapsing.begin(), collapsing.end(), texture);
+    };
+    // [Skies] Local snapping (issue #18): a trigger snaps the draws with its texture of the same object (the battle
+    // transition task's shatter card stays whole), or, for draws of no object (task 0: the pyramid's ~140 flame quads,
+    // their glows), only those near it. Snapping every flame on that picture drew them all a frame ahead.
+    static const bool local_snap = [] {
+      const char* env = std::getenv("SKIES_INTERP_LOCAL_SNAP");
+      return !env || env[0] != '0';
+    }();
+    const auto group_snaps_prim = [&](const Prim& prim, bool by_jump) {
+      if (!local_snap)
+        return group_snaps_texture(prim.texture, by_jump);
+      if (!group_snaps_texture(prim.texture, by_jump))
+        return false;
+      const BlendPlan::Trigger self = MakeTrigger(cur_frame, prim);
+      const auto near = [&](const BlendPlan::Trigger& tr) {
+        if (tr.texture != prim.texture)
+          return false;
+        if (tr.task != 0 || prim.task != 0)
+          return tr.task == prim.task;
+        const float dx = tr.at[0] - self.at[0], dy = tr.at[1] - self.at[1], dz = tr.at[2] - self.at[2];
+        const float length = std::sqrt(tr.at[0] * tr.at[0] + tr.at[1] * tr.at[1] + tr.at[2] * tr.at[2]);
+        const float radius = std::max(50.0f, 0.15f * length);
+        return dx * dx + dy * dy + dz * dz <= radius * radius;
+      };
+      return by_jump ? std::any_of(plan.triggers.begin(), plan.triggers.end(), near)
+                     : std::any_of(collapse_triggers.begin(), collapse_triggers.end(), near);
+    };
+    // [Skies] Which pairs blend (not jumping, turning round or snapped with their group); a turning one before the
+    // middle is held (the previous frame's)
+    d.blends.assign(plan.prims.size(), 0);
+    d.turning.assign(plan.prims.size(), 0);
+    for (size_t i = 0; i < plan.prims.size(); ++i)
+    {
+      const BlendPlan::PrimPair& pair = plan.prims[i];
+      const Prim& prim = cur_frame.prims[pair.index];
+      if (pair.jumps || group_snaps_prim(prim, true))
+        continue;
+      d.turning[i] = d.collapsed[i] || group_snaps_prim(prim, false);
+      d.blends[i] = !d.turning[i];
+    }
+    // [Skies] Colours blend all or nothing per object (task; task 0, the 2D layers and other draws of no object, as
+    // one): only when every draw of it with colours (direct, or read from an indexed colour array) has a same-texture
+    // partner that blends (or is held, before the middle). A 2D screen fading in from black (the first battle's
+    // results) had most of its tiles blended halfway dark and the rest, unpaired or snapped, at full brightness.
+    d.colours_off_before.clear();
+    d.colours_off_after.clear();
+    if (ColourMask() & 12)
+    {
+      const auto indexed_colours = [&](const Prim& prim) {
+        const u32 offset = prim.data_offset - 3;
+        const auto it = std::lower_bound(cur_frame.draws.begin(), cur_frame.draws.end(), offset,
+                                         [](const Draw& dr, u32 value) { return dr.offset < value; });
+        if (it == cur_frame.draws.end() || it->offset != offset)
+          return false;
+        for (u32 k = it->arrays_begin; k < it->arrays_end; ++k)
+          if (cur_frame.array_copies[k].kind == 1)
+            return true;
+        return false;
+      };
+      static std::vector<u8> colour_partner;  // by cur_frame.prims index
+      for (const bool before : {true, false})
+      {
+        colour_partner.assign(cur_frame.prims.size(), 0);
+        for (size_t i = 0; i < plan.prims.size(); ++i)
+        {
+          const BlendPlan::PrimPair& pair = plan.prims[i];
+          const Prim& prim = cur_frame.prims[pair.index];
+          bool ok = (d.blends[i] || (d.turning[i] && before)) && prim.texture == pair.old->texture;
+          for (int c = 0; c < 2 && ok; ++c)
+            ok = prim.col_off[c] == 0xFF || (pair.old->col_off[c] == prim.col_off[c] && pair.old->col_fmt[c] == prim.col_fmt[c]);
+          colour_partner[pair.index] = ok;
+        }
+        std::vector<u32>& off = before ? d.colours_off_before : d.colours_off_after;
+        for (size_t i = 0; i < cur_frame.prims.size(); ++i)
+        {
+          const Prim& prim = cur_frame.prims[i];
+          if (colour_partner[i])
+            continue;
+          const bool direct = ((ColourMask() & 4) && (prim.col_off[0] != 0xFF || prim.col_off[1] != 0xFF));
+          if (direct || ((ColourMask() & 8) && indexed_colours(prim)))
+            off.push_back(prim.task);
+        }
+        std::sort(off.begin(), off.end());
+        off.erase(std::unique(off.begin(), off.end()), off.end());
+      }
+    }
+    // What changed in each pair that can blend or be held: array copies, direct texture units, direct colours
+    d.arrays.clear();
+    d.texs.clear();
+    d.ranges.assign(plan.prims.size(), {0, 0, 0, 0});
+    d.colour_changed.assign(plan.prims.size(), 0);
+    for (size_t i = 0; i < plan.prims.size(); ++i)
+    {
+      if (!d.blends[i] && !d.turning[i])
+        continue;
+      const BlendPlan::PrimPair& pair = plan.prims[i];
+      const Prim& prim = cur_frame.prims[pair.index];
+      const Prim& old = *pair.old;
+      if (prim.texture != old.texture)
+        continue;
+      d.ranges[i][0] = static_cast<u32>(d.arrays.size());
+      if (ColourMask() & 8)
+        DecideArrays(cur_frame, prev_frame, prim, old, &d.arrays);
+      d.ranges[i][1] = static_cast<u32>(d.arrays.size());
+      d.ranges[i][2] = static_cast<u32>(d.texs.size());
+      if (ColourMask() & 16)
+        DecideDirectTexture(cur_frame, prev_frame, prim, old, &d.texs);
+      d.ranges[i][3] = static_cast<u32>(d.texs.size());
+      for (int c = 0; c < 2; ++c)
+        if (prim.col_off[c] != 0xFF && old.col_off[c] == prim.col_off[c] && old.col_fmt[c] == prim.col_fmt[c])
+        {
+          // (a colour that didn't change blends to itself: the copy holds it)
+          const u32 size = prim.col_fmt[c] == 0 || prim.col_fmt[c] == 3 ? 2u : prim.col_fmt[c] == 1 || prim.col_fmt[c] == 4 ? 3u : 4u;
+          for (u32 v = 0; v < prim.num_vertices; ++v)
+          {
+            const u32 at = v * prim.vertex_size + prim.col_off[c];
+            if (!SameBytes(cur_frame.stream.data() + prim.data_offset + at, prev_frame.stream.data() + old.data_offset + at, size))
+            {
+              d.colour_changed[i] |= static_cast<u8>(1 << c);
+              break;
+            }
+          }
+        }
+    }
+    d.moved_by_jump.assign(plan.moved.size(), 0);
+    d.moved_turning.assign(plan.moved.size(), 0);
+    for (size_t m = 0; m < plan.moved.size(); ++m)
+    {
+      const Prim& prim = cur_frame.prims[plan.moved[m].index];
+      d.moved_by_jump[m] = group_snaps_prim(prim, true);
+      d.moved_turning[m] = group_snaps_prim(prim, false);
+    }
+  }
+  s_stat_collapsed += d.collapsed_count;
+
   *out = cur_frame.stream;
   s_arrays_blended = false;
   s_copy_blended.assign(cur_frame.array_copies.size(), 0);
   size_t paired = 0;
-  for (const auto& [load_ptr, match_ptr] : plan.loads)
+  for (size_t li = 0; li < plan.loads.size(); ++li)
   {
-    const Load& load = *load_ptr;
+    const Load& load = *plan.loads[li].first;
     const u8* cur = cur_frame.stream.data() + load.data_offset;
-    const u8* prev = prev_frame.stream.data() + match_ptr->data_offset;
+    const u8* prev = prev_frame.stream.data() + plan.loads[li].second->data_offset;
     paired += IsColourLoad(load.address, load.count) ? 0 : 1;
-    if (UnchangedLoad(load, cur, prev))
+    if (d.unchanged_load[li])
       continue;
     for (u32 i = 0; i < load.count; ++i)
     {
@@ -2557,118 +2803,7 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
     }
     KeepMatrixScale(load, cur, prev, t, out->data() + load.data_offset);
   }
-  // Draws turning round in one frame (Collapses) snap with their texture's group too. [Skies] Decided at the middle
-  // (t = 0.5) for every t, as KeepMatrixScale, to the previous frame's places before the middle and the current frame's
-  // after: at the display's rate the pictures stepped new -> shrunken -> new.
-  static std::vector<u64> collapsing;
-  static std::vector<u8> collapsed;
-  static std::vector<BlendPlan::Trigger> collapse_triggers;
-  collapse_triggers.clear();
-  collapsing.clear();
-  collapsed.assign(plan.prims.size(), 0);
-  for (size_t i = 0; i < plan.prims.size(); ++i)
-  {
-    const BlendPlan::PrimPair& pair = plan.prims[i];
-    if (!pair.check_collapse)
-      continue;
-    const Prim& prim = cur_frame.prims[pair.index];
-    if (Collapses(cur_frame.stream.data() + prim.data_offset, prev_frame.stream.data() + pair.old->data_offset, prim,
-                  0.5f))
-    {
-      collapsed[i] = 1;
-      collapsing.push_back(prim.texture);
-      collapse_triggers.push_back(MakeTrigger(cur_frame, prim));
-      ++s_stat_collapsed;
-    }
-  }
-  std::sort(collapsing.begin(), collapsing.end());
-  // (by_jump: a jumping draw's group, which shows the current frame at every t; else a turning one's)
-  const auto group_snaps_texture = [&](u64 texture, bool by_jump) {
-    return by_jump ? std::binary_search(plan.jumping_textures.begin(), plan.jumping_textures.end(), texture)
-                   : std::binary_search(collapsing.begin(), collapsing.end(), texture);
-  };
-  // [Skies] Local snapping (issue #18): a trigger snaps the draws with its texture of the same object (the battle
-  // transition task's shatter card stays whole), or, for draws of no object (task 0: the pyramid's ~140 flame quads,
-  // their glows), only those near it. Snapping every flame on that picture drew them all a frame ahead.
-  static const bool local_snap = [] {
-    const char* env = std::getenv("SKIES_INTERP_LOCAL_SNAP");
-    return !env || env[0] != '0';
-  }();
-  const auto group_snaps_prim = [&](const Prim& prim, bool by_jump) {
-    if (!local_snap)
-      return group_snaps_texture(prim.texture, by_jump);
-    if (!group_snaps_texture(prim.texture, by_jump))
-      return false;
-    const BlendPlan::Trigger self = MakeTrigger(cur_frame, prim);
-    const auto near = [&](const BlendPlan::Trigger& tr) {
-      if (tr.texture != prim.texture)
-        return false;
-      if (tr.task != 0 || prim.task != 0)
-        return tr.task == prim.task;
-      const float dx = tr.at[0] - self.at[0], dy = tr.at[1] - self.at[1], dz = tr.at[2] - self.at[2];
-      const float length = std::sqrt(tr.at[0] * tr.at[0] + tr.at[1] * tr.at[1] + tr.at[2] * tr.at[2]);
-      const float radius = std::max(50.0f, 0.15f * length);
-      return dx * dx + dy * dy + dz * dz <= radius * radius;
-    };
-    return by_jump ? std::any_of(plan.triggers.begin(), plan.triggers.end(), near)
-                   : std::any_of(collapse_triggers.begin(), collapse_triggers.end(), near);
-  };
-  // [Skies] Which pairs blend (not jumping, turning round or snapped with their group); a turning one before the middle
-  // takes the previous frame's places (turning[i])
-  static std::vector<u8> blends, turning;
-  blends.assign(plan.prims.size(), 0);
-  turning.assign(plan.prims.size(), 0);
-  for (size_t i = 0; i < plan.prims.size(); ++i)
-  {
-    const BlendPlan::PrimPair& pair = plan.prims[i];
-    const Prim& prim = cur_frame.prims[pair.index];
-    if (pair.jumps || group_snaps_prim(prim, true))
-      continue;
-    turning[i] = collapsed[i] || group_snaps_prim(prim, false);
-    blends[i] = !turning[i];
-  }
-  // [Skies] Colours blend all or nothing per object (task; task 0, the 2D layers and other draws of no object, as one):
-  // only when every draw of it with colours (direct, or read from an indexed colour array) has a same-texture partner
-  // that blends. A 2D screen fading in from black (the first battle's results) had most of its tiles blended halfway
-  // dark and the rest, unpaired or snapped, at full brightness: a patchwork for one picture.
-  static std::vector<u32> colours_off;  // the objects whose colours stay the current frame's, sorted
-  colours_off.clear();
-  if (ColourMask() & 12)
-  {
-    static std::vector<u8> colour_partner;  // by cur_frame.prims index
-    colour_partner.assign(cur_frame.prims.size(), 0);
-    for (size_t i = 0; i < plan.prims.size(); ++i)
-    {
-      const BlendPlan::PrimPair& pair = plan.prims[i];
-      const Prim& prim = cur_frame.prims[pair.index];
-      bool ok = (blends[i] || (turning[i] && t < 0.5f)) && prim.texture == pair.old->texture;
-      for (int c = 0; c < 2 && ok; ++c)
-        ok = prim.col_off[c] == 0xFF || (pair.old->col_off[c] == prim.col_off[c] && pair.old->col_fmt[c] == prim.col_fmt[c]);
-      colour_partner[pair.index] = ok;
-    }
-    const auto indexed_colours = [&](const Prim& prim) {
-      const u32 offset = prim.data_offset - 3;
-      const auto it = std::lower_bound(cur_frame.draws.begin(), cur_frame.draws.end(), offset,
-                                       [](const Draw& d, u32 value) { return d.offset < value; });
-      if (it == cur_frame.draws.end() || it->offset != offset)
-        return false;
-      for (u32 k = it->arrays_begin; k < it->arrays_end; ++k)
-        if (cur_frame.array_copies[k].kind == 1)
-          return true;
-      return false;
-    };
-    for (size_t i = 0; i < cur_frame.prims.size(); ++i)
-    {
-      const Prim& prim = cur_frame.prims[i];
-      if (colour_partner[i])
-        continue;
-      const bool direct = ((ColourMask() & 4) && (prim.col_off[0] != 0xFF || prim.col_off[1] != 0xFF));
-      if (direct || ((ColourMask() & 8) && indexed_colours(prim)))
-        colours_off.push_back(prim.task);
-    }
-    std::sort(colours_off.begin(), colours_off.end());
-    colours_off.erase(std::unique(colours_off.begin(), colours_off.end()), colours_off.end());
-  }
+  const std::vector<u32>& colours_off = t < 0.5f ? d.colours_off_before : d.colours_off_after;
   for (size_t i = 0; i < plan.prims.size(); ++i)
   {
     const BlendPlan::PrimPair& pair = plan.prims[i];
@@ -2676,23 +2811,23 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
     const Prim& old = *pair.old;
     // (a turning draw before the middle is held whole: its positions, colours and texture coordinates, direct and from
     // the arrays, the previous frame's, as a blend at t = 0)
-    const bool hold = turning[i] && t < 0.5f;
-    if (!blends[i] && !hold)
+    const bool hold = d.turning[i] && t < 0.5f;
+    if (!d.blends[i] && !hold)
       continue;
     if (!hold)
       ++paired, ++s_stat_prims_blended;
     const float tb = hold ? 0.0f : t;
     const bool colours = !std::binary_search(colours_off.begin(), colours_off.end(), prim.task);
     s_stat_colours_held += colours ? 0 : 1;
+    const std::array<u32, 4>& r = d.ranges[i];
     if ((ColourMask() & 8) && prim.texture == old.texture)
-      BlendArrays(cur_frame, prev_frame, prim, old, tb, colours);
+      BlendArrays(cur_frame, prev_frame, prim, old, tb, colours, d.arrays.data() + r[0], d.arrays.data() + r[1]);
     if ((ColourMask() & 16) && prim.texture == old.texture)
-      BlendDirectTexture(cur_frame, prev_frame, prim, old, out->data(), tb);
+      BlendDirectTexture(cur_frame, prev_frame, prim, old, out->data(), tb, d.texs.data() + r[2], d.texs.data() + r[3]);
     if ((ColourMask() & 4) && prim.texture == old.texture && colours)
       for (int c = 0; c < 2; ++c)
-        if (prim.col_off[c] != 0xFF && old.col_off[c] == prim.col_off[c] && old.col_fmt[c] == prim.col_fmt[c])
+        if ((d.colour_changed[i] >> c) & 1)
         {
-          // (a colour that didn't change blends to itself: the copy holds it)
           const u32 size = prim.col_fmt[c] == 0 || prim.col_fmt[c] == 3 ? 2u : prim.col_fmt[c] == 1 || prim.col_fmt[c] == 4 ? 3u : 4u;
           for (u32 v = 0; v < prim.num_vertices; ++v)
           {
@@ -2742,12 +2877,13 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
       }
     }
   }
-  for (const BlendPlan::Moved& move : plan.moved)
+  for (size_t m = 0; m < plan.moved.size(); ++m)
   {
+    const BlendPlan::Moved& move = plan.moved[m];
     const Prim& prim = cur_frame.prims[move.index];
     // (snapped with a turning draw's group: the motion's previous places before the middle, the current ones after)
-    const bool turning_group = group_snaps_prim(prim, false);
-    if (group_snaps_prim(prim, true) || (turning_group && t >= 0.5f))
+    const bool turning_group = d.moved_turning[m];
+    if (d.moved_by_jump[m] || (turning_group && t >= 0.5f))
       continue;
     ++s_stat_moved;
     const float tt = turning_group ? 0.0f : t;
