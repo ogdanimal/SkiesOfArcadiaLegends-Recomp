@@ -56,6 +56,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <deque>
+#include <limits>
 #include <map>
 #include <unordered_map>
 #include <mutex>
@@ -507,6 +508,41 @@ float WordDistance(u32 address, const u8* c, const u8* p)
   }
 }
 
+// [Skies] Whether n bytes are equal, inline for the sizes of a vertex attribute (memcmp was a call per vertex)
+bool SameBytes(const u8* a, const u8* b, u32 n)
+{
+  switch (n)
+  {
+  case 1: return a[0] == b[0];
+  case 2: return a[0] == b[0] && a[1] == b[1];
+  case 4:
+  {
+    u32 x, y;
+    std::memcpy(&x, a, 4);
+    std::memcpy(&y, b, 4);
+    return x == y;
+  }
+  case 8:
+  {
+    u64 x, y;
+    std::memcpy(&x, a, 8);
+    std::memcpy(&y, b, 8);
+    return x == y;
+  }
+  case 12:
+  {
+    u64 x, y;
+    u32 z, w;
+    std::memcpy(&x, a, 8);
+    std::memcpy(&y, b, 8);
+    std::memcpy(&z, a + 8, 4);
+    std::memcpy(&w, b + 8, 4);
+    return x == y && z == w;
+  }
+  default: return std::memcmp(a, b, n) == 0;
+  }
+}
+
 float ReadFloat(const u8* p)
 {
   return std::bit_cast<float>(BE32(p));
@@ -624,13 +660,18 @@ void KeepMatrixScale(const Load& load, const u8* cur, const u8* prev, float t, u
 bool VertexJumps(const u8* cur, const u8* prev, u32 count)
 {
   float c[3] = {}, p[3] = {};
+  bool same = true;
   for (u32 k = 0; k < count; ++k)
   {
     c[k] = ReadFloat(cur + k * 4);
     p[k] = ReadFloat(prev + k * 4);
     if (!std::isfinite(c[k]) || !std::isfinite(p[k]))
       return true;
+    same = same && BE32(cur + k * 4) == BE32(prev + k * 4);
   }
+  // [Skies] Unmoved (most of a still scene's vertices): a move of 0 is never past the slack, which is at least 50
+  if (same)
+    return false;
   const float length = std::sqrt(std::max(c[0] * c[0] + c[1] * c[1] + c[2] * c[2],
                                           p[0] * p[0] + p[1] * p[1] + p[2] * p[2]));
   const float slack = std::max(50.0f, 0.1f * length);
@@ -709,8 +750,30 @@ int Align(int n_cur, int n_prev, const Distance& distance, const PairFn& pair, c
       pair(i, i);
     return std::abs(n_cur - n_prev);
   }
-  static std::vector<float> cost_table, typical;
+  // [Skies] As many items as before, each at the same place (most kinds, most frames: the save point's ~1800 matrices,
+  // 40 of them changed): in order, as the test below decides (the table's cost is never below 0), without the table
+  float in_order = -1.0f;
+  if (n_cur == n_prev)
+  {
+    in_order = 0.0f;
+    for (int k = 0; k < n_cur; ++k)
+      in_order += distance(k, k);
+    if (in_order == 0.0f)
+    {
+      for (int k = 0; k < n_cur; ++k)
+        pair(k, k);
+      return 0;
+    }
+  }
+  static std::vector<float> cost_table, typical, cur_floor, prev_floor;
   static std::vector<u8> move_table;
+  // [Skies] Each item's gap floor, once (the table asked for it at every cell, a square root each)
+  cur_floor.resize(n_cur);
+  prev_floor.resize(n_prev);
+  for (int i = 0; i < n_cur; ++i)
+    cur_floor[i] = gap_floor(true, i);
+  for (int j = 0; j < n_prev; ++j)
+    prev_floor[j] = gap_floor(false, j);
   // A gap costs a few times the typical motion of an item, so unpaired items only win over a
   // pairing that is clearly wrong.
   typical.clear();
@@ -723,6 +786,15 @@ int Align(int n_cur, int n_prev, const Distance& distance, const PairFn& pair, c
   }
   std::nth_element(typical.begin(), typical.begin() + typical.size() / 2, typical.end());
   const float gap = std::max(4.0f * typical[typical.size() / 2], 1.0f);
+  // [Skies] As many items as before: any order but the diagonal has two gaps at least (as many new items as gone ones),
+  // so the table's cost is at least the lesser of the in-order cost and 2 gaps; when that can't be under half the
+  // in-order cost, the test below keeps the order without the table
+  if (n_cur == n_prev && 2.0f * gap >= 0.5f * in_order)
+  {
+    for (int k = 0; k < n_cur; ++k)
+      pair(k, k);
+    return 0;
+  }
   // cost_table[i][d]: best cost with i current and j = i + d - band previous items used.
   cost_table.assign(static_cast<size_t>(n_cur + 1) * width, 1e30f);
   move_table.assign(static_cast<size_t>(n_cur + 1) * width, 0);
@@ -748,13 +820,13 @@ int Align(int n_cur, int n_prev, const Distance& distance, const PairFn& pair, c
       }
       if (i > 0 && at(i - 1, j) >= 0)
       {
-        const float c = cost_table[at(i - 1, j)] + std::max(gap, gap_floor(true, i - 1));
+        const float c = cost_table[at(i - 1, j)] + std::max(gap, cur_floor[i - 1]);
         if (c < best)
           best = c, move = 2;  // a new item
       }
       if (j > 0 && at(i, j - 1) >= 0)
       {
-        const float c = cost_table[at(i, j - 1)] + std::max(gap, gap_floor(false, j - 1));
+        const float c = cost_table[at(i, j - 1)] + std::max(gap, prev_floor[j - 1]);
         if (c < best)
           best = c, move = 3;  // an item that went
       }
@@ -770,9 +842,6 @@ int Align(int n_cur, int n_prev, const Distance& distance, const PairFn& pair, c
   // items' spacing made a neighbour's old position look closer: seams in spinning strips).
   if (n_cur == n_prev)
   {
-    float in_order = 0.0f;
-    for (int k = 0; k < n_cur; ++k)
-      in_order += distance(k, k);
     if (!(cost_table[at(i, j)] < 0.5f * in_order))
     {
       for (int k = 0; k < n_cur; ++k)
@@ -997,8 +1066,55 @@ bool StrictTest()
   return on;
 }
 
+// [Skies] Lists BuildPlan makes from one frame alone (its object-tagged draws by object and number, its float draws by
+// object), kept by the recording's serial: a frame is paired as the current frame and then as the next one's previous,
+// and sorting both every time cost the Pocket 5 (#18 cost). Two kept, the less recently used one made again; a frame
+// without a serial is never found.
+struct FrameLists
+{
+  u64 serial = 0;
+  u64 used = 0;
+  std::vector<u32> by_object;                 // object-tagged draws: (task, ordinal, index) order
+  std::vector<std::pair<u32, u32>> tasks;     // float draws of an object: (task, index), sorted
+};
+
+const FrameLists& ListsFor(const Frame& frame)
+{
+  static FrameLists s_lists[2];
+  static u64 s_use = 0;
+  ++s_use;
+  for (FrameLists& lists : s_lists)
+    if (frame.serial != 0 && lists.serial == frame.serial)
+    {
+      lists.used = s_use;
+      return lists;
+    }
+  FrameLists& lists = s_lists[0].used <= s_lists[1].used ? s_lists[0] : s_lists[1];
+  lists.serial = frame.serial;
+  lists.used = s_use;
+  lists.by_object.clear();
+  for (u32 i = 0; i < frame.prims.size(); ++i)
+  {
+    if (frame.prims[i].task != 0)
+      lists.by_object.push_back(i);
+  }
+  std::sort(lists.by_object.begin(), lists.by_object.end(), [&](u32 x, u32 y) {
+    const Prim& p = frame.prims[x];
+    const Prim& q = frame.prims[y];
+    return std::tie(p.task, p.ordinal, x) < std::tie(q.task, q.ordinal, y);
+  });
+  lists.tasks.clear();
+  for (size_t index = 0; index < frame.prims.size(); ++index)
+    if (frame.prims[index].task != 0 && frame.prims[index].pos_format == FORMAT_FLOAT)
+      lists.tasks.emplace_back(frame.prims[index].task, static_cast<u32>(index));
+  std::sort(lists.tasks.begin(), lists.tasks.end());
+  return lists;
+}
+
 void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
 {
+  const FrameLists& prev_lists = ListsFor(prev_frame);  // (the previous one first: the current one's never evicts it)
+  const FrameLists& cur_lists = ListsFor(cur_frame);
   static std::vector<u8> load_had_partner;
   if (StrictTest())
     load_had_partner.assign(cur_frame.loads.size(), 0);
@@ -1071,14 +1187,22 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
       u32 words = cur_loads[0]->count;
       if (address <= XFMEM_SETPROJECTION + 6 && address + words > XFMEM_SETPROJECTION + 6)
         words = XFMEM_SETPROJECTION + 6 - address;
+      // (matrices and the projection are floats throughout: WordDistance's float case, without asking each word)
+      bool all_float = true;
+      for (u32 w = 0; w < words && all_float; ++w)
+        all_float = WordKind(address + w) == Word::Float;
       const auto distance = [&](int i, int j) {
         if (loads_apart(*cur_loads[i], *prev_loads[j]))
           return 1e30f;
         const u8* c = cur_frame.stream.data() + cur_loads[i]->data_offset;
         const u8* p = prev_frame.stream.data() + prev_loads[j]->data_offset;
         float sum = 0.0f;
-        for (u32 w = 0; w < words; ++w)
-          sum += WordDistance(address + w, c + w * 4, p + w * 4);
+        if (all_float)
+          for (u32 w = 0; w < words; ++w)
+            sum += std::fabs(ReadFloat(c + w * 4) - ReadFloat(p + w * 4));
+        else
+          for (u32 w = 0; w < words; ++w)
+            sum += WordDistance(address + w, c + w * 4, p + w * 4);
         return std::isfinite(sum) ? sum : 1e30f;
       };
       // [Skies] As for draws below (issue #24): leaving a position matrix unpaired costs at least a tenth of its
@@ -1267,22 +1391,8 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
   }();
   if (ordinal_on)
   {
-    static std::vector<u32> cur_by, prev_by;
-    const auto by_object = [](const Frame& frame, std::vector<u32>* out) {
-      out->clear();
-      for (u32 i = 0; i < frame.prims.size(); ++i)
-      {
-        if (frame.prims[i].task != 0)
-          out->push_back(i);
-      }
-      std::sort(out->begin(), out->end(), [&](u32 x, u32 y) {
-        const Prim& p = frame.prims[x];
-        const Prim& q = frame.prims[y];
-        return std::tie(p.task, p.ordinal, x) < std::tie(q.task, q.ordinal, y);
-      });
-    };
-    by_object(cur_frame, &cur_by);
-    by_object(prev_frame, &prev_by);
+    const std::vector<u32>& cur_by = cur_lists.by_object;
+    const std::vector<u32>& prev_by = prev_lists.by_object;
     const auto alike = [](const Prim& p, const Prim& q) {
       return p.func == q.func && p.ordinal == q.ordinal && p.num_vertices == q.num_vertices &&
              p.vertex_size == q.vertex_size && p.pos_offset == q.pos_offset && p.pos_format == q.pos_format &&
@@ -1594,21 +1704,10 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
   // as one body (a character, particles) or are too few
   static std::unordered_map<u32, std::pair<bool, BlendPlan::Moved>> fits;
   fits.clear();
-  // Each frame's float draws of an object: (task, index) sorted, a task's run found by binary search
-  static std::vector<std::pair<u32, u32>> cur_tasks, prev_tasks;
-  cur_tasks.clear();
-  prev_tasks.clear();
-  if (rigid_moves)
-  {
-    for (size_t index = 0; index < cur_frame.prims.size(); ++index)
-      if (cur_frame.prims[index].task != 0 && cur_frame.prims[index].pos_format == FORMAT_FLOAT)
-        cur_tasks.emplace_back(cur_frame.prims[index].task, static_cast<u32>(index));
-    for (size_t index = 0; index < prev_frame.prims.size(); ++index)
-      if (prev_frame.prims[index].task != 0 && prev_frame.prims[index].pos_format == FORMAT_FLOAT)
-        prev_tasks.emplace_back(prev_frame.prims[index].task, static_cast<u32>(index));
-    std::sort(cur_tasks.begin(), cur_tasks.end());
-    std::sort(prev_tasks.begin(), prev_tasks.end());
-  }
+  // Each frame's float draws of an object: (task, index) sorted, a task's run found by binary search (FrameLists)
+  static const std::vector<std::pair<u32, u32>> no_tasks;
+  const std::vector<std::pair<u32, u32>>& cur_tasks = rigid_moves ? cur_lists.tasks : no_tasks;
+  const std::vector<std::pair<u32, u32>>& prev_tasks = rigid_moves ? prev_lists.tasks : no_tasks;
   struct Run
   {
     const std::pair<u32, u32>* first;
@@ -1799,7 +1898,11 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
         ++considered;
         const std::array<float, 3> c = centroid(cur_frame, prim);
         const std::array<float, 3> back = MoveBack(motion, c.data());
-        float best = 1e30f, second = 1e30f;
+        // (squared misses in the loop, the two nearest' roots after: the same values, as the root keeps order; a tie
+        // can name another best_j, but then best equals second and no piece is chosen. Every finite square's root is
+        // under the 1e30 the roots started from.)
+        constexpr float none = std::numeric_limits<float>::infinity();
+        float best2 = none, second2 = none;
         u32 best_j = ~0u;
         for (size_t j = 0; j < theirs.size(); ++j)
         {
@@ -1807,12 +1910,14 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
           if (old.key != prim.key || !layout_matches(prim, old))
             continue;
           const float dx = back[0] - prev_centre[j][0], dy = back[1] - prev_centre[j][1], dz = back[2] - prev_centre[j][2];
-          const float miss = std::sqrt(dx * dx + dy * dy + dz * dz);
-          if (miss < best)
-            second = best, best = miss, best_j = static_cast<u32>(j);
-          else if (miss < second)
-            second = miss;
+          const float miss2 = dx * dx + dy * dy + dz * dz;
+          if (miss2 < best2)
+            second2 = best2, best2 = miss2, best_j = static_cast<u32>(j);
+          else if (miss2 < second2)
+            second2 = miss2;
         }
+        const float best = best2 == none ? 1e30f : std::sqrt(best2);
+        const float second = second2 == none ? 1e30f : std::sqrt(second2);
         const float length = std::sqrt(c[0] * c[0] + c[1] * c[1] + c[2] * c[2]);
         const float near = std::max(3.0f * motion.limit, 0.01f * length);
         if (best_j != ~0u && best <= near && 4.0f * best < second)
@@ -1878,6 +1983,19 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
   // z = 100 to 0.001 after a menu passed covered the scene halfway). When one draw jumps, every draw
   // with the same texture snaps rather than smears: deciding per draw tore objects made of many
   // draws apart (the battle-entry shatter's card of strips). Collapses, which depends on t, is ApplyPlan's.
+  // [Skies] The last object asked about below: whether it has 32 draws or more and a fit (the same answers for each of
+  // its draws; fit_for keeps its fits, and nothing in this pass drops one)
+  u32 repair_task = 0;
+  bool repair_good = false;
+  BlendPlan::Moved repair_fit;
+  const auto repair_object = [&](u32 task) {
+    if (task != repair_task)
+    {
+      repair_task = task;
+      repair_good = task_run(cur_tasks, task).size() >= 32 && fit_for(task, &repair_fit);
+    }
+    return repair_good;
+  };
   const auto same_layout = [](const Prim& prim, const Prim& old) {
     return old.num_vertices == prim.num_vertices && old.vertex_size == prim.vertex_size &&
            old.pos_offset == prim.pos_offset && old.pos_format == prim.pos_format &&
@@ -1896,10 +2014,9 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
     const Prim* better = nullptr;
     // (only an object of many draws: alike pieces told apart by nothing but their place; a fit costs)
     if (rigid_moves && prim.task != 0 && prim.pos_format == FORMAT_FLOAT && prim.pos_count == 3 &&
-        task_run(cur_tasks, prim.task).size() >= 32)
+        repair_object(prim.task))
     {
-      BlendPlan::Moved fit;
-      if (fit_for(prim.task, &fit))
+      const BlendPlan::Moved& fit = repair_fit;
       {
         const auto miss = [&](const Prim& candidate) {
           float sum = 0.0f;
@@ -1971,8 +2088,20 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
         plan->triggers.push_back(MakeTrigger(cur_frame, prim));
       }
     }
-    plan->prims.push_back(BlendPlan::PrimPair{static_cast<u32>(index), &old, jump,
-                                              prim.pos_format == FORMAT_FLOAT && !jump});
+    // [Skies] A draw whose positions didn't change can't collapse (Collapses: the blend of equal values is the value)
+    bool check_collapse = prim.pos_format == FORMAT_FLOAT && !jump;
+    if (check_collapse)
+    {
+      bool unmoved = true;
+      for (u32 v = 0; v < prim.num_vertices && unmoved; ++v)
+      {
+        const u32 at = v * prim.vertex_size + prim.pos_offset;
+        unmoved = SameBytes(cur_frame.stream.data() + prim.data_offset + at, prev_frame.stream.data() + old.data_offset + at,
+                            prim.pos_count * 4u);
+      }
+      check_collapse = !unmoved;
+    }
+    plan->prims.push_back(BlendPlan::PrimPair{static_cast<u32>(index), &old, jump, check_collapse});
     s_stat_prims_changed += std::memcmp(cur_frame.stream.data() + prim.data_offset,
                                         prev_frame.stream.data() + old.data_offset,
                                         static_cast<size_t>(prim.num_vertices) * prim.vertex_size) != 0 ? 1 : 0;
@@ -2206,6 +2335,23 @@ void BlendDirectTexture(const Frame& cur_frame, const Frame& prev_frame, const P
     const u32 comp = a.format <= FORMAT_BYTE ? 1u : a.format <= FORMAT_SHORT ? 2u : 4u;
     const u8* cur = cur_frame.stream.data() + prim.data_offset + a.off;
     const u8* prev = prev_frame.stream.data() + old.data_offset + a.off;
+    // [Skies] Unchanged coordinates (most draws') blend to themselves: the copy holds them. Not for floats that are -0,
+    // infinite or not a number, which the blend writes otherwise.
+    {
+      bool same = true;
+      for (u32 v = 0; v < prim.num_vertices && same; ++v)
+      {
+        const u8* c = cur + v * prim.vertex_size;
+        same = SameBytes(c, prev + v * prim.vertex_size, a.elems * comp);
+        for (u32 k = 0; k < a.elems && same && a.format == FORMAT_FLOAT; ++k)
+        {
+          const u32 word = BE32(c + k * 4);
+          same = word != 0x80000000u && std::isfinite(std::bit_cast<float>(word));
+        }
+      }
+      if (same)
+        continue;
+    }
     static std::vector<float> cv, pv;
     cv.clear();
     pv.clear();
@@ -2280,12 +2426,12 @@ void BlendArrays(const Frame& cur_frame, const Frame& prev_frame, const Prim& pr
     // checking costs a compare per vertex, blending them cost the Pocket 5 1.75 ms an in-between)
     {
       bool same = true;
+      const u8* cur_data = cur_frame.array_data.data() + ac.data_offset;
+      const u8* prev_data = prev_frame.array_data.data() + bc->data_offset;
       for (u32 v = 0; v < prim.num_vertices && same; ++v)
       {
         const u32 a = where(cur_stream, ac, v), b = where(prev_stream, *bc, v);
-        same = a == ~0u || b == ~0u ||
-               std::memcmp(cur_frame.array_data.data() + ac.data_offset + a, prev_frame.array_data.data() + bc->data_offset + b,
-                           span) == 0;
+        same = a == ~0u || b == ~0u || SameBytes(cur_data + a, prev_data + b, span);
       }
       if (same)
         continue;
@@ -2352,6 +2498,25 @@ void BlendArrays(const Frame& cur_frame, const Frame& prev_frame, const Prim& pr
   }
 }
 
+// [Skies] A load whose words are the same in both frames, where blending them (and KeepMatrixScale) writes back the
+// bytes the copy holds: no float word is -0 (p + (c - p) t gives +0), infinite or not a number, or so large that its
+// square overflows (KeepMatrixScale's lengths); colours blend to themselves. Most of a still scene's matrices.
+bool UnchangedLoad(const Load& load, const u8* cur, const u8* prev)
+{
+  if (std::memcmp(cur, prev, load.count * 4u) != 0)
+    return false;
+  for (u32 i = 0; i < load.count; ++i)
+  {
+    if (load.address + i >= XFMEM_SETPROJECTION + 6 || WordKind(load.address + i) != Word::Float)
+      continue;
+    const u32 word = BE32(cur + i * 4);
+    const float value = std::bit_cast<float>(word);
+    if (word == 0x80000000u || !(std::fabs(value) < 1e18f))
+      return false;
+  }
+  return true;
+}
+
 bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan& plan, std::vector<u8>* out, float t)
 {
   // [Skies] A camera cut has no in-between: nothing to blend (at the display's rate, at every refresh)
@@ -2370,6 +2535,8 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
     const u8* cur = cur_frame.stream.data() + load.data_offset;
     const u8* prev = prev_frame.stream.data() + match_ptr->data_offset;
     paired += IsColourLoad(load.address, load.count) ? 0 : 1;
+    if (UnchangedLoad(load, cur, prev))
+      continue;
     for (u32 i = 0; i < load.count; ++i)
     {
       // The projection type (the word after the six parameters) isn't a float.
@@ -2523,12 +2690,18 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
     if ((ColourMask() & 4) && prim.texture == old.texture && colours)
       for (int c = 0; c < 2; ++c)
         if (prim.col_off[c] != 0xFF && old.col_off[c] == prim.col_off[c] && old.col_fmt[c] == prim.col_fmt[c])
+        {
+          // (a colour that didn't change blends to itself: the copy holds it)
+          const u32 size = prim.col_fmt[c] == 0 || prim.col_fmt[c] == 3 ? 2u : prim.col_fmt[c] == 1 ? 3u : 4u;
           for (u32 v = 0; v < prim.num_vertices; ++v)
           {
             const u32 at = v * prim.vertex_size + prim.col_off[c];
-            BlendVertexColour(prim.col_fmt[c], cur_frame.stream.data() + prim.data_offset + at,
-                              prev_frame.stream.data() + old.data_offset + at, out->data() + prim.data_offset + at, tb);
+            const u8* cur = cur_frame.stream.data() + prim.data_offset + at;
+            const u8* prev = prev_frame.stream.data() + old.data_offset + at;
+            if (!SameBytes(cur, prev, size))
+              BlendVertexColour(prim.col_fmt[c], cur, prev, out->data() + prim.data_offset + at, tb);
           }
+        }
     for (u32 v = 0; v < prim.num_vertices; ++v)
     {
       const u32 at = v * prim.vertex_size + prim.pos_offset;
