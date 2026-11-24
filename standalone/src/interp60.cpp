@@ -1514,7 +1514,8 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
   // largest object that moved as one body: the map; things that sit still in the world move with it): a piece takes
   // the previous piece that motion brings it onto, clearly nearer than any other. When most pieces (70%) find one,
   // none claimed twice, those become the partners and the rest follow the object's motion (pieces coming into the
-  // picture). SKIES_INTERP_CAMERA_PAIR=0 turns it off (to compare).
+  // picture); a piece with no clear match keeps a partner that motion agrees with. Objects paired by number are left
+  // as they are. SKIES_INTERP_CAMERA_PAIR=0 turns it off (to compare).
   if (rigid_moves && camera_pair_on && !cur_tasks.empty())
   {
     const auto centroid = [](const Frame& frame, const Prim& prim) {
@@ -1538,6 +1539,9 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
       const Run mine = task_run(cur_tasks, task);
       const Run theirs = task_run(prev_tasks, task);
       if (theirs.size() < 4)
+        continue;
+      // An object paired by number (the same draws as before, none jumping) is right as it is
+      if (cur_identity[mine.first[0].second])
         continue;
       BlendPlan::Moved own;
       const bool own_good = fit_for(task, &own);
@@ -1573,8 +1577,27 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
             second = miss;
         }
         const float length = std::sqrt(c[0] * c[0] + c[1] * c[1] + c[2] * c[2]);
-        if (best_j != ~0u && best <= std::max(3.0f * motion.limit, 0.01f * length) && 4.0f * best < second)
+        const float near = std::max(3.0f * motion.limit, 0.01f * length);
+        if (best_j != ~0u && best <= near && 4.0f * best < second)
+        {
           chosen[i] = best_j, ++matched;
+          continue;
+        }
+        // No clear match: a partner that motion agrees with stays (alike pieces in one place)
+        const Prim* had = partner[mine.first[i].second];
+        if (had && had->task == task && had->key == prim.key && layout_matches(prim, *had))
+        {
+          const size_t j = static_cast<size_t>(had - prev_frame.prims.data());
+          for (size_t k = 0; k < theirs.size(); ++k)
+            if (theirs.first[k].second == j)
+            {
+              const float dx = back[0] - prev_centre[k][0], dy = back[1] - prev_centre[k][1],
+                          dz = back[2] - prev_centre[k][2];
+              if (std::sqrt(dx * dx + dy * dy + dz * dz) <= near)
+                chosen[i] = static_cast<u32>(k), ++matched;
+              break;
+            }
+        }
       }
       // Most pieces (70%) follow the motion, none claimed twice
       if (considered < 4 || matched * 10 < considered * 7)
