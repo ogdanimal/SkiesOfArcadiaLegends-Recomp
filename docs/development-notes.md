@@ -3561,6 +3561,22 @@ build (Dolphin's Vulkan backend on llvmpipe is right).
   not it (the program has no SHIFT 2 / 3). `highlytheoretical-lpf-precision.patch`: 12 fractional bits in the
   filter state and a rounded output; 0 of 75 songs pin in 90 s, M0315 / M0461 clean for 300 s, other songs -30 dB
   (rms) from before with their DC offsets (-60..-190) gone. Not checked: Windows / Android in the game.
+  2026-11-24 review follow-ups (offline harness, 105 sequences x 900 s, one per process, at the 1.13 gain):
+  the chip's output still carried a DC offset after the filter fix. Not the filter: the ADPCM voices themselves
+  have means of -50..-250 (the decoder matches Flycast) and the reverb multiplies them. Real hardware is
+  AC-coupled, so `DCMusic.cpp` now runs each engine's chip output through the same 7 Hz one-pole DC blocker as
+  the game's audio (`dc_blocker.h`, shared with `video.cpp`; 44.1 kHz, before the gain and the resampler, kept in
+  float; a new engine at every Start; `SKIES_KEEP_DC=1` turns both off). Quarter seconds with |mean| > 2000: 13
+  sequences / 11,632 before (M0323 3518 of 3523 at about -5,600, M0256 2799, M0241 2024, M0235 1638, M0307 1000),
+  none after; pinned 0 both. M0323 stopped after 60 s: the offset was -6,400 at the Stop, drifted to -1,925 in
+  the 2 s tail and then stepped to 0 when the engine went idle (the thump); with the blocker the mean stays
+  within 70 and the last sample is 4. Clean songs, sample-aligned, after a 20 Hz high-pass: band levels change
+  at most 0.31 dB at 31.5 Hz, 0.02 dB from 125 Hz; the difference signal is the blocker's phase shift, 7 / f:
+  -42 dB at 1 kHz, -60 dB at 8 kHz. Clipping at the 1.13 gain: 45 sequences / 284,166 samples before, 43 /
+  259,348 after. What's left is the music's own peaks: M0241 (98,820) is at the rail inside the chip already
+  (42,583 chip samples at +-32767, 18,806 would clip at gain 1.0), the rest mostly M0462's bank 4 sequences.
+  The gain stays (the level match with the GameCube music, #19). `highlytheoretical-lpf-precision.patch` also
+  scales by `* 4096` instead of left-shifting a negative value (undefined before C23); same output.
 - **#34** (2026-11-19) the AYN Thor closes at Start Game on `.6`, fresh install too (no log yet). The Thor has
   the Nova's Snapdragon 8 Gen 2 but its own firmware and a second, near-square screen (about 1240x1080). A
   simulated second display on the Pocket 5 (`overlay_display_devices 1240x1080/320`, the launcher started there
