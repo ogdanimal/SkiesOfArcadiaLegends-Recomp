@@ -36,10 +36,11 @@
 // least cost of leaving a draw or a position matrix unpaired), SKIES_INTERP_ORDINAL (an object's draws paired by number),
 // SKIES_INTERP_LOCAL_SNAP (a jump snaps its object, or nearby object-less draws, not every draw with its texture),
 // SKIES_INTERP_CAMERA_PAIR (an object's alike pieces paired again by its motion or the camera's),
-// SKIES_INTERP_COLOURS (=0 off, or a mask, default 28: 4 direct vertex colours, 8 indexed colours and texture coordinates,
+// SKIES_INTERP_COLOURS (=0 off, or a mask, default 31: 4 direct vertex colours, 8 indexed colours and texture coordinates,
 // 16 direct texture coordinates, of paired draws blended like the positions, a coordinate that jumps (a flipbook cell) taking
 // the previous frame's for the first half of the way: the pyramid's torch glow quads scroll their coordinates through an
-// indexed array; 1 lights, 2 the chans' ambient and material colour registers: blended they made other scenes worse),
+// indexed array; 1 lights (position and direction taken into the current view first), 2 the chans' ambient and material
+// colour registers: the Red Alarm's pulsing light and turning beacon),
 // SKIES_INTERP_RIGID (an object that moved as one rigid body, the map with the camera: its draws without a partner of
 // their shape, or that jumped, follow that motion, and a draw that doesn't follow it finds its partner by it) and
 // SKIES_INTERP_NEW_MATRICES (a position or normal matrix with no partner gets its previous value from the camera's
@@ -447,13 +448,15 @@ bool IsMatrixOrProjection(u32 address)
          (address >= XFMEM_SETPROJECTION && address < XFMEM_SETPROJECTION + 6);
 }
 
-// SKIES_INTERP_COLOURS: 0 off, otherwise a mask (default 28): 1 lights, 2 the chans' colour registers (both off: blended they made the Red Alarm scene and the first-person reef worse), 4 direct vertex
+// SKIES_INTERP_COLOURS: 0 off, otherwise a mask (default 31): 1 lights, 2 the chans' colour registers (on since the replay
+// reads the game's held screen copy, and lights' vectors follow the camera: before, they made the Red Alarm scene and the
+// first-person reef worse), 4 direct vertex
 // colours, 8 indexed colours and texture coordinates, 16 direct texture coordinates
 int ColourMask()
 {
   static const int mask = [] {
     const char* env = std::getenv("SKIES_INTERP_COLOURS");
-    return env ? std::atoi(env) : 28;
+    return env ? std::atoi(env) : 31;
   }();
   return mask;
 }
@@ -480,6 +483,17 @@ Word WordKind(u32 address)
   if (address >= 0x1000 && address < 0x1020)
     return Word::Keep;
   return Word::Float;
+}
+
+// [Skies] A light's position (words 10-12) and direction (13-15) are in view space, and so are the normals of the
+// draws they light: the game lights view-space draws (the map, models transformed on the CPU), whose normals aren't
+// blended. The previous frame's light, blended as it is, lit the current frame's normals from where the camera was (the
+// first-person reef switch: the sun at T=0 put the strict test from 637 to 2,755 per in-between); it is first taken into
+// the current frame's view by the camera's motion (BlendLightVectors), so only the light's own motion is blended (the
+// Red Alarm's turning beacon). Without a camera motion they stay the current frame's.
+bool LightVectorWord(u32 address)
+{
+  return address >= XFMEM_LIGHTS && address < XFMEM_LIGHTS_END && (address & 15) >= 10;
 }
 
 // A load of lights or colours (not counted with the matrices when frames are told apart)
@@ -855,6 +869,9 @@ struct BlendPlan
     std::array<float, 12> words;
   };
   std::vector<Synth> synth;
+  // [Skies] The camera's motion (prev = R (cur - from) + to) for the paired lights' position and direction, when found
+  bool light_camera_ok = false;
+  Moved light_camera;
   size_t total = 0;
 };
 
@@ -1016,6 +1033,7 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
   if (StrictTest())
     load_had_partner.assign(cur_frame.loads.size(), 0);
   plan->loads.clear();
+  plan->light_camera_ok = false;
   plan->prims.clear();
   plan->jumping_textures.clear();
   plan->triggers.clear();
@@ -2018,7 +2036,11 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
       for (auto k = it; k != prev_colour.end() && k->first == want; ++k)
         last = k;
       if (last != prev_colour.end())
+      {
         plan->loads.emplace_back(&l, &prev_frame.loads[last->second]);
+        if (l.address >= XFMEM_LIGHTS && l.address < XFMEM_LIGHTS_END && !plan->light_camera_ok)
+          plan->light_camera_ok = camera_fit(&plan->light_camera);
+      }
     }
   }
   // [Skies] A matrix with no partner: an object drawn by matrix that came into the picture, or that the game drew
@@ -2381,6 +2403,37 @@ void BlendArrays(const Frame& cur_frame, const Frame& prev_frame, const Prim& pr
   }
 }
 
+// The lights' position and direction words of `load` (LightVectorWord): the previous frame's taken into the current
+// frame's view (cur = R^T (prev - to) + from, a direction by R^T alone), then blended. `out` holds the load's words.
+void BlendLightVectors(const Load& load, const u8* cur, const u8* prev, const BlendPlan::Moved& cam, float t, u8* out)
+{
+  const float* r = cam.r.data();
+  for (u32 base = load.address & ~15u; base < load.address + load.count; base += 16)
+  {
+    for (const u32 at : {10u, 13u})
+    {
+      if (base + at < load.address || base + at + 3 > load.address + load.count)
+        continue;
+      const u32 w = base + at - load.address;
+      float p[3], c[3], q[3];
+      for (int k = 0; k < 3; ++k)
+      {
+        c[k] = ReadFloat(cur + (w + k) * 4);
+        p[k] = ReadFloat(prev + (w + k) * 4) - (at == 10 ? cam.to[k] : 0.0f);
+      }
+      bool finite = true;
+      for (int k = 0; k < 3; ++k)
+      {
+        q[k] = r[k] * p[0] + r[3 + k] * p[1] + r[6 + k] * p[2] + (at == 10 ? cam.from[k] : 0.0f);
+        finite = finite && std::isfinite(q[k]) && std::isfinite(c[k]);
+      }
+      if (finite)
+        for (int k = 0; k < 3; ++k)
+          WriteFloat(out + (w + k) * 4, q[k] + (c[k] - q[k]) * t);
+    }
+  }
+}
+
 bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan& plan, std::vector<u8>* out, float t)
 {
   *out = cur_frame.stream;
@@ -2399,7 +2452,7 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
       if (load.address + i >= XFMEM_SETPROJECTION + 6)
         continue;
       const Word kind = WordKind(load.address + i);
-      if (kind == Word::Keep)
+      if (kind == Word::Keep || LightVectorWord(load.address + i))
         continue;
       if (kind == Word::Colour)
       {
@@ -2411,6 +2464,8 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
       WriteFloat(out->data() + load.data_offset + i * 4, p + (c - p) * t);
     }
     KeepMatrixScale(load, cur, prev, t, out->data() + load.data_offset);
+    if (load.address >= XFMEM_LIGHTS && load.address < XFMEM_LIGHTS_END && plan.light_camera_ok)
+      BlendLightVectors(load, cur, prev, plan.light_camera, t, out->data() + load.data_offset);
   }
   for (const BlendPlan::Synth& sy : plan.synth)
   {
