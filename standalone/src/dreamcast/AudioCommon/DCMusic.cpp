@@ -19,6 +19,7 @@
 #include "Common/MathUtil.h"
 #include "Core/Core.h"
 #include "Core/System.h"
+#include "dc_blocker.h"
 
 // Highly Theoretical's emulation headers define bare type macros (uint32, sint16, ...), so they
 // come last and the macros are dropped again right after.
@@ -50,6 +51,13 @@ constexpr u32 AICA_RATE = 44100;
 constexpr int DEFAULT_GAIN = 290;
 // After a stop the chip is rendered this much longer, for the notes' release.
 constexpr int TAIL_SAMPLES = 2 * AICA_RATE;
+
+// SKIES_KEEP_DC=1 (A/B tests): the chip's DC offset as it was, as for the game's audio (video.cpp).
+bool KeepDc()
+{
+  static const bool keep = std::getenv("SKIES_KEEP_DC") != nullptr;
+  return keep;
+}
 
 // Manatee host commands (the Dreamcast sd library's codes; dc-manatee's host_protocol.md).
 enum : u8
@@ -188,8 +196,8 @@ public:
           m_hist[k][0] = m_hist[k + 1][0];
           m_hist[k][1] = m_hist[k + 1][1];
         }
-        m_hist[3][0] = m_buffer[m_buffer_pos * 2];
-        m_hist[3][1] = m_buffer[m_buffer_pos * 2 + 1];
+        m_hist[3][0] = m_samples[m_buffer_pos * 2];
+        m_hist[3][1] = m_samples[m_buffer_pos * 2 + 1];
         ++m_buffer_pos;
         StepFade();
       }
@@ -276,6 +284,9 @@ private:
     if (m_frozen)
       return;
     Render(m_buffer, CHUNK);
+    const bool keep_dc = KeepDc();
+    for (std::size_t i = 0; i < CHUNK * 2; ++i)
+      m_samples[i] = keep_dc ? m_buffer[i] : m_dc_blocker.Step(static_cast<int>(i & 1), m_buffer[i]);
     m_buffer_len = CHUNK;
     m_buffer_pos = 0;
     WatchForPinnedOutput();
@@ -286,7 +297,10 @@ private:
   // Issue #26: a player heard the music pinned at full scale for seconds at a time in some songs (only
   // the half of the waveform above the floor got through), which hasn't been reproduced here. When the
   // chip's output, after the gain, sits at full scale for over 30% of a quarter second, the log gets one
-  // line (at most every 10 s, 20 in all) with the song and what the chip is doing, for the report.
+  // line (at most every 10 s, 20 in all) with the song and what the chip is doing, for the report. It watches
+  // the chip's own output (m_buffer), before the DC blocker: a chip stuck at a rail is a constant, which the
+  // blocker takes back to about 0 within 100 ms while the music stays cut in half, so the played output
+  // wouldn't show the fault.
   void WatchForPinnedOutput()
   {
     const float gain = m_gain / 256.0f * m_level;
@@ -490,9 +504,18 @@ private:
   std::deque<Request> m_queue;
   std::vector<Record> m_pending;
 
-  s16 m_buffer[CHUNK * 2] = {};
+  s16 m_buffer[CHUNK * 2] = {};    // the chip's output
+  float m_samples[CHUNK * 2] = {};  // the same after the DC blocker (not rounded again)
   std::size_t m_buffer_len = 0;
   std::size_t m_buffer_pos = 0;
+  // The Dreamcast's analog output is AC-coupled; the chip's isn't. Its ADPCM voices carry a small DC offset
+  // (means of -50..-250, Flycast's decoder gives the same) and the reverb multiplies it: 13 of 105 songs sat
+  // over 2000 steps off zero for long stretches (M0323 about -5,600 for 15 minutes), which took headroom,
+  // clipped and thumped where a song started or stopped (issue #26 review). A 7 Hz blocker on the chip's
+  // output (m_samples, kept in float: no second rounding), before the gain and the resampler, stands in
+  // for the coupling capacitors; each engine has its own (a new one, so a clear state, at every Start),
+  // and a paused or idle chip keeps it, as its output resumes where it was.
+  DcBlocker m_dc_blocker{DcBlocker::POLE_44K};
   float m_hist[4][2] = {};
   double m_phase = 0.0;
   int m_gain = DEFAULT_GAIN;

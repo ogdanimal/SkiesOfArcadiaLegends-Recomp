@@ -25,7 +25,7 @@ diff --git a/Core/yam.c b/Core/yam.c
 +        // multiplies by 8192 / f: at f = 7 (a filter envelope swept down, as in the Dreamcast music) the voice
 +        // sat 440 steps below zero, the reverb integrated that into a rail-to-rail offset and the music was
 +        // pinned at full scale for seconds (Skies of Arcadia Legends: Recompiled issue #26).
-+        { sint64 y = (((sint64)f) * (((sint64)s) << 12) + ((sint64)(0x2000 - f + q)) * (chan->lpp1) - ((sint64)q) * (chan->lpp2)) >> 13;
++        { sint64 y = (((sint64)f) * (((sint64)s) * 4096) + ((sint64)(0x2000 - f + q)) * (chan->lpp1) - ((sint64)q) * (chan->lpp2)) >> 13;
 +          chan->lpp2 = chan->lpp1;
 +          chan->lpp1 = y;
 +          s = (sint32)((y + 0x800) >> 12);
