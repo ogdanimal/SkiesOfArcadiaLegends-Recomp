@@ -41,9 +41,8 @@
 // the previous frame's for the first half of the way: the pyramid's torch glow quads scroll their coordinates through an
 // indexed array; 1 lights, 2 the chans' ambient and material colour registers: blended they made other scenes worse),
 // SKIES_INTERP_RIGID (an object that moved as one rigid body, the map with the camera: its draws without a partner of
-// their shape, or that jumped, follow that motion, and a draw that doesn't follow it finds its partner by it) and
-// SKIES_INTERP_NEW_MATRICES (a position or normal matrix with no partner gets its previous value from the camera's
-// motion). SKIES_INTERP_STRICT=1 (a test, with SKIES_INTERP_T=0): what had no partner isn't drawn, so the in-between
+// their shape, or that jumped, follow that motion, and a draw that doesn't follow it finds its partner by it).
+// SKIES_INTERP_STRICT=1 (a test, with SKIES_INTERP_T=0): what had no partner isn't drawn, so the in-between
 // should equal the previous frame (development notes, "60 fps after v0.93").
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "host.h"
@@ -238,7 +237,6 @@ u64 s_stat_loads = 0, s_stat_prims = 0, s_stat_loads_blended = 0, s_stat_prims_b
 u64 s_stat_repaired = 0;  // draws paired across a texture change (issue #18)
 u64 s_stat_loads_apart = 0;  // matrix pairings refused as two objects' (issue #24)
 u64 s_stat_loads_by_object = 0;  // [Skies] groups of loads paired by object alone, their kinds unmatched (issue #24)
-u64 s_stat_synth_matrices = 0;  // [Skies] new matrices moved back with the camera (issue #24)
 u64 s_stat_jumps_explained = 0;  // [Skies] paired draws past the jump test that their object's motion explains (issue #24)
 u64 s_stat_collapsed = 0, s_stat_matrix_snaps = 0;  // draws and matrices snapped as turning round (issue #35)
 u64 s_stat_camera_paired = 0;  // [Skies] draws re-paired by the camera's motion (issue #24)
@@ -843,14 +841,6 @@ struct BlendPlan
   std::vector<Moved> moved;
   // SKIES_INTERP_STRICT (a test): the loads and draws that had no partner (new in the current frame), hidden
   std::vector<u32> new_loads, new_prims;
-  // [Skies] New position and normal matrices given a previous frame's value by the camera's motion: the load (index in
-  // cur_frame.loads) and its words as they'd have been
-  struct Synth
-  {
-    u32 index;
-    std::array<float, 12> words;
-  };
-  std::vector<Synth> synth;
   size_t total = 0;
 };
 
@@ -2006,68 +1996,6 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
         plan->loads.emplace_back(&l, &prev_frame.loads[last->second]);
     }
   }
-  // [Skies] A matrix with no partner: an object drawn by matrix that came into the picture, or that the game drew
-  // another way a frame before (Maramba's reef haze, issue #24: view-space draws in third person, 46 matrix-drawn ones
-  // once the first-person view settles) took the next frame's place, a frame ahead of everything around it. A
-  // position or normal matrix of a known object gets the previous value the camera's motion gives it (prev =
-  // R (cur - from) + to: R M, and the translation R t + to - R from), as new view-space draws follow their object.
-  plan->synth.clear();
-  static const bool synth_on = [] {
-    const char* env = std::getenv("SKIES_INTERP_NEW_MATRICES");
-    return !env || env[0] != '0';
-  }();
-  if (synth_on && rigid_moves)
-  {
-    BlendPlan::Moved cam;
-    bool have = false, tried = false;
-    for (u32 i = 0; i < cur_frame.loads.size(); ++i)
-    {
-      if (cur_load_aligned[i])
-        continue;
-      const Load& load = cur_frame.loads[i];
-      const bool position = load.address < 0x78 && load.address % 4 == 0 && load.count == 12;
-      const bool normal = load.address >= XFMEM_NORMALMATRICES && load.address < XFMEM_NORMALMATRICES + 0x60 &&
-                          (load.address - XFMEM_NORMALMATRICES) % 3 == 0 && load.count == 9;
-      // An identity matrix isn't an object's place (its draws carry their own positions, paired on their own), and the
-      // draws after it, paired, use it too: moved with the camera, they moved twice
-      if (load.task == 0 || (!position && !normal) || IdentityMatrix(cur_frame.stream.data() + load.data_offset, load.count))
-        continue;
-      if (!tried)
-        tried = true, have = camera_fit(&cam);
-      if (!have)
-        break;
-      const u8* d = cur_frame.stream.data() + load.data_offset;
-      BlendPlan::Synth out{i, {}};
-      const float* r = cam.r.data();
-      if (position)
-      {
-        float m[12];
-        for (int w = 0; w < 12; ++w)
-          m[w] = ReadFloat(d + w * 4);
-        const float shift[3] = {cam.to[0] - (r[0] * cam.from[0] + r[1] * cam.from[1] + r[2] * cam.from[2]),
-                                cam.to[1] - (r[3] * cam.from[0] + r[4] * cam.from[1] + r[5] * cam.from[2]),
-                                cam.to[2] - (r[6] * cam.from[0] + r[7] * cam.from[1] + r[8] * cam.from[2])};
-        for (int row = 0; row < 3; ++row)
-          for (int col = 0; col < 4; ++col)
-            out.words[row * 4 + col] = r[row * 3] * m[col] + r[row * 3 + 1] * m[4 + col] + r[row * 3 + 2] * m[8 + col] +
-                                       (col == 3 ? shift[row] : 0.0f);
-      }
-      else
-      {
-        float m[9];
-        for (int w = 0; w < 9; ++w)
-          m[w] = ReadFloat(d + w * 4);
-        for (int row = 0; row < 3; ++row)
-          for (int col = 0; col < 3; ++col)
-            out.words[row * 3 + col] = r[row * 3] * m[col] + r[row * 3 + 1] * m[3 + col] + r[row * 3 + 2] * m[6 + col];
-      }
-      bool finite = true;
-      for (u32 w = 0; w < load.count; ++w)
-        finite = finite && std::isfinite(out.words[w]);
-      if (finite)
-        plan->synth.push_back(out), ++s_stat_synth_matrices;
-    }
-  }
   if (StrictTest())
   {
     plan->new_loads.clear();
@@ -2396,16 +2324,6 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
       WriteFloat(out->data() + load.data_offset + i * 4, p + (c - p) * t);
     }
     KeepMatrixScale(load, cur, prev, t, out->data() + load.data_offset);
-  }
-  for (const BlendPlan::Synth& sy : plan.synth)
-  {
-    const Load& load = cur_frame.loads[sy.index];
-    const u8* cur = cur_frame.stream.data() + load.data_offset;
-    for (u32 i = 0; i < load.count; ++i)
-    {
-      const float c = ReadFloat(cur + i * 4), p = sy.words[i];
-      WriteFloat(out->data() + load.data_offset + i * 4, p + (c - p) * t);
-    }
   }
   // Draws turning round in one frame (Collapses, at this t) snap with their texture's group too
   static std::vector<u64> collapsing;
@@ -3198,17 +3116,17 @@ void LogStats()
   if (s_stats)
   {
     Log("[interp] per blend %.1f draws, %.1f matrix loads (%.1f blended, %.1f changed), %.1f with "
-        "positions (%.1f blended, %.1f changed, %.2f paired across a texture change, %.2f snapped turning, %.2f matrices snapped turning, %.1f with their object, %.1f paired by number, %.2f moved with their object, %.2f re-paired by it, %.2f re-paired by its or the camera's motion, %.2f kept apart, %.2f load groups by object, %.2f matrices from the camera, %.2f jumps explained); ms per frame: keep real %.2f, blend %.2f, enter "
+        "positions (%.1f blended, %.1f changed, %.2f paired across a texture change, %.2f snapped turning, %.2f matrices snapped turning, %.1f with their object, %.1f paired by number, %.2f moved with their object, %.2f re-paired by it, %.2f re-paired by its or the camera's motion, %.2f kept apart, %.2f load groups by object, %.2f jumps explained); ms per frame: keep real %.2f, blend %.2f, enter "
         "%.2f, feed %.2f, keep in-between %.2f, leave %.2f\n",
         s_stat_draws / 600.0, s_stat_loads / 600.0, s_stat_loads_blended / 600.0,
         s_stat_words_changed / 600.0, s_stat_prims / 600.0, s_stat_prims_blended / 600.0,
         s_stat_prims_changed / 600.0, s_stat_repaired / 600.0, s_stat_collapsed / 600.0, s_stat_matrix_snaps / 600.0,
-        s_stat_tasked / 600.0, s_stat_by_number / 600.0, s_stat_moved / 600.0, s_stat_rigid_repaired / 600.0, s_stat_camera_paired / 600.0, s_stat_kept_apart / 600.0, s_stat_loads_by_object / 600.0, s_stat_synth_matrices / 600.0, s_stat_jumps_explained / 600.0, s_ms[0] / 600, s_ms[1] / 600, s_ms[2] / 600, s_ms[3] / 600,
+        s_stat_tasked / 600.0, s_stat_by_number / 600.0, s_stat_moved / 600.0, s_stat_rigid_repaired / 600.0, s_stat_camera_paired / 600.0, s_stat_kept_apart / 600.0, s_stat_loads_by_object / 600.0, s_stat_jumps_explained / 600.0, s_ms[0] / 600, s_ms[1] / 600, s_ms[2] / 600, s_ms[3] / 600,
         s_ms[4] / 600, s_ms[5] / 600);
   }
   s_stat_loads = s_stat_prims = s_stat_loads_blended = s_stat_prims_blended = s_stat_words_changed =
       s_stat_draws = s_stat_prims_changed = s_stat_repaired = s_stat_collapsed = s_stat_matrix_snaps =
-      s_stat_tasked = s_stat_by_number = s_stat_moved = s_stat_rigid_repaired = s_stat_camera_paired = s_stat_kept_apart = s_stat_loads_by_object = s_stat_synth_matrices = s_stat_jumps_explained = 0;
+      s_stat_tasked = s_stat_by_number = s_stat_moved = s_stat_rigid_repaired = s_stat_camera_paired = s_stat_kept_apart = s_stat_loads_by_object = s_stat_jumps_explained = 0;
   std::fill(std::begin(s_ms), std::end(s_ms), 0.0);
 }
 }  // namespace
