@@ -1,0 +1,23 @@
+diff --git a/GXRuntime/backends/aurora/aurora_graphics.cpp b/GXRuntime/backends/aurora/aurora_graphics.cpp
+--- a/GXRuntime/backends/aurora/aurora_graphics.cpp
++++ b/GXRuntime/backends/aurora/aurora_graphics.cpp
+@@ -923,13 +923,17 @@
+ // The texture-hash frame of the game's draws parsed so far (its display copy ends one), and the one the
+ // replay context's draws take their texture hashes from (0: from RAM as it is): a frame replayed after
+ // the game has rewritten its textures for the next one draws with the textures it had (issue #37).
++// Local (fork): drained only with a frame open, as the other drains (no recording frame to draw into
++// otherwise: push_verts faulted on a null g_recordingFrame); without one nothing is replayed anyway.
+ unsigned aurora_backend_texture_frame(void) {
+-    aurora::gx::fifo::drain();
++    if (gx_aurora::g_initialized && gx_aurora::g_frame_open)
++        aurora::gx::fifo::drain();
+     return aurora::gx::texture_frame();
+ }
+ 
+ void aurora_backend_replay_texture_frame(unsigned frame) {
+-    aurora::gx::fifo::drain();
++    if (gx_aurora::g_initialized && gx_aurora::g_frame_open)
++        aurora::gx::fifo::drain();
+     aurora::gx::set_replay_texture_frame(frame);
+ }
+ 
