@@ -878,6 +878,21 @@ std::array<float, 3> MoveBack(const BlendPlan::Moved& fit, const float* c)
 // SKIES_INTERP_STRICT=1 (a test, with SKIES_INTERP_T=0): what had no partner in the previous frame (new) isn't drawn,
 // so the in-between should equal the previous frame; every pixel that differs is a pairing or position to look at
 // (or a change that isn't a position: colours, texture animation)
+// [Skies] A position matrix (12 words) or normal matrix (9) that is the identity: draws already in view space (Maramba's
+// rocks, the map) load it before their own positions, and the draws after them use it too
+bool IdentityMatrix(const u8* words, u32 count)
+{
+  const u32 columns = count == 12 ? 4 : 3;
+  for (u32 w = 0; w < count; ++w)
+  {
+    const float v = ReadFloat(words + w * 4);
+    const float want = (w % columns) == (w / columns) ? 1.0f : 0.0f;
+    if (std::fabs(v - want) > 1e-5f)
+      return false;
+  }
+  return true;
+}
+
 bool StrictTest()
 {
   static const bool on = std::getenv("SKIES_INTERP_STRICT") != nullptr;
@@ -1718,8 +1733,9 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
             }
         }
       }
-      // Most pieces (70%) follow the motion, none claimed twice
-      if (considered < 4 || matched * 10 < considered * 7)
+      // Most pieces that can have a partner (70% of the fewer of the two frames': pieces come into the picture, Maramba's
+      // second rock object going from 4 to 6) follow the motion, none claimed twice
+      if (considered < 4 || matched * 10 < std::min(considered, theirs.size()) * 7)
         continue;
       static std::vector<u32> claimed;
       claimed = chosen;
@@ -1883,7 +1899,9 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
       const bool position = load.address < 0x78 && load.address % 4 == 0 && load.count == 12;
       const bool normal = load.address >= XFMEM_NORMALMATRICES && load.address < XFMEM_NORMALMATRICES + 0x60 &&
                           (load.address - XFMEM_NORMALMATRICES) % 3 == 0 && load.count == 9;
-      if (load.task == 0 || (!position && !normal))
+      // An identity matrix isn't an object's place (its draws carry their own positions, paired on their own), and the
+      // draws after it, paired, use it too: moved with the camera, they moved twice
+      if (load.task == 0 || (!position && !normal) || IdentityMatrix(cur_frame.stream.data() + load.data_offset, load.count))
         continue;
       if (!tried)
         tried = true, have = camera_fit(&cam);
@@ -2093,6 +2111,8 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
     for (const u32 i : plan.new_loads)
     {
       const Load& load = cur_frame.loads[i];
+      if ((load.count == 12 || load.count == 9) && IdentityMatrix(cur_frame.stream.data() + load.data_offset, load.count))
+        continue;  // used by the draws after it too: their own positions hide new ones
       if (load.address < XFMEM_POSMATRICES_END)
         for (u32 w = 0; w < load.count && load.address + w < XFMEM_POSMATRICES_END; ++w)
           WriteFloat(out->data() + load.data_offset + w * 4, 0.0f);
