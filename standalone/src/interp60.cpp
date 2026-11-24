@@ -551,8 +551,9 @@ bool Blendable(const Load& load, const u8* cur, const u8* prev)
 // than 0.7 of the frames' mean length (about a 90 degree turn or more in one frame) snaps the matrix to
 // the current frame's, as a cut; otherwise the axes get the mean length back. The translation column is
 // left as blended. `out` holds the blended words. [Skies] Whether a matrix snaps is decided at the middle (t = 0.5) for
-// every t: at the display's rate (several in-betweens a frame) a part turning round was blended early, snapped in the
-// middle and blended again late, stepping new -> shrunken -> new.
+// every t, and it snaps to the previous frame's before the middle and the current frame's after (as a flipbook step):
+// at the display's rate (several in-betweens a frame) a part turning round was blended early, snapped in the middle
+// and blended again late, stepping new -> shrunken -> new.
 void KeepMatrixScale(const Load& load, const u8* cur, const u8* prev, float t, u8* out)
 {
   // Position matrices: 3 rows of 4 words from a multiple of 4. Normal matrices (lighting): 3 rows of 3 words
@@ -585,6 +586,7 @@ void KeepMatrixScale(const Load& load, const u8* cur, const u8* prev, float t, u
     }
     if (snap)
       ++s_stat_matrix_snaps;
+    const u8* snap_to = t < 0.5f ? prev : cur;
     for (u32 col = 0; col < 3 && !snap; ++col)
     {
       float lc = 0, lp = 0, lb = 0;
@@ -605,12 +607,12 @@ void KeepMatrixScale(const Load& load, const u8* cur, const u8* prev, float t, u
       for (u32 col = 0; col < 3; ++col)
       {
         const u32 w = (m + row * stride + col) * 4;
-        WriteFloat(out + w, snap ? ReadFloat(cur + w) : ReadFloat(out + w) * scale[col]);
+        WriteFloat(out + w, snap ? ReadFloat(snap_to + w) : ReadFloat(out + w) * scale[col]);
       }
       if (snap && stride == 4)
       {
         const u32 w = (m + row * 4 + 3) * 4;
-        WriteFloat(out + w, ReadFloat(cur + w));
+        WriteFloat(out + w, ReadFloat(snap_to + w));
       }
     }
   }
@@ -2360,7 +2362,8 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
     KeepMatrixScale(load, cur, prev, t, out->data() + load.data_offset);
   }
   // Draws turning round in one frame (Collapses) snap with their texture's group too. [Skies] Decided at the middle
-  // (t = 0.5) for every t, as KeepMatrixScale: at the display's rate the pictures stepped new -> shrunken -> new.
+  // (t = 0.5) for every t, as KeepMatrixScale, to the previous frame's places before the middle and the current frame's
+  // after: at the display's rate the pictures stepped new -> shrunken -> new.
   static std::vector<u64> collapsing;
   static std::vector<u8> collapsed;
   static std::vector<BlendPlan::Trigger> collapse_triggers;
@@ -2383,9 +2386,10 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
     }
   }
   std::sort(collapsing.begin(), collapsing.end());
-  const auto group_snaps_texture = [&](u64 texture) {
-    return std::binary_search(plan.jumping_textures.begin(), plan.jumping_textures.end(), texture) ||
-           std::binary_search(collapsing.begin(), collapsing.end(), texture);
+  // (by_jump: a jumping draw's group, which shows the current frame at every t; else a turning one's)
+  const auto group_snaps_texture = [&](u64 texture, bool by_jump) {
+    return by_jump ? std::binary_search(plan.jumping_textures.begin(), plan.jumping_textures.end(), texture)
+                   : std::binary_search(collapsing.begin(), collapsing.end(), texture);
   };
   // [Skies] Local snapping (issue #18): a trigger snaps the draws with its texture of the same object (the battle
   // transition task's shatter card stays whole), or, for draws of no object (task 0: the pyramid's ~140 flame quads,
@@ -2394,10 +2398,10 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
     const char* env = std::getenv("SKIES_INTERP_LOCAL_SNAP");
     return !env || env[0] != '0';
   }();
-  const auto group_snaps_prim = [&](const Prim& prim) {
+  const auto group_snaps_prim = [&](const Prim& prim, bool by_jump) {
     if (!local_snap)
-      return group_snaps_texture(prim.texture);
-    if (!group_snaps_texture(prim.texture))
+      return group_snaps_texture(prim.texture, by_jump);
+    if (!group_snaps_texture(prim.texture, by_jump))
       return false;
     const BlendPlan::Trigger self = MakeTrigger(cur_frame, prim);
     const auto near = [&](const BlendPlan::Trigger& tr) {
@@ -2410,16 +2414,22 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
       const float radius = std::max(50.0f, 0.15f * length);
       return dx * dx + dy * dy + dz * dz <= radius * radius;
     };
-    return std::any_of(plan.triggers.begin(), plan.triggers.end(), near) ||
-           std::any_of(collapse_triggers.begin(), collapse_triggers.end(), near);
+    return by_jump ? std::any_of(plan.triggers.begin(), plan.triggers.end(), near)
+                   : std::any_of(collapse_triggers.begin(), collapse_triggers.end(), near);
   };
-  // [Skies] Which pairs blend (not jumping, turning round or snapped with their group)
-  static std::vector<u8> blends;
+  // [Skies] Which pairs blend (not jumping, turning round or snapped with their group); a turning one before the middle
+  // takes the previous frame's places (turning[i])
+  static std::vector<u8> blends, turning;
   blends.assign(plan.prims.size(), 0);
+  turning.assign(plan.prims.size(), 0);
   for (size_t i = 0; i < plan.prims.size(); ++i)
   {
     const BlendPlan::PrimPair& pair = plan.prims[i];
-    blends[i] = !pair.jumps && !collapsed[i] && !group_snaps_prim(cur_frame.prims[pair.index]);
+    const Prim& prim = cur_frame.prims[pair.index];
+    if (pair.jumps || group_snaps_prim(prim, true))
+      continue;
+    turning[i] = collapsed[i] || group_snaps_prim(prim, false);
+    blends[i] = !turning[i];
   }
   // [Skies] Colours blend all or nothing per object (task; task 0, the 2D layers and other draws of no object, as one):
   // only when every draw of it with colours (direct, or read from an indexed colour array) has a same-texture partner
@@ -2468,6 +2478,13 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
     const BlendPlan::PrimPair& pair = plan.prims[i];
     const Prim& prim = cur_frame.prims[pair.index];
     const Prim& old = *pair.old;
+    if (turning[i] && t < 0.5f)
+      for (u32 v = 0; v < prim.num_vertices; ++v)
+      {
+        const u32 at = v * prim.vertex_size + prim.pos_offset;
+        std::memcpy(out->data() + prim.data_offset + at, prev_frame.stream.data() + old.data_offset + at,
+                    prim.pos_count * (prim.pos_format == FORMAT_FLOAT ? 4u : prim.pos_format >= FORMAT_USHORT ? 2u : 1u));
+      }
     if (!blends[i])
       continue;
     ++paired;
@@ -2529,9 +2546,12 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
   for (const BlendPlan::Moved& move : plan.moved)
   {
     const Prim& prim = cur_frame.prims[move.index];
-    if (group_snaps_prim(prim))
+    // (snapped with a turning draw's group: the motion's previous places before the middle, the current ones after)
+    const bool turning_group = group_snaps_prim(prim, false);
+    if (group_snaps_prim(prim, true) || (turning_group && t >= 0.5f))
       continue;
     ++s_stat_moved;
+    const float tt = turning_group ? 0.0f : t;
     for (u32 v = 0; v < prim.num_vertices; ++v)
     {
       const u32 at = prim.data_offset + v * prim.vertex_size + prim.pos_offset;
@@ -2539,7 +2559,7 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
                           ReadFloat(cur_frame.stream.data() + at + 8)};
       const std::array<float, 3> p = MoveBack(move, c);
       for (u32 k = 0; k < 3; ++k)
-        WriteFloat(out->data() + at + k * 4, p[k] + (c[k] - p[k]) * t);
+        WriteFloat(out->data() + at + k * 4, p[k] + (c[k] - p[k]) * tt);
     }
   }
   if (StrictTest())
