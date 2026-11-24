@@ -1998,6 +1998,15 @@ from a ws36 state. Pocket 5 (test APK `skies-recomp-i41`, `dev37.sh`): the same 
 the #37 counter catches binds, text clean, 1.00x. Europe and Japan: cold boots to the attract demos in 16:9, 0
 unmapped (WSL). Not run: the Cutscene bars setting itself (ws37 unchanged), macOS.
 
+**After v0.93 (ws42, 2026-11-24):** the reporter: the ship no longer sinks, but the bar still drops on a hit and
+refills at the next turn. `fn_80159F28` stores the hit as the panel's target and `ShipHudPanelUpdate` animates the
+bar down to it; ws42's `qol_ship_hit_ws42` plays the hit with damage 1 against a full counter, then puts the panel
+back (target, before and the bar float at max, no delta), so the bar stays full and the number reads 0 (details:
+`patches/game/README.md`, ws42). Checked: WSL USA (HP `0x2710` at every peek), Europe one battle, Windows D3D12 and
+Pocket 5 (`run501`-style route: v0.93 shows 660 and a short bar, ws42 a red 0 and a full bar). Japan built only.
+Windows test folder note: a game folder's `files` link made from WSL isn't followed by Windows (the run crashes at
+start); make it with `mklink /J`.
+
 ### Issue #37: menu text garbling at 60 fps, and the menu's blocky side clouds (2026-11-22)
 
 **Text.** The game draws every glyph into one of 512 small I4 textures in turn (`glyph_ring` at `0x8034773C`, its
@@ -2116,6 +2125,64 @@ repeated. So the warp is not reproduced there on desktop; the reporter's sky is 
 time), which the state's isn't.
 **Not checked:** Android, Japan (addresses only), a real 144 Hz screen, the game thread's cost on a weak
 device (the walk runs at most once per FIFO burst while the caller changes).
+
+### 60 fps after v0.93: first person over the reef, the strict test, colours (2026-11-24, issues #24 and #18)
+
+**Report** (Cawl87, v0.93, RX 7800 XT, VRR, Vulkan): objects warp as they come on screen while panning (tree
+tops, crates, railings), and the reef warps when switching to first person; a save state for the latter
+(`build/i24c/state3.sav`, press Y). Their 60 fps clip repeats about every other in-between (a picture, then a
+two-step jump); their 144 Hz clip doesn't. The panning warp wasn't reproduced (WSL, Windows): the reply asks for
+their 60 fps log (`[interp] N of M frames interpolated (K skipped ...)`).
+**The strict test** (`SKIES_INTERP_STRICT=1` with `SKIES_INTERP_T=0`): what had no partner in the previous frame
+is hidden (new position/texture matrices zeroed except identities, new draws collapsed to a point), so the
+in-between must equal the previous real frame; it is exactly 0 where nothing animates. Every differing pixel is
+a pairing or position bug or a change that isn't a position. Scripts (worktree `build/i24c`): `strict.sh RUN`,
+`strict-all.sh TAG` (seven scenes: Red Alarm shatter, opening, first battle, pyramid, Maramba pan, the
+reporter's state panning left / right, first person), `midcheck.sh RUN` (T=0.5: pixels outside both real frames,
+which the strict test can't see).
+**Causes and fixes** (`interp60.cpp`, branch `next094`):
+- Matrix loads carry their draw's object; two objects' matrices never blend; a gap floor for position matrices
+  (`9d88621`); a kind whose objects are unchanged is aligned whole (`f8b7e8d`, the per-object grouping cost the
+  Pocket 5 0.3 ms).
+- The reef rocks (camera-facing quads of one object in view space) moved further in the fast move into first
+  person than the gap between them, so pairing by place took a neighbour's: objects of 4-256 float draws are
+  paired again by their own rigid motion or, when it doesn't fit, the camera's (the largest rigid object, the
+  map), each piece taking the previous piece 4x nearer than any other (`8b790d6`; objects paired by number are
+  left alone, `5edbcb6`; 70% of the fewer pieces, `45c99aa`). `SKIES_INTERP_CAMERA_PAIR=0` off.
+- A load's kind includes the next draw's format, count and texture: when that draw changed (the sky backdrop) or
+  its texture moved (Vyse's shadow, a render target at another address) the matrices had no partner and took the
+  next frame's place. Leftover loads are aligned by object, address and size; object-less ones by the next
+  draw's key without its texture (`ade3941`).
+- A matrix with no partner at all (the reef haze, drawn as 434 view-space draws in third person and 46
+  matrix-drawn ones once first person settles; objects culled the frame before) gets the previous value the
+  camera's motion gives (`R M`, translation `R t + to - R from`; within 0.1 of real partners)
+  (`SKIES_INTERP_NEW_MATRICES=0` off). Never for an identity matrix: view-space draws load one and the next,
+  paired, draws use it too (moved twice, `45c99aa`).
+- A paired draw past the jump test whose jump its object's (or the camera's) motion explains keeps its partner
+  (fitted motion left outlines).
+- Colours and texture coordinates of paired draws (Sonnet worker, `4095e4e`): the torch glows, the save point's
+  streaks and the fading rocks read indexed arrays (texture coordinates, colours) that change every frame; they
+  are blended in a copy the replay reads, with direct colours and coordinates (`SKIES_INTERP_COLOURS`, mask 28).
+  A coordinate that steps a flipbook cell (all vertices shifted by a quarter or more of the part shown) isn't
+  blended (`8631659`: at T=0.5 the flames split and the glow vanished; the strict test, at T=0, can't see it).
+  Colour and light XF loads pair through the draw after them (bits 1 and 2, still off: they made the Red Alarm
+  shatter worse). Only changed elements are blended and only blended ranges copied (`deb01e3`).
+**Results**, strict mean per in-between (before -> now): opening 255 -> 0, first battle 223 -> 0, pyramid 51,316
+-> 114, Maramba pan 1,699 -> 200, the reporter's state left 2,341 -> 106, right 1,073 -> 238, first person
+17,676 -> 637; the first-person switch (both-frames measure) 555k -> 49k on Windows, 388k -> 35k on the Pocket 5.
+Windows D3D12 = WSL. Left: one-pixel seams where the game re-clips map pieces (no vertex-for-vertex partner),
+objects new in the next frame, stepping animations (fire in the tower's lantern).
+**Open:** the Red Alarm shatter stays at 180k-860k (strict). Not render-to-texture: the replay re-captures from its
+own blended draws (both copies, ping-pong `0035d4e0/003a84e0` / `004024e0/0044d4e0`), T=1 equals the real frame,
+every prim and matrix equals the previous frame's at T=0, swapping arrays, start registers, texture frame or
+per-vertex bytes changes nothing; the ambient (`0x100a`, pulsing ~5% a frame) blended made it worse. A replay of
+an older shatter stream comes out black. The T=0.5 pictures look right.
+**Cost** (Pocket 5, save point, 60 fps, blend per in-between): v0.93 5.2 ms, now about 6.2 (colours 0.5 of it).
+Speed there swings 0.84-0.99x run to run on v0.93 too; compare blend times.
+**Note:** test runs share the user's pipeline cache (`~/.local/share/Skies of Arcadia Legends/pipeline_cache.db`;
+`video.cpp` passes no cache path). A debug run that blended XF words as floats stored a broken texgen config and
+every later run aborted at boot (`unhandled tcg src 21`) until its 4 rows were removed; run risky experiments with
+`XDG_DATA_HOME` pointing at a copy.
 
 ### 60 fps: Maramba's pier and the pyramid's flames after v0.92 (2026-11-23, issues #18 and #24)
 

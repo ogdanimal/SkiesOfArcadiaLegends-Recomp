@@ -13,6 +13,23 @@ the cut-over: no new Dolphin-engine-only features; items below marked "both buil
 once it ships.
 
 
+## Next build, local branch `next094` — 2026-11-24 (not pushed; push, replies and release on the owner's word)
+
+In `~/projects/skies-interp` (branch `next094`, from v0.93's `8beb8c8`): `i24-loads`, `i26` (`00748e4`), `ws42`
+(`f34d82d`) merged, then the 60 fps work up to `deb01e3`. Details: development notes, "60 fps after v0.93",
+"Issue #36" (After v0.93) and "Issues #26-#32" (#26).
+- **#26 (Dreamcast music pinned):** found from the reporter's log: the AICA channel filter's state truncated each
+  sample; `highlytheoretical-lpf-precision.patch`. Checked offline (75 songs) and in game on WSL and the Pocket 5
+  (music plays); the failing scenes weren't played in the game.
+- **#24 (60 fps):** the reporter's first-person reef fixed (WSL, Windows, Pocket 5); the strict test and its
+  fixes (colours, matrices, the camera's motion). Panning warp not reproduced: the reply asks for their 60 fps log.
+  Open: the Red Alarm shatter's strict count (pictures look right).
+- **#36 (ship HP bar with Invincible):** ws42, checked on WSL, Windows and the Pocket 5.
+- **Cost:** the Pocket 5's save point at 60 fps blends in about 6.2 ms an in-between (v0.93 5.2).
+- **Replies:** drafted in `build/i37/replies-094.md` (#24 and #26 now, #36 after the release).
+- **Test app:** the t94 build (`skies-recomp-t94-2026-11-24-test.apk`) on both Retroids and the Thor; Windows test
+  folder `C:\dev\SkiesI37` (`run-fp-*.bat`, `run36-*.bat`, `games\GEAE8P-ws42`, `modules-ws42`).
+
 ## After the next release — decided 2026-11-22
 
 The owner: the follow-ups from the 2026-11-22 comments wait until after the release: #25 (the bottom-right HUD
