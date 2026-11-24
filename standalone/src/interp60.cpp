@@ -2244,6 +2244,9 @@ void BlendDirectTexture(const Frame& cur_frame, const Frame& prev_frame, const P
 // frame); empty when none was
 std::vector<u8> s_blended_arrays;
 bool s_arrays_blended = false;
+// Which of the frame's array copies were blended (by Frame::array_copies index): only those are copied into
+// s_blended_arrays and read from it (copying all the array data for each in-between cost the Pocket 5 ~0.5 ms)
+std::vector<u8> s_copy_blended;
 
 // A paired draw's indexed colours and float texture coordinates blended, vertex by vertex: the element a vertex of the
 // current draw reads, and the one its partner read. A texture coordinate that moved by more than half a texture
@@ -2284,6 +2287,21 @@ void BlendArrays(const Frame& cur_frame, const Frame& prev_frame, const Prim& pr
       return at < copy.lo || at - copy.lo + span > copy.size ? ~0u : static_cast<u32>(at - copy.lo);
     };
     const auto read = [&](const u8* q) { return ReadTexComponent(ac.tex_format, ac.frac, q); };
+    // Nothing to blend when every vertex reads the same bytes in both frames (most draws: the map's texture coordinates;
+    // checking costs a compare per vertex, blending them cost the Pocket 5 1.75 ms an in-between)
+    {
+      bool same = true;
+      for (u32 v = 0; v < prim.num_vertices && same; ++v)
+      {
+        const u32 a = where(cur_stream, ac, v), b = where(prev_stream, *bc, v);
+        same = a == ~0u || b == ~0u ||
+               std::memcmp(cur_frame.array_data.data() + ac.data_offset + a, prev_frame.array_data.data() + bc->data_offset + b,
+                           span) == 0;
+      }
+      if (same)
+        continue;
+    }
+
     const auto write = [&](u8* q, float value) { WriteTexComponent(ac.tex_format, ac.frac, q, value); };
     bool step_prev = false;
     if (ac.kind == 2)
@@ -2314,9 +2332,12 @@ void BlendArrays(const Frame& cur_frame, const Frame& prev_frame, const Prim& pr
       const u32 a = where(cur_stream, ac, v), b = where(prev_stream, *bc, v);
       if (a == ~0u || b == ~0u)
         continue;
-      if (!s_arrays_blended)
+      if (!s_copy_blended[i])
       {
-        s_blended_arrays = cur_frame.array_data;
+        if (s_blended_arrays.size() < cur_frame.array_data.size())
+          s_blended_arrays.resize(cur_frame.array_data.size());
+        std::memcpy(s_blended_arrays.data() + ac.data_offset, cur_frame.array_data.data() + ac.data_offset, ac.size);
+        s_copy_blended[i] = 1;
         s_arrays_blended = true;
       }
       const u8* cur = cur_frame.array_data.data() + ac.data_offset + a;
@@ -2346,6 +2367,7 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
 {
   *out = cur_frame.stream;
   s_arrays_blended = false;
+  s_copy_blended.assign(cur_frame.array_copies.size(), 0);
   size_t paired = 0;
   for (const auto& [load_ptr, match_ptr] : plan.loads)
   {
@@ -2913,7 +2935,8 @@ bool Replay(const Frame& frame, const std::vector<u8>& stream, int slot)
       const ArrayCopy& copy = frame.array_copies[i];
       const size_t bytes = static_cast<size_t>(copy.lo) + copy.size + 64;
       u8* buffer = ArenaAlloc(bytes);
-      std::memcpy(buffer + copy.lo, (s_arrays_blended ? s_blended_arrays : frame.array_data).data() + copy.data_offset, copy.size);
+      const bool blended = s_arrays_blended && i < s_copy_blended.size() && s_copy_blended[i];
+      std::memcpy(buffer + copy.lo, (blended ? s_blended_arrays : frame.array_data).data() + copy.data_offset, copy.size);
       cmd.push_back(0x50);
       PushBE(cmd, 0x0010 + copy.array, 2);
       PushBE(cmd, static_cast<u64>(reinterpret_cast<uintptr_t>(buffer)), 8);
