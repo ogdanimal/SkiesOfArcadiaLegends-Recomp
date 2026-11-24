@@ -33,7 +33,7 @@
 // SKIES_INTERP_T: the blend's position between the frames (0.5). SKIES_INTERP_STATS=1: counts and
 // times every 600 frames. SKIES_INTERP_TRACE=1 (video.cpp): each frame end and retrace present. To compare
 // (issues #18 and #24), =0 turns off: SKIES_INTERP_CENTROID (pairing by mean vertex), SKIES_INTERP_GAP_FLOOR (the
-// least cost of leaving a draw unpaired), SKIES_INTERP_ORDINAL (an object's draws paired by number) and
+// least cost of leaving a draw or a position matrix unpaired), SKIES_INTERP_ORDINAL (an object's draws paired by number) and
 // SKIES_INTERP_LOCAL_SNAP (a jump snaps its object, or nearby object-less draws, not every draw with its texture) and
 // SKIES_INTERP_RIGID (an object that moved as one rigid body, the map with the camera: its draws without a partner of
 // their shape, or that jumped, follow that motion, and a draw that doesn't follow it finds its partner by it).
@@ -89,6 +89,8 @@ struct Load
   u8 count;         // words
   u64 key;          // the next draw's vertex format, count and texture, to tell objects apart
   u32 occurrence;   // how many earlier loads in the frame had the same address, count and key
+  u32 task = 0;     // [Skies] the game object (task) of the draw that uses it, 0 if not known (as Prim::task)
+  u32 func = 0;     // the task's function
 };
 
 // A draw with its vertex positions in the stream (direct positions only).
@@ -202,6 +204,7 @@ double Ms(Clock::time_point since)
 u64 s_stat_loads = 0, s_stat_prims = 0, s_stat_loads_blended = 0, s_stat_prims_blended = 0,
     s_stat_words_changed = 0, s_stat_draws = 0, s_stat_prims_changed = 0;
 u64 s_stat_repaired = 0;  // draws paired across a texture change (issue #18)
+u64 s_stat_loads_apart = 0;  // matrix pairings refused as two objects' (issue #24)
 u64 s_stat_collapsed = 0, s_stat_matrix_snaps = 0;  // draws and matrices snapped as turning round (issue #35)
 u64 s_stat_tasked = 0, s_stat_kept_apart = 0, s_stat_by_number = 0, s_stat_moved = 0, s_stat_rigid_repaired = 0;  // draws with a known object; pairings refused as two objects'
 // Which game object drew each draw (the game's thread). Skies runs every object as a task (decomp
@@ -863,7 +866,18 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
   plan->jumping_textures.clear();
   plan->triggers.clear();
   plan->moved.clear();
+  // [Skies] Two objects' matrices are never blended (issue #24): an alike object leaving the picture as another came in
+  // could pair the newcomer's matrix with the other's (a single item of a kind always was), sweeping it across the
+  // screen for an in-between
+  const auto loads_apart = [](const Load& a, const Load& b) {
+    return a.task != 0 && b.task != 0 && (a.task != b.task || a.func != b.func);
+  };
   const auto blend_load = [&](const Load& load, const Load& match) {
+    if (loads_apart(load, match))
+    {
+      ++s_stat_loads_apart;
+      return;
+    }
     const u8* cur = cur_frame.stream.data() + load.data_offset;
     const u8* prev = prev_frame.stream.data() + match.data_offset;
     if (!Blendable(load, cur, prev))
@@ -905,6 +919,8 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
       if (address <= XFMEM_SETPROJECTION + 6 && address + words > XFMEM_SETPROJECTION + 6)
         words = XFMEM_SETPROJECTION + 6 - address;
       const auto distance = [&](int i, int j) {
+        if (loads_apart(*cur_loads[i], *prev_loads[j]))
+          return 1e30f;
         const u8* c = cur_frame.stream.data() + cur_loads[i]->data_offset;
         const u8* p = prev_frame.stream.data() + prev_loads[j]->data_offset;
         float sum = 0.0f;
@@ -912,8 +928,73 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
           sum += std::fabs(ReadFloat(c + w * 4) - ReadFloat(p + w * 4));
         return std::isfinite(sum) ? sum : 1e30f;
       };
-      Align(static_cast<int>(cur_loads.size()), static_cast<int>(prev_loads.size()), distance,
-            [&](int i, int j) { blend_load(*cur_loads[i], *prev_loads[j]); });
+      // [Skies] As for draws below (issue #24): leaving a position matrix unpaired costs at least a tenth of its
+      // distance from the camera. A kind whose items are mostly alike identity matrices (the map, already in view
+      // space) had a typical motion of 0, so one real object's matrix among them, moving with the camera, was left
+      // unpaired and drawn a frame ahead in some frames and not in others (Maramba: 75 of 90 frames, now 0).
+      static const bool load_gap_floor_on = [] {
+        const char* env = std::getenv("SKIES_INTERP_GAP_FLOOR");
+        return !env || env[0] != '0';
+      }();
+      const bool has_translation = load_gap_floor_on && address < 0x78 && address % 4 == 0 && words >= 12;
+      const auto load_gap_floor = [&](bool is_cur, int index) {
+        if (!has_translation)
+          return 0.0f;
+        const u8* d = (is_cur ? cur_frame.stream.data() + cur_loads[index]->data_offset
+                              : prev_frame.stream.data() + prev_loads[index]->data_offset);
+        const float x = ReadFloat(d + 12), y = ReadFloat(d + 28), z = ReadFloat(d + 44);
+        const float length = std::sqrt(x * x + y * y + z * z);
+        return std::isfinite(length) ? 0.1f * length : 0.0f;
+      };
+      // [Skies] Each object's loads are aligned on their own (their order in a frame is the object's, but objects of a
+      // kind can come in another order), then the rest (no object known, or an object in one frame only) together
+      static std::vector<const Load*> all_cur, all_prev;
+      static std::vector<std::pair<u64, u32>> cur_ids, prev_ids;
+      all_cur = cur_loads;
+      all_prev = prev_loads;
+      cur_ids.clear();
+      prev_ids.clear();
+      const auto id_of = [](const Load* l) { return (u64{l->task} << 32) | l->func; };
+      for (u32 i = 0; i < all_cur.size(); ++i)
+        if (all_cur[i]->task)
+          cur_ids.emplace_back(id_of(all_cur[i]), i);
+      for (u32 j = 0; j < all_prev.size(); ++j)
+        if (all_prev[j]->task)
+          prev_ids.emplace_back(id_of(all_prev[j]), j);
+      std::stable_sort(cur_ids.begin(), cur_ids.end(), [](const auto& x, const auto& y) { return x.first < y.first; });
+      std::stable_sort(prev_ids.begin(), prev_ids.end(), [](const auto& x, const auto& y) { return x.first < y.first; });
+      static std::vector<u8> cur_done, prev_done;
+      cur_done.assign(all_cur.size(), 0);
+      prev_done.assign(all_prev.size(), 0);
+      const bool grouped = !cur_ids.empty() && !prev_ids.empty();
+      for (size_t a = 0, b = 0; grouped && a < cur_ids.size() && b < prev_ids.size();)
+      {
+        if (cur_ids[a].first != prev_ids[b].first)
+        {
+          (cur_ids[a].first < prev_ids[b].first ? a : b)++;
+          continue;
+        }
+        const u64 id = cur_ids[a].first;
+        cur_loads.clear();
+        prev_loads.clear();
+        for (; a < cur_ids.size() && cur_ids[a].first == id; ++a)
+          cur_loads.push_back(all_cur[cur_ids[a].second]), cur_done[cur_ids[a].second] = 1;
+        for (; b < prev_ids.size() && prev_ids[b].first == id; ++b)
+          prev_loads.push_back(all_prev[prev_ids[b].second]), prev_done[prev_ids[b].second] = 1;
+        Align(static_cast<int>(cur_loads.size()), static_cast<int>(prev_loads.size()), distance,
+              [&](int i, int j) { blend_load(*cur_loads[i], *prev_loads[j]); }, load_gap_floor);
+      }
+      cur_loads.clear();
+      prev_loads.clear();
+      for (u32 i = 0; i < all_cur.size(); ++i)
+        if (!cur_done[i])
+          cur_loads.push_back(all_cur[i]);
+      for (u32 j = 0; j < all_prev.size(); ++j)
+        if (!prev_done[j])
+          prev_loads.push_back(all_prev[j]);
+      if (!cur_loads.empty() && !prev_loads.empty())
+        Align(static_cast<int>(cur_loads.size()), static_cast<int>(prev_loads.size()), distance,
+              [&](int i, int j) { blend_load(*cur_loads[i], *prev_loads[j]); }, load_gap_floor);
     }
   }
 
@@ -1784,8 +1865,14 @@ void NoteDraw(const u8* p, u32 len)
                                task, task ? Read32(task) : 0u, ordinal});
   }
   // Not the vertex data itself: CPU-skinned models change it every frame.
+  const u32 load_task = TasksOn() ? (s_in_dl ? s_dl_task : s_top_task) : 0u;
+  const u32 load_func = load_task ? Read32(load_task) : 0u;
   for (size_t index : s_unkeyed)
+  {
     frame.loads[index].key = key;
+    frame.loads[index].task = load_task;
+    frame.loads[index].func = load_func;
+  }
   s_unkeyed.clear();
 }
 
