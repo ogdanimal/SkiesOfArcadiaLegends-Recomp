@@ -2,6 +2,7 @@
 // display copy, controllers and sound. Headless builds and --headless runs keep the same entry
 // points with no window.
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "dc_blocker.h"
 #include "dolphin_state.h"
 #include "host.h"
 #include "state.h"
@@ -2353,33 +2354,15 @@ void WavClose()
 // (DoDepopFade, 0x8027C814 USA), and the game's reverb on the AUX buses amplifies that constant (about 8x in
 // Vigoro's cell), the real microcode too (Dolphin's DSP LLE from a clean boot). Passed on as it is, it thumps
 // when it changes and takes headroom from the Dreamcast music added on top (issue #26). A first-order DC
-// blocker (about 7 Hz) on the game's audio stands in for the coupling capacitors.
-class DcBlocker
-{
-public:
-  void Run(const s16* in, s16* out, u32 frames)
-  {
-    for (u32 i = 0; i < frames; ++i)
-      for (int c = 0; c < 2; ++c)
-      {
-        const float x = in[i * 2 + c];
-        const float y = x - m_x[c] + POLE * m_y[c];
-        m_x[c] = x;
-        m_y[c] = y;
-        out[i * 2 + c] = static_cast<s16>(std::clamp(std::lround(y), -32768L, 32767L));
-      }
-  }
-
-private:
-  static constexpr float POLE = 0.99863f;  // exp(-2 pi 7 / 32000)
-  float m_x[2] = {}, m_y[2] = {};
-};
+// blocker (about 7 Hz) on the game's audio stands in for the coupling capacitors (dc_blocker.h; the Dreamcast
+// music has its own, DCMusic.cpp).
 
 void AudioPushSamples(const s16* samples, u32 frames)
 {
-  static DcBlocker s_dc_blocker;
+  static DcBlocker s_dc_blocker(DcBlocker::POLE_32K);
   static std::vector<s16> s_blocked;
-  static const bool s_keep_dc = std::getenv("SKIES_KEEP_DC") != nullptr;  // A/B tests: the game's DC as it was
+  // SKIES_KEEP_DC=1 (A/B tests): the DC as it was, the Dreamcast music's too (DCMusic.cpp)
+  static const bool s_keep_dc = std::getenv("SKIES_KEEP_DC") != nullptr;
   if (!s_keep_dc)
   {
     s_blocked.resize(frames * 2);
