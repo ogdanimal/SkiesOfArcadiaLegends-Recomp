@@ -1113,6 +1113,7 @@ struct FrameLists
   u64 used = 0;
   std::vector<u32> by_object;                 // object-tagged draws: (task, ordinal, index) order
   std::vector<std::pair<u32, u32>> tasks;     // float draws of an object: (task, index), sorted
+  std::vector<std::pair<u64, u32>> colours;   // colour and light loads before a draw: (prim << 32 | address << 8 | count, load index), sorted
 };
 
 const FrameLists& ListsFor(const Frame& frame)
@@ -1145,6 +1146,14 @@ const FrameLists& ListsFor(const Frame& frame)
     if (frame.prims[index].task != 0 && frame.prims[index].pos_format == FORMAT_FLOAT)
       lists.tasks.emplace_back(frame.prims[index].task, static_cast<u32>(index));
   std::sort(lists.tasks.begin(), lists.tasks.end());
+  lists.colours.clear();
+  for (u32 j = 0; j < frame.loads.size(); ++j)
+  {
+    const Load& l = frame.loads[j];
+    if (l.prim != ~0u && IsColourLoad(l.address, l.count))
+      lists.colours.emplace_back((u64{l.prim} << 32) | (u64{l.address} << 8) | l.count, j);
+  }
+  std::sort(lists.colours.begin(), lists.colours.end());
   return lists;
 }
 
@@ -2163,15 +2172,7 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
   // of the same register before that draw's partner. Aligned by kind and order like matrices, a frame with one draw more
   // shifted them all (the Red Alarm room's pulsing ambient blended from another draw's: paler walls).
   {
-    static std::vector<std::pair<u64, u32>> prev_colour;  // (partner prim << 32 | address << 8 | count, load index)
-    prev_colour.clear();
-    for (u32 j = 0; j < prev_frame.loads.size(); ++j)
-    {
-      const Load& l = prev_frame.loads[j];
-      if (l.prim != ~0u && IsColourLoad(l.address, l.count))
-        prev_colour.emplace_back((u64{l.prim} << 32) | (u64{l.address} << 8) | l.count, j);
-    }
-    std::sort(prev_colour.begin(), prev_colour.end());
+    const std::vector<std::pair<u64, u32>>& prev_colour = prev_lists.colours;  // (FrameLists: made once a frame)
     for (const Load& l : cur_frame.loads)
     {
       if (l.prim == ~0u || !IsColourLoad(l.address, l.count) || !partner[l.prim])
