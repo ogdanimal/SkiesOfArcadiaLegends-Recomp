@@ -19,7 +19,12 @@ public:
   // One sample of channel c (0 or 1), not rounded.
   float Step(int c, float x)
   {
-    const float y = x - m_x[c] + m_pole * m_y[c];
+    float y = x - m_x[c] + m_pole * m_y[c];
+    // A constant input decays y into the subnormals within seconds (7e-43), which are slow on most CPUs
+    // (the Dreamcast music engine: 18 -> 320-460 ns per output frame). The output doesn't change: a y this
+    // small rounds to 0, and next to a whole-step x - m_x it's lost in the float sum.
+    if (std::abs(y) < 1e-15f)
+      y = 0.0f;
     m_x[c] = x;
     m_y[c] = y;
     return y;
