@@ -949,7 +949,18 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
         return std::isfinite(length) ? 0.1f * length : 0.0f;
       };
       // [Skies] Each object's loads are aligned on their own (their order in a frame is the object's, but objects of a
-      // kind can come in another order), then the rest (no object known, or an object in one frame only) together
+      // kind can come in another order), then the rest (no object known, or an object in one frame only) together.
+      // A kind whose loads come from the same objects in the same order as before (most, most frames) is aligned
+      // whole, as one: grouping every kind cost the Pocket 5 8% speed at the save point.
+      bool same_objects = cur_loads.size() == prev_loads.size();
+      for (size_t k = 0; same_objects && k < cur_loads.size(); ++k)
+        same_objects = cur_loads[k]->task == prev_loads[k]->task && cur_loads[k]->func == prev_loads[k]->func;
+      if (same_objects)
+      {
+        Align(static_cast<int>(cur_loads.size()), static_cast<int>(prev_loads.size()), distance,
+              [&](int i, int j) { blend_load(*cur_loads[i], *prev_loads[j]); }, load_gap_floor);
+        continue;
+      }
       static std::vector<const Load*> all_cur, all_prev;
       static std::vector<std::pair<u64, u32>> cur_ids, prev_ids;
       all_cur = cur_loads;
