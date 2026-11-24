@@ -549,7 +549,9 @@ bool Blendable(const Load& load, const u8* cur, const u8* prev)
 // Tenkou Island's stairs). Each whole 3x4 matrix in the load: an axis (the 3x3 part's columns) shorter
 // than 0.7 of the frames' mean length (about a 90 degree turn or more in one frame) snaps the matrix to
 // the current frame's, as a cut; otherwise the axes get the mean length back. The translation column is
-// left as blended. `out` holds the blended words.
+// left as blended. `out` holds the blended words. [Skies] Whether a matrix snaps is decided at the middle (t = 0.5) for
+// every t: at the display's rate (several in-betweens a frame) a part turning round was blended early, snapped in the
+// middle and blended again late, stepping new -> shrunken -> new.
 void KeepMatrixScale(const Load& load, const u8* cur, const u8* prev, float t, u8* out)
 {
   // Position matrices: 3 rows of 4 words from a multiple of 4. Normal matrices (lighting): 3 rows of 3 words
@@ -566,7 +568,23 @@ void KeepMatrixScale(const Load& load, const u8* cur, const u8* prev, float t, u
   {
     float scale[3];
     bool snap = false;
-    for (u32 col = 0; col < 3; ++col)
+    for (u32 col = 0; col < 3 && !snap; ++col)
+    {
+      float lc = 0, lp = 0, lh = 0;
+      for (u32 row = 0; row < 3; ++row)
+      {
+        const u32 w = (m + row * stride + col) * 4;
+        const float c = ReadFloat(cur + w), p = ReadFloat(prev + w), h = p + (c - p) * 0.5f;
+        lc += c * c;
+        lp += p * p;
+        lh += h * h;
+      }
+      const float target = std::sqrt(lp) + (std::sqrt(lc) - std::sqrt(lp)) * 0.5f;
+      snap = target > 0.0f && std::sqrt(lh) < 0.7f * target;
+    }
+    if (snap)
+      ++s_stat_matrix_snaps;
+    for (u32 col = 0; col < 3 && !snap; ++col)
     {
       float lc = 0, lp = 0, lb = 0;
       for (u32 row = 0; row < 3; ++row)
@@ -579,18 +597,7 @@ void KeepMatrixScale(const Load& load, const u8* cur, const u8* prev, float t, u
       }
       const float target = std::sqrt(lp) + (std::sqrt(lc) - std::sqrt(lp)) * t;
       const float blended = std::sqrt(lb);
-      if (target <= 0.0f)
-      {
-        scale[col] = 1.0f;
-        continue;
-      }
-      if (blended < 0.7f * target)
-      {
-        snap = true;
-        ++s_stat_matrix_snaps;
-        break;
-      }
-      scale[col] = target / blended;
+      scale[col] = target > 0.0f && blended > 0.0f ? target / blended : 1.0f;
     }
     for (u32 row = 0; row < 3; ++row)
     {
@@ -818,7 +825,7 @@ struct BlendPlan
     u32 index;          // in cur_frame.prims
     const Prim* old;    // its partner
     bool jumps;         // VertexJumps (float positions only)
-    bool check_collapse;  // float positions, same layout, no jump: Collapses decides at t
+    bool check_collapse;  // float positions, same layout, no jump: Collapses decides (at t = 0.5 for every t)
   };
   std::vector<PrimPair> prims;          // partners with the same layout
   std::vector<u64> jumping_textures;    // textures with a paired draw that jumps (sorted)
@@ -2326,7 +2333,8 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
     }
     KeepMatrixScale(load, cur, prev, t, out->data() + load.data_offset);
   }
-  // Draws turning round in one frame (Collapses, at this t) snap with their texture's group too
+  // Draws turning round in one frame (Collapses) snap with their texture's group too. [Skies] Decided at the middle
+  // (t = 0.5) for every t, as KeepMatrixScale: at the display's rate the pictures stepped new -> shrunken -> new.
   static std::vector<u64> collapsing;
   static std::vector<u8> collapsed;
   static std::vector<BlendPlan::Trigger> collapse_triggers;
@@ -2340,7 +2348,7 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
       continue;
     const Prim& prim = cur_frame.prims[pair.index];
     if (Collapses(cur_frame.stream.data() + prim.data_offset, prev_frame.stream.data() + pair.old->data_offset, prim,
-                  t))
+                  0.5f))
     {
       collapsed[i] = 1;
       collapsing.push_back(prim.texture);
