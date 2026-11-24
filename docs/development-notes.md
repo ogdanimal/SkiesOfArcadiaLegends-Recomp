@@ -2126,6 +2126,59 @@ time), which the state's isn't.
 **Not checked:** Android, Japan (addresses only), a real 144 Hz screen, the game thread's cost on a weak
 device (the walk runs at most once per FIFO burst while the caller changes).
 
+### 60 fps: the Red Alarm screen shatter (2026-11-24, issue #24 follow-up)
+
+**Scene:** `07-valuan-red-alarm.sav`, LEFT every 0.2 s from 0.5 s (strict-all's `sh`): the alarm pulses, then an
+encounter shatters the screen (frames 58722-58768). Strict test (T=0) per in-between was 180k-1M for the 45
+frames of shards, mean 262,706 (WSL = the Mac's run, to the pixel).
+**Causes and fixes:**
+- **The replay drew the shards with its own, older screen copy** (`recompcore-gxruntime-replay-live-copies.patch`).
+  Frame 58722 copies the screen (`GXCopyTex` to a texture, the EFB cleared) and draws it back in strips; the next 45
+  frames draw the shards with that one copy and never copy again. The replay context keeps its own copy textures (a
+  replay that copies must not overwrite the game's), so every later in-between drew the copy its replay of 58722
+  had made: 58721's picture at T=0, a blend at T=0.5. The game's copy textures (handle and revision) are now noted
+  at each display copy; a replay that reads a copy it didn't make itself reads the game's when the game hasn't
+  copied that address since the frame before the replayed one (what the replayed frame drew with). A copy the
+  replayed frame makes again after reading it (feedback) still reads the replay's own, as before.
+  `AURORA_REPLAY_LIVE_COPIES=0` turns it off. 58724-58767: 714k-74k -> 0 each.
+- **The alarm's light took the next frame's values** (`interp60.cpp`, `SKIES_INTERP_COLOURS` default 28 -> 31).
+  The pulsing ambient (chans' colour registers, bit 2) and the turning beacon (an XF light, bit 1) were not blended:
+  58721 380,812 px, the alarm bursts before the shatter up to 596k. Both bits were off because they made the
+  shatter (the stale copy above) and the first-person reef worse. The reef: a light's position and direction are in
+  view space, and so are the normals of the draws they light (the map and models are transformed on the CPU; normals
+  aren't blended), so the previous frame's sun lit the current normals from where the camera was (fp 637 -> 2,755
+  per in-between; frames 2527-2529 with every sun load forced to the previous frame's: 88k px, to the current
+  one's: 16k). The previous frame's position and direction are now first taken into the current view by the camera's
+  motion (`BlendLightVectors`: `R^T (prev - to) + from`, the rigid fit of the map), so only the light's own motion is
+  blended; without a camera motion they stay the current frame's.
+- **The strict test blanked 58722** (`ShowsOwnCopy`, test only): the strips are new draws, which the strict test
+  collapses, and the copy had cleared the EFB, so the in-between was black (2,184,960 px, every pixel; also on WSL,
+  not only Metal). Draws that read a texture the same frame copied earlier are left drawn: they show what the
+  frame's earlier (paired, tested) draws made. They are still compared, so an error in them still counts.
+**What is left at 58722 (255,735) is the strips' own geometry, not an error of the blend:** the strips have no
+partner and are drawn where 58722 puts them, which magnifies the picture about 0.2% from the top-left (the HUD
+bracket sits 1-2 px off in both the in-between and the real 58722). Matching 64-px blocks of the in-between to
+real 58721 by integer shifts: shifts grow from 0 to 3 px with x and y, and the pixels over 4% drop from 365,011 to
+30,979 (the rest is sub-pixel); the control (58721's in-between) is 124 / 124. **58723** has no in-between (the
+scene change test: the scene's draws are gone, only the shards are left), and **58768** shows the next frame (the
+shards vanish; a replay of the next frame can't draw what it no longer has): both as before.
+**Results** (strict-all, mean per in-between, next094 -> now): shatter 262,706 -> 3,534 (58722 255,735, 58720
+2,217, the rest 0-2); opening 0 -> 0, first battle 0 -> 0, pyramid 114 -> 114, Maramba pan 200 -> 200, reporter's
+state left 106 -> 106, right 238 -> 238, first person 637 -> 637. The wider range (58656-58770, 111 in-betweens,
+the alarm bursts included): 227,569 -> 4,117; the bursts (58663-66, 58682-86, 58702-06, up to 596k) -> 0-1,614.
+Both-frames measure at T=0.5 (`build/sh/tools/bothr.cpp` in the worktree: the range of both real frames taken over a
+window of radius R, so motion of about 2R px isn't counted): shatter R0 283,110 -> 221,633, R8 24,992 -> 21,642;
+the first shards (58724-58731) R0 353k-417k ->
+1k-44k, R8 ~19k -> 0-2k; the falling shards later move more than 16 px a frame, so they stay "out" at every R
+(motion, not the copy). The other seven scenes are unchanged within 15 px.
+**The copy patch elsewhere** (A/B with `AURORA_REPLAY_LIVE_COPIES=0`, T=0.5, the in-betweens compared): the
+pre-battle field, the Baltor ship battle, a deck battle and the save menu: identical. The world map's start menu
+(Start, B, X: the camp menu's screen grab at `0x667540`, issue #37): with it off, every in-between while the menu is
+open drew the menu's backdrop from the replay's own first grab, 130k px off the real frames (both-frames 36k px
+each); with it on, 0. That is a 60 fps fix in itself (the backdrop jumped between two pictures).
+**Not checked:** Windows, Android, the Mac; the battle swirl (#35) and Drachma's pose plane (#9) with 60 fps (no
+states); Display refresh (the replays of one frame at several t take the same path).
+
 ### 60 fps after v0.93: first person over the reef, the strict test, colours (2026-11-24, issues #24 and #18)
 
 **Report** (Cawl87, v0.93, RX 7800 XT, VRR, Vulkan): objects warp as they come on screen while panning (tree
@@ -2172,7 +2225,7 @@ which the strict test can't see).
 17,676 -> 637; the first-person switch (both-frames measure) 555k -> 49k on Windows, 388k -> 35k on the Pocket 5.
 Windows D3D12 = WSL. Left: one-pixel seams where the game re-clips map pieces (no vertex-for-vertex partner),
 objects new in the next frame, stepping animations (fire in the tower's lantern).
-**Open:** the Red Alarm shatter stays at 180k-860k (strict). Not render-to-texture: the replay re-captures from its
+**Open (since solved: the Red Alarm screen shatter, above):** the Red Alarm shatter stays at 180k-860k (strict). Not render-to-texture: the replay re-captures from its
 own blended draws (both copies, ping-pong `0035d4e0/003a84e0` / `004024e0/0044d4e0`), T=1 equals the real frame,
 every prim and matrix equals the previous frame's at T=0, swapping arrays, start registers, texture frame or
 per-vertex bytes changes nothing; the ambient (`0x100a`, pulsing ~5% a frame) blended made it worse. A replay of
