@@ -481,7 +481,8 @@ __attribute__((section(".trkcave_ws39"))) void qol_ship_phase_ws39(int phase, in
  * panel is put back as if nothing happened: before and target = max, the bar's float = max, fraction 1.0, no delta
  * (+0x14) and no animation state (+0x18), so the bar neither moves nor drops. The record's damage and the counter
  * (the gauge's max, +0xC) are restored, so the ship ends every turn at full HP and nothing shows the hit but the
- * panel itself. Without a panel (slot 0 not built) the hit is played as before. */
+ * panel itself. Without a usable panel (slot 0 null, or its max +0x2C 0; theoretical: the HUD setup builds one per
+ * gauge, so the party's is always slot 0 with +0x2C = the gauge's max) the hit is played with ws41's clamp. */
 extern unsigned char *fn_80129D40(u32 id); /* ship HUD: the gauge entry of a ship id (0xFFFF: the party's) */
 /* The IEEE bits of a positive int, by hand: the patch code has no constants of its own to load a conversion's magic from. */
 __attribute__((section(".trkcave_ws41"))) static u32 qol_float_bits(int value) {
@@ -514,6 +515,20 @@ __attribute__((section(".trkcave_ws41"))) void qol_ship_hit_ws42(int side) {
       *(u32 *)(panel + 0x1E4) = 0x3F800000; /* 1.0f */
       *(int *)(panel + 0x14) = 0;
       *(int *)(panel + 0x18) = 0;
+      return;
+    }
+    /* No usable panel (not built, or its max is 0): ws41's clamp, so the counter still cannot empty. */
+    if (qol_ram(gauge)) {
+      int *counter = (int *)(gauge + 8);
+      const int saved_counter = *counter;
+      const int gmax = *(int *)(gauge + 0xC);
+      if (gmax > 0)
+        *counter = gmax; /* a counter already at 0 (a ship that began the battle at 0 HP, ws39) would sink it anyway */
+      if (saved >= *counter)
+        *damage = *counter > 1 ? *counter - 1 : 0;
+      fn_80159F28(side);
+      *damage = saved;
+      *counter = gmax > 0 ? gmax : saved_counter;
       return;
     }
   }
