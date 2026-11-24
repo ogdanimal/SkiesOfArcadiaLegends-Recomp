@@ -1,0 +1,35 @@
+diff --git a/Core/yam.c b/Core/yam.c
+--- a/Core/yam.c
++++ b/Core/yam.c
+@@ -228,8 +228,8 @@
+   uint32 lfophase;
+   sint32 samplebufcur; // these are 16-bit signed
+   sint32 samplebufnext; // these are 16-bit signed
+-  sint32 lpp1;
+-  sint32 lpp2;
++  sint64 lpp1; // the filter's state, 12 fractional bits
++  sint64 lpp2;
+   sint32 adpcmstep;
+   sint32 adpcmstep_loopstart;
+   sint32 adpcmprev;
+@@ -2185,10 +2185,16 @@
+         uint32 qv = chan->q & 0x1F;
+         sint32 f = (((fv & 0xFF) | 0x100) << 4) >> ((fv >> 8) ^ 0x1F);
+         sint32 q = qtable[qv];
+-        s = f * s + (0x2000 - f + q) * (chan->lpp1) - q * (chan->lpp2);
+-        s >>= 13;
+-        chan->lpp2 = chan->lpp1;
+-        chan->lpp1 = s;
++        // The filter's state keeps 12 fractional bits. With the state rounded to whole 16-bit steps each
++        // sample, the truncation (always downwards) was a constant bias of half a step, which a low cutoff
++        // multiplies by 8192 / f: at f = 7 (a filter envelope swept down, as in the Dreamcast music) the voice
++        // sat 440 steps below zero, the reverb integrated that into a rail-to-rail offset and the music was
++        // pinned at full scale for seconds (Skies of Arcadia Legends: Recompiled issue #26).
++        { sint64 y = (((sint64)f) * (((sint64)s) << 12) + ((sint64)(0x2000 - f + q)) * (chan->lpp1) - ((sint64)q) * (chan->lpp2)) >> 13;
++          chan->lpp2 = chan->lpp1;
++          chan->lpp1 = y;
++          s = (sint32)((y + 0x800) >> 12);
++        }
+       }
+       // Write output
+       s <<= 4;
