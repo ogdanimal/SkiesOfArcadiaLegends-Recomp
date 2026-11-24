@@ -103,6 +103,7 @@ struct Load
   u32 task = 0;     // [Skies] the game object (task) of the draw that uses it, 0 if not known (as Prim::task)
   u32 func = 0;     // the task's function
   u32 texture = 0;  // the next draw's texture (in key): its shape without it is key ^ (texture << 20)
+  u32 prim = ~0u;   // the next draw, when it has direct positions: its index in Frame::prims
 };
 
 // A draw with its vertex positions in the stream (direct positions only).
@@ -1026,13 +1027,9 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
     const u8* prev = prev_frame.stream.data() + match.data_offset;
     if (!Blendable(load, cur, prev))
       return;
+    // Colour and light loads are paired through their draws, below
     if (IsColourLoad(load.address, load.count))
-    {
-      if (by_object_pass)
-        return;
-      plan->loads.emplace_back(&load, &match);
       return;
-    }
     ++s_stat_loads_blended;
     s_stat_words_changed += std::memcmp(cur, prev, load.count * 4u) != 0 ? 1 : 0;
     plan->loads.emplace_back(&load, &match);
@@ -1978,6 +1975,34 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
   std::sort(plan->jumping_textures.begin(), plan->jumping_textures.end());
   plan->jumping_textures.erase(std::unique(plan->jumping_textures.begin(), plan->jumping_textures.end()),
                                plan->jumping_textures.end());
+  // [Skies] Colour and light loads (ambient, material, lights) go with the draw after them: each is paired with the load
+  // of the same register before that draw's partner. Aligned by kind and order like matrices, a frame with one draw more
+  // shifted them all (the Red Alarm room's pulsing ambient blended from another draw's: paler walls).
+  {
+    static std::vector<std::pair<u64, u32>> prev_colour;  // (partner prim << 32 | address << 8 | count, load index)
+    prev_colour.clear();
+    for (u32 j = 0; j < prev_frame.loads.size(); ++j)
+    {
+      const Load& l = prev_frame.loads[j];
+      if (l.prim != ~0u && IsColourLoad(l.address, l.count))
+        prev_colour.emplace_back((u64{l.prim} << 32) | (u64{l.address} << 8) | l.count, j);
+    }
+    std::sort(prev_colour.begin(), prev_colour.end());
+    for (const Load& l : cur_frame.loads)
+    {
+      if (l.prim == ~0u || !IsColourLoad(l.address, l.count) || !partner[l.prim])
+        continue;
+      const u32 j = static_cast<u32>(partner[l.prim] - prev_frame.prims.data());
+      const u64 want = (u64{j} << 32) | (u64{l.address} << 8) | l.count;
+      const auto it = std::lower_bound(prev_colour.begin(), prev_colour.end(), std::make_pair(want, 0u));
+      // the last such load before the partner (the one in effect), as the current load is the last before its draw
+      auto last = prev_colour.end();
+      for (auto k = it; k != prev_colour.end() && k->first == want; ++k)
+        last = k;
+      if (last != prev_colour.end())
+        plan->loads.emplace_back(&l, &prev_frame.loads[last->second]);
+    }
+  }
   // [Skies] A matrix with no partner: an object drawn by matrix that came into the picture, or that the game drew
   // another way a frame before (Maramba's reef haze, issue #24: view-space draws in third person, 46 matrix-drawn ones
   // once the first-person view settles) took the next frame's place, a frame ahead of everything around it. A
@@ -2147,8 +2172,39 @@ void WriteTexComponent(u8 format, u8 frac, u8* q, float value)
   }
 }
 
+// [Skies] Whether a draw's texture coordinates stepped rather than moved: one of them moved more than half a texture (a
+// scroll that wrapped), or all its vertices moved by the same offset, a quarter or more of the part of the texture the
+// draw shows (a flipbook cell: the pyramid's torch flames and glows step through 0.25-wide cells; blended halfway they
+// showed the gap between two cells, the flames split and the glow gone). c and p: per vertex, elems coordinates each.
+bool TexStepped(const std::vector<float>& c, const std::vector<float>& p, u32 elems)
+{
+  if (elems == 0 || c.empty())
+    return false;
+  const size_t vertices = c.size() / elems;
+  for (size_t i = 0; i < c.size(); ++i)
+    if (!(std::fabs(c[i] - p[i]) <= 0.5f))
+      return true;
+  for (u32 k = 0; k < elems; ++k)
+  {
+    float lo = 1e30f, hi = -1e30f, dlo = 1e30f, dhi = -1e30f;
+    for (size_t v = 0; v < vertices; ++v)
+    {
+      const float a = c[v * elems + k], b = p[v * elems + k];
+      lo = std::min({lo, a, b});
+      hi = std::max({hi, a, b});
+      dlo = std::min(dlo, a - b);
+      dhi = std::max(dhi, a - b);
+    }
+    const float span = hi - lo, shift = 0.5f * (dlo + dhi);
+    if (vertices >= 2 && dhi - dlo <= 0.05f * span + 1.0f / 256.0f && std::fabs(shift) >= 0.25f * (span - std::fabs(shift)) &&
+        std::fabs(shift) > 1.0f / 256.0f)
+      return true;
+  }
+  return false;
+}
+
 // A paired draw's direct texture coordinates (vertex data) blended, vertex by vertex; a coordinate that moved by more
-// than half a texture (a flipbook cell, a wrapped scroll) takes the previous frame's value for the first half of the
+// than half a texture, or a flipbook step (TexStepped), takes the previous frame's value for the first half of the
 // way and the current frame's after
 void BlendDirectTexture(const Frame& cur_frame, const Frame& prev_frame, const Prim& prim, const Prim& old, u8* out, float t)
 {
@@ -2161,11 +2217,16 @@ void BlendDirectTexture(const Frame& cur_frame, const Frame& prev_frame, const P
     const u32 comp = a.format <= FORMAT_BYTE ? 1u : a.format <= FORMAT_SHORT ? 2u : 4u;
     const u8* cur = cur_frame.stream.data() + prim.data_offset + a.off;
     const u8* prev = prev_frame.stream.data() + old.data_offset + a.off;
-    bool wrapped = false;
-    for (u32 v = 0; v < prim.num_vertices && !wrapped; ++v)
+    static std::vector<float> cv, pv;
+    cv.clear();
+    pv.clear();
+    for (u32 v = 0; v < prim.num_vertices; ++v)
       for (u32 k = 0; k < a.elems; ++k)
-        wrapped = wrapped || !(std::fabs(ReadTexComponent(a.format, a.frac, cur + v * prim.vertex_size + k * comp) -
-                                         ReadTexComponent(a.format, a.frac, prev + v * prim.vertex_size + k * comp)) <= 0.5f);
+      {
+        cv.push_back(ReadTexComponent(a.format, a.frac, cur + v * prim.vertex_size + k * comp));
+        pv.push_back(ReadTexComponent(a.format, a.frac, prev + v * prim.vertex_size + k * comp));
+      }
+    const bool wrapped = TexStepped(cv, pv, a.elems);
     if (wrapped && t >= 0.5f)
       continue;
     for (u32 v = 0; v < prim.num_vertices; ++v)
@@ -2227,16 +2288,21 @@ void BlendArrays(const Frame& cur_frame, const Frame& prev_frame, const Prim& pr
     bool step_prev = false;
     if (ac.kind == 2)
     {
-      bool wrapped = false;
-      for (u32 v = 0; v < prim.num_vertices && !wrapped; ++v)
+      static std::vector<float> cv, pv;
+      cv.clear();
+      pv.clear();
+      for (u32 v = 0; v < prim.num_vertices; ++v)
       {
         const u32 a = where(cur_stream, ac, v), b = where(prev_stream, *bc, v);
         if (a == ~0u || b == ~0u)
           continue;
         for (u32 k = 0; k < ac.elems; ++k)
-          wrapped = wrapped || !(std::fabs(read(cur_frame.array_data.data() + ac.data_offset + a + k * comp) -
-                                           read(prev_frame.array_data.data() + bc->data_offset + b + k * comp)) <= 0.5f);
+        {
+          cv.push_back(read(cur_frame.array_data.data() + ac.data_offset + a + k * comp));
+          pv.push_back(read(prev_frame.array_data.data() + bc->data_offset + b + k * comp));
+        }
       }
+      const bool wrapped = TexStepped(cv, pv, ac.elems);
       // A flipbook cell or a wrapped scroll can't be blended: the previous frame's coordinates for the first half of the
       // way, the current frame's after (the picture changes at the middle, as a frame of the game would)
       step_prev = wrapped && t < 0.5f;
@@ -2669,6 +2735,7 @@ void NoteDraw(const u8* p, u32 len)
   {
     frame.loads[index].key = key;
     frame.loads[index].texture = texture;
+    frame.loads[index].prim = (pos_type == 1 && num_vertices != 0) ? static_cast<u32>(frame.prims.size() - 1) : ~0u;
     frame.loads[index].task = load_task;
     frame.loads[index].func = load_func;
   }
