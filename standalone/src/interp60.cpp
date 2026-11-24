@@ -2473,7 +2473,7 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
     {
       const BlendPlan::PrimPair& pair = plan.prims[i];
       const Prim& prim = cur_frame.prims[pair.index];
-      bool ok = blends[i] && prim.texture == pair.old->texture;
+      bool ok = (blends[i] || (turning[i] && t < 0.5f)) && prim.texture == pair.old->texture;
       for (int c = 0; c < 2 && ok; ++c)
         ok = prim.col_off[c] == 0xFF || (pair.old->col_off[c] == prim.col_off[c] && pair.old->col_fmt[c] == prim.col_fmt[c]);
       colour_partner[pair.index] = ok;
@@ -2506,23 +2506,20 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
     const BlendPlan::PrimPair& pair = plan.prims[i];
     const Prim& prim = cur_frame.prims[pair.index];
     const Prim& old = *pair.old;
-    if (turning[i] && t < 0.5f)
-      for (u32 v = 0; v < prim.num_vertices; ++v)
-      {
-        const u32 at = v * prim.vertex_size + prim.pos_offset;
-        std::memcpy(out->data() + prim.data_offset + at, prev_frame.stream.data() + old.data_offset + at,
-                    prim.pos_count * (prim.pos_format == FORMAT_FLOAT ? 4u : prim.pos_format >= FORMAT_USHORT ? 2u : 1u));
-      }
-    if (!blends[i])
+    // (a turning draw before the middle is held whole: its positions, colours and texture coordinates, direct and from
+    // the arrays, the previous frame's, as a blend at t = 0)
+    const bool hold = turning[i] && t < 0.5f;
+    if (!blends[i] && !hold)
       continue;
-    ++paired;
-    ++s_stat_prims_blended;
+    if (!hold)
+      ++paired, ++s_stat_prims_blended;
+    const float tb = hold ? 0.0f : t;
     const bool colours = !std::binary_search(colours_off.begin(), colours_off.end(), prim.task);
     s_stat_colours_held += colours ? 0 : 1;
     if ((ColourMask() & 8) && prim.texture == old.texture)
-      BlendArrays(cur_frame, prev_frame, prim, old, t, colours);
+      BlendArrays(cur_frame, prev_frame, prim, old, tb, colours);
     if ((ColourMask() & 16) && prim.texture == old.texture)
-      BlendDirectTexture(cur_frame, prev_frame, prim, old, out->data(), t);
+      BlendDirectTexture(cur_frame, prev_frame, prim, old, out->data(), tb);
     if ((ColourMask() & 4) && prim.texture == old.texture && colours)
       for (int c = 0; c < 2; ++c)
         if (prim.col_off[c] != 0xFF && old.col_off[c] == prim.col_off[c] && old.col_fmt[c] == prim.col_fmt[c])
@@ -2530,7 +2527,7 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
           {
             const u32 at = v * prim.vertex_size + prim.col_off[c];
             BlendVertexColour(prim.col_fmt[c], cur_frame.stream.data() + prim.data_offset + at,
-                              prev_frame.stream.data() + old.data_offset + at, out->data() + prim.data_offset + at, t);
+                              prev_frame.stream.data() + old.data_offset + at, out->data() + prim.data_offset + at, tb);
           }
     for (u32 v = 0; v < prim.num_vertices; ++v)
     {
@@ -2543,7 +2540,7 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
         for (u32 k = 0; k < prim.pos_count; ++k)
         {
           const float c = ReadFloat(cur + k * 4), p = ReadFloat(prev + k * 4);
-          WriteFloat(dst + k * 4, p + (c - p) * t);
+          WriteFloat(dst + k * 4, p + (c - p) * tb);
         }
       }
       else if (prim.pos_format == FORMAT_SHORT || prim.pos_format == FORMAT_USHORT)
@@ -2554,7 +2551,7 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
           const u32 cu = BE16(cur + k * 2), pu = BE16(prev + k * 2);
           const float c = is_signed ? static_cast<s16>(cu) : static_cast<float>(cu);
           const float pf = is_signed ? static_cast<s16>(pu) : static_cast<float>(pu);
-          const s32 value = static_cast<s32>(std::lround(pf + (c - pf) * t));
+          const s32 value = static_cast<s32>(std::lround(pf + (c - pf) * tb));
           dst[k * 2] = static_cast<u8>(value >> 8);
           dst[k * 2 + 1] = static_cast<u8>(value);
         }
@@ -2566,7 +2563,7 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
         {
           const float c = is_signed ? static_cast<s8>(cur[k]) : static_cast<float>(cur[k]);
           const float pf = is_signed ? static_cast<s8>(prev[k]) : static_cast<float>(prev[k]);
-          dst[k] = static_cast<u8>(static_cast<s32>(std::lround(pf + (c - pf) * t)));
+          dst[k] = static_cast<u8>(static_cast<s32>(std::lround(pf + (c - pf) * tb)));
         }
       }
     }
