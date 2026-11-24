@@ -869,9 +869,9 @@ struct BlendPlan
     std::array<float, 12> words;
   };
   std::vector<Synth> synth;
-  // [Skies] The camera's motion (prev = R (cur - from) + to) for the paired lights' position and direction, when found
-  bool light_camera_ok = false;
-  Moved light_camera;
+  // [Skies] For a paired light load (Moved::index: its place in `loads`, ascending), the motion (prev = R (cur - from) +
+  // to) its position and direction are taken into the current view by: the lit object's own, else the camera's
+  std::vector<Moved> light_moves;
   size_t total = 0;
 };
 
@@ -1033,7 +1033,7 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
   if (StrictTest())
     load_had_partner.assign(cur_frame.loads.size(), 0);
   plan->loads.clear();
-  plan->light_camera_ok = false;
+  plan->light_moves.clear();
   plan->prims.clear();
   plan->jumping_textures.clear();
   plan->triggers.clear();
@@ -2038,8 +2038,17 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
       if (last != prev_colour.end())
       {
         plan->loads.emplace_back(&l, &prev_frame.loads[last->second]);
-        if (l.address >= XFMEM_LIGHTS && l.address < XFMEM_LIGHTS_END && !plan->light_camera_ok)
-          plan->light_camera_ok = camera_fit(&plan->light_camera);
+        // The light is in view space, as are the normals of the object it lights (the draw after it), which aren't
+        // blended: the previous light goes into the current view by that object's rigid motion (the map's is the
+        // camera's; a ship moving against the world has its own), or the camera's when the object isn't rigid
+        BlendPlan::Moved motion;
+        if (l.address >= XFMEM_LIGHTS && l.address < XFMEM_LIGHTS_END &&
+            ((cur_frame.prims[l.prim].task != 0 && fit_for(cur_frame.prims[l.prim].task, &motion)) ||
+             camera_fit(&motion)))
+        {
+          motion.index = static_cast<u32>(plan->loads.size() - 1);
+          plan->light_moves.push_back(motion);
+        }
       }
     }
   }
@@ -2404,7 +2413,8 @@ void BlendArrays(const Frame& cur_frame, const Frame& prev_frame, const Prim& pr
 }
 
 // The lights' position and direction words of `load` (LightVectorWord): the previous frame's taken into the current
-// frame's view (cur = R^T (prev - to) + from, a direction by R^T alone), then blended. `out` holds the load's words.
+// frame's view by `cam` (cur = R^T (prev - to) + from, a direction by R^T alone), then blended; one the game sent
+// unchanged stays (most battle lights are fixed to the camera). `out` holds the load's words.
 void BlendLightVectors(const Load& load, const u8* cur, const u8* prev, const BlendPlan::Moved& cam, float t, u8* out)
 {
   const float* r = cam.r.data();
@@ -2415,6 +2425,9 @@ void BlendLightVectors(const Load& load, const u8* cur, const u8* prev, const Bl
       if (base + at < load.address || base + at + 3 > load.address + load.count)
         continue;
       const u32 w = base + at - load.address;
+      // Sent unchanged (a light the game holds fixed to the camera, or a still camera): left as it is
+      if (std::memcmp(cur + w * 4, prev + w * 4, 12) == 0)
+        continue;
       float p[3], c[3], q[3];
       for (int k = 0; k < 3; ++k)
       {
@@ -2440,8 +2453,11 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
   s_arrays_blended = false;
   s_copy_blended.assign(cur_frame.array_copies.size(), 0);
   size_t paired = 0;
-  for (const auto& [load_ptr, match_ptr] : plan.loads)
+  auto light_move = plan.light_moves.begin();
+  for (const auto& load_pair : plan.loads)
   {
+    const auto& [load_ptr, match_ptr] = load_pair;
+    const u32 pair_index = static_cast<u32>(&load_pair - plan.loads.data());
     const Load& load = *load_ptr;
     const u8* cur = cur_frame.stream.data() + load.data_offset;
     const u8* prev = prev_frame.stream.data() + match_ptr->data_offset;
@@ -2464,8 +2480,10 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
       WriteFloat(out->data() + load.data_offset + i * 4, p + (c - p) * t);
     }
     KeepMatrixScale(load, cur, prev, t, out->data() + load.data_offset);
-    if (load.address >= XFMEM_LIGHTS && load.address < XFMEM_LIGHTS_END && plan.light_camera_ok)
-      BlendLightVectors(load, cur, prev, plan.light_camera, t, out->data() + load.data_offset);
+    while (light_move != plan.light_moves.end() && light_move->index < pair_index)
+      ++light_move;
+    if (light_move != plan.light_moves.end() && light_move->index == pair_index)
+      BlendLightVectors(load, cur, prev, *light_move, t, out->data() + load.data_offset);
   }
   for (const BlendPlan::Synth& sy : plan.synth)
   {
