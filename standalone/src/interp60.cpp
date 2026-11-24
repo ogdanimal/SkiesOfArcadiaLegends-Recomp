@@ -241,6 +241,7 @@ u64 s_stat_colours_held = 0;    // [Skies] blended draws whose colours stayed: a
 u64 s_stat_jumps_explained = 0;  // [Skies] paired draws past the jump test that their object's motion explains (issue #24)
 u64 s_stat_collapsed = 0, s_stat_matrix_snaps = 0;  // draws and matrices snapped as turning round (issue #35)
 u64 s_stat_camera_paired = 0;  // [Skies] draws re-paired by the camera's motion (issue #24)
+u64 s_stat_camera_cuts = 0;    // [Skies] in-betweens dropped as camera cuts
 u64 s_stat_tasked = 0, s_stat_kept_apart = 0, s_stat_by_number = 0, s_stat_moved = 0, s_stat_rigid_repaired = 0;  // draws with a known object; pairings refused as two objects'
 // Which game object drew each draw (the game's thread). Skies runs every object as a task (decomp
 // docs/draw.md: TaskRunAll calls each task's function, which updates and draws it), and the running task is
@@ -850,6 +851,7 @@ struct BlendPlan
   // SKIES_INTERP_STRICT (a test): the loads and draws that had no partner (new in the current frame), hidden
   std::vector<u32> new_loads, new_prims;
   size_t total = 0;
+  bool cut = false;  // [Skies] the camera cut to another shot: no in-between (ApplyPlan's false)
 };
 
 BlendPlan::Trigger MakeTrigger(const Frame& frame, const Prim& prim)
@@ -2015,6 +2017,30 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
       if (!partner[i] && !moved_prim[i])
         plan->new_prims.push_back(i);
   }
+  // [Skies] A camera cut: the fitted camera turned more than 18 degrees in one frame right after a frame pair in which
+  // it hardly moved (2 degrees). Blended, the in-between was a view from halfway between two shots that doesn't
+  // exist (the JP world-map battle start, 72-80 degree cuts; the first battle's 75 degree cut at 9603); its
+  // draws snapped instead, the deck tore. No in-between: a real picture shows. A whirl that started (a swoop of 35 then
+  // 68 degrees a frame) loses its first in-between and blends after; the fastest moves from rest otherwise turn less
+  // (into first person 1.5 degrees, then up to 8.5). SKIES_INTERP_CUT_ANGLE=<degrees> (0: off).
+  {
+    static const float cut_cos = [] {
+      const char* env = std::getenv("SKIES_INTERP_CUT_ANGLE");
+      const float degrees = env ? static_cast<float>(std::atof(env)) : 18.0f;
+      return degrees > 0.0f ? std::cos(degrees * 0.017453293f) : -2.0f;
+    }();
+    static const float rest_cos = std::cos(2.0f * 0.017453293f);
+    static u64 s_last_serial = 0;   // the last pair's current frame, and whether its camera was at rest (or not found)
+    static bool s_last_rest = false;
+    BlendPlan::Moved c;
+    const bool have = rigid_moves && camera_fit(&c);
+    const float cos_angle = have ? 0.5f * (c.r[0] + c.r[4] + c.r[8] - 1.0f) : 1.0f;
+    const bool rest_before = prev_frame.serial != 0 && prev_frame.serial == s_last_serial && s_last_rest;
+    plan->cut = rest_before && cos_angle < cut_cos;
+    s_stat_camera_cuts += plan->cut ? 1 : 0;
+    s_last_serial = cur_frame.serial;
+    s_last_rest = cos_angle >= rest_cos;
+  }
   plan->total = cur_frame.prims.size();
   for (const Load& load : cur_frame.loads)
     plan->total += IsColourLoad(load.address, load.count) ? 0 : 1;
@@ -2537,7 +2563,7 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
         std::memmove(out->data() + prim.data_offset + v * prim.vertex_size + prim.pos_offset, first, size * prim.pos_count);
     }
   }
-  return plan.total != 0 && paired * 2 >= plan.total;
+  return plan.total != 0 && paired * 2 >= plan.total && !plan.cut;
 }
 
 u64 s_serial = 0;  // the game's thread: each finished recording's (BlendPlan's key)
@@ -3177,17 +3203,17 @@ void LogStats()
   if (s_stats)
   {
     Log("[interp] per blend %.1f draws, %.1f matrix loads (%.1f blended, %.1f changed), %.1f with "
-        "positions (%.1f blended, %.1f changed, %.2f paired across a texture change, %.2f snapped turning, %.2f matrices snapped turning, %.1f with their object, %.1f paired by number, %.2f moved with their object, %.2f re-paired by it, %.2f re-paired by its or the camera's motion, %.2f kept apart, %.2f load groups by object, %.2f colours held, %.2f jumps explained); ms per frame: keep real %.2f, blend %.2f, enter "
+        "positions (%.1f blended, %.1f changed, %.2f paired across a texture change, %.2f snapped turning, %.2f matrices snapped turning, %.1f with their object, %.1f paired by number, %.2f moved with their object, %.2f re-paired by it, %.2f re-paired by its or the camera's motion, %.2f kept apart, %.2f load groups by object, %.2f colours held, %.2f jumps explained, %.3f camera cuts); ms per frame: keep real %.2f, blend %.2f, enter "
         "%.2f, feed %.2f, keep in-between %.2f, leave %.2f\n",
         s_stat_draws / 600.0, s_stat_loads / 600.0, s_stat_loads_blended / 600.0,
         s_stat_words_changed / 600.0, s_stat_prims / 600.0, s_stat_prims_blended / 600.0,
         s_stat_prims_changed / 600.0, s_stat_repaired / 600.0, s_stat_collapsed / 600.0, s_stat_matrix_snaps / 600.0,
-        s_stat_tasked / 600.0, s_stat_by_number / 600.0, s_stat_moved / 600.0, s_stat_rigid_repaired / 600.0, s_stat_camera_paired / 600.0, s_stat_kept_apart / 600.0, s_stat_loads_by_object / 600.0, s_stat_colours_held / 600.0, s_stat_jumps_explained / 600.0, s_ms[0] / 600, s_ms[1] / 600, s_ms[2] / 600, s_ms[3] / 600,
+        s_stat_tasked / 600.0, s_stat_by_number / 600.0, s_stat_moved / 600.0, s_stat_rigid_repaired / 600.0, s_stat_camera_paired / 600.0, s_stat_kept_apart / 600.0, s_stat_loads_by_object / 600.0, s_stat_colours_held / 600.0, s_stat_jumps_explained / 600.0, s_stat_camera_cuts / 600.0, s_ms[0] / 600, s_ms[1] / 600, s_ms[2] / 600, s_ms[3] / 600,
         s_ms[4] / 600, s_ms[5] / 600);
   }
   s_stat_loads = s_stat_prims = s_stat_loads_blended = s_stat_prims_blended = s_stat_words_changed =
       s_stat_draws = s_stat_prims_changed = s_stat_repaired = s_stat_collapsed = s_stat_matrix_snaps =
-      s_stat_tasked = s_stat_by_number = s_stat_moved = s_stat_rigid_repaired = s_stat_camera_paired = s_stat_kept_apart = s_stat_loads_by_object = s_stat_colours_held = s_stat_jumps_explained = 0;
+      s_stat_tasked = s_stat_by_number = s_stat_moved = s_stat_rigid_repaired = s_stat_camera_paired = s_stat_kept_apart = s_stat_loads_by_object = s_stat_colours_held = s_stat_jumps_explained = s_stat_camera_cuts = 0;
   std::fill(std::begin(s_ms), std::end(s_ms), 0.0);
 }
 }  // namespace
