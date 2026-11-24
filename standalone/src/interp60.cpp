@@ -788,8 +788,9 @@ int Align(int n_cur, int n_prev, const Distance& distance, const PairFn& pair, c
   const float gap = std::max(4.0f * typical[typical.size() / 2], 1.0f);
   // [Skies] As many items as before: any order but the diagonal has two gaps at least (as many new items as gone ones),
   // so the table's cost is at least the lesser of the in-order cost and 2 gaps; when that can't be under half the
-  // in-order cost, the test below keeps the order without the table
-  if (n_cur == n_prev && 2.0f * gap >= 0.5f * in_order)
+  // in-order cost, the test below keeps the order without the table. Not when the in-order cost reaches 1e30 (pairs
+  // kept apart): the table's cells stop at 1e30, under half of it, and the walk then pairs nothing.
+  if (n_cur == n_prev && in_order < 1e30f && 2.0f * gap >= 0.5f * in_order)
   {
     for (int k = 0; k < n_cur; ++k)
       pair(k, k);
@@ -2692,7 +2693,7 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
         if (prim.col_off[c] != 0xFF && old.col_off[c] == prim.col_off[c] && old.col_fmt[c] == prim.col_fmt[c])
         {
           // (a colour that didn't change blends to itself: the copy holds it)
-          const u32 size = prim.col_fmt[c] == 0 || prim.col_fmt[c] == 3 ? 2u : prim.col_fmt[c] == 1 ? 3u : 4u;
+          const u32 size = prim.col_fmt[c] == 0 || prim.col_fmt[c] == 3 ? 2u : prim.col_fmt[c] == 1 || prim.col_fmt[c] == 4 ? 3u : 4u;
           for (u32 v = 0; v < prim.num_vertices; ++v)
           {
             const u32 at = v * prim.vertex_size + prim.col_off[c];
