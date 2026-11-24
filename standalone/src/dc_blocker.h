@@ -16,18 +16,21 @@ public:
 
   explicit DcBlocker(float pole) : m_pole(pole) {}
 
+  // One sample of channel c (0 or 1), not rounded.
+  float Step(int c, float x)
+  {
+    const float y = x - m_x[c] + m_pole * m_y[c];
+    m_x[c] = x;
+    m_y[c] = y;
+    return y;
+  }
+
   // in and out may be the same buffer.
   void Run(const int16_t* in, int16_t* out, std::size_t frames)
   {
     for (std::size_t i = 0; i < frames; ++i)
       for (int c = 0; c < 2; ++c)
-      {
-        const float x = in[i * 2 + c];
-        const float y = x - m_x[c] + m_pole * m_y[c];
-        m_x[c] = x;
-        m_y[c] = y;
-        out[i * 2 + c] = static_cast<int16_t>(std::clamp(std::lround(y), -32768L, 32767L));
-      }
+        out[i * 2 + c] = static_cast<int16_t>(std::clamp(std::lround(Step(c, in[i * 2 + c])), -32768L, 32767L));
   }
 
 private:

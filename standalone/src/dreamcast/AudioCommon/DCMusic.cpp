@@ -196,8 +196,8 @@ public:
           m_hist[k][0] = m_hist[k + 1][0];
           m_hist[k][1] = m_hist[k + 1][1];
         }
-        m_hist[3][0] = m_buffer[m_buffer_pos * 2];
-        m_hist[3][1] = m_buffer[m_buffer_pos * 2 + 1];
+        m_hist[3][0] = m_samples[m_buffer_pos * 2];
+        m_hist[3][1] = m_samples[m_buffer_pos * 2 + 1];
         ++m_buffer_pos;
         StepFade();
       }
@@ -284,8 +284,9 @@ private:
     if (m_frozen)
       return;
     Render(m_buffer, CHUNK);
-    if (!KeepDc())
-      m_dc_blocker.Run(m_buffer, m_buffer, CHUNK);
+    const bool keep_dc = KeepDc();
+    for (std::size_t i = 0; i < CHUNK * 2; ++i)
+      m_samples[i] = keep_dc ? m_buffer[i] : m_dc_blocker.Step(static_cast<int>(i & 1), m_buffer[i]);
     m_buffer_len = CHUNK;
     m_buffer_pos = 0;
     WatchForPinnedOutput();
@@ -304,8 +305,9 @@ private:
     for (std::size_t i = 0; i < CHUNK; ++i)
       for (int c = 0; c < 2; ++c)
       {
-        const int x = m_buffer[i * 2 + c];
-        if (std::abs(x * gain) >= 32000.0f)
+        const float sample = m_samples[i * 2 + c];
+        const int x = static_cast<int>(std::lround(sample));
+        if (std::abs(sample * gain) >= 32000.0f)
           ++m_pin_samples;
         m_pin_min[c] = std::min(m_pin_min[c], x);
         m_pin_max[c] = std::max(m_pin_max[c], x);
@@ -501,16 +503,17 @@ private:
   std::deque<Request> m_queue;
   std::vector<Record> m_pending;
 
-  s16 m_buffer[CHUNK * 2] = {};
+  s16 m_buffer[CHUNK * 2] = {};    // the chip's output
+  float m_samples[CHUNK * 2] = {};  // the same after the DC blocker (not rounded again)
   std::size_t m_buffer_len = 0;
   std::size_t m_buffer_pos = 0;
   // The Dreamcast's analog output is AC-coupled; the chip's isn't. Its ADPCM voices carry a small DC offset
   // (means of -50..-250, Flycast's decoder gives the same) and the reverb multiplies it: 13 of 105 songs sat
   // over 2000 steps off zero for long stretches (M0323 about -5,600 for 15 minutes), which took headroom,
   // clipped and thumped where a song started or stopped (issue #26 review). A 7 Hz blocker on the chip's
-  // output, before the gain, stands in for the coupling capacitors; each engine has its own (a new one,
-  // so a clear state, at every Start), and a paused or idle chip keeps it, as its output resumes where
-  // it was.
+  // output (m_samples, kept in float: no second rounding), before the gain and the resampler, stands in
+  // for the coupling capacitors; each engine has its own (a new one, so a clear state, at every Start),
+  // and a paused or idle chip keeps it, as its output resumes where it was.
   DcBlocker m_dc_blocker{DcBlocker::POLE_44K};
   float m_hist[4][2] = {};
   double m_phase = 0.0;
