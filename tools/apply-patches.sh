@@ -32,4 +32,5 @@ done
 # only ModernGekko, RecompCore and DolRecomp)
 if [ -f lib/HighlyTheoretical/Core/yam.c ]; then
   apply lib/HighlyTheoretical highlytheoretical-dsp-shift-wrap.patch
+  apply lib/HighlyTheoretical highlytheoretical-lpf-precision.patch
 fi

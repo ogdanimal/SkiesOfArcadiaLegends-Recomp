@@ -37,6 +37,7 @@ for p in mtmsr-entry gather-pipe llvm-cpu win64-sjlj-frame coff-uwtable halfword
   git -C "$R/mg/vendor/dolphin/DolRecomp" apply "$P/dolrecomp-$p.patch"
 done
 git -C "$R/ht" apply "$P/highlytheoretical-dsp-shift-wrap.patch"
+git -C "$R/ht" apply "$P/highlytheoretical-lpf-precision.patch"
 status=0
 changed() { (cd "$1" && { git diff HEAD --name-only; git ls-files --others --exclude-standard; } | sort -u); }
 for pair in "$MG:$R/mg" "$RC:$R/mg/vendor/dolphin" "$DR:$R/mg/vendor/dolphin/DolRecomp" "lib/HighlyTheoretical:$R/ht"; do

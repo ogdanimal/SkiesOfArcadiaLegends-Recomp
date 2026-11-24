@@ -3483,6 +3483,17 @@ build (Dolphin's Vulkan backend on llvmpipe is right).
   Dreamcast music. And the Dreamcast engine logs a line when its output, after the gain, sits at full scale
   for over 30% of a quarter second (`DCMusic.cpp` `WatchForPinnedOutput`): the song, the chip's range, the
   effect outputs and each keyed channel's sample address, format, loop and sends, for the next report.
+  2026-11-24 CAUSE FOUND (the reporter's v0.93 log: M0315 bank 3 and M0461 bank 4, chip output pinned at
+  -32768, `effect out 800f 800f`): the channels' low-pass filter. Its two state values were whole 16-bit steps,
+  truncated downwards every sample; that is a constant -0.5 step bias times the filter's DC feedback, 8192 / f
+  steps. M0315's voices at 0x165c3e sweep the filter envelope down to f = 7 (of 8192): each sat about 440 steps
+  (-7000 in the 20-bit mix) below zero, the reverb (send 12) integrated the offset to rail to rail (EFREG 0x800f =
+  -0x7FF100 in the DSP's 24 bits), and the mix stayed on the floor until the notes ended and the feedback drained.
+  Reproduced offline (driver driven directly, no game; 10x real time): M0315 bank 3 pins at 40 s, M0461 bank 4
+  at 38 s and 105 s; 5 of the 75 songs pin within 90 s (M0254, M0315, M0323, M0324, M0461). The SHIFT wrap was
+  not it (the program has no SHIFT 2 / 3). `highlytheoretical-lpf-precision.patch`: 12 fractional bits in the
+  filter state and a rounded output; 0 of 75 songs pin in 90 s, M0315 / M0461 clean for 300 s, other songs -30 dB
+  (rms) from before with their DC offsets (-60..-190) gone. Not checked: Windows / Android in the game.
 - **#34** (2026-11-19) the AYN Thor closes at Start Game on `.6`, fresh install too (no log yet). The Thor has
   the Nova's Snapdragon 8 Gen 2 but its own firmware and a second, near-square screen (about 1240x1080). A
   simulated second display on the Pocket 5 (`overlay_display_devices 1240x1080/320`, the launcher started there
