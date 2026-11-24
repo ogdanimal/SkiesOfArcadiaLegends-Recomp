@@ -298,16 +298,17 @@ private:
   // the half of the waveform above the floor got through), which hasn't been reproduced here. When the
   // chip's output, after the gain, sits at full scale for over 30% of a quarter second, the log gets one
   // line (at most every 10 s, 20 in all) with the song and what the chip is doing, for the report. It watches
-  // what's played, after the DC blocker.
+  // the chip's own output (m_buffer), before the DC blocker: a chip stuck at a rail is a constant, which the
+  // blocker takes back to about 0 within 100 ms while the music stays cut in half, so the played output
+  // wouldn't show the fault.
   void WatchForPinnedOutput()
   {
     const float gain = m_gain / 256.0f * m_level;
     for (std::size_t i = 0; i < CHUNK; ++i)
       for (int c = 0; c < 2; ++c)
       {
-        const float sample = m_samples[i * 2 + c];
-        const int x = static_cast<int>(std::lround(sample));
-        if (std::abs(sample * gain) >= 32000.0f)
+        const int x = m_buffer[i * 2 + c];
+        if (std::abs(x * gain) >= 32000.0f)
           ++m_pin_samples;
         m_pin_min[c] = std::min(m_pin_min[c], x);
         m_pin_max[c] = std::max(m_pin_max[c], x);
