@@ -3576,7 +3576,16 @@ build (Dolphin's Vulkan backend on llvmpipe is right).
   259,348 after. What's left is the music's own peaks: M0241 (98,820) is at the rail inside the chip already
   (42,583 chip samples at +-32767, 18,806 would clip at gain 1.0), the rest mostly M0462's bank 4 sequences.
   The gain stays (the level match with the GameCube music, #19). `highlytheoretical-lpf-precision.patch` also
-  scales by `* 4096` instead of left-shifting a negative value (undefined before C23); same output.
+  scales by `* 4096` instead of left-shifting a negative value (undefined before C23); same output. The pinned
+  log line keeps watching the chip's own output, before the blocker: a chip stuck at a rail is a constant the
+  blocker takes back to 0 within 100 ms while the music stays cut in half (the unfixed core over 900 s: 42-454
+  pinned quarters in M0254 / M0315 / M0323 / M0324 / M0461 on the chip, 0 after the blocker; the fixed core 0
+  on the chip in all 105; in the game, `05-save-point.sav` warped to `me123d`, whose song is M0254:
+  `SKIES_POKE="@+3:80305CF0=6d65313233642e7363740000;@+3:80311AEC=0000000F"`, 100 s with
+  `SKIES_DC_MUSIC_SYNC=1`: one pinned line for M0254 with the unfixed core, none with the fixed one). The
+  blocker stores a state under 1e-15 as 0: a constant input left it at a subnormal (7e-43) after about 2 s,
+  18 -> 320-460 ns per output frame (3 of 105 sequences sit there most of the time); the game's audio is
+  identical (38.4 M samples against the blocker before).
 - **#34** (2026-11-19) the AYN Thor closes at Start Game on `.6`, fresh install too (no log yet). The Thor has
   the Nova's Snapdragon 8 Gen 2 but its own firmware and a second, near-square screen (about 1240x1080). A
   simulated second display on the Pocket 5 (`overlay_display_devices 1240x1080/320`, the launcher started there
