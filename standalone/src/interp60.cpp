@@ -2332,6 +2332,12 @@ void BlendArrays(const Frame& cur_frame, const Frame& prev_frame, const Prim& pr
 
 bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan& plan, std::vector<u8>* out, float t)
 {
+  // [Skies] A camera cut has no in-between: nothing to blend (at the display's rate, at every refresh)
+  if (plan.cut)
+  {
+    s_arrays_blended = false;
+    return false;
+  }
   *out = cur_frame.stream;
   s_arrays_blended = false;
   s_copy_blended.assign(cur_frame.array_copies.size(), 0);
