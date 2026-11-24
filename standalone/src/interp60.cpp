@@ -2046,7 +2046,7 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
       // degrees: 5%)
       double moved = 0.0, far = 0.0;
       for (const auto& [unused, index] : task_run(cur_tasks, camera_task))
-        if (partner[index] && layout_matches(cur_frame.prims[index], *partner[index]))
+        if (partner[index] && cur_frame.prims[index].pos_count == 3 && layout_matches(cur_frame.prims[index], *partner[index]))
         {
           const u8* cp = cur_frame.stream.data() + cur_frame.prims[index].data_offset + cur_frame.prims[index].pos_offset;
           const u8* pp = prev_frame.stream.data() + partner[index]->data_offset + partner[index]->pos_offset;
