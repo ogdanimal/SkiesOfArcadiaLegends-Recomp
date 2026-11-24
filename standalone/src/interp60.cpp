@@ -36,6 +36,10 @@
 // least cost of leaving a draw or a position matrix unpaired), SKIES_INTERP_ORDINAL (an object's draws paired by number),
 // SKIES_INTERP_LOCAL_SNAP (a jump snaps its object, or nearby object-less draws, not every draw with its texture),
 // SKIES_INTERP_CAMERA_PAIR (an object's alike pieces paired again by its motion or the camera's) and
+// SKIES_INTERP_COLOURS (=0 off, or a mask, default 28: 4 direct vertex colours, 8 indexed colours and texture coordinates,
+// 16 direct texture coordinates, of paired draws blended like the positions, a coordinate that jumps (a flipbook cell) taking
+// the previous frame's for the first half of the way: the pyramid's torch glow quads scroll their coordinates through an
+// indexed array; 1 lights, 2 the chans' ambient and material colour registers: blended they made other scenes worse),
 // SKIES_INTERP_RIGID (an object that moved as one rigid body, the map with the camera: its draws without a partner of
 // their shape, or that jumped, follow that motion, and a draw that doesn't follow it finds its partner by it).
 // SPDX-License-Identifier: GPL-3.0-or-later
@@ -79,6 +83,12 @@ constexpr u32 XFMEM_NORMALMATRICES_END = 0x460;
 constexpr u32 XFMEM_POSTMATRICES = 0x500;
 constexpr u32 XFMEM_POSTMATRICES_END = 0x600;
 constexpr u32 XFMEM_SETPROJECTION = 0x1020;
+// [Skies] Lights (0x600 + 16 * i: three unused words, the colour, then the cosine and distance attenuation, the position
+// and the direction, floats) and the chans' colour registers (0x100A-0x100D: ambient 0 and 1, material 0 and 1)
+constexpr u32 XFMEM_LIGHTS = 0x600;
+constexpr u32 XFMEM_LIGHTS_END = 0x680;
+constexpr u32 XFMEM_AMBIENT0 = 0x100A;
+constexpr u32 XFMEM_MATERIAL1 = 0x100D;
 // ComponentFormat
 constexpr u8 FORMAT_UBYTE = 0, FORMAT_BYTE = 1, FORMAT_USHORT = 2, FORMAT_SHORT = 3, FORMAT_FLOAT = 4;
 
@@ -109,6 +119,17 @@ struct Prim
   u32 task = 0;     // the game object (task) that drew it, 0 if not known (DrawTask)
   u32 func = 0;     // the task's function (its class), against a task freed and another made at its address
   u32 ordinal = 0;  // the object's draws numbered in the order it made them (recorded blocks by recording order)
+  // [Skies] The colours the draw sends direct (CP colour 0 and 1: offset within a vertex, 0xFF if not direct, and
+  // their ComponentFormat), blended with the positions (ApplyPlan)
+  u8 col_off[2] = {0xFF, 0xFF};
+  u8 col_fmt[2] = {0, 0};
+  // [Skies] Texture coordinates of units 0-3 sent direct (offset within a vertex, 0xFF if not; components 1 or 2, their
+  // ComponentFormat and fraction bits): scrolling or flipbook coordinates blended like the positions
+  struct TexAttr
+  {
+    u8 off = 0xFF, elems = 0, format = 0, frac = 0;
+  };
+  TexAttr tex[4];
 };
 
 // Vertex array data a draw reads by index, copied when it was drawn.
@@ -119,6 +140,11 @@ struct ArrayCopy
   u32 lo;           // bytes from the array base to the first byte copied
   u32 size;
   u32 guest_base;   // the array's base register when it was drawn, put back after the replay's draw
+  // [Skies] What blends (ApplyPlan): 0 nothing, 1 a colour array (colour_format), 2 texture coordinates (elems of
+  // tex_format, frac fraction bits);
+  // where the draw's index sits in a vertex, its size, and the array's stride
+  u8 kind = 0, idx_off = 0, idx_size = 0, elems = 0, colour_format = 0, tex_format = 0, frac = 0;
+  u32 stride = 0;
 };
 
 // Every draw command: where it is, and its array copies (array_copies[arrays_begin..arrays_end])
@@ -413,6 +439,70 @@ bool IsMatrixOrProjection(u32 address)
          (address >= XFMEM_SETPROJECTION && address < XFMEM_SETPROJECTION + 6);
 }
 
+// SKIES_INTERP_COLOURS: 0 off, otherwise a mask (default 28): 1 lights, 2 the chans' colour registers (both off: blended they made the Red Alarm scene and the first-person reef worse), 4 direct vertex
+// colours, 8 indexed colours and texture coordinates, 16 direct texture coordinates
+int ColourMask()
+{
+  static const int mask = [] {
+    const char* env = std::getenv("SKIES_INTERP_COLOURS");
+    return env ? std::atoi(env) : 28;
+  }();
+  return mask;
+}
+
+bool ColoursOn()
+{
+  return ColourMask() != 0;
+}
+
+// How a word of an XF load is blended: floats (matrices, a light's attenuation, position and direction), a packed RGBA
+// colour (a light's, the chans' ambient and material), or not at all (the lights' unused words, the chans' other
+// settings: the current frame's stay)
+enum class Word : u8 { Float, Colour, Keep };
+
+Word WordKind(u32 address)
+{
+  if (address >= XFMEM_LIGHTS && address < XFMEM_LIGHTS_END)
+  {
+    const u32 w = address & 15;
+    return w < 3 ? Word::Keep : w == 3 ? Word::Colour : Word::Float;
+  }
+  if (address >= XFMEM_AMBIENT0 && address <= XFMEM_MATERIAL1)
+    return Word::Colour;
+  if (address >= 0x1000 && address < 0x1020)
+    return Word::Keep;
+  return Word::Float;
+}
+
+// A load of lights or colours (not counted with the matrices when frames are told apart)
+bool IsColourLoad(u32 address, u32 count)
+{
+  return (address >= XFMEM_LIGHTS && address < XFMEM_LIGHTS_END) ||
+         (address >= 0x1000 && address <= XFMEM_MATERIAL1 && address + count > XFMEM_AMBIENT0);
+}
+
+float ColourDistance(const u8* c, const u8* p)
+{
+  float sum = 0.0f;
+  for (int k = 0; k < 4; ++k)
+    sum += std::fabs(static_cast<float>(c[k]) - static_cast<float>(p[k]));
+  return sum * (1.0f / 255.0f);
+}
+
+// The distance between two loads' word (the alignment's cost)
+float WordDistance(u32 address, const u8* c, const u8* p)
+{
+  switch (WordKind(address))
+  {
+  case Word::Colour:
+    return ColourDistance(c, p);
+  case Word::Keep:
+    return 0.0f;
+  default:
+    return std::fabs(std::bit_cast<float>(BE32(c)) - std::bit_cast<float>(BE32(p)));
+  }
+}
+
 float ReadFloat(const u8* p)
 {
   return std::bit_cast<float>(BE32(p));
@@ -434,6 +524,8 @@ bool Blendable(const Load& load, const u8* cur, const u8* prev)
   for (u32 i = 0; i < load.count; ++i)
   {
     const u32 address = load.address + i;
+    if (WordKind(address) != Word::Float)
+      continue;
     const float c = ReadFloat(cur + i * 4), p = ReadFloat(prev + i * 4);
     if (!std::isfinite(c) || !std::isfinite(p))
       return false;
@@ -919,6 +1011,7 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
   static std::vector<u8> cur_load_aligned, prev_load_aligned;
   cur_load_aligned.assign(cur_frame.loads.size(), 0);
   prev_load_aligned.assign(prev_frame.loads.size(), 0);
+  bool by_object_pass = false;  // the second alignment, by object alone
   const auto blend_load = [&](const Load& load, const Load& match) {
     cur_load_aligned[static_cast<size_t>(&load - cur_frame.loads.data())] = 1;
     prev_load_aligned[static_cast<size_t>(&match - prev_frame.loads.data())] = 1;
@@ -933,6 +1026,13 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
     const u8* prev = prev_frame.stream.data() + match.data_offset;
     if (!Blendable(load, cur, prev))
       return;
+    if (IsColourLoad(load.address, load.count))
+    {
+      if (by_object_pass)
+        return;
+      plan->loads.emplace_back(&load, &match);
+      return;
+    }
     ++s_stat_loads_blended;
     s_stat_words_changed += std::memcmp(cur, prev, load.count * 4u) != 0 ? 1 : 0;
     plan->loads.emplace_back(&load, &match);
@@ -976,7 +1076,7 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
         const u8* p = prev_frame.stream.data() + prev_loads[j]->data_offset;
         float sum = 0.0f;
         for (u32 w = 0; w < words; ++w)
-          sum += std::fabs(ReadFloat(c + w * 4) - ReadFloat(p + w * 4));
+          sum += WordDistance(address + w, c + w * 4, p + w * 4);
         return std::isfinite(sum) ? sum : 1e30f;
       };
       // [Skies] As for draws below (issue #24): leaving a position matrix unpaired costs at least a tenth of its
@@ -1079,6 +1179,7 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
                std::tie(o.task, o.func, o.shape, o.address, o.count, o.index);
       }
     };
+    by_object_pass = true;
     static std::vector<Left> cur_left, prev_left;
     cur_left.clear();
     prev_left.clear();
@@ -1124,7 +1225,7 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
           const u8* p = prev_frame.stream.data() + pl[j]->data_offset;
           float sum = 0.0f;
           for (u32 w = 0; w < words; ++w)
-            sum += std::fabs(ReadFloat(c + w * 4) - ReadFloat(p + w * 4));
+            sum += WordDistance(head.address + w, c + w * 4, p + w * 4);
           return std::isfinite(sum) ? sum : 1e30f;
         };
         ++s_stat_loads_by_object;
@@ -1950,7 +2051,9 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
       if (!partner[i] && !moved_prim[i])
         plan->new_prims.push_back(i);
   }
-  plan->total = cur_frame.loads.size() + cur_frame.prims.size();
+  plan->total = cur_frame.prims.size();
+  for (const Load& load : cur_frame.loads)
+    plan->total += IsColourLoad(load.address, load.count) ? 0 : 1;
   s_stat_loads += cur_frame.loads.size();
   s_stat_prims += cur_frame.prims.size();
   s_stat_draws += cur_frame.draws.size();
@@ -1958,21 +2061,246 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
 
 // The blend at t: the plan's matrices and positions written into a copy of the current stream. False
 // when too few loads and draws have a partner in the previous frame to be worth it (a scene change).
+
+u8 BlendByte(u8 prev, u8 cur, float t)
+{
+  return static_cast<u8>(std::clamp(std::lround(prev + (static_cast<float>(cur) - prev) * t), 0l, 255l));
+}
+
+// [Skies] A direct vertex colour (CP colour 0 or 1) blended like the position: per channel, for the formats of whole
+// bytes and the 16-bit ones (RGB565, RGBA4444); RGBA6666 is left.
+void BlendVertexColour(u8 format, const u8* cur, const u8* prev, u8* dst, float t)
+{
+  switch (format)
+  {
+  case 1:  // RGB8
+  case 2:  // RGBX8
+  case 5:  // RGBA8
+  {
+    const int n = format == 1 ? 3 : 4;
+    for (int k = 0; k < n; ++k)
+      dst[k] = BlendByte(prev[k], cur[k], t);
+    break;
+  }
+  case 0:  // RGB565
+  {
+    const u32 c = BE16(cur), p = BE16(prev);
+    const auto channel = [&](int shift, int bits) {
+      const float max = static_cast<float>((1 << bits) - 1);
+      const float cv = static_cast<float>((c >> shift) & ((1 << bits) - 1)), pv = static_cast<float>((p >> shift) & ((1 << bits) - 1));
+      return static_cast<u32>(std::clamp(std::lround(pv + (cv - pv) * t), 0l, static_cast<long>(max)));
+    };
+    const u32 v = (channel(11, 5) << 11) | (channel(5, 6) << 5) | channel(0, 5);
+    dst[0] = static_cast<u8>(v >> 8);
+    dst[1] = static_cast<u8>(v);
+    break;
+  }
+  case 3:  // RGBA4444
+  {
+    const u32 c = BE16(cur), p = BE16(prev);
+    u32 v = 0;
+    for (int shift = 0; shift < 16; shift += 4)
+    {
+      const float cv = static_cast<float>((c >> shift) & 15), pv = static_cast<float>((p >> shift) & 15);
+      v |= static_cast<u32>(std::clamp(std::lround(pv + (cv - pv) * t), 0l, 15l)) << shift;
+    }
+    dst[0] = static_cast<u8>(v >> 8);
+    dst[1] = static_cast<u8>(v);
+    break;
+  }
+  default:
+    break;
+  }
+}
+
+// A texture coordinate component of a ComponentFormat with `frac` fraction bits, as a float, and back
+float ReadTexComponent(u8 format, u8 frac, const u8* q)
+{
+  const float unit = frac ? 1.0f / static_cast<float>(1u << frac) : 1.0f;
+  switch (format)
+  {
+  case FORMAT_FLOAT: return ReadFloat(q);
+  case FORMAT_SHORT: return static_cast<float>(static_cast<s16>(BE16(q))) * unit;
+  case FORMAT_USHORT: return static_cast<float>(BE16(q)) * unit;
+  case FORMAT_BYTE: return static_cast<float>(static_cast<s8>(q[0])) * unit;
+  default: return static_cast<float>(q[0]) * unit;
+  }
+}
+
+void WriteTexComponent(u8 format, u8 frac, u8* q, float value)
+{
+  if (format == FORMAT_FLOAT)
+    return WriteFloat(q, value);
+  const long raw = std::lround(value * static_cast<float>(1u << frac));
+  switch (format)
+  {
+  case FORMAT_SHORT:
+  case FORMAT_USHORT:
+  {
+    const long r = std::clamp(raw, format == FORMAT_SHORT ? -32768l : 0l, format == FORMAT_SHORT ? 32767l : 65535l);
+    q[0] = static_cast<u8>(r >> 8);
+    q[1] = static_cast<u8>(r);
+    break;
+  }
+  case FORMAT_BYTE: q[0] = static_cast<u8>(std::clamp(raw, -128l, 127l)); break;
+  default: q[0] = static_cast<u8>(std::clamp(raw, 0l, 255l)); break;
+  }
+}
+
+// A paired draw's direct texture coordinates (vertex data) blended, vertex by vertex; a coordinate that moved by more
+// than half a texture (a flipbook cell, a wrapped scroll) takes the previous frame's value for the first half of the
+// way and the current frame's after
+void BlendDirectTexture(const Frame& cur_frame, const Frame& prev_frame, const Prim& prim, const Prim& old, u8* out, float t)
+{
+  for (u32 u = 0; u < 4; ++u)
+  {
+    const Prim::TexAttr& a = prim.tex[u];
+    const Prim::TexAttr& b = old.tex[u];
+    if (a.off == 0xFF || b.off != a.off || b.elems != a.elems || b.format != a.format || b.frac != a.frac)
+      continue;
+    const u32 comp = a.format <= FORMAT_BYTE ? 1u : a.format <= FORMAT_SHORT ? 2u : 4u;
+    const u8* cur = cur_frame.stream.data() + prim.data_offset + a.off;
+    const u8* prev = prev_frame.stream.data() + old.data_offset + a.off;
+    bool wrapped = false;
+    for (u32 v = 0; v < prim.num_vertices && !wrapped; ++v)
+      for (u32 k = 0; k < a.elems; ++k)
+        wrapped = wrapped || !(std::fabs(ReadTexComponent(a.format, a.frac, cur + v * prim.vertex_size + k * comp) -
+                                         ReadTexComponent(a.format, a.frac, prev + v * prim.vertex_size + k * comp)) <= 0.5f);
+    if (wrapped && t >= 0.5f)
+      continue;
+    for (u32 v = 0; v < prim.num_vertices; ++v)
+      for (u32 k = 0; k < a.elems; ++k)
+      {
+        const u32 at = v * prim.vertex_size + k * comp;
+        const float c = ReadTexComponent(a.format, a.frac, cur + at), p = ReadTexComponent(a.format, a.frac, prev + at);
+        WriteTexComponent(a.format, a.frac, out + prim.data_offset + a.off + at, wrapped ? p : p + (c - p) * t);
+      }
+  }
+}
+
+// [Skies] The arrays' copies the replay reads (with blended colours and texture coordinates, when a draw's were
+// blended: the pyramid's torch glow quads take their texture coordinates from an indexed array that changes every
+// frame); empty when none was
+std::vector<u8> s_blended_arrays;
+bool s_arrays_blended = false;
+
+// A paired draw's indexed colours and float texture coordinates blended, vertex by vertex: the element a vertex of the
+// current draw reads, and the one its partner read. A texture coordinate that moved by more than half a texture
+// (a scroll that wrapped) stays the current one.
+void BlendArrays(const Frame& cur_frame, const Frame& prev_frame, const Prim& prim, const Prim& old, float t)
+{
+  const auto find_draw = [](const Frame& frame, const Prim& p) -> const Draw* {
+    const u32 offset = p.data_offset - 3;
+    const auto it = std::lower_bound(frame.draws.begin(), frame.draws.end(), offset,
+                                     [](const Draw& d, u32 value) { return d.offset < value; });
+    return it != frame.draws.end() && it->offset == offset ? &*it : nullptr;
+  };
+  const Draw* cd = find_draw(cur_frame, prim);
+  const Draw* pd = find_draw(prev_frame, old);
+  if (!cd || !pd)
+    return;
+  for (u32 i = cd->arrays_begin; i < cd->arrays_end; ++i)
+  {
+    const ArrayCopy& ac = cur_frame.array_copies[i];
+    if (ac.kind == 0)
+      continue;
+    const ArrayCopy* bc = nullptr;
+    for (u32 j = pd->arrays_begin; j < pd->arrays_end; ++j)
+      if (prev_frame.array_copies[j].array == ac.array)
+        bc = &prev_frame.array_copies[j];
+    if (!bc || bc->kind != ac.kind || bc->idx_off != ac.idx_off || bc->idx_size != ac.idx_size || bc->stride != ac.stride ||
+        bc->colour_format != ac.colour_format || bc->elems != ac.elems || bc->tex_format != ac.tex_format || bc->frac != ac.frac || ac.stride == 0)
+      continue;
+    const u32 comp = ac.tex_format <= FORMAT_BYTE ? 1u : ac.tex_format <= FORMAT_SHORT ? 2u : 4u;
+    const u32 span = ac.kind == 2 ? ac.elems * comp : (ac.colour_format == 1 ? 3u : ac.colour_format == 0 || ac.colour_format == 3 ? 2u : 4u);
+    const u8* cur_stream = cur_frame.stream.data() + prim.data_offset;
+    const u8* prev_stream = prev_frame.stream.data() + old.data_offset;
+    // The byte offset in each copy of the element a vertex reads, or ~0 if it lies outside the copy
+    const auto where = [&](const u8* stream, const ArrayCopy& copy, u32 v) -> u32 {
+      const u8* q = stream + v * prim.vertex_size + copy.idx_off;
+      const u32 index = copy.idx_size == 1 ? q[0] : BE16(q);
+      const u64 at = static_cast<u64>(index) * copy.stride;
+      return at < copy.lo || at - copy.lo + span > copy.size ? ~0u : static_cast<u32>(at - copy.lo);
+    };
+    const auto read = [&](const u8* q) { return ReadTexComponent(ac.tex_format, ac.frac, q); };
+    const auto write = [&](u8* q, float value) { WriteTexComponent(ac.tex_format, ac.frac, q, value); };
+    bool step_prev = false;
+    if (ac.kind == 2)
+    {
+      bool wrapped = false;
+      for (u32 v = 0; v < prim.num_vertices && !wrapped; ++v)
+      {
+        const u32 a = where(cur_stream, ac, v), b = where(prev_stream, *bc, v);
+        if (a == ~0u || b == ~0u)
+          continue;
+        for (u32 k = 0; k < ac.elems; ++k)
+          wrapped = wrapped || !(std::fabs(read(cur_frame.array_data.data() + ac.data_offset + a + k * comp) -
+                                           read(prev_frame.array_data.data() + bc->data_offset + b + k * comp)) <= 0.5f);
+      }
+      // A flipbook cell or a wrapped scroll can't be blended: the previous frame's coordinates for the first half of the
+      // way, the current frame's after (the picture changes at the middle, as a frame of the game would)
+      step_prev = wrapped && t < 0.5f;
+      if (wrapped && !step_prev)
+        continue;
+    }
+    for (u32 v = 0; v < prim.num_vertices; ++v)
+    {
+      const u32 a = where(cur_stream, ac, v), b = where(prev_stream, *bc, v);
+      if (a == ~0u || b == ~0u)
+        continue;
+      if (!s_arrays_blended)
+      {
+        s_blended_arrays = cur_frame.array_data;
+        s_arrays_blended = true;
+      }
+      const u8* cur = cur_frame.array_data.data() + ac.data_offset + a;
+      const u8* prev = prev_frame.array_data.data() + bc->data_offset + b;
+      u8* dst = s_blended_arrays.data() + ac.data_offset + a;
+      if (ac.kind == 2 && step_prev)
+      {
+        std::memcpy(dst, prev, span);
+      }
+      else if (ac.kind == 2)
+      {
+        for (u32 k = 0; k < ac.elems; ++k)
+        {
+          const float c = read(cur + k * comp), p = read(prev + k * comp);
+          write(dst + k * comp, p + (c - p) * t);
+        }
+      }
+      else
+      {
+        BlendVertexColour(ac.colour_format, cur, prev, dst, t);
+      }
+    }
+  }
+}
+
 bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan& plan, std::vector<u8>* out, float t)
 {
   *out = cur_frame.stream;
+  s_arrays_blended = false;
   size_t paired = 0;
   for (const auto& [load_ptr, match_ptr] : plan.loads)
   {
     const Load& load = *load_ptr;
     const u8* cur = cur_frame.stream.data() + load.data_offset;
     const u8* prev = prev_frame.stream.data() + match_ptr->data_offset;
-    ++paired;
+    paired += IsColourLoad(load.address, load.count) ? 0 : 1;
     for (u32 i = 0; i < load.count; ++i)
     {
       // The projection type (the word after the six parameters) isn't a float.
       if (load.address + i >= XFMEM_SETPROJECTION + 6)
         continue;
+      const Word kind = WordKind(load.address + i);
+      if (kind == Word::Keep)
+        continue;
+      if (kind == Word::Colour)
+      {
+        for (int k = 0; k < 4; ++k)
+          out->data()[load.data_offset + i * 4 + k] = BlendByte(prev[i * 4 + k], cur[i * 4 + k], t);
+        continue;
+      }
       const float c = ReadFloat(cur + i * 4), p = ReadFloat(prev + i * 4);
       WriteFloat(out->data() + load.data_offset + i * 4, p + (c - p) * t);
     }
@@ -2050,6 +2378,19 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
       continue;
     ++paired;
     ++s_stat_prims_blended;
+    if ((ColourMask() & 8) && prim.texture == old.texture)
+      BlendArrays(cur_frame, prev_frame, prim, old, t);
+    if ((ColourMask() & 16) && prim.texture == old.texture)
+      BlendDirectTexture(cur_frame, prev_frame, prim, old, out->data(), t);
+    if ((ColourMask() & 4) && prim.texture == old.texture)
+      for (int c = 0; c < 2; ++c)
+        if (prim.col_off[c] != 0xFF && old.col_off[c] == prim.col_off[c] && old.col_fmt[c] == prim.col_fmt[c])
+          for (u32 v = 0; v < prim.num_vertices; ++v)
+          {
+            const u32 at = v * prim.vertex_size + prim.col_off[c];
+            BlendVertexColour(prim.col_fmt[c], cur_frame.stream.data() + prim.data_offset + at,
+                              prev_frame.stream.data() + old.data_offset + at, out->data() + prim.data_offset + at, t);
+          }
     for (u32 v = 0; v < prim.num_vertices; ++v)
     {
       const u32 at = v * prim.vertex_size + prim.pos_offset;
@@ -2156,7 +2497,10 @@ void NoteXF(u16 address, u8 count)
 {
   bool relevant = false;
   for (u32 i = 0; i < count && !relevant; ++i)
-    relevant = IsMatrixOrProjection(address + i);
+    relevant = IsMatrixOrProjection(address + i) ||
+               (((address + i >= XFMEM_LIGHTS && address + i < XFMEM_LIGHTS_END && (ColourMask() & 1)) ||
+                 (address + i >= XFMEM_AMBIENT0 && address + i <= XFMEM_MATERIAL1 && (ColourMask() & 2))) &&
+                WordKind(address + i) != Word::Keep);
   if (!relevant)
     return;
   s_unkeyed.push_back(s_current->loads.size());
@@ -2194,7 +2538,11 @@ void NoteDraw(const u8* p, u32 len)
   for (u32 i = 0; i < 8; ++i)
     offset += (vcd_lo >> (1 + i)) & 1;
   const u8 pos_offset = static_cast<u8>(offset);
+  u8 direct_at[12];
+  std::memset(direct_at, 0xFF, sizeof direct_at);
   const auto add = [&](u8 array, u32 type, u32 direct, u32 span, u8 count) {
+    if (type == 1)
+      direct_at[array] = static_cast<u8>(std::min(offset, 0xFEu));
     if (type >= 2)
     {
       indexed[n++] = Indexed{array, offset, static_cast<u8>(type == 3 ? 2 : 1), count, span};
@@ -2263,6 +2611,28 @@ void NoteDraw(const u8* p, u32 len)
         continue;
       frame.array_copies.push_back(
           ArrayCopy{item.array, static_cast<u32>(frame.array_data.size()), lo, bytes, base});
+      {
+        ArrayCopy& added = frame.array_copies.back();
+        added.idx_off = static_cast<u8>(item.offset);
+        added.idx_size = item.index_size;
+        added.stride = stride;
+        if (item.array == 2 || item.array == 3)
+        {
+          added.kind = item.count == 1 ? 1 : 0;
+          added.colour_format = static_cast<u8>((va >> (item.array == 2 ? 14 : 18)) & 7);
+        }
+        else if (item.array >= 4 && item.array != 8 && item.count == 1)
+        {
+          // The VAT's fraction bits of each coordinate (texture 4's straddle two words: left alone)
+          static constexpr u32 SHIFT_AT[8] = {25, 4, 13, 22, 0, 9, 18, 27};
+          const u32 unit = item.array - 4;
+          const u32 word = unit == 0 ? va : unit < 4 ? vb : vc;
+          added.kind = 2;
+          added.elems = tex_elems[unit] ? 2 : 1;
+          added.tex_format = static_cast<u8>(tex_fmt[unit]);
+          added.frac = static_cast<u8>(tex_fmt[unit] == FORMAT_FLOAT ? 0 : (word >> SHIFT_AT[unit]) & 31);
+        }
+      }
       frame.array_data.insert(frame.array_data.end(), data, data + bytes);
     }
   }
@@ -2278,6 +2648,19 @@ void NoteDraw(const u8* p, u32 len)
                                static_cast<u16>(size / num_vertices), pos_offset,
                                static_cast<u8>(pos_format), static_cast<u8>(pos_count), key, texture,
                                task, task ? Read32(task) : 0u, ordinal});
+    frame.prims.back().col_off[0] = direct_at[2];
+    frame.prims.back().col_off[1] = direct_at[3];
+    frame.prims.back().col_fmt[0] = static_cast<u8>((va >> 14) & 7);
+    frame.prims.back().col_fmt[1] = static_cast<u8>((va >> 18) & 7);
+    for (u32 u = 0; u < 4; ++u)
+    {
+      static constexpr u32 SHIFT_AT[4] = {25, 4, 13, 22};
+      Prim::TexAttr& attr = frame.prims.back().tex[u];
+      attr.off = direct_at[4 + u];
+      attr.elems = tex_elems[u] ? 2 : 1;
+      attr.format = static_cast<u8>(tex_fmt[u]);
+      attr.frac = static_cast<u8>(tex_fmt[u] == FORMAT_FLOAT ? 0 : ((u == 0 ? va : vb) >> SHIFT_AT[u]) & 31);
+    }
   }
   // Not the vertex data itself: CPU-skinned models change it every frame.
   const u32 load_task = TasksOn() ? (s_in_dl ? s_dl_task : s_top_task) : 0u;
@@ -2463,7 +2846,7 @@ bool Replay(const Frame& frame, const std::vector<u8>& stream, int slot)
       const ArrayCopy& copy = frame.array_copies[i];
       const size_t bytes = static_cast<size_t>(copy.lo) + copy.size + 64;
       u8* buffer = ArenaAlloc(bytes);
-      std::memcpy(buffer + copy.lo, frame.array_data.data() + copy.data_offset, copy.size);
+      std::memcpy(buffer + copy.lo, (s_arrays_blended ? s_blended_arrays : frame.array_data).data() + copy.data_offset, copy.size);
       cmd.push_back(0x50);
       PushBE(cmd, 0x0010 + copy.array, 2);
       PushBE(cmd, static_cast<u64>(reinterpret_cast<uintptr_t>(buffer)), 8);
