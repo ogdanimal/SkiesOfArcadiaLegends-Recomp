@@ -2020,7 +2020,7 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
         plan->new_prims.push_back(i);
   }
   // [Skies] A camera cut: the fitted camera turned more than 18 degrees in one frame right after a frame pair in which
-  // it hardly moved (2 degrees). Blended, the in-between was a view from halfway between two shots that doesn't
+  // it was found and hardly moved (2 degrees), and its object's draws moved by a good part of their distance. Blended, the in-between was a view from halfway between two shots that doesn't
   // exist (the JP world-map battle start, 72-80 degree cuts; the first battle's 75 degree cut at 9603); its
   // draws snapped instead, the deck tore. No in-between: a real picture shows. A whirl that started (a swoop of 35 then
   // 68 degrees a frame) loses its first in-between and blends after; the fastest moves from rest otherwise turn less
@@ -2038,10 +2038,32 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
     const bool have = rigid_moves && camera_fit(&c);
     const float cos_angle = have ? 0.5f * (c.r[0] + c.r[4] + c.r[8] - 1.0f) : 1.0f;
     const bool rest_before = prev_frame.serial != 0 && prev_frame.serial == s_last_serial && s_last_rest;
-    plan->cut = rest_before && cos_angle < cut_cos;
+    plan->cut = rest_before && have && cos_angle < cut_cos;
+    if (plan->cut)
+    {
+      // and the picture really moved: the camera object's paired draws (their first vertices) moved by more than 15% of
+      // their distance from the camera (cuts and whirls 25-109%; the JP deck standing still while its fit read 27
+      // degrees: 5%)
+      double moved = 0.0, far = 0.0;
+      for (const auto& [unused, index] : task_run(cur_tasks, camera_task))
+        if (partner[index] && layout_matches(cur_frame.prims[index], *partner[index]))
+        {
+          const u8* cp = cur_frame.stream.data() + cur_frame.prims[index].data_offset + cur_frame.prims[index].pos_offset;
+          const u8* pp = prev_frame.stream.data() + partner[index]->data_offset + partner[index]->pos_offset;
+          double d2 = 0.0, c2 = 0.0;
+          for (int k = 0; k < 3; ++k)
+          {
+            const double c = ReadFloat(cp + k * 4), p = ReadFloat(pp + k * 4);
+            d2 += (c - p) * (c - p), c2 += c * c;
+          }
+          if (std::isfinite(d2) && std::isfinite(c2))
+            moved += std::sqrt(d2), far += std::sqrt(c2);
+        }
+      plan->cut = far > 0.0 && moved > 0.15 * far;
+    }
     s_stat_camera_cuts += plan->cut ? 1 : 0;
     s_last_serial = cur_frame.serial;
-    s_last_rest = cos_angle >= rest_cos;
+    s_last_rest = have && cos_angle >= rest_cos;  // (no camera found: not known to be at rest)
   }
   plan->total = cur_frame.prims.size();
   for (const Load& load : cur_frame.loads)
