@@ -1216,6 +1216,16 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
           ++lb;
         continue;
       }
+      // [Skies] Colour and light loads are paired through their draws (below), never here: their alignment only
+      // marked them (the pass by object and the strict test's new loads, which hide position matrices only)
+      if (IsColourLoad(std::get<0>(k), std::get<1>(k)))
+      {
+        for (; la < cur_lo.size() && kind(cur_frame.loads[cur_lo[la]]) == k; ++la)
+          ;
+        for (; lb < prev_lo.size() && kind(prev_frame.loads[prev_lo[lb]]) == k; ++lb)
+          ;
+        continue;
+      }
       cur_loads.clear();
       prev_loads.clear();
       for (; la < cur_lo.size() && kind(cur_frame.loads[cur_lo[la]]) == k; ++la)
@@ -1352,13 +1362,13 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
     for (u32 i = 0; i < cur_frame.loads.size(); ++i)
     {
       const Load& l = cur_frame.loads[i];
-      if (!cur_load_aligned[i])
+      if (!cur_load_aligned[i] && !IsColourLoad(l.address, l.count))
         cur_left.push_back({l.task, l.func, l.task ? 0 : l.key ^ (u64{l.texture} << 20), l.address, l.count, i});
     }
     for (u32 j = 0; j < prev_frame.loads.size(); ++j)
     {
       const Load& l = prev_frame.loads[j];
-      if (!prev_load_aligned[j])
+      if (!prev_load_aligned[j] && !IsColourLoad(l.address, l.count))
         prev_left.push_back({l.task, l.func, l.task ? 0 : l.key ^ (u64{l.texture} << 20), l.address, l.count, j});
     }
     if (!cur_left.empty() && !prev_left.empty())
