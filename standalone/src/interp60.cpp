@@ -33,8 +33,9 @@
 // SKIES_INTERP_T: the blend's position between the frames (0.5). SKIES_INTERP_STATS=1: counts and
 // times every 600 frames. SKIES_INTERP_TRACE=1 (video.cpp): each frame end and retrace present. To compare
 // (issues #18 and #24), =0 turns off: SKIES_INTERP_CENTROID (pairing by mean vertex), SKIES_INTERP_GAP_FLOOR (the
-// least cost of leaving a draw or a position matrix unpaired), SKIES_INTERP_ORDINAL (an object's draws paired by number) and
-// SKIES_INTERP_LOCAL_SNAP (a jump snaps its object, or nearby object-less draws, not every draw with its texture) and
+// least cost of leaving a draw or a position matrix unpaired), SKIES_INTERP_ORDINAL (an object's draws paired by number),
+// SKIES_INTERP_LOCAL_SNAP (a jump snaps its object, or nearby object-less draws, not every draw with its texture),
+// SKIES_INTERP_CAMERA_PAIR (an object's alike pieces paired again by its motion or the camera's) and
 // SKIES_INTERP_RIGID (an object that moved as one rigid body, the map with the camera: its draws without a partner of
 // their shape, or that jumped, follow that motion, and a draw that doesn't follow it finds its partner by it).
 // SPDX-License-Identifier: GPL-3.0-or-later
@@ -206,6 +207,7 @@ u64 s_stat_loads = 0, s_stat_prims = 0, s_stat_loads_blended = 0, s_stat_prims_b
 u64 s_stat_repaired = 0;  // draws paired across a texture change (issue #18)
 u64 s_stat_loads_apart = 0;  // matrix pairings refused as two objects' (issue #24)
 u64 s_stat_collapsed = 0, s_stat_matrix_snaps = 0;  // draws and matrices snapped as turning round (issue #35)
+u64 s_stat_camera_paired = 0;  // [Skies] draws re-paired by the camera's motion (issue #24)
 u64 s_stat_tasked = 0, s_stat_kept_apart = 0, s_stat_by_number = 0, s_stat_moved = 0, s_stat_rigid_repaired = 0;  // draws with a known object; pairings refused as two objects'
 // Which game object drew each draw (the game's thread). Skies runs every object as a task (decomp
 // docs/draw.md: TaskRunAll calls each task's function, which updates and draws it), and the running task is
@@ -1460,6 +1462,38 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
     *out = fit;
     return good;
   };
+  // [Skies] The camera's motion: the rigid motion of the largest object that moved as one body (the map, in view
+  // space), which everything that sits still in the world shares (issue #24). Objects by their number of float
+  // draws, most first; the camera is looked for once, when first needed (below).
+  static std::vector<std::pair<u32, u32>> by_size;  // (count, task)
+  by_size.clear();
+  for (size_t a = 0; a < cur_tasks.size();)
+  {
+    size_t b = a;
+    while (b < cur_tasks.size() && cur_tasks[b].first == cur_tasks[a].first)
+      ++b;
+    by_size.emplace_back(static_cast<u32>(b - a), cur_tasks[a].first);
+    a = b;
+  }
+  std::sort(by_size.begin(), by_size.end(), std::greater<>());
+  int camera_state = -1;  // not looked for yet, 0 none, 1 found
+  u32 camera_task = 0;
+  BlendPlan::Moved camera;
+  const auto camera_fit = [&](BlendPlan::Moved* out) {
+    if (camera_state < 0)
+    {
+      camera_state = 0;
+      for (size_t c = 0; c < by_size.size() && c < 3 && camera_state == 0; ++c)
+        if (by_size[c].first >= 16 && fit_for(by_size[c].second, &camera))
+          camera_state = 1, camera_task = by_size[c].second;
+    }
+    *out = camera;
+    return camera_state == 1;
+  };
+  static const bool camera_pair_on = [] {
+    const char* env = std::getenv("SKIES_INTERP_CAMERA_PAIR");
+    return !env || env[0] != '0';
+  }();
   const auto move_with_object = [&](size_t index) {
     const Prim& prim = cur_frame.prims[index];
     if (!rigid_moves || prim.task == 0 || prim.pos_format != FORMAT_FLOAT || prim.pos_count != 3)
@@ -1472,6 +1506,101 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
     moved_prim[index] = 1;
     return true;
   };
+  // [Skies] Alike pieces of one object told apart only by their place (Maramba's reef rocks, issue #24: camera-facing
+  // quads in view space): in a fast camera move (into first person) each piece moved further than the gap to its
+  // neighbour, so pairing by place took a neighbour's old place. Then either the object's motion didn't fit and its
+  // jumps snapped every rock a frame ahead, or it fitted on most pieces and the rest swept across the picture. Each
+  // object of 4 to 256 float draws is paired again by its own motion, or when that doesn't fit by the camera's (the
+  // largest object that moved as one body: the map; things that sit still in the world move with it): a piece takes
+  // the previous piece that motion brings it onto, clearly nearer than any other. When most pieces (70%) find one,
+  // none claimed twice, those become the partners and the rest follow the object's motion (pieces coming into the
+  // picture). SKIES_INTERP_CAMERA_PAIR=0 turns it off (to compare).
+  if (rigid_moves && camera_pair_on && !cur_tasks.empty())
+  {
+    const auto centroid = [](const Frame& frame, const Prim& prim) {
+      std::array<float, 3> m = {0.0f, 0.0f, 0.0f};
+      for (u32 v = 0; v < prim.num_vertices; ++v)
+      {
+        const u8* d = frame.stream.data() + prim.data_offset + v * prim.vertex_size + prim.pos_offset;
+        for (int k = 0; k < 3; ++k)
+          m[k] += ReadFloat(d + k * 4);
+      }
+      for (int k = 0; k < 3; ++k)
+        m[k] /= static_cast<float>(prim.num_vertices);
+      return m;
+    };
+    static std::vector<std::array<float, 3>> prev_centre;
+    static std::vector<u32> chosen;
+    for (const auto& [count, task] : by_size)
+    {
+      if (count < 4 || count > 256)
+        continue;
+      const Run mine = task_run(cur_tasks, task);
+      const Run theirs = task_run(prev_tasks, task);
+      if (theirs.size() < 4)
+        continue;
+      BlendPlan::Moved own;
+      const bool own_good = fit_for(task, &own);
+      BlendPlan::Moved cam;
+      if (!own_good && (!camera_fit(&cam) || task == camera_task))
+        continue;
+      const BlendPlan::Moved& motion = own_good ? own : cam;
+      prev_centre.clear();
+      for (const auto& [unused, j] : theirs)
+        prev_centre.push_back(centroid(prev_frame, prev_frame.prims[j]));
+      chosen.assign(mine.size(), ~0u);
+      size_t matched = 0, considered = 0;
+      for (size_t i = 0; i < mine.size(); ++i)
+      {
+        const Prim& prim = cur_frame.prims[mine.first[i].second];
+        if (prim.pos_format != FORMAT_FLOAT || prim.pos_count != 3)
+          continue;
+        ++considered;
+        const std::array<float, 3> c = centroid(cur_frame, prim);
+        const std::array<float, 3> back = MoveBack(motion, c.data());
+        float best = 1e30f, second = 1e30f;
+        u32 best_j = ~0u;
+        for (size_t j = 0; j < theirs.size(); ++j)
+        {
+          const Prim& old = prev_frame.prims[theirs.first[j].second];
+          if (old.key != prim.key || !layout_matches(prim, old))
+            continue;
+          const float dx = back[0] - prev_centre[j][0], dy = back[1] - prev_centre[j][1], dz = back[2] - prev_centre[j][2];
+          const float miss = std::sqrt(dx * dx + dy * dy + dz * dz);
+          if (miss < best)
+            second = best, best = miss, best_j = static_cast<u32>(j);
+          else if (miss < second)
+            second = miss;
+        }
+        const float length = std::sqrt(c[0] * c[0] + c[1] * c[1] + c[2] * c[2]);
+        if (best_j != ~0u && best <= std::max(3.0f * motion.limit, 0.01f * length) && 4.0f * best < second)
+          chosen[i] = best_j, ++matched;
+      }
+      // Most pieces (70%) follow the motion, none claimed twice
+      if (considered < 4 || matched * 10 < considered * 7)
+        continue;
+      static std::vector<u32> claimed;
+      claimed = chosen;
+      std::sort(claimed.begin(), claimed.end());
+      const auto valid_end = std::lower_bound(claimed.begin(), claimed.end(), ~0u);
+      if (std::adjacent_find(claimed.begin(), valid_end) != valid_end)
+        continue;
+      bool changed = false;
+      for (size_t i = 0; i < mine.size(); ++i)
+      {
+        const u32 index = mine.first[i].second;
+        const Prim& prim = cur_frame.prims[index];
+        if (prim.pos_format != FORMAT_FLOAT || prim.pos_count != 3)
+          continue;
+        const Prim* now = chosen[i] != ~0u ? &prev_frame.prims[theirs.first[chosen[i]].second] : nullptr;
+        if (now != partner[index])
+          ++s_stat_camera_paired, changed = true;
+        partner[index] = now;
+      }
+      if (changed)
+        fits.erase(task);  // refitted from the new pairs
+    }
+  }
   for (size_t index = 0; index < cur_frame.prims.size(); ++index)
     if (!partner[index] || !layout_matches(cur_frame.prims[index], *partner[index]))
       move_with_object(index);
@@ -2306,17 +2435,17 @@ void LogStats()
   if (s_stats)
   {
     Log("[interp] per blend %.1f draws, %.1f matrix loads (%.1f blended, %.1f changed), %.1f with "
-        "positions (%.1f blended, %.1f changed, %.2f paired across a texture change, %.2f snapped turning, %.2f matrices snapped turning, %.1f with their object, %.1f paired by number, %.2f moved with their object, %.2f re-paired by it, %.2f kept apart); ms per frame: keep real %.2f, blend %.2f, enter "
+        "positions (%.1f blended, %.1f changed, %.2f paired across a texture change, %.2f snapped turning, %.2f matrices snapped turning, %.1f with their object, %.1f paired by number, %.2f moved with their object, %.2f re-paired by it, %.2f re-paired by its or the camera's motion, %.2f kept apart); ms per frame: keep real %.2f, blend %.2f, enter "
         "%.2f, feed %.2f, keep in-between %.2f, leave %.2f\n",
         s_stat_draws / 600.0, s_stat_loads / 600.0, s_stat_loads_blended / 600.0,
         s_stat_words_changed / 600.0, s_stat_prims / 600.0, s_stat_prims_blended / 600.0,
         s_stat_prims_changed / 600.0, s_stat_repaired / 600.0, s_stat_collapsed / 600.0, s_stat_matrix_snaps / 600.0,
-        s_stat_tasked / 600.0, s_stat_by_number / 600.0, s_stat_moved / 600.0, s_stat_rigid_repaired / 600.0, s_stat_kept_apart / 600.0, s_ms[0] / 600, s_ms[1] / 600, s_ms[2] / 600, s_ms[3] / 600,
+        s_stat_tasked / 600.0, s_stat_by_number / 600.0, s_stat_moved / 600.0, s_stat_rigid_repaired / 600.0, s_stat_camera_paired / 600.0, s_stat_kept_apart / 600.0, s_ms[0] / 600, s_ms[1] / 600, s_ms[2] / 600, s_ms[3] / 600,
         s_ms[4] / 600, s_ms[5] / 600);
   }
   s_stat_loads = s_stat_prims = s_stat_loads_blended = s_stat_prims_blended = s_stat_words_changed =
       s_stat_draws = s_stat_prims_changed = s_stat_repaired = s_stat_collapsed = s_stat_matrix_snaps =
-      s_stat_tasked = s_stat_by_number = s_stat_moved = s_stat_rigid_repaired = s_stat_kept_apart = 0;
+      s_stat_tasked = s_stat_by_number = s_stat_moved = s_stat_rigid_repaired = s_stat_camera_paired = s_stat_kept_apart = 0;
   std::fill(std::begin(s_ms), std::end(s_ms), 0.0);
 }
 }  // namespace
