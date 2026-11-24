@@ -472,19 +472,25 @@ __attribute__((section(".trkcave_ws39"))) void qol_ship_phase_ws39(int phase, in
   qol_ship_phase(phase, side);
 }
 
-/* ws41 (issue #36, the leftover; replaces ws40's qol_ship_hit_ws40): the turn playback plays each hit with
- * fn_80159F28(side) (called at 0x8015BE44 and 0x8015C138). On the party's side it takes the hit off the HP gauge's
- * counter (lbl_803472B0's gauge +0x8, fn_80129D40 finds it), from the acting record's damage (lbl_80306E38 or +0x90,
- * whichever's +0x11 is the side; +0xC), and when the gauge reaches 0 it writes 0 into the ship's HP itself
- * (0x8015A1A8): the ship sank although qol_ship_phase had zeroed the same hits' damage in BtlShipApplyPhase (the
- * battle wasn't flagged lost, so the results saved the 0 into the ship's record and "I never give up" rebuilt the ship
- * at 0 HP). ws40 played the hit with no damage, but then fn_80159F28 returns before showing the ship's name and HP
- * panel (damage 0, no status change). Now the real damage is played, held back so the counter stays at 1 or more (the
- * ship's own HP is never touched: only an empty counter sinks it), the panel's "before" HP is full so the bar drops
- * from full as in a character battle, and afterwards the record and the counter are put back: the ship ends every
- * turn at full HP, the panel showed the hit. */
+/* ws42 (issue #36, the bar; replaces ws41's qol_ship_hit_ws41): ws41 kept the ship alive and the panel shown, but the
+ * panel's bar still drained: fn_80159F28 stores the hit as the panel's target (+0x34 = +0x28 + delta,
+ * ShipHudPanelSetDelta) and ShipHudPanelUpdate then animates the bar's own float (+0x20, drawn as
+ * +0x1E4 = +0x20 / max) down to it; the end value stays until the panel is rebuilt (the next turn). Now the hit is
+ * played with the smallest damage (1) against a full counter, which keeps fn_80159F28's early return away (the panel
+ * shows: name, bar) and never sinks the ship, and straight afterwards, before the panel task has seen it, the
+ * panel is put back as if nothing happened: before and target = max, the bar's float = max, fraction 1.0, no delta
+ * (+0x14) and no animation state (+0x18), so the bar neither moves nor drops. The record's damage and the counter
+ * (the gauge's max, +0xC) are restored, so the ship ends every turn at full HP and nothing shows the hit but the
+ * panel itself. Without a panel (slot 0 not built) the hit is played as before. */
 extern unsigned char *fn_80129D40(u32 id); /* ship HUD: the gauge entry of a ship id (0xFFFF: the party's) */
-__attribute__((section(".trkcave_ws41"))) void qol_ship_hit_ws41(int side) {
+/* The IEEE bits of a positive int, by hand: the patch code has no constants of its own to load a conversion's magic from. */
+__attribute__((section(".trkcave_ws41"))) static u32 qol_float_bits(int value) {
+  int bit = 0;
+  while ((value >> (bit + 1)) != 0)
+    bit++;
+  return ((u32)(127 + bit) << 23) | (((u32)value << (23 - bit)) & 0x7FFFFF);
+}
+__attribute__((section(".trkcave_ws41"))) void qol_ship_hit_ws42(int side) {
   if (side != 0 && qol_invincible()) {
     unsigned char *record = (unsigned char *)SHIP_ACTIONS;
     if ((s8)record[0x11] != side)
@@ -493,18 +499,23 @@ __attribute__((section(".trkcave_ws41"))) void qol_ship_hit_ws41(int side) {
     const int saved = *damage;
     unsigned char *gauge = fn_80129D40(*(u32 *)0x803472B0);
     unsigned char *panel = *(unsigned char **)0x80306DB8; /* the party ship's HUD panel (slot 0) */
-    int *counter = qol_ram(gauge) ? (int *)(gauge + 8) : 0;
-    if (counter) {
-      if (saved >= *counter)
-        *damage = *counter > 1 ? *counter - 1 : 0;
-      if (qol_ram(panel))
-        *(int *)(panel + 0x28) = *(int *)(panel + 0x2C);
+    if (qol_ram(gauge) && qol_ram(panel) && *(int *)(gauge + 0xC) > 1 && *(int *)(panel + 0x2C) > 0) {
+      const int max = *(int *)(gauge + 0xC);
+      const int pmax = *(int *)(panel + 0x2C);
+      *(int *)(gauge + 8) = max;
+      if (saved > 0)
+        *damage = 1;
+      fn_80159F28(side);
+      *damage = saved;
+      *(int *)(gauge + 8) = max;
+      *(int *)(panel + 0x28) = pmax;
+      *(int *)(panel + 0x34) = pmax;
+      *(u32 *)(panel + 0x20) = qol_float_bits(pmax);
+      *(u32 *)(panel + 0x1E4) = 0x3F800000; /* 1.0f */
+      *(int *)(panel + 0x14) = 0;
+      *(int *)(panel + 0x18) = 0;
+      return;
     }
-    fn_80159F28(side);
-    *damage = saved;
-    if (counter)
-      *counter = *(int *)(gauge + 0xC);
-    return;
   }
   fn_80159F28(side);
 }

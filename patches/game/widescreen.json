@@ -214,13 +214,13 @@
     {
       "site": "0x8015BE44",
       "target": "fn_80159F28",
-      "to": "qol_ship_hit_ws41",
+      "to": "qol_ship_hit_ws42",
       "why": "the ship battle turn playback: one hit on a side's HP gauge, which sinks the ship when it empties (qol.c, Invincible; ws40, ws41: the panel shows, issue #36)"
     },
     {
       "site": "0x8015C138",
       "target": "fn_80159F28",
-      "to": "qol_ship_hit_ws41",
+      "to": "qol_ship_hit_ws42",
       "why": "the same, the playback's other call (ws40, issue #36)"
     },
     {
