@@ -166,6 +166,9 @@ struct Frame
   std::vector<Draw> draws;
   std::vector<u8> array_data;
   std::vector<ArrayCopy> array_copies;
+  // [Skies] The EFB copies to textures made in the frame: the destination (BP 0x4B, as a draw's texture address reads
+  // it) and the number of draws recorded before it
+  std::vector<std::pair<u32, u32>> copies;
   // Loads by address, count, key and occurrence, and draws by key (then draw order), as indices:
   // sorted once, the current frame's order serves again when it becomes the previous frame.
   std::vector<u32> load_order, prim_order;
@@ -186,6 +189,7 @@ struct Frame
     draws.clear();
     array_data.clear();
     array_copies.clear();
+    copies.clear();
     load_order.clear();
     prim_order.clear();
     sorted = false;
@@ -987,6 +991,17 @@ bool IdentityMatrix(const u8* words, u32 count)
       return false;
   }
   return true;
+}
+
+// [Skies] A draw of a texture the frame itself copied from the EFB just before (the Red Alarm shatter copies the
+// screen and draws it again in strips) shows what the frame's earlier draws, paired and blended, made: it is not new
+// content, so the strict test leaves it drawn.
+bool ShowsOwnCopy(const Frame& frame, u32 prim)
+{
+  for (const auto& copy : frame.copies)
+    if (copy.second <= prim && copy.first == (frame.prims[prim].texture & 0xFFFFFF))
+      return true;
+  return false;
 }
 
 bool StrictTest()
@@ -2076,7 +2091,7 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
       if (!load_had_partner[i])
         plan->new_loads.push_back(i);
     for (u32 i = 0; i < cur_frame.prims.size(); ++i)
-      if (!partner[i] && !moved_prim[i])
+      if (!partner[i] && !moved_prim[i] && !ShowsOwnCopy(cur_frame, i))
         plan->new_prims.push_back(i);
   }
   plan->total = cur_frame.prims.size();
@@ -3075,6 +3090,11 @@ void InterpCommand(const u8* p, u32 len)
     frame.stream.insert(frame.stream.end(), src, src + count * 4);  // already big-endian
     return;
   }
+  case 0x61:
+    // An EFB copy to a texture (not the display copy): note where, for the strict test (a draw that shows it)
+    if (p[1] == 0x52 && !(p[3] & 0x40))
+      frame.copies.push_back({DffBp()[0x4B] & 0xFFFFFF, static_cast<u32>(frame.prims.size())});
+    break;
   default:
     if (p[0] & 0x80)
       NoteDraw(p, len);

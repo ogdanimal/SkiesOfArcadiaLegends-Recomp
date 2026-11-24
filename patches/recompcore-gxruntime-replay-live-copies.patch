@@ -1,0 +1,126 @@
+diff --git a/GXRuntime/graphics/aurora/lib/dolphin/gx/GXFrameBuffer.cpp b/GXRuntime/graphics/aurora/lib/dolphin/gx/GXFrameBuffer.cpp
+--- a/GXRuntime/graphics/aurora/lib/dolphin/gx/GXFrameBuffer.cpp
++++ b/GXRuntime/graphics/aurora/lib/dolphin/gx/GXFrameBuffer.cpp
+@@ -97,6 +97,7 @@
+   handle.logicalWidth = g_gxState.texCopyDstWidth;
+   handle.logicalHeight = g_gxState.texCopyDstHeight;
+   handle.copyFormat = texCopyFmt;
++  handle.replaySerial = gx::in_replay_context() ? gx::replay_serial() : 0;
+   g_gxState.copyTextures[dest] = handle;
+ }
+ } // namespace aurora::gx
+diff --git a/GXRuntime/graphics/aurora/lib/gx/gx.cpp b/GXRuntime/graphics/aurora/lib/gx/gx.cpp
+--- a/GXRuntime/graphics/aurora/lib/gx/gx.cpp
++++ b/GXRuntime/graphics/aurora/lib/gx/gx.cpp
+@@ -689,6 +689,7 @@
+ static GXState s_replayState{};
+ static bool s_replayContext = false;
+ static bool s_replayInit = false;
++static u32 s_replaySerial = 0;
+ 
+ bool swap_replay_context(bool enter) noexcept {
+   if (enter == s_replayContext) {
+@@ -702,6 +703,9 @@
+   }
+   std::swap(g_gxState, s_replayState);
+   s_replayContext = enter;
++  if (enter) {
++    ++s_replaySerial;
++  }
+   // Uploads cached for this frame packet belong to the other context's arrays
+   for (auto& array : g_gxState.arrays) {
+     array.cachedRange = {};
+@@ -718,7 +722,58 @@
+ 
+ bool in_replay_context() noexcept { return s_replayContext; }
+ 
+-void texture_frame_tick() noexcept { ++s_textureFrame; }
++// Local (fork): the game's copy textures (handle, revision) as each of its last frames left them, by
++// texture frame. A copy the game made frames ago and still draws (Skies' screen shatter: one capture of the
++// screen, drawn on the shards for the next 40 frames) is not made again by the replay of a frame that only
++// reads it, so the replay held the capture of its own first in-between (a blend, a frame older at T=0)
++// and drew every later in-between with that, not the game's capture. A replay reads the game's copy of a
++// texture it doesn't copy itself when the game hasn't copied it since the end of the frame before.
++struct LiveCopyRevisions {
++  u32 frame = 0;
++  absl::flat_hash_map<const void*, std::pair<const void*, u32>> copies;  // dest -> handle, revision
++};
++static std::array<LiveCopyRevisions, 4> s_liveCopyRevisions;
++static const bool s_liveCopyDisabled = std::getenv("AURORA_REPLAY_LIVE_COPIES") != nullptr &&
++                                       std::getenv("AURORA_REPLAY_LIVE_COPIES")[0] == '0';
++
++u32 replay_serial() noexcept { return s_replaySerial; }
++
++// The game's copy of `dest` when a replay of the frame with texture frame s_replayTextureFrame may read it
++static const GXState::CopyTextureRef* live_copy_for_replay(const void* dest) noexcept {
++  if (s_liveCopyDisabled || !s_replayContext || s_replayTextureFrame <= 1 || !s_replayInit) {
++    return nullptr;
++  }
++  // (the game's state is the swapped-out one while the replay's is current)
++  const auto live = s_replayState.copyTextures.find(dest);
++  if (live == s_replayState.copyTextures.end() || !live->second.handle) {
++    return nullptr;
++  }
++  const auto& before = s_liveCopyRevisions[(s_replayTextureFrame - 1) % s_liveCopyRevisions.size()];
++  if (before.frame != s_replayTextureFrame - 1) {
++    return nullptr;
++  }
++  const auto at = before.copies.find(dest);
++  if (at == before.copies.end() || at->second.first != live->second.handle.get() ||
++      at->second.second != live->second.revision) {
++    return nullptr;  // copied again since: the replay's own copy of it stands
++  }
++  if (live->second.ramBytes != 0 && copy_ram_fingerprint(dest, live->second.ramBytes) != live->second.ramFingerprint) {
++    return nullptr;
++  }
++  return &live->second;
++}
++
++void texture_frame_tick() noexcept {
++  if (!s_replayContext) {
++    auto& slot = s_liveCopyRevisions[s_textureFrame % s_liveCopyRevisions.size()];
++    slot.frame = s_textureFrame;
++    slot.copies.clear();
++    for (const auto& [dest, ref] : g_gxState.copyTextures) {
++      slot.copies[dest] = {ref.handle.get(), ref.revision};
++    }
++  }
++  ++s_textureFrame;
++}
+ 
+ u32 texture_frame() noexcept { return s_textureFrame; }
+ 
+@@ -979,6 +1034,12 @@
+       copyIt = g_gxState.copyTextures.end();
+     }
+     const GXState::CopyTextureRef* copyRef = copyIt != g_gxState.copyTextures.end() ? &copyIt->second : nullptr;
++    if (s_replayContext && (copyRef == nullptr || copyRef->replaySerial != s_replaySerial)) {
++      // Local (fork): a copy this replay didn't make: the game's, if it is the one the replayed frame saw
++      if (const auto* live = live_copy_for_replay(obj.data)) {
++        copyRef = live;
++      }
++    }
+     if (is_palette_format(obj.format())) {
+       GXTlutObj_ recompTlut{};
+       const GXTlutObj_* tlut = nullptr;
+diff --git a/GXRuntime/graphics/aurora/lib/gx/gx.hpp b/GXRuntime/graphics/aurora/lib/gx/gx.hpp
+--- a/GXRuntime/graphics/aurora/lib/gx/gx.hpp
++++ b/GXRuntime/graphics/aurora/lib/gx/gx.hpp
+@@ -297,6 +297,8 @@
+     u32 logicalWidth = 0;
+     u32 logicalHeight = 0;
+     u32 copyFormat = 0;
++    // Local (fork): which replay made this copy (swap_replay_context's count; 0: the game's own)
++    u32 replaySerial = 0;
+ 
+     operator bool() const noexcept { return handle.operator bool(); }
+   };
+@@ -438,6 +440,8 @@
+ // interpolation replays a frame after the game has rewritten textures for the next one.
+ u32 texture_frame() noexcept;
+ void set_replay_texture_frame(u32 frame) noexcept;
++// The count of replays so far (swap_replay_context(true) adds one): which one made a copy texture
++u32 replay_serial() noexcept;
+ void evict_copy_texture(const void* dest) noexcept;
+ u64 copy_ram_fingerprint(const void* dest, u32 bytes) noexcept;
+ void evict_texture_object(u32 texObjId) noexcept;
