@@ -2186,7 +2186,13 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
         last = k;
       if (last != prev_colour.end())
       {
-        plan->loads.emplace_back(&l, &prev_frame.loads[last->second]);
+        // [Skies] A colour load (ambient, material) the same in both frames blends to itself: not in the plan (with
+        // COLOURS 31, ~2700 colour and light loads a frame). Light loads stay: their vectors are carried (BlendLightVectors).
+        const Load& match = prev_frame.loads[last->second];
+        if ((l.address < XFMEM_LIGHTS || l.address >= XFMEM_LIGHTS_END) && l.address + l.count <= XFMEM_SETPROJECTION &&
+            std::memcmp(cur_frame.stream.data() + l.data_offset, prev_frame.stream.data() + match.data_offset, l.count * 4u) == 0)
+          continue;
+        plan->loads.emplace_back(&l, &match);
         // The light is in view space, as are the normals of the object it lights (the draw after it), which aren't
         // blended: the previous light goes into the current view by that object's rigid motion (the map's is the
         // camera's; a ship moving against the world has its own), or the camera's when the object isn't rigid
