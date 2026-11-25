@@ -2148,9 +2148,15 @@ frames of shards, mean 262,706 (WSL = the Mac's run, to the pixel).
   view space, and so are the normals of the draws they light (the map and models are transformed on the CPU; normals
   aren't blended), so the previous frame's sun lit the current normals from where the camera was (fp 637 -> 2,755
   per in-between; frames 2527-2529 with every sun load forced to the previous frame's: 88k px, to the current
-  one's: 16k). The previous frame's position and direction are now first taken into the current view by the camera's
-  motion (`BlendLightVectors`: `R^T (prev - to) + from`, the rigid fit of the map), so only the light's own motion is
-  blended; without a camera motion they stay the current frame's.
+  one's: 16k). The previous frame's position and direction are now first taken into the current view by the rigid
+  motion of the object the light is loaded for (the draw after it; the map's motion is the camera's), or by the
+  camera's when that object isn't rigid (`BlendLightVectors`: `R^T (prev - to) + from`), so only the light's own
+  motion is blended; without a motion they stay the current frame's. Review (Fable): most battle lights are fixed to
+  the camera (first battle 60,985 of 73,050 positions unchanged), and the carry turns them away from what the game
+  sent. Leaving unchanged vectors alone was tried: first battle 3,797 vs 3,795 carried, Antonio 1,710 vs 1,664 (T=0.5
+  both-frames the same, 8,165 / 8,166): the normals they meet are the current frame's, so the carried light is the one
+  that gives the previous frame's shading at T=0. Carrying by the lit object's motion instead of the camera's alone
+  (a ship moving against the world carries its own lights): first battle 3,799 -> 3,795, Antonio 1,685 -> 1,664.
 - **The strict test blanked 58722** (`ShowsOwnCopy`, test only): the strips are new draws, which the strict test
   collapses, and the copy had cleared the EFB, so the in-between was black (2,184,960 px, every pixel; also on WSL,
   not only Metal). Draws that read a texture the same frame copied earlier are left drawn: they show what the
@@ -2176,6 +2182,11 @@ pre-battle field, the Baltor ship battle, a deck battle and the save menu: ident
 (Start, B, X: the camp menu's screen grab at `0x667540`, issue #37): with it off, every in-between while the menu is
 open drew the menu's backdrop from the replay's own first grab, 130k px off the real frames (both-frames 36k px
 each); with it on, 0. That is a 60 fps fix in itself (the backdrop jumped between two pictures).
+**Review fixes** (`recompcore-gxruntime-replay-live-copies.patch`): the copy snapshot holds the texture handles (a
+copy made after a state load's cache clear at a freed address could pass as the old one), the off switch is read at
+first use (Android sets the environment in `main`); new `recompcore-gxruntime-texture-frame-drain-guard.patch`: the
+#37 texture-frame calls drain only with a frame open (one debug run faulted in `push_verts` on a null
+`g_recordingFrame`; not reproduced).
 **Not checked:** Windows, Android, the Mac; the battle swirl (#35) and Drachma's pose plane (#9) with 60 fps (no
 states); Display refresh (the replays of one frame at several t take the same path).
 

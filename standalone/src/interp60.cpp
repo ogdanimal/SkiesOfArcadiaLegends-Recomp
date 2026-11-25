@@ -489,8 +489,11 @@ Word WordKind(u32 address)
 // draws they light: the game lights view-space draws (the map, models transformed on the CPU), whose normals aren't
 // blended. The previous frame's light, blended as it is, lit the current frame's normals from where the camera was (the
 // first-person reef switch: the sun at T=0 put the strict test from 637 to 2,755 per in-between); it is first taken into
-// the current frame's view by the camera's motion (BlendLightVectors), so only the light's own motion is blended (the
-// Red Alarm's turning beacon). Without a camera motion they stay the current frame's.
+// the current frame's view by the rigid motion of the object it lights, or the camera's when that object isn't rigid
+// (BlendLightVectors), so only the light's own motion is blended (the Red Alarm's turning beacon); without a motion
+// they stay the current frame's. A light the game holds fixed to the camera (most battle lights) is carried too: the
+// normals it meets are the current frame's, so at T=0 only the carried light gives the previous frame's shading
+// (left as sent, the Antonio battle's strict test was 1,710 per in-between, carried 1,664; T=0.5 the same).
 bool LightVectorWord(u32 address)
 {
   return address >= XFMEM_LIGHTS && address < XFMEM_LIGHTS_END && (address & 15) >= 10;
@@ -2413,8 +2416,8 @@ void BlendArrays(const Frame& cur_frame, const Frame& prev_frame, const Prim& pr
 }
 
 // The lights' position and direction words of `load` (LightVectorWord): the previous frame's taken into the current
-// frame's view by `cam` (cur = R^T (prev - to) + from, a direction by R^T alone), then blended; one the game sent
-// unchanged stays (most battle lights are fixed to the camera). `out` holds the load's words.
+// frame's view by `cam` (cur = R^T (prev - to) + from, a direction by R^T alone), then blended. `out` holds the load's
+// words.
 void BlendLightVectors(const Load& load, const u8* cur, const u8* prev, const BlendPlan::Moved& cam, float t, u8* out)
 {
   const float* r = cam.r.data();
@@ -2425,9 +2428,6 @@ void BlendLightVectors(const Load& load, const u8* cur, const u8* prev, const Bl
       if (base + at < load.address || base + at + 3 > load.address + load.count)
         continue;
       const u32 w = base + at - load.address;
-      // Sent unchanged (a light the game holds fixed to the camera, or a still camera): left as it is
-      if (std::memcmp(cur + w * 4, prev + w * 4, 12) == 0)
-        continue;
       float p[3], c[3], q[3];
       for (int k = 0; k < 3; ++k)
       {
