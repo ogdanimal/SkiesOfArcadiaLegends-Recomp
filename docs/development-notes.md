@@ -2190,6 +2190,53 @@ first use (Android sets the environment in `main`); new `recompcore-gxruntime-te
 **Not checked:** Windows, Android, the Mac; the battle swirl (#35) and Drachma's pose plane (#9) with 60 fps (no
 states); Display refresh (the replays of one frame at several t take the same path).
 
+### 60 fps review round after next094: guesses out, colours per object, snaps, cuts, cost (2026-11-24)
+
+Fable reviews of next094's 60 fps work, each finding fixed or dropped by running (branches `interp-synth`, `interp-cost`,
+merged into next094 as `e4f2e24`; then `interp-all` with the shatter work). The release gate for 60 fps is the
+**both-frames measure at T=0.5, old host vs new, per frame** (pixels of the in-between outside the range of both real
+frames; `build/syn/gate.sh` in the worktree): the strict test (T=0) can't see guessed values, look-alikes paired
+crosswise, decisions that depend on t, or cuts. Pictures decide where a count can't (a torn picture can score well).
+- **Guessed matrices removed** (`ade3941`'s synthesis, `SKIES_INTERP_NEW_MATRICES`): nothing checked the guess, so things
+  fixed to the screen moved with the camera (the first battle's darkening layer over a band in close-ups, 10224
+  149,275 -> 117; the ship battles' command-wheel icons gone for a picture, EU 1813 / 1816 / 1883, US 99016-99085), and
+  no scene was better with it (reef, pans, walk, world map, pyramid, shatter, battles: 0 frames better). Equal to
+  next094 with the switch off, byte for byte.
+- **Colours blend all or nothing per object** (task 0 as one): a 2D screen fading in from black (the first battle's
+  results, 9906) was a patchwork for a picture, its unpaired tiles at full brightness (219,608 px -> 524). A turning
+  draw counts as its object's colour partner only before the middle.
+- **Turning snaps** (Collapses, KeepMatrixScale) are decided at t = 0.5 for every t, and a turning draw is held whole
+  before the middle (positions, colours, coordinates and array values as at t = 0) and the current frame's after: at
+  the display's rate a part turning round stepped new -> shrunken -> new (first battle 9500: 0 / 17 / 65 / 8 / 0 snaps at
+  t = 0.08 / 0.2 / 0.5 / 0.83 / 0.95, now 65 at every t). Holding jump snaps the same way was tried and dropped: a
+  jump's group includes draws with no partner, and the held ones landed on wrong places (the enemy ship came apart at
+  9513, t = 0.1) although the count looked better.
+- **Camera cuts** have no in-between (a real picture shows): the fitted camera turned more than 18 degrees in one frame
+  right after a pair in which it was found and turned less than 2, and the camera object's draws moved by more than
+  15% of their distance (cuts and whirls 25-109%; a still deck the fit read as 27 degrees: 5%). The JP world-map battle
+  start blended 72-88 degree cuts into a view halfway between two shots; snapping the draws instead tore the deck. A
+  whirl's first frame loses its in-between too (the next frame isn't known yet). `SKIES_INTERP_CUT_ANGLE=<degrees>`
+  (0: off).
+- **Cost, output unchanged byte for byte** (`interp-cost`; 25,189 pictures in 28 scenes identical, a review's 52,590
+  blends at shuffled t identical): alignment shortcuts (unchanged kinds in order; any other order costs two gaps, unless
+  the in-order cost reaches the 1e30 cap; gap floors computed once), float-only matrix distances, per-frame sorted
+  lists kept by serial, unmoved fast paths, unchanged loads / colours / coordinates left as the copy holds them, inline
+  byte compares, and ApplyPlan's t-independent decisions made once per frame pair (display rate). Pocket 5 save point,
+  blend per in-between: next094 6.1-6.3 ms -> 4.8-4.9 (v0.93 5.1-5.3); Thor 4.0-4.2 -> 3.2; JP battle start at 240 Hz
+  (Windows, RTX 5080): 3.31 (v0.93) / 2.57 ms per frame.
+
+**Light blending on by default (`SKIES_INTERP_COLOURS` 31; owner's decision 2026-11-24).** With the shatter work's lights
+and chans' colours blended, the Red Alarm pulse ramps at 60 fps instead of stepping at 30 (each in-between had the next
+frame's light), and battle lighting moves by a few levels (hard to see). Measured cost (`interp-all`, 31 vs 28, three
+rounds each, 62 s): **no frame rate or in-between lost anywhere**: Pocket 5 first battle 1.00x both, 1,744 of 1,800
+interpolated both (30 skipped at the battle's start transition, the same budget event in both); save point 1,797 of
+1,800 both, speed its usual 0.84-0.93x in both; Thor first battle 1.00x and 1,744 of 1,800 both. Blend per in-between:
+Pocket 5 battle 3.0-3.3 vs 2.6-3.1 ms, save point 5.9 vs 4.9 (+1.0; v0.93 5.2), Thor battle 2.6 vs 2.3; the video
+thread per 33.3 ms game frame about 7.0 vs 6.6 ms (Pocket 5 battle), 11.8 vs 10.9 (save point), 5.8 vs 5.5 (Thor). The
+cost is the lights' own work (about 2,700 more light and colour loads a frame, a rigid fit for each lit object, the
+vectors carried): colour and light loads skip the matrix alignments, their list is kept per frame, and a colour load
+unchanged between the frames stays out of the plan (all exact). `SKIES_INTERP_COLOURS=28` turns lights and chans off.
+
 ### 60 fps after v0.93: first person over the reef, the strict test, colours (2026-11-24, issues #24 and #18)
 
 **Report** (Cawl87, v0.93, RX 7800 XT, VRR, Vulkan): objects warp as they come on screen while panning (tree

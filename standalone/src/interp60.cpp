@@ -43,7 +43,7 @@
 // colour registers: the Red Alarm's pulsing light and turning beacon),
 // SKIES_INTERP_RIGID (an object that moved as one rigid body, the map with the camera: its draws without a partner of
 // their shape, or that jumped, follow that motion, and a draw that doesn't follow it finds its partner by it).
-// SKIES_INTERP_STRICT=1 (a test, with SKIES_INTERP_T=0): what had no partner isn't drawn, so the in-between
+// SKIES_INTERP_CUT_ANGLE (degrees, default 18, 0 off: a camera cut has no in-between). SKIES_INTERP_STRICT=1 (a test, with SKIES_INTERP_T=0): what had no partner isn't drawn, so the in-between
 // should equal the previous frame (development notes, "60 fps after v0.93").
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "host.h"

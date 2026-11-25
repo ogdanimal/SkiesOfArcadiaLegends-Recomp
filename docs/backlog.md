@@ -13,6 +13,26 @@ the cut-over: no new Dolphin-engine-only features; items below marked "both buil
 once it ships.
 
 
+## 60 fps after the review round — open items, 2026-11-24 (development notes: "60 fps review round after next094")
+
+Merged into next094 (`e4f2e24`): guessed matrices removed, colours per object, turning snaps at t = 0.5 with a hold,
+camera cuts, the blend cost (Pocket 5 save point 4.8 ms, v0.93 5.2). `interp-all` (the Red Alarm shatter, light
+blending on by default, COLOURS 31) awaits its last review. Still open:
+- **Findings 3 and 4 not reproduced** (by reading only): texture coordinates blended between two atlas cells of
+  different sizes (a list scrolling, a rolling number); the re-pairing by motion dropping good partners of pieces that
+  move on their own. Menus over 3D and CAMERA_PAIR on/off in the first battle showed neither; fix only with a case.
+- **Light carry of matrix-drawn pieces** (low, no picture effect found): some lights of pieces drawn through matrices
+  (whose own positions don't change in the stream) are still carried by a moving fit: in the EU ship battle 2,704 by
+  the camera fallback + 1,982 by the object's fit, about 20% of its light loads; world map 1,140 + 2; first battle
+  376 + 4; none in the other scenes measured. EU ship-battle strict is 1,036 at mask 31 and at 28, so it doesn't show.
+  If it ever does: carry a light only when the lit draw itself moved in the stream, else blend it plainly. Source: a
+  review (`~/projects/skies-rev26/shatter`, `fin_inst.cpp`, `sbatch4.out`).
+- **The old SIGSEGV** (one debug run faulted in `push_verts` on a null `g_recordingFrame`, a #37 texture-frame drain
+  with no frame open): not reproduced; `recompcore-gxruntime-texture-frame-drain-guard.patch` guards the drains.
+- **A fast move's first frame loses its in-between**: the cut test can't tell a cut from the start of a whirl (35 then
+  68 degrees a frame) without the next frame, so both show a real picture (US first battle 9421 / 9512, JP 2538; one
+  30 fps step, coherent). A real fix needs the next frame (a frame of latency) or another sign of a cut.
+
 ## Next build, local branch `next094` — 2026-11-24 (not pushed; push, replies and release on the owner's word)
 
 In `~/projects/skies-interp` (branch `next094`, from v0.93's `8beb8c8`): `i24-loads`, `i26` (`00748e4`), `ws42`
