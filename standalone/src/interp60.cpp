@@ -36,10 +36,11 @@
 // least cost of leaving a draw or a position matrix unpaired), SKIES_INTERP_ORDINAL (an object's draws paired by number),
 // SKIES_INTERP_LOCAL_SNAP (a jump snaps its object, or nearby object-less draws, not every draw with its texture),
 // SKIES_INTERP_CAMERA_PAIR (an object's alike pieces paired again by its motion or the camera's),
-// SKIES_INTERP_COLOURS (=0 off, or a mask, default 28: 4 direct vertex colours, 8 indexed colours and texture coordinates,
+// SKIES_INTERP_COLOURS (=0 off, or a mask, default 31: 4 direct vertex colours, 8 indexed colours and texture coordinates,
 // 16 direct texture coordinates, of paired draws blended like the positions, a coordinate that jumps (a flipbook cell) taking
 // the previous frame's for the first half of the way: the pyramid's torch glow quads scroll their coordinates through an
-// indexed array; 1 lights, 2 the chans' ambient and material colour registers: blended they made other scenes worse),
+// indexed array; 1 lights (position and direction taken into the current view first), 2 the chans' ambient and material
+// colour registers: the Red Alarm's pulsing light and turning beacon),
 // SKIES_INTERP_RIGID (an object that moved as one rigid body, the map with the camera: its draws without a partner of
 // their shape, or that jumped, follow that motion, and a draw that doesn't follow it finds its partner by it).
 // SKIES_INTERP_STRICT=1 (a test, with SKIES_INTERP_T=0): what had no partner isn't drawn, so the in-between
@@ -166,6 +167,9 @@ struct Frame
   std::vector<Draw> draws;
   std::vector<u8> array_data;
   std::vector<ArrayCopy> array_copies;
+  // [Skies] The EFB copies to textures made in the frame: the destination (BP 0x4B, as a draw's texture address reads
+  // it) and the number of draws recorded before it
+  std::vector<std::pair<u32, u32>> copies;
   // Loads by address, count, key and occurrence, and draws by key (then draw order), as indices:
   // sorted once, the current frame's order serves again when it becomes the previous frame.
   std::vector<u32> load_order, prim_order;
@@ -186,6 +190,7 @@ struct Frame
     draws.clear();
     array_data.clear();
     array_copies.clear();
+    copies.clear();
     load_order.clear();
     prim_order.clear();
     sorted = false;
@@ -444,13 +449,15 @@ bool IsMatrixOrProjection(u32 address)
          (address >= XFMEM_SETPROJECTION && address < XFMEM_SETPROJECTION + 6);
 }
 
-// SKIES_INTERP_COLOURS: 0 off, otherwise a mask (default 28): 1 lights, 2 the chans' colour registers (both off: blended they made the Red Alarm scene and the first-person reef worse), 4 direct vertex
+// SKIES_INTERP_COLOURS: 0 off, otherwise a mask (default 31): 1 lights, 2 the chans' colour registers (on since the replay
+// reads the game's held screen copy, and lights' vectors follow the camera: before, they made the Red Alarm scene and the
+// first-person reef worse), 4 direct vertex
 // colours, 8 indexed colours and texture coordinates, 16 direct texture coordinates
 int ColourMask()
 {
   static const int mask = [] {
     const char* env = std::getenv("SKIES_INTERP_COLOURS");
-    return env ? std::atoi(env) : 28;
+    return env ? std::atoi(env) : 31;
   }();
   return mask;
 }
@@ -477,6 +484,20 @@ Word WordKind(u32 address)
   if (address >= 0x1000 && address < 0x1020)
     return Word::Keep;
   return Word::Float;
+}
+
+// [Skies] A light's position (words 10-12) and direction (13-15) are in view space, and so are the normals of the
+// draws they light: the game lights view-space draws (the map, models transformed on the CPU), whose normals aren't
+// blended. The previous frame's light, blended as it is, lit the current frame's normals from where the camera was (the
+// first-person reef switch: the sun at T=0 put the strict test from 637 to 2,755 per in-between); it is first taken into
+// the current frame's view by the rigid motion of the object it lights, or the camera's when that object isn't rigid
+// (BlendLightVectors), so only the light's own motion is blended (the Red Alarm's turning beacon); without a motion
+// they stay the current frame's. A light the game holds fixed to the camera (most battle lights) is carried too: the
+// normals it meets are the current frame's, so at T=0 only the carried light gives the previous frame's shading
+// (left as sent, the Antonio battle's strict test was 1,710 per in-between, carried 1,664; T=0.5 the same).
+bool LightVectorWord(u32 address)
+{
+  return address >= XFMEM_LIGHTS && address < XFMEM_LIGHTS_END && (address & 15) >= 10;
 }
 
 // A load of lights or colours (not counted with the matrices when frames are told apart)
@@ -922,6 +943,9 @@ struct BlendPlan
   std::vector<Moved> moved;
   // SKIES_INTERP_STRICT (a test): the loads and draws that had no partner (new in the current frame), hidden
   std::vector<u32> new_loads, new_prims;
+  // [Skies] For a paired light load (Moved::index: its place in `loads`, ascending), the motion (prev = R (cur - from) +
+  // to) its position and direction are taken into the current view by: the lit object's own, else the camera's
+  std::vector<Moved> light_moves;
   size_t total = 0;
   bool cut = false;  // [Skies] the camera cut to another shot: no in-between (ApplyPlan's false)
   u64 version = 0;   // [Skies] a new number at each BuildPlan (ApplyPlan's decisions are kept by it)
@@ -1062,6 +1086,17 @@ bool IdentityMatrix(const u8* words, u32 count)
   return true;
 }
 
+// [Skies] A draw of a texture the frame itself copied from the EFB just before (the Red Alarm shatter copies the
+// screen and draws it again in strips) shows what the frame's earlier draws, paired and blended, made: it is not new
+// content, so the strict test leaves it drawn.
+bool ShowsOwnCopy(const Frame& frame, u32 prim)
+{
+  for (const auto& copy : frame.copies)
+    if (copy.second <= prim && copy.first == (frame.prims[prim].texture & 0xFFFFFF))
+      return true;
+  return false;
+}
+
 bool StrictTest()
 {
   static const bool on = std::getenv("SKIES_INTERP_STRICT") != nullptr;
@@ -1078,6 +1113,7 @@ struct FrameLists
   u64 used = 0;
   std::vector<u32> by_object;                 // object-tagged draws: (task, ordinal, index) order
   std::vector<std::pair<u32, u32>> tasks;     // float draws of an object: (task, index), sorted
+  std::vector<std::pair<u64, u32>> colours;   // colour and light loads before a draw: (prim << 32 | address << 8 | count, load index), sorted
 };
 
 const FrameLists& ListsFor(const Frame& frame)
@@ -1110,6 +1146,14 @@ const FrameLists& ListsFor(const Frame& frame)
     if (frame.prims[index].task != 0 && frame.prims[index].pos_format == FORMAT_FLOAT)
       lists.tasks.emplace_back(frame.prims[index].task, static_cast<u32>(index));
   std::sort(lists.tasks.begin(), lists.tasks.end());
+  lists.colours.clear();
+  for (u32 j = 0; j < frame.loads.size(); ++j)
+  {
+    const Load& l = frame.loads[j];
+    if (l.prim != ~0u && IsColourLoad(l.address, l.count))
+      lists.colours.emplace_back((u64{l.prim} << 32) | (u64{l.address} << 8) | l.count, j);
+  }
+  std::sort(lists.colours.begin(), lists.colours.end());
   return lists;
 }
 
@@ -1123,6 +1167,7 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
   if (StrictTest())
     load_had_partner.assign(cur_frame.loads.size(), 0);
   plan->loads.clear();
+  plan->light_moves.clear();
   plan->prims.clear();
   plan->jumping_textures.clear();
   plan->triggers.clear();
@@ -1178,6 +1223,16 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
           ++la;
         else
           ++lb;
+        continue;
+      }
+      // [Skies] Colour and light loads are paired through their draws (below), never here: their alignment only
+      // marked them (the pass by object and the strict test's new loads, which hide position matrices only)
+      if (IsColourLoad(std::get<0>(k), std::get<1>(k)))
+      {
+        for (; la < cur_lo.size() && kind(cur_frame.loads[cur_lo[la]]) == k; ++la)
+          ;
+        for (; lb < prev_lo.size() && kind(prev_frame.loads[prev_lo[lb]]) == k; ++lb)
+          ;
         continue;
       }
       cur_loads.clear();
@@ -1316,13 +1371,13 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
     for (u32 i = 0; i < cur_frame.loads.size(); ++i)
     {
       const Load& l = cur_frame.loads[i];
-      if (!cur_load_aligned[i])
+      if (!cur_load_aligned[i] && !IsColourLoad(l.address, l.count))
         cur_left.push_back({l.task, l.func, l.task ? 0 : l.key ^ (u64{l.texture} << 20), l.address, l.count, i});
     }
     for (u32 j = 0; j < prev_frame.loads.size(); ++j)
     {
       const Load& l = prev_frame.loads[j];
-      if (!prev_load_aligned[j])
+      if (!prev_load_aligned[j] && !IsColourLoad(l.address, l.count))
         prev_left.push_back({l.task, l.func, l.task ? 0 : l.key ^ (u64{l.texture} << 20), l.address, l.count, j});
     }
     if (!cur_left.empty() && !prev_left.empty())
@@ -2117,15 +2172,7 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
   // of the same register before that draw's partner. Aligned by kind and order like matrices, a frame with one draw more
   // shifted them all (the Red Alarm room's pulsing ambient blended from another draw's: paler walls).
   {
-    static std::vector<std::pair<u64, u32>> prev_colour;  // (partner prim << 32 | address << 8 | count, load index)
-    prev_colour.clear();
-    for (u32 j = 0; j < prev_frame.loads.size(); ++j)
-    {
-      const Load& l = prev_frame.loads[j];
-      if (l.prim != ~0u && IsColourLoad(l.address, l.count))
-        prev_colour.emplace_back((u64{l.prim} << 32) | (u64{l.address} << 8) | l.count, j);
-    }
-    std::sort(prev_colour.begin(), prev_colour.end());
+    const std::vector<std::pair<u64, u32>>& prev_colour = prev_lists.colours;  // (FrameLists: made once a frame)
     for (const Load& l : cur_frame.loads)
     {
       if (l.prim == ~0u || !IsColourLoad(l.address, l.count) || !partner[l.prim])
@@ -2138,7 +2185,26 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
       for (auto k = it; k != prev_colour.end() && k->first == want; ++k)
         last = k;
       if (last != prev_colour.end())
-        plan->loads.emplace_back(&l, &prev_frame.loads[last->second]);
+      {
+        // [Skies] A colour load (ambient, material) the same in both frames blends to itself: not in the plan (with
+        // COLOURS 31, ~2700 colour and light loads a frame). Light loads stay: their vectors are carried (BlendLightVectors).
+        const Load& match = prev_frame.loads[last->second];
+        if ((l.address < XFMEM_LIGHTS || l.address >= XFMEM_LIGHTS_END) && l.address + l.count <= XFMEM_SETPROJECTION &&
+            std::memcmp(cur_frame.stream.data() + l.data_offset, prev_frame.stream.data() + match.data_offset, l.count * 4u) == 0)
+          continue;
+        plan->loads.emplace_back(&l, &match);
+        // The light is in view space, as are the normals of the object it lights (the draw after it), which aren't
+        // blended: the previous light goes into the current view by that object's rigid motion (the map's is the
+        // camera's; a ship moving against the world has its own), or the camera's when the object isn't rigid
+        BlendPlan::Moved motion;
+        if (l.address >= XFMEM_LIGHTS && l.address < XFMEM_LIGHTS_END &&
+            ((cur_frame.prims[l.prim].task != 0 && fit_for(cur_frame.prims[l.prim].task, &motion)) ||
+             camera_fit(&motion)))
+        {
+          motion.index = static_cast<u32>(plan->loads.size() - 1);
+          plan->light_moves.push_back(motion);
+        }
+      }
     }
   }
   if (StrictTest())
@@ -2149,7 +2215,7 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
       if (!load_had_partner[i])
         plan->new_loads.push_back(i);
     for (u32 i = 0; i < cur_frame.prims.size(); ++i)
-      if (!partner[i] && !moved_prim[i])
+      if (!partner[i] && !moved_prim[i] && !ShowsOwnCopy(cur_frame, i))
         plan->new_prims.push_back(i);
   }
   // [Skies] A camera cut: the fitted camera turned more than 18 degrees in one frame right after a frame pair in which
@@ -2589,6 +2655,38 @@ bool UnchangedLoad(const Load& load, const u8* cur, const u8* prev)
   return true;
 }
 
+// The lights' position and direction words of `load` (LightVectorWord): the previous frame's taken into the current
+// frame's view by `cam` (cur = R^T (prev - to) + from, a direction by R^T alone), then blended. `out` holds the load's
+// words.
+void BlendLightVectors(const Load& load, const u8* cur, const u8* prev, const BlendPlan::Moved& cam, float t, u8* out)
+{
+  const float* r = cam.r.data();
+  for (u32 base = load.address & ~15u; base < load.address + load.count; base += 16)
+  {
+    for (const u32 at : {10u, 13u})
+    {
+      if (base + at < load.address || base + at + 3 > load.address + load.count)
+        continue;
+      const u32 w = base + at - load.address;
+      float p[3], c[3], q[3];
+      for (int k = 0; k < 3; ++k)
+      {
+        c[k] = ReadFloat(cur + (w + k) * 4);
+        p[k] = ReadFloat(prev + (w + k) * 4) - (at == 10 ? cam.to[k] : 0.0f);
+      }
+      bool finite = true;
+      for (int k = 0; k < 3; ++k)
+      {
+        q[k] = r[k] * p[0] + r[3 + k] * p[1] + r[6 + k] * p[2] + (at == 10 ? cam.from[k] : 0.0f);
+        finite = finite && std::isfinite(q[k]) && std::isfinite(c[k]);
+      }
+      if (finite)
+        for (int k = 0; k < 3; ++k)
+          WriteFloat(out + (w + k) * 4, q[k] + (c[k] - q[k]) * t);
+    }
+  }
+}
+
 bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan& plan, std::vector<u8>* out, float t)
 {
   // [Skies] A camera cut has no in-between: nothing to blend (at the display's rate, at every refresh)
@@ -2608,6 +2706,11 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
       d.unchanged_load[k] = UnchangedLoad(load, cur_frame.stream.data() + load.data_offset,
                                           prev_frame.stream.data() + plan.loads[k].second->data_offset);
     }
+    // (a light's position and direction are carried by its object's or the camera's motion even when unchanged:
+    // BlendLightVectors)
+    for (const BlendPlan::Moved& move : plan.light_moves)
+      if (move.index < d.unchanged_load.size())
+        d.unchanged_load[move.index] = 0;
     // Draws turning round in one frame (Collapses) snap with their texture's group too. [Skies] Decided at the middle
     // (t = 0.5) for every t, as KeepMatrixScale, to the previous frame's places before the middle and the current
     // frame's after: at the display's rate the pictures stepped new -> shrunken -> new.
@@ -2776,8 +2879,10 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
   s_arrays_blended = false;
   s_copy_blended.assign(cur_frame.array_copies.size(), 0);
   size_t paired = 0;
+  auto light_move = plan.light_moves.begin();
   for (size_t li = 0; li < plan.loads.size(); ++li)
   {
+    const u32 pair_index = static_cast<u32>(li);
     const Load& load = *plan.loads[li].first;
     const u8* cur = cur_frame.stream.data() + load.data_offset;
     const u8* prev = prev_frame.stream.data() + plan.loads[li].second->data_offset;
@@ -2790,7 +2895,7 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
       if (load.address + i >= XFMEM_SETPROJECTION + 6)
         continue;
       const Word kind = WordKind(load.address + i);
-      if (kind == Word::Keep)
+      if (kind == Word::Keep || LightVectorWord(load.address + i))
         continue;
       if (kind == Word::Colour)
       {
@@ -2802,6 +2907,10 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
       WriteFloat(out->data() + load.data_offset + i * 4, p + (c - p) * t);
     }
     KeepMatrixScale(load, cur, prev, t, out->data() + load.data_offset);
+    while (light_move != plan.light_moves.end() && light_move->index < pair_index)
+      ++light_move;
+    if (light_move != plan.light_moves.end() && light_move->index == pair_index)
+      BlendLightVectors(load, cur, prev, *light_move, t, out->data() + load.data_offset);
   }
   const std::vector<u32>& colours_off = t < 0.5f ? d.colours_off_before : d.colours_off_after;
   for (size_t i = 0; i < plan.prims.size(); ++i)
@@ -3435,6 +3544,11 @@ void InterpCommand(const u8* p, u32 len)
     frame.stream.insert(frame.stream.end(), src, src + count * 4);  // already big-endian
     return;
   }
+  case 0x61:
+    // An EFB copy to a texture (not the display copy): note where, for the strict test (a draw that shows it)
+    if (p[1] == 0x52 && !(p[3] & 0x40))
+      frame.copies.push_back({DffBp()[0x4B] & 0xFFFFFF, static_cast<u32>(frame.prims.size())});
+    break;
   default:
     if (p[0] & 0x80)
       NoteDraw(p, len);

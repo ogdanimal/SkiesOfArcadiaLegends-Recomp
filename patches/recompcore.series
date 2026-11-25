@@ -73,3 +73,5 @@ cutscene-bars
 gxruntime-replay-texture-frames
 gxruntime-padded-base-bilinear
 gxruntime-sorted-decals
+gxruntime-replay-live-copies
+gxruntime-texture-frame-drain-guard
