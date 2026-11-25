@@ -3698,6 +3698,9 @@ build (Dolphin's Vulkan backend on llvmpipe is right).
   blocker stores a state under 1e-15 as 0: a constant input left it at a subnormal (7e-43) after about 2 s,
   18 -> 320-460 ns per output frame (3 of 105 sequences sit there most of the time); the game's audio is
   identical (38.4 M samples against the blocker before).
+  2026-11-24, next094 `3ba172d` (v0.94.0-beta): the `me123d` route plays M0254 for 100 s with no pinned line on
+  macOS (Metal) and Windows too. For muted checks set `SKIES_DC_MUSIC_SYNC=1`: with `SKIES_MUTE` alone the host never
+  opens the Dreamcast music's stream, so nothing is rendered and "0 pinned" proves nothing.
 - **#34** (2026-11-19) the AYN Thor closes at Start Game on `.6`, fresh install too (no log yet). The Thor has
   the Nova's Snapdragon 8 Gen 2 but its own firmware and a second, near-square screen (about 1240x1080). A
   simulated second display on the Pocket 5 (`overlay_display_devices 1240x1080/320`, the launcher started there

@@ -13,11 +13,14 @@ the cut-over: no new Dolphin-engine-only features; items below marked "both buil
 once it ships.
 
 
-## 60 fps after the review round — open items, 2026-11-24 (development notes: "60 fps review round after next094")
+## 60 fps after the review round — open items, 2026-11-24 (development notes: "60 fps review round after next094"; in v0.94.0-beta)
 
-Merged into next094 (`e4f2e24`): guessed matrices removed, colours per object, turning snaps at t = 0.5 with a hold,
-camera cuts, the blend cost (Pocket 5 save point 4.8 ms, v0.93 5.2). `interp-all` (the Red Alarm shatter, light
-blending on by default, COLOURS 31) awaits its last review. Still open:
+In next094 (`3ba172d`, pushed to dev with the v0.94 notes as `897f3c2`): guessed matrices removed, colours per
+object, turning snaps at t = 0.5 with a hold, camera cuts, the blend cost, and `interp-all` (the Red Alarm shatter:
+live copies in the replay, light blending on by default, COLOURS 31; the owner's choice, measured: no frame rate or
+in-between lost on the Pocket 5 or the Thor, the save point's blend 4.9 -> 5.9 ms). Checked on WSL, Windows (D3D12,
+Vulkan, Display refresh at 240 Hz and 144 pacing: blend ~25-30% under v0.93), macOS (Metal), the Pocket 5 and the
+Thor. Still open:
 - **Findings 3 and 4 not reproduced** (by reading only): texture coordinates blended between two atlas cells of
   different sizes (a list scrolling, a rolling number); the re-pairing by motion dropping good partners of pieces that
   move on their own. Menus over 3D and CAMERA_PAIR on/off in the first battle showed neither; fix only with a case.
@@ -33,22 +36,27 @@ blending on by default, COLOURS 31) awaits its last review. Still open:
   68 degrees a frame) without the next frame, so both show a real picture (US first battle 9421 / 9512, JP 2538; one
   30 fps step, coherent). A real fix needs the next frame (a frame of latency) or another sign of a cut.
 
-## Next build, local branch `next094` — 2026-11-24 (not pushed; push, replies and release on the owner's word)
+## Next build, branch `next094` — 2026-11-24 (pushed to dev `897f3c2` 2026-11-24 night: v0.94.0-beta; replies after publishing)
 
 In `~/projects/skies-interp` (branch `next094`, from v0.93's `8beb8c8`): `i24-loads`, `i26` (`00748e4`), `ws42`
 (`f34d82d`) merged, then the 60 fps work up to `deb01e3`. Details: development notes, "60 fps after v0.93",
 "Issue #36" (After v0.93) and "Issues #26-#32" (#26).
 - **#26 (Dreamcast music pinned):** found from the reporter's log: the AICA channel filter's state truncated each
   sample; `highlytheoretical-lpf-precision.patch`. Checked offline (75 songs) and in game on WSL and the Pocket 5
-  (music plays); the failing scenes weren't played in the game.
+  (music plays). Later the same day: the DC blocker on the chip's output, and the failing song played in the game
+  (`05-save-point` warped to `me123d`, M0254: pinned with the old filter, clean with the fix on WSL, Windows, macOS).
 - **#24 (60 fps):** the reporter's first-person reef fixed (WSL, Windows, Pocket 5); the strict test and its
   fixes (colours, matrices, the camera's motion). Panning warp not reproduced: the reply asks for their 60 fps log.
-  Open: the Red Alarm shatter's strict count (pictures look right).
+  The Red Alarm shatter: fixed (strict mean 262,706 -> 3,534; see the review-round entry above).
 - **#36 (ship HP bar with Invincible):** ws42, checked on WSL, Windows and the Pocket 5.
-- **Cost:** the Pocket 5's save point at 60 fps blends in about 6.2 ms an in-between (v0.93 5.2).
-- **Replies:** drafted in `build/i37/replies-094.md` (#24 and #26 now, #36 after the release).
+- **Cost:** the Pocket 5's save point blends in 4.8-4.9 ms an in-between with lights off, 5.9 with them on (the
+  default; v0.93 5.2); no in-between or speed lost (the review-round entry above).
+- **Replies:** after publishing v0.94 (#24, #26, #36; #18's torches confirmed by the reporter); the drafts in
+  `build/i37/replies-094.md` predate the review round and need rewriting.
 - **Test app:** the t94 build (`skies-recomp-t94-2026-11-24-test.apk`) on both Retroids and the Thor; Windows test
-  folder `C:\dev\SkiesI37` (`run-fp-*.bat`, `run36-*.bat`, `games\GEAE8P-ws42`, `modules-ws42`).
+  folder `C:\dev\SkiesI37` (`run-fp-*.bat`, `run36-*.bat`, `games\GEAE8P-ws42`, `modules-ws42`). Review round test
+  folders: `C:\dev\SkiesRev60` (session 1), `C:\dev\SkiesFinal094` (Windows check of `3ba172d`; its `games` folder
+  holds a `files` junction: remove it with `rmdir`).
 
 ## After the next release — decided 2026-11-22
 
@@ -58,7 +66,7 @@ make two textures in `field/a116c.mld` see-through, hashes `2d1b88e460bcc6bd`, `
 bars in the second intro). Check what the release session's `notes-091` work covers first. The #36 / #37 replies
 go out after the release.
 
-## Issue #36: ship sunk with Invincible on, retry at 0 HP — 2026-11-22 (on dev `3813448`, pushed 2026-11-22 evening; not released)
+## Issue #36: ship sunk with Invincible on, retry at 0 HP — 2026-11-22 (on dev `3813448`, pushed 2026-11-22 evening; released in v0.92.0-beta)
 
 - **Fixes:** ws40 (the cause: the playback's HP gauge sank the ship) and ws39 (a ship at 0 refilled before a phase);
   development notes, "Issue #36".
@@ -71,7 +79,7 @@ go out after the release.
 - (old note) fixed for the next build: with Infinite HP on, the bar no longer counts hits, the ship can't
   sink, and a ship left at 0 by an earlier build is refilled.
 
-## Issue #37: menu text at 60 fps and the menu's blocky clouds — 2026-11-22 (on dev `3813448`, pushed 2026-11-22 evening; not released)
+## Issue #37: menu text at 60 fps and the menu's blocky clouds — 2026-11-22 (on dev `3813448`, pushed 2026-11-22 evening; released in v0.92.0-beta)
 
 - **Commits:** `6bc2b0f` replays draw with their frame's textures (patch `recompcore-gxruntime-replay-texture-frames`
   + `interp60.cpp`); `f048d44` the padded copy's base stretched bilinearly (patch
@@ -83,7 +91,7 @@ go out after the release.
 - **Reply:** drafted with #36's (`build/i37/replies-36-37.md`), to post after the release. (old note) both fixed for the next build; the field-speed trigger for the clouds wasn't reproduced
   separately (the start menu one was).
 
-## 60 fps: object pairing and issue #24 — 2026-11-22 (on dev `3813448`, pushed 2026-11-22 evening; not released)
+## 60 fps: object pairing and issue #24 — 2026-11-22 (on dev `3813448`, pushed 2026-11-22 evening; released in v0.92.0-beta)
 
 - **Commits** (worktree `~/projects/skies-interp`, noreply author): `547ada5` the #18 / #24 sprite fix and the FPS
   counter (also applied, uncommitted, to `notes-091` by the release session); `b8772b2` each draw knows its game
