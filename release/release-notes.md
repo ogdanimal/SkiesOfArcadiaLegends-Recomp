@@ -1,4 +1,4 @@
-A small round of fixes on top of 0.92: steadier 60 fps at Maramba and the pyramid, soft turret shadows at the Grand Fortress gate, and two battle HUD fixes. Coming from 0.83? Everything the new engine brings is listed below too, from [New since 0.83](#new-since-083).
+A round of fixes on top of 0.93: smoother 60 fps and Display refresh, Dreamcast music that no longer distorts, and a full HP bar for your ship with Invincible on. Coming from 0.83? Everything the new engine brings is listed below too, from [New since 0.83](#new-since-083).
 
 > [!IMPORTANT]
 > **You need your own Skies of Arcadia Legends disc** (GameCube: USA `GEAE8P`, European `GEAP8P` or Japanese `GEAJ8P`) as RVZ, ISO, GCM, GCZ, WIA or CISO.
@@ -7,12 +7,17 @@ A small round of fixes on top of 0.92: steadier 60 fps at Maramba and the pyrami
 > [!WARNING]
 > **Coming from 0.83, back up your saves first** (Settings → Saves → Back up saves). Your saves carry over, but save states made by the new engine don't load in 0.83.
 
-## Since 0.92
+## Since 0.93
 
-- **60 fps and Display refresh:** the torch flames in the pyramid stay with their torches, and the pier at Maramba no longer runs a frame ahead of the camera ([#18](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/18), [#24](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/24)).
-- **Grand Fortress gate:** the turrets' shadows have their soft edges back, still without making the wall see-through ([#23](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/23)).
-- **Battle, widescreen:** the enemy's name and HP box sits beside the party's portraits, at the edge of the screen or of the HUD area you picked ([#38](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/38)).
-- **Ship battles with Invincible on:** the ship's name and HP panel shows when your ship is hit; its HP still stays full ([#36](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/36)).
+- **60 fps and Display refresh**
+  - Flashes, fades and the Red Alarm's pulsing light change smoothly between frames instead of a frame early.
+  - The Red Alarm's screen shatter is drawn whole in the pictures between frames.
+  - At Maramba, the reef no longer warps when you switch to the first-person view ([#24](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/24)).
+  - At a camera cut, the new shot shows straight away instead of a mix of the two shots.
+  - The scenery behind the world map's menu no longer flickers.
+  - Display refresh: parts that turn quickly no longer change size between pictures, and on PC each picture takes about a quarter less time to blend than in 0.93.
+- **Dreamcast music** no longer gets stuck at full volume and distorts in some songs, and songs no longer start or stop with a thump ([#26](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/26)).
+- **Ship battles with Invincible on:** your ship's HP bar stays full when it's hit, with a red 0 for the damage ([#36](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/36)).
 
 ## New since 0.83
 
@@ -41,9 +46,10 @@ A small round of fixes on top of 0.92: steadier 60 fps at Maramba and the pyrami
 
 ## Fixed since 0.83
 
-- **Smoother 60 fps and Display refresh:** torch flames, sprites and small objects no longer jump ahead of everything else, and two similar objects side by side no longer get mixed up ([#18](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/18), [#24](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/24)). The FPS counter shows the frames that actually reach your screen.
+- **Smoother 60 fps and Display refresh:** torch flames, sprites, small objects and the pier at Maramba no longer jump ahead of everything else, and two similar objects side by side no longer get mixed up ([#18](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/18), [#24](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/24)). The FPS counter shows the frames that actually reach your screen.
 - **Menu text** no longer garbles at 60 fps, and the clouds behind the menu no longer turn blocky after the ship's start menu ([#37](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/37)).
-- **Ship battles with Invincible on:** your ship can no longer be sunk, and a ship already left at 0 HP is refilled ([#36](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/36)).
+- **Ship battles with Invincible on:** your ship can no longer be sunk, a ship already left at 0 HP is refilled, and the ship's name and HP panel shows when it's hit ([#36](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/36)).
+- **Battle, widescreen:** the enemy's name and HP box sits beside the party's portraits, at the edge of the screen or of the HUD area you picked ([#38](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/38)).
 - **Ship battle HUD:** the banners sit slightly in from the screen's edges, so big damage numbers next to the enemy's banner are no longer cut off ([#25](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/25)).
 - **Android:** the walls of the Valuan throne room no longer flicker ([#34](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/34)).
 - **Grand Fortress gate:** the turrets' shadows no longer make the wall see-through ([#23](https://github.com/ogdanimal/SkiesOfArcadiaLegends-Recomp/issues/23)).
@@ -73,7 +79,7 @@ Your data folder (moved or portable too), settings, memory card saves and save s
 
 ## Thanks
 
-To everyone who tried 0.92, 0.91 and the test builds and reported what they found, especially [Cawl87](https://github.com/Cawl87), [GLEclipseGaming](https://github.com/GLEclipseGaming), [doc-haz](https://github.com/doc-haz), [ghettowario](https://github.com/ghettowario), [workmax67-create](https://github.com/workmax67-create), [chrisbrasington](https://github.com/chrisbrasington) and [shoopkid](https://github.com/shoopkid). Several features come from [Dusklight](https://github.com/TwilitRealm/dusklight), the Twilight Princess port on the same [Aurora](https://github.com/encounter/aurora) renderer: thank you to both projects.
+To everyone who tried 0.93, 0.92, 0.91 and the test builds and reported what they found, especially [Cawl87](https://github.com/Cawl87), [GLEclipseGaming](https://github.com/GLEclipseGaming), [doc-haz](https://github.com/doc-haz), [ghettowario](https://github.com/ghettowario), [workmax67-create](https://github.com/workmax67-create), [chrisbrasington](https://github.com/chrisbrasington) and [shoopkid](https://github.com/shoopkid). Several features come from [Dusklight](https://github.com/TwilitRealm/dusklight), the Twilight Princess port on the same [Aurora](https://github.com/encounter/aurora) renderer: thank you to both projects.
 
 ---
 
