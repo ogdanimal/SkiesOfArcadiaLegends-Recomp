@@ -41,9 +41,8 @@
 // the previous frame's for the first half of the way: the pyramid's torch glow quads scroll their coordinates through an
 // indexed array; 1 lights, 2 the chans' ambient and material colour registers: blended they made other scenes worse),
 // SKIES_INTERP_RIGID (an object that moved as one rigid body, the map with the camera: its draws without a partner of
-// their shape, or that jumped, follow that motion, and a draw that doesn't follow it finds its partner by it) and
-// SKIES_INTERP_NEW_MATRICES (a position or normal matrix with no partner gets its previous value from the camera's
-// motion). SKIES_INTERP_STRICT=1 (a test, with SKIES_INTERP_T=0): what had no partner isn't drawn, so the in-between
+// their shape, or that jumped, follow that motion, and a draw that doesn't follow it finds its partner by it).
+// SKIES_INTERP_STRICT=1 (a test, with SKIES_INTERP_T=0): what had no partner isn't drawn, so the in-between
 // should equal the previous frame (development notes, "60 fps after v0.93").
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "host.h"
@@ -57,6 +56,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <deque>
+#include <limits>
 #include <map>
 #include <unordered_map>
 #include <mutex>
@@ -238,10 +238,11 @@ u64 s_stat_loads = 0, s_stat_prims = 0, s_stat_loads_blended = 0, s_stat_prims_b
 u64 s_stat_repaired = 0;  // draws paired across a texture change (issue #18)
 u64 s_stat_loads_apart = 0;  // matrix pairings refused as two objects' (issue #24)
 u64 s_stat_loads_by_object = 0;  // [Skies] groups of loads paired by object alone, their kinds unmatched (issue #24)
-u64 s_stat_synth_matrices = 0;  // [Skies] new matrices moved back with the camera (issue #24)
+u64 s_stat_colours_held = 0;    // [Skies] blended draws whose colours stayed: another draw of their object's couldn't blend
 u64 s_stat_jumps_explained = 0;  // [Skies] paired draws past the jump test that their object's motion explains (issue #24)
 u64 s_stat_collapsed = 0, s_stat_matrix_snaps = 0;  // draws and matrices snapped as turning round (issue #35)
 u64 s_stat_camera_paired = 0;  // [Skies] draws re-paired by the camera's motion (issue #24)
+u64 s_stat_camera_cuts = 0;    // [Skies] in-betweens dropped as camera cuts
 u64 s_stat_tasked = 0, s_stat_kept_apart = 0, s_stat_by_number = 0, s_stat_moved = 0, s_stat_rigid_repaired = 0;  // draws with a known object; pairings refused as two objects'
 // Which game object drew each draw (the game's thread). Skies runs every object as a task (decomp
 // docs/draw.md: TaskRunAll calls each task's function, which updates and draws it), and the running task is
@@ -507,6 +508,41 @@ float WordDistance(u32 address, const u8* c, const u8* p)
   }
 }
 
+// [Skies] Whether n bytes are equal, inline for the sizes of a vertex attribute (memcmp was a call per vertex)
+bool SameBytes(const u8* a, const u8* b, u32 n)
+{
+  switch (n)
+  {
+  case 1: return a[0] == b[0];
+  case 2: return a[0] == b[0] && a[1] == b[1];
+  case 4:
+  {
+    u32 x, y;
+    std::memcpy(&x, a, 4);
+    std::memcpy(&y, b, 4);
+    return x == y;
+  }
+  case 8:
+  {
+    u64 x, y;
+    std::memcpy(&x, a, 8);
+    std::memcpy(&y, b, 8);
+    return x == y;
+  }
+  case 12:
+  {
+    u64 x, y;
+    u32 z, w;
+    std::memcpy(&x, a, 8);
+    std::memcpy(&y, b, 8);
+    std::memcpy(&z, a + 8, 4);
+    std::memcpy(&w, b + 8, 4);
+    return x == y && z == w;
+  }
+  default: return std::memcmp(a, b, n) == 0;
+  }
+}
+
 float ReadFloat(const u8* p)
 {
   return std::bit_cast<float>(BE32(p));
@@ -550,7 +586,10 @@ bool Blendable(const Load& load, const u8* cur, const u8* prev)
 // Tenkou Island's stairs). Each whole 3x4 matrix in the load: an axis (the 3x3 part's columns) shorter
 // than 0.7 of the frames' mean length (about a 90 degree turn or more in one frame) snaps the matrix to
 // the current frame's, as a cut; otherwise the axes get the mean length back. The translation column is
-// left as blended. `out` holds the blended words.
+// left as blended. `out` holds the blended words. [Skies] Whether a matrix snaps is decided at the middle (t = 0.5) for
+// every t, and it snaps to the previous frame's before the middle and the current frame's after (as a flipbook step):
+// at the display's rate (several in-betweens a frame) a part turning round was blended early, snapped in the middle
+// and blended again late, stepping new -> shrunken -> new.
 void KeepMatrixScale(const Load& load, const u8* cur, const u8* prev, float t, u8* out)
 {
   // Position matrices: 3 rows of 4 words from a multiple of 4. Normal matrices (lighting): 3 rows of 3 words
@@ -567,7 +606,24 @@ void KeepMatrixScale(const Load& load, const u8* cur, const u8* prev, float t, u
   {
     float scale[3];
     bool snap = false;
-    for (u32 col = 0; col < 3; ++col)
+    for (u32 col = 0; col < 3 && !snap; ++col)
+    {
+      float lc = 0, lp = 0, lh = 0;
+      for (u32 row = 0; row < 3; ++row)
+      {
+        const u32 w = (m + row * stride + col) * 4;
+        const float c = ReadFloat(cur + w), p = ReadFloat(prev + w), h = p + (c - p) * 0.5f;
+        lc += c * c;
+        lp += p * p;
+        lh += h * h;
+      }
+      const float target = std::sqrt(lp) + (std::sqrt(lc) - std::sqrt(lp)) * 0.5f;
+      snap = target > 0.0f && std::sqrt(lh) < 0.7f * target;
+    }
+    if (snap)
+      ++s_stat_matrix_snaps;
+    const u8* snap_to = t < 0.5f ? prev : cur;
+    for (u32 col = 0; col < 3 && !snap; ++col)
     {
       float lc = 0, lp = 0, lb = 0;
       for (u32 row = 0; row < 3; ++row)
@@ -580,30 +636,19 @@ void KeepMatrixScale(const Load& load, const u8* cur, const u8* prev, float t, u
       }
       const float target = std::sqrt(lp) + (std::sqrt(lc) - std::sqrt(lp)) * t;
       const float blended = std::sqrt(lb);
-      if (target <= 0.0f)
-      {
-        scale[col] = 1.0f;
-        continue;
-      }
-      if (blended < 0.7f * target)
-      {
-        snap = true;
-        ++s_stat_matrix_snaps;
-        break;
-      }
-      scale[col] = target / blended;
+      scale[col] = target > 0.0f && blended > 0.0f ? target / blended : 1.0f;
     }
     for (u32 row = 0; row < 3; ++row)
     {
       for (u32 col = 0; col < 3; ++col)
       {
         const u32 w = (m + row * stride + col) * 4;
-        WriteFloat(out + w, snap ? ReadFloat(cur + w) : ReadFloat(out + w) * scale[col]);
+        WriteFloat(out + w, snap ? ReadFloat(snap_to + w) : ReadFloat(out + w) * scale[col]);
       }
       if (snap && stride == 4)
       {
         const u32 w = (m + row * 4 + 3) * 4;
-        WriteFloat(out + w, ReadFloat(cur + w));
+        WriteFloat(out + w, ReadFloat(snap_to + w));
       }
     }
   }
@@ -615,13 +660,18 @@ void KeepMatrixScale(const Load& load, const u8* cur, const u8* prev, float t, u
 bool VertexJumps(const u8* cur, const u8* prev, u32 count)
 {
   float c[3] = {}, p[3] = {};
+  bool same = true;
   for (u32 k = 0; k < count; ++k)
   {
     c[k] = ReadFloat(cur + k * 4);
     p[k] = ReadFloat(prev + k * 4);
     if (!std::isfinite(c[k]) || !std::isfinite(p[k]))
       return true;
+    same = same && BE32(cur + k * 4) == BE32(prev + k * 4);
   }
+  // [Skies] Unmoved (most of a still scene's vertices): a move of 0 is never past the slack, which is at least 50
+  if (same)
+    return false;
   const float length = std::sqrt(std::max(c[0] * c[0] + c[1] * c[1] + c[2] * c[2],
                                           p[0] * p[0] + p[1] * p[1] + p[2] * p[2]));
   const float slack = std::max(50.0f, 0.1f * length);
@@ -700,8 +750,30 @@ int Align(int n_cur, int n_prev, const Distance& distance, const PairFn& pair, c
       pair(i, i);
     return std::abs(n_cur - n_prev);
   }
-  static std::vector<float> cost_table, typical;
+  // [Skies] As many items as before, each at the same place (most kinds, most frames: the save point's ~1800 matrices,
+  // 40 of them changed): in order, as the test below decides (the table's cost is never below 0), without the table
+  float in_order = -1.0f;
+  if (n_cur == n_prev)
+  {
+    in_order = 0.0f;
+    for (int k = 0; k < n_cur; ++k)
+      in_order += distance(k, k);
+    if (in_order == 0.0f)
+    {
+      for (int k = 0; k < n_cur; ++k)
+        pair(k, k);
+      return 0;
+    }
+  }
+  static std::vector<float> cost_table, typical, cur_floor, prev_floor;
   static std::vector<u8> move_table;
+  // [Skies] Each item's gap floor, once (the table asked for it at every cell, a square root each)
+  cur_floor.resize(n_cur);
+  prev_floor.resize(n_prev);
+  for (int i = 0; i < n_cur; ++i)
+    cur_floor[i] = gap_floor(true, i);
+  for (int j = 0; j < n_prev; ++j)
+    prev_floor[j] = gap_floor(false, j);
   // A gap costs a few times the typical motion of an item, so unpaired items only win over a
   // pairing that is clearly wrong.
   typical.clear();
@@ -714,6 +786,16 @@ int Align(int n_cur, int n_prev, const Distance& distance, const PairFn& pair, c
   }
   std::nth_element(typical.begin(), typical.begin() + typical.size() / 2, typical.end());
   const float gap = std::max(4.0f * typical[typical.size() / 2], 1.0f);
+  // [Skies] As many items as before: any order but the diagonal has two gaps at least (as many new items as gone ones),
+  // so the table's cost is at least the lesser of the in-order cost and 2 gaps; when that can't be under half the
+  // in-order cost, the test below keeps the order without the table. Not when the in-order cost reaches 1e30 (pairs
+  // kept apart): the table's cells stop at 1e30, under half of it, and the walk then pairs nothing.
+  if (n_cur == n_prev && in_order < 1e30f && 2.0f * gap >= 0.5f * in_order)
+  {
+    for (int k = 0; k < n_cur; ++k)
+      pair(k, k);
+    return 0;
+  }
   // cost_table[i][d]: best cost with i current and j = i + d - band previous items used.
   cost_table.assign(static_cast<size_t>(n_cur + 1) * width, 1e30f);
   move_table.assign(static_cast<size_t>(n_cur + 1) * width, 0);
@@ -739,13 +821,13 @@ int Align(int n_cur, int n_prev, const Distance& distance, const PairFn& pair, c
       }
       if (i > 0 && at(i - 1, j) >= 0)
       {
-        const float c = cost_table[at(i - 1, j)] + std::max(gap, gap_floor(true, i - 1));
+        const float c = cost_table[at(i - 1, j)] + std::max(gap, cur_floor[i - 1]);
         if (c < best)
           best = c, move = 2;  // a new item
       }
       if (j > 0 && at(i, j - 1) >= 0)
       {
-        const float c = cost_table[at(i, j - 1)] + std::max(gap, gap_floor(false, j - 1));
+        const float c = cost_table[at(i, j - 1)] + std::max(gap, prev_floor[j - 1]);
         if (c < best)
           best = c, move = 3;  // an item that went
       }
@@ -761,9 +843,6 @@ int Align(int n_cur, int n_prev, const Distance& distance, const PairFn& pair, c
   // items' spacing made a neighbour's old position look closer: seams in spinning strips).
   if (n_cur == n_prev)
   {
-    float in_order = 0.0f;
-    for (int k = 0; k < n_cur; ++k)
-      in_order += distance(k, k);
     if (!(cost_table[at(i, j)] < 0.5f * in_order))
     {
       for (int k = 0; k < n_cur; ++k)
@@ -819,7 +898,7 @@ struct BlendPlan
     u32 index;          // in cur_frame.prims
     const Prim* old;    // its partner
     bool jumps;         // VertexJumps (float positions only)
-    bool check_collapse;  // float positions, same layout, no jump: Collapses decides at t
+    bool check_collapse;  // float positions, same layout, no jump: Collapses decides (at t = 0.5 for every t)
   };
   std::vector<PrimPair> prims;          // partners with the same layout
   std::vector<u64> jumping_textures;    // textures with a paired draw that jumps (sorted)
@@ -843,15 +922,9 @@ struct BlendPlan
   std::vector<Moved> moved;
   // SKIES_INTERP_STRICT (a test): the loads and draws that had no partner (new in the current frame), hidden
   std::vector<u32> new_loads, new_prims;
-  // [Skies] New position and normal matrices given a previous frame's value by the camera's motion: the load (index in
-  // cur_frame.loads) and its words as they'd have been
-  struct Synth
-  {
-    u32 index;
-    std::array<float, 12> words;
-  };
-  std::vector<Synth> synth;
   size_t total = 0;
+  bool cut = false;  // [Skies] the camera cut to another shot: no in-between (ApplyPlan's false)
+  u64 version = 0;   // [Skies] a new number at each BuildPlan (ApplyPlan's decisions are kept by it)
 };
 
 BlendPlan::Trigger MakeTrigger(const Frame& frame, const Prim& prim)
@@ -995,8 +1068,57 @@ bool StrictTest()
   return on;
 }
 
+// [Skies] Lists BuildPlan makes from one frame alone (its object-tagged draws by object and number, its float draws by
+// object), kept by the recording's serial: a frame is paired as the current frame and then as the next one's previous,
+// and sorting both every time cost the Pocket 5 (#18 cost). Two kept, the less recently used one made again; a frame
+// without a serial is never found.
+struct FrameLists
+{
+  u64 serial = 0;
+  u64 used = 0;
+  std::vector<u32> by_object;                 // object-tagged draws: (task, ordinal, index) order
+  std::vector<std::pair<u32, u32>> tasks;     // float draws of an object: (task, index), sorted
+};
+
+const FrameLists& ListsFor(const Frame& frame)
+{
+  static FrameLists s_lists[2];
+  static u64 s_use = 0;
+  ++s_use;
+  for (FrameLists& lists : s_lists)
+    if (frame.serial != 0 && lists.serial == frame.serial)
+    {
+      lists.used = s_use;
+      return lists;
+    }
+  FrameLists& lists = s_lists[0].used <= s_lists[1].used ? s_lists[0] : s_lists[1];
+  lists.serial = frame.serial;
+  lists.used = s_use;
+  lists.by_object.clear();
+  for (u32 i = 0; i < frame.prims.size(); ++i)
+  {
+    if (frame.prims[i].task != 0)
+      lists.by_object.push_back(i);
+  }
+  std::sort(lists.by_object.begin(), lists.by_object.end(), [&](u32 x, u32 y) {
+    const Prim& p = frame.prims[x];
+    const Prim& q = frame.prims[y];
+    return std::tie(p.task, p.ordinal, x) < std::tie(q.task, q.ordinal, y);
+  });
+  lists.tasks.clear();
+  for (size_t index = 0; index < frame.prims.size(); ++index)
+    if (frame.prims[index].task != 0 && frame.prims[index].pos_format == FORMAT_FLOAT)
+      lists.tasks.emplace_back(frame.prims[index].task, static_cast<u32>(index));
+  std::sort(lists.tasks.begin(), lists.tasks.end());
+  return lists;
+}
+
 void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
 {
+  static u64 s_version = 0;
+  plan->version = ++s_version;
+  const FrameLists& prev_lists = ListsFor(prev_frame);  // (the previous one first: the current one's never evicts it)
+  const FrameLists& cur_lists = ListsFor(cur_frame);
   static std::vector<u8> load_had_partner;
   if (StrictTest())
     load_had_partner.assign(cur_frame.loads.size(), 0);
@@ -1069,14 +1191,22 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
       u32 words = cur_loads[0]->count;
       if (address <= XFMEM_SETPROJECTION + 6 && address + words > XFMEM_SETPROJECTION + 6)
         words = XFMEM_SETPROJECTION + 6 - address;
+      // (matrices and the projection are floats throughout: WordDistance's float case, without asking each word)
+      bool all_float = true;
+      for (u32 w = 0; w < words && all_float; ++w)
+        all_float = WordKind(address + w) == Word::Float;
       const auto distance = [&](int i, int j) {
         if (loads_apart(*cur_loads[i], *prev_loads[j]))
           return 1e30f;
         const u8* c = cur_frame.stream.data() + cur_loads[i]->data_offset;
         const u8* p = prev_frame.stream.data() + prev_loads[j]->data_offset;
         float sum = 0.0f;
-        for (u32 w = 0; w < words; ++w)
-          sum += WordDistance(address + w, c + w * 4, p + w * 4);
+        if (all_float)
+          for (u32 w = 0; w < words; ++w)
+            sum += std::fabs(ReadFloat(c + w * 4) - ReadFloat(p + w * 4));
+        else
+          for (u32 w = 0; w < words; ++w)
+            sum += WordDistance(address + w, c + w * 4, p + w * 4);
         return std::isfinite(sum) ? sum : 1e30f;
       };
       // [Skies] As for draws below (issue #24): leaving a position matrix unpaired costs at least a tenth of its
@@ -1265,22 +1395,8 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
   }();
   if (ordinal_on)
   {
-    static std::vector<u32> cur_by, prev_by;
-    const auto by_object = [](const Frame& frame, std::vector<u32>* out) {
-      out->clear();
-      for (u32 i = 0; i < frame.prims.size(); ++i)
-      {
-        if (frame.prims[i].task != 0)
-          out->push_back(i);
-      }
-      std::sort(out->begin(), out->end(), [&](u32 x, u32 y) {
-        const Prim& p = frame.prims[x];
-        const Prim& q = frame.prims[y];
-        return std::tie(p.task, p.ordinal, x) < std::tie(q.task, q.ordinal, y);
-      });
-    };
-    by_object(cur_frame, &cur_by);
-    by_object(prev_frame, &prev_by);
+    const std::vector<u32>& cur_by = cur_lists.by_object;
+    const std::vector<u32>& prev_by = prev_lists.by_object;
     const auto alike = [](const Prim& p, const Prim& q) {
       return p.func == q.func && p.ordinal == q.ordinal && p.num_vertices == q.num_vertices &&
              p.vertex_size == q.vertex_size && p.pos_offset == q.pos_offset && p.pos_format == q.pos_format &&
@@ -1592,21 +1708,10 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
   // as one body (a character, particles) or are too few
   static std::unordered_map<u32, std::pair<bool, BlendPlan::Moved>> fits;
   fits.clear();
-  // Each frame's float draws of an object: (task, index) sorted, a task's run found by binary search
-  static std::vector<std::pair<u32, u32>> cur_tasks, prev_tasks;
-  cur_tasks.clear();
-  prev_tasks.clear();
-  if (rigid_moves)
-  {
-    for (size_t index = 0; index < cur_frame.prims.size(); ++index)
-      if (cur_frame.prims[index].task != 0 && cur_frame.prims[index].pos_format == FORMAT_FLOAT)
-        cur_tasks.emplace_back(cur_frame.prims[index].task, static_cast<u32>(index));
-    for (size_t index = 0; index < prev_frame.prims.size(); ++index)
-      if (prev_frame.prims[index].task != 0 && prev_frame.prims[index].pos_format == FORMAT_FLOAT)
-        prev_tasks.emplace_back(prev_frame.prims[index].task, static_cast<u32>(index));
-    std::sort(cur_tasks.begin(), cur_tasks.end());
-    std::sort(prev_tasks.begin(), prev_tasks.end());
-  }
+  // Each frame's float draws of an object: (task, index) sorted, a task's run found by binary search (FrameLists)
+  static const std::vector<std::pair<u32, u32>> no_tasks;
+  const std::vector<std::pair<u32, u32>>& cur_tasks = rigid_moves ? cur_lists.tasks : no_tasks;
+  const std::vector<std::pair<u32, u32>>& prev_tasks = rigid_moves ? prev_lists.tasks : no_tasks;
   struct Run
   {
     const std::pair<u32, u32>* first;
@@ -1797,7 +1902,11 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
         ++considered;
         const std::array<float, 3> c = centroid(cur_frame, prim);
         const std::array<float, 3> back = MoveBack(motion, c.data());
-        float best = 1e30f, second = 1e30f;
+        // (squared misses in the loop, the two nearest' roots after: the same values, as the root keeps order; a tie
+        // can name another best_j, but then best equals second and no piece is chosen. Every finite square's root is
+        // under the 1e30 the roots started from.)
+        constexpr float none = std::numeric_limits<float>::infinity();
+        float best2 = none, second2 = none;
         u32 best_j = ~0u;
         for (size_t j = 0; j < theirs.size(); ++j)
         {
@@ -1805,12 +1914,14 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
           if (old.key != prim.key || !layout_matches(prim, old))
             continue;
           const float dx = back[0] - prev_centre[j][0], dy = back[1] - prev_centre[j][1], dz = back[2] - prev_centre[j][2];
-          const float miss = std::sqrt(dx * dx + dy * dy + dz * dz);
-          if (miss < best)
-            second = best, best = miss, best_j = static_cast<u32>(j);
-          else if (miss < second)
-            second = miss;
+          const float miss2 = dx * dx + dy * dy + dz * dz;
+          if (miss2 < best2)
+            second2 = best2, best2 = miss2, best_j = static_cast<u32>(j);
+          else if (miss2 < second2)
+            second2 = miss2;
         }
+        const float best = best2 == none ? 1e30f : std::sqrt(best2);
+        const float second = second2 == none ? 1e30f : std::sqrt(second2);
         const float length = std::sqrt(c[0] * c[0] + c[1] * c[1] + c[2] * c[2]);
         const float near = std::max(3.0f * motion.limit, 0.01f * length);
         if (best_j != ~0u && best <= near && 4.0f * best < second)
@@ -1876,6 +1987,19 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
   // z = 100 to 0.001 after a menu passed covered the scene halfway). When one draw jumps, every draw
   // with the same texture snaps rather than smears: deciding per draw tore objects made of many
   // draws apart (the battle-entry shatter's card of strips). Collapses, which depends on t, is ApplyPlan's.
+  // [Skies] The last object asked about below: whether it has 32 draws or more and a fit (the same answers for each of
+  // its draws; fit_for keeps its fits, and nothing in this pass drops one)
+  u32 repair_task = 0;
+  bool repair_good = false;
+  BlendPlan::Moved repair_fit;
+  const auto repair_object = [&](u32 task) {
+    if (task != repair_task)
+    {
+      repair_task = task;
+      repair_good = task_run(cur_tasks, task).size() >= 32 && fit_for(task, &repair_fit);
+    }
+    return repair_good;
+  };
   const auto same_layout = [](const Prim& prim, const Prim& old) {
     return old.num_vertices == prim.num_vertices && old.vertex_size == prim.vertex_size &&
            old.pos_offset == prim.pos_offset && old.pos_format == prim.pos_format &&
@@ -1894,10 +2018,9 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
     const Prim* better = nullptr;
     // (only an object of many draws: alike pieces told apart by nothing but their place; a fit costs)
     if (rigid_moves && prim.task != 0 && prim.pos_format == FORMAT_FLOAT && prim.pos_count == 3 &&
-        task_run(cur_tasks, prim.task).size() >= 32)
+        repair_object(prim.task))
     {
-      BlendPlan::Moved fit;
-      if (fit_for(prim.task, &fit))
+      const BlendPlan::Moved& fit = repair_fit;
       {
         const auto miss = [&](const Prim& candidate) {
           float sum = 0.0f;
@@ -1969,8 +2092,20 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
         plan->triggers.push_back(MakeTrigger(cur_frame, prim));
       }
     }
-    plan->prims.push_back(BlendPlan::PrimPair{static_cast<u32>(index), &old, jump,
-                                              prim.pos_format == FORMAT_FLOAT && !jump});
+    // [Skies] A draw whose positions didn't change can't collapse (Collapses: the blend of equal values is the value)
+    bool check_collapse = prim.pos_format == FORMAT_FLOAT && !jump;
+    if (check_collapse)
+    {
+      bool unmoved = true;
+      for (u32 v = 0; v < prim.num_vertices && unmoved; ++v)
+      {
+        const u32 at = v * prim.vertex_size + prim.pos_offset;
+        unmoved = SameBytes(cur_frame.stream.data() + prim.data_offset + at, prev_frame.stream.data() + old.data_offset + at,
+                            prim.pos_count * 4u);
+      }
+      check_collapse = !unmoved;
+    }
+    plan->prims.push_back(BlendPlan::PrimPair{static_cast<u32>(index), &old, jump, check_collapse});
     s_stat_prims_changed += std::memcmp(cur_frame.stream.data() + prim.data_offset,
                                         prev_frame.stream.data() + old.data_offset,
                                         static_cast<size_t>(prim.num_vertices) * prim.vertex_size) != 0 ? 1 : 0;
@@ -2006,68 +2141,6 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
         plan->loads.emplace_back(&l, &prev_frame.loads[last->second]);
     }
   }
-  // [Skies] A matrix with no partner: an object drawn by matrix that came into the picture, or that the game drew
-  // another way a frame before (Maramba's reef haze, issue #24: view-space draws in third person, 46 matrix-drawn ones
-  // once the first-person view settles) took the next frame's place, a frame ahead of everything around it. A
-  // position or normal matrix of a known object gets the previous value the camera's motion gives it (prev =
-  // R (cur - from) + to: R M, and the translation R t + to - R from), as new view-space draws follow their object.
-  plan->synth.clear();
-  static const bool synth_on = [] {
-    const char* env = std::getenv("SKIES_INTERP_NEW_MATRICES");
-    return !env || env[0] != '0';
-  }();
-  if (synth_on && rigid_moves)
-  {
-    BlendPlan::Moved cam;
-    bool have = false, tried = false;
-    for (u32 i = 0; i < cur_frame.loads.size(); ++i)
-    {
-      if (cur_load_aligned[i])
-        continue;
-      const Load& load = cur_frame.loads[i];
-      const bool position = load.address < 0x78 && load.address % 4 == 0 && load.count == 12;
-      const bool normal = load.address >= XFMEM_NORMALMATRICES && load.address < XFMEM_NORMALMATRICES + 0x60 &&
-                          (load.address - XFMEM_NORMALMATRICES) % 3 == 0 && load.count == 9;
-      // An identity matrix isn't an object's place (its draws carry their own positions, paired on their own), and the
-      // draws after it, paired, use it too: moved with the camera, they moved twice
-      if (load.task == 0 || (!position && !normal) || IdentityMatrix(cur_frame.stream.data() + load.data_offset, load.count))
-        continue;
-      if (!tried)
-        tried = true, have = camera_fit(&cam);
-      if (!have)
-        break;
-      const u8* d = cur_frame.stream.data() + load.data_offset;
-      BlendPlan::Synth out{i, {}};
-      const float* r = cam.r.data();
-      if (position)
-      {
-        float m[12];
-        for (int w = 0; w < 12; ++w)
-          m[w] = ReadFloat(d + w * 4);
-        const float shift[3] = {cam.to[0] - (r[0] * cam.from[0] + r[1] * cam.from[1] + r[2] * cam.from[2]),
-                                cam.to[1] - (r[3] * cam.from[0] + r[4] * cam.from[1] + r[5] * cam.from[2]),
-                                cam.to[2] - (r[6] * cam.from[0] + r[7] * cam.from[1] + r[8] * cam.from[2])};
-        for (int row = 0; row < 3; ++row)
-          for (int col = 0; col < 4; ++col)
-            out.words[row * 4 + col] = r[row * 3] * m[col] + r[row * 3 + 1] * m[4 + col] + r[row * 3 + 2] * m[8 + col] +
-                                       (col == 3 ? shift[row] : 0.0f);
-      }
-      else
-      {
-        float m[9];
-        for (int w = 0; w < 9; ++w)
-          m[w] = ReadFloat(d + w * 4);
-        for (int row = 0; row < 3; ++row)
-          for (int col = 0; col < 3; ++col)
-            out.words[row * 3 + col] = r[row * 3] * m[col] + r[row * 3 + 1] * m[3 + col] + r[row * 3 + 2] * m[6 + col];
-      }
-      bool finite = true;
-      for (u32 w = 0; w < load.count; ++w)
-        finite = finite && std::isfinite(out.words[w]);
-      if (finite)
-        plan->synth.push_back(out), ++s_stat_synth_matrices;
-    }
-  }
   if (StrictTest())
   {
     plan->new_loads.clear();
@@ -2078,6 +2151,52 @@ void BuildPlan(const Frame& cur_frame, const Frame& prev_frame, BlendPlan* plan)
     for (u32 i = 0; i < cur_frame.prims.size(); ++i)
       if (!partner[i] && !moved_prim[i])
         plan->new_prims.push_back(i);
+  }
+  // [Skies] A camera cut: the fitted camera turned more than 18 degrees in one frame right after a frame pair in which
+  // it was found and hardly moved (2 degrees), and its object's draws moved by a good part of their distance. Blended, the in-between was a view from halfway between two shots that doesn't
+  // exist (the JP world-map battle start, 72-80 degree cuts; the first battle's 75 degree cut at 9603); its
+  // draws snapped instead, the deck tore. No in-between: a real picture shows. A whirl that started (a swoop of 35 then
+  // 68 degrees a frame) loses its first in-between and blends after; the fastest moves from rest otherwise turn less
+  // (into first person 1.5 degrees, then up to 8.5). SKIES_INTERP_CUT_ANGLE=<degrees> (0: off).
+  {
+    static const float cut_cos = [] {
+      const char* env = std::getenv("SKIES_INTERP_CUT_ANGLE");
+      const float degrees = env ? static_cast<float>(std::atof(env)) : 18.0f;
+      return degrees > 0.0f ? std::cos(degrees * 0.017453293f) : -2.0f;
+    }();
+    static const float rest_cos = std::cos(2.0f * 0.017453293f);
+    static u64 s_last_serial = 0;   // the last pair's current frame, and whether its camera was at rest (or not found)
+    static bool s_last_rest = false;
+    BlendPlan::Moved c;
+    const bool have = rigid_moves && camera_fit(&c);
+    const float cos_angle = have ? 0.5f * (c.r[0] + c.r[4] + c.r[8] - 1.0f) : 1.0f;
+    const bool rest_before = prev_frame.serial != 0 && prev_frame.serial == s_last_serial && s_last_rest;
+    plan->cut = rest_before && have && cos_angle < cut_cos;
+    if (plan->cut)
+    {
+      // and the picture really moved: the camera object's paired draws (their first vertices) moved by more than 15% of
+      // their distance from the camera (cuts and whirls 25-109%; the JP deck standing still while its fit read 27
+      // degrees: 5%)
+      double moved = 0.0, far = 0.0;
+      for (const auto& [unused, index] : task_run(cur_tasks, camera_task))
+        if (partner[index] && cur_frame.prims[index].pos_count == 3 && layout_matches(cur_frame.prims[index], *partner[index]))
+        {
+          const u8* cp = cur_frame.stream.data() + cur_frame.prims[index].data_offset + cur_frame.prims[index].pos_offset;
+          const u8* pp = prev_frame.stream.data() + partner[index]->data_offset + partner[index]->pos_offset;
+          double d2 = 0.0, c2 = 0.0;
+          for (int k = 0; k < 3; ++k)
+          {
+            const double c = ReadFloat(cp + k * 4), p = ReadFloat(pp + k * 4);
+            d2 += (c - p) * (c - p), c2 += c * c;
+          }
+          if (std::isfinite(d2) && std::isfinite(c2))
+            moved += std::sqrt(d2), far += std::sqrt(c2);
+        }
+      plan->cut = far > 0.0 && moved > 0.15 * far;
+    }
+    s_stat_camera_cuts += plan->cut ? 1 : 0;
+    s_last_serial = cur_frame.serial;
+    s_last_rest = have && cos_angle >= rest_cos;  // (no camera found: not known to be at rest)
   }
   plan->total = cur_frame.prims.size();
   for (const Load& load : cur_frame.loads)
@@ -2209,7 +2328,43 @@ bool TexStepped(const std::vector<float>& c, const std::vector<float>& p, u32 el
 // A paired draw's direct texture coordinates (vertex data) blended, vertex by vertex; a coordinate that moved by more
 // than half a texture, or a flipbook step (TexStepped), takes the previous frame's value for the first half of the
 // way and the current frame's after
-void BlendDirectTexture(const Frame& cur_frame, const Frame& prev_frame, const Prim& prim, const Prim& old, u8* out, float t)
+// [Skies] What ApplyPlan decides without t, for a plan (by its version), decided at its first blend: at the display's
+// rate a frame pair is blended at several t, and deciding these again at each cost the JP battle start 0.14 ms an
+// in-between more than v0.93's blend (#24 display rate). The same tests on the same data: the same pictures.
+struct ApplyDecisions
+{
+  u64 version = 0;
+  std::vector<u8> unchanged_load;           // by plan.loads index: UnchangedLoad
+  std::vector<u8> collapsed, blends, turning;  // by plan.prims index
+  size_t collapsed_count = 0;
+  std::vector<u32> colours_off_before, colours_off_after;  // the objects whose colours stay (t < 0.5, t >= 0.5), sorted
+  std::vector<u8> moved_by_jump, moved_turning;  // by plan.moved index: snapped with a jumping / turning draw's group
+  // Per plan.prims index, the array copies and direct texture units that changed (an entries range), and whether its
+  // direct colours 0 / 1 changed at all
+  struct ArrayEntry
+  {
+    u32 copy;               // cur_frame.array_copies index
+    const ArrayCopy* prev;  // its partner copy
+    bool wrapped;           // TexStepped (texture coordinates)
+  };
+  struct TexEntry
+  {
+    u8 unit;
+    bool wrapped;
+  };
+  std::vector<ArrayEntry> arrays;
+  std::vector<TexEntry> texs;
+  std::vector<std::array<u32, 4>> ranges;  // arrays begin, end, texs begin, end
+  std::vector<u8> colour_changed;           // bit c: direct colour c changed in some vertex
+};
+
+// A paired draw's direct texture coordinates (vertex data) blended, vertex by vertex; a coordinate that moved by more
+// than half a texture, or a flipbook step (TexStepped), takes the previous frame's value for the first half of the
+// way and the current frame's after. Decide: the units that changed (unchanged coordinates, most draws', blend to
+// themselves: the copy holds them; not for floats that are -0, infinite or not a number, which the blend writes
+// otherwise) and whether each stepped.
+void DecideDirectTexture(const Frame& cur_frame, const Frame& prev_frame, const Prim& prim, const Prim& old,
+                         std::vector<ApplyDecisions::TexEntry>* out)
 {
   for (u32 u = 0; u < 4; ++u)
   {
@@ -2220,6 +2375,19 @@ void BlendDirectTexture(const Frame& cur_frame, const Frame& prev_frame, const P
     const u32 comp = a.format <= FORMAT_BYTE ? 1u : a.format <= FORMAT_SHORT ? 2u : 4u;
     const u8* cur = cur_frame.stream.data() + prim.data_offset + a.off;
     const u8* prev = prev_frame.stream.data() + old.data_offset + a.off;
+    bool same = true;
+    for (u32 v = 0; v < prim.num_vertices && same; ++v)
+    {
+      const u8* c = cur + v * prim.vertex_size;
+      same = SameBytes(c, prev + v * prim.vertex_size, a.elems * comp);
+      for (u32 k = 0; k < a.elems && same && a.format == FORMAT_FLOAT; ++k)
+      {
+        const u32 word = BE32(c + k * 4);
+        same = word != 0x80000000u && std::isfinite(std::bit_cast<float>(word));
+      }
+    }
+    if (same)
+      continue;
     static std::vector<float> cv, pv;
     cv.clear();
     pv.clear();
@@ -2229,7 +2397,20 @@ void BlendDirectTexture(const Frame& cur_frame, const Frame& prev_frame, const P
         cv.push_back(ReadTexComponent(a.format, a.frac, cur + v * prim.vertex_size + k * comp));
         pv.push_back(ReadTexComponent(a.format, a.frac, prev + v * prim.vertex_size + k * comp));
       }
-    const bool wrapped = TexStepped(cv, pv, a.elems);
+    out->push_back({static_cast<u8>(u), TexStepped(cv, pv, a.elems)});
+  }
+}
+
+void BlendDirectTexture(const Frame& cur_frame, const Frame& prev_frame, const Prim& prim, const Prim& old, u8* out, float t,
+                        const ApplyDecisions::TexEntry* first, const ApplyDecisions::TexEntry* last)
+{
+  for (const ApplyDecisions::TexEntry* e = first; e != last; ++e)
+  {
+    const Prim::TexAttr& a = prim.tex[e->unit];
+    const u32 comp = a.format <= FORMAT_BYTE ? 1u : a.format <= FORMAT_SHORT ? 2u : 4u;
+    const u8* cur = cur_frame.stream.data() + prim.data_offset + a.off;
+    const u8* prev = prev_frame.stream.data() + old.data_offset + a.off;
+    const bool wrapped = e->wrapped;
     if (wrapped && t >= 0.5f)
       continue;
     for (u32 v = 0; v < prim.num_vertices; ++v)
@@ -2251,10 +2432,28 @@ bool s_arrays_blended = false;
 // s_blended_arrays and read from it (copying all the array data for each in-between cost the Pocket 5 ~0.5 ms)
 std::vector<u8> s_copy_blended;
 
-// A paired draw's indexed colours and float texture coordinates blended, vertex by vertex: the element a vertex of the
-// current draw reads, and the one its partner read. A texture coordinate that moved by more than half a texture
-// (a scroll that wrapped) stays the current one.
-void BlendArrays(const Frame& cur_frame, const Frame& prev_frame, const Prim& prim, const Prim& old, float t)
+// A paired draw's indexed colours and float texture coordinates, vertex by vertex: the element a vertex of the current
+// draw reads, and the one its partner read. Decide: the copies that changed (nothing to blend when every vertex reads
+// the same bytes in both frames: most draws, the map's texture coordinates; blending them cost the Pocket 5 1.75 ms an
+// in-between) and whether texture coordinates stepped (a flipbook cell or a wrapped scroll, TexStepped).
+u32 ArraySpan(const ArrayCopy& ac)
+{
+  const u32 comp = ac.tex_format <= FORMAT_BYTE ? 1u : ac.tex_format <= FORMAT_SHORT ? 2u : 4u;
+  return ac.kind == 2 ? ac.elems * comp : (ac.colour_format == 1 ? 3u : ac.colour_format == 0 || ac.colour_format == 3 ? 2u : 4u);
+}
+
+// The byte offset in a copy of the element vertex v (of a draw whose vertex data is at `stream`) reads, or ~0 if it lies
+// outside the copy
+u32 ArrayWhere(const u8* stream, u32 vertex_size, const ArrayCopy& copy, u32 span, u32 v)
+{
+  const u8* q = stream + v * vertex_size + copy.idx_off;
+  const u32 index = copy.idx_size == 1 ? q[0] : BE16(q);
+  const u64 at = static_cast<u64>(index) * copy.stride;
+  return at < copy.lo || at - copy.lo + span > copy.size ? ~0u : static_cast<u32>(at - copy.lo);
+}
+
+void DecideArrays(const Frame& cur_frame, const Frame& prev_frame, const Prim& prim, const Prim& old,
+                  std::vector<ApplyDecisions::ArrayEntry>* out)
 {
   const auto find_draw = [](const Frame& frame, const Prim& p) -> const Draw* {
     const u32 offset = p.data_offset - 3;
@@ -2279,34 +2478,20 @@ void BlendArrays(const Frame& cur_frame, const Frame& prev_frame, const Prim& pr
         bc->colour_format != ac.colour_format || bc->elems != ac.elems || bc->tex_format != ac.tex_format || bc->frac != ac.frac || ac.stride == 0)
       continue;
     const u32 comp = ac.tex_format <= FORMAT_BYTE ? 1u : ac.tex_format <= FORMAT_SHORT ? 2u : 4u;
-    const u32 span = ac.kind == 2 ? ac.elems * comp : (ac.colour_format == 1 ? 3u : ac.colour_format == 0 || ac.colour_format == 3 ? 2u : 4u);
+    const u32 span = ArraySpan(ac);
     const u8* cur_stream = cur_frame.stream.data() + prim.data_offset;
     const u8* prev_stream = prev_frame.stream.data() + old.data_offset;
-    // The byte offset in each copy of the element a vertex reads, or ~0 if it lies outside the copy
-    const auto where = [&](const u8* stream, const ArrayCopy& copy, u32 v) -> u32 {
-      const u8* q = stream + v * prim.vertex_size + copy.idx_off;
-      const u32 index = copy.idx_size == 1 ? q[0] : BE16(q);
-      const u64 at = static_cast<u64>(index) * copy.stride;
-      return at < copy.lo || at - copy.lo + span > copy.size ? ~0u : static_cast<u32>(at - copy.lo);
-    };
-    const auto read = [&](const u8* q) { return ReadTexComponent(ac.tex_format, ac.frac, q); };
-    // Nothing to blend when every vertex reads the same bytes in both frames (most draws: the map's texture coordinates;
-    // checking costs a compare per vertex, blending them cost the Pocket 5 1.75 ms an in-between)
+    bool same = true;
+    const u8* cur_data = cur_frame.array_data.data() + ac.data_offset;
+    const u8* prev_data = prev_frame.array_data.data() + bc->data_offset;
+    for (u32 v = 0; v < prim.num_vertices && same; ++v)
     {
-      bool same = true;
-      for (u32 v = 0; v < prim.num_vertices && same; ++v)
-      {
-        const u32 a = where(cur_stream, ac, v), b = where(prev_stream, *bc, v);
-        same = a == ~0u || b == ~0u ||
-               std::memcmp(cur_frame.array_data.data() + ac.data_offset + a, prev_frame.array_data.data() + bc->data_offset + b,
-                           span) == 0;
-      }
-      if (same)
-        continue;
+      const u32 a = ArrayWhere(cur_stream, prim.vertex_size, ac, span, v), b = ArrayWhere(prev_stream, prim.vertex_size, *bc, span, v);
+      same = a == ~0u || b == ~0u || SameBytes(cur_data + a, prev_data + b, span);
     }
-
-    const auto write = [&](u8* q, float value) { WriteTexComponent(ac.tex_format, ac.frac, q, value); };
-    bool step_prev = false;
+    if (same)
+      continue;
+    bool wrapped = false;
     if (ac.kind == 2)
     {
       static std::vector<float> cv, pv;
@@ -2314,25 +2499,44 @@ void BlendArrays(const Frame& cur_frame, const Frame& prev_frame, const Prim& pr
       pv.clear();
       for (u32 v = 0; v < prim.num_vertices; ++v)
       {
-        const u32 a = where(cur_stream, ac, v), b = where(prev_stream, *bc, v);
+        const u32 a = ArrayWhere(cur_stream, prim.vertex_size, ac, span, v), b = ArrayWhere(prev_stream, prim.vertex_size, *bc, span, v);
         if (a == ~0u || b == ~0u)
           continue;
         for (u32 k = 0; k < ac.elems; ++k)
         {
-          cv.push_back(read(cur_frame.array_data.data() + ac.data_offset + a + k * comp));
-          pv.push_back(read(prev_frame.array_data.data() + bc->data_offset + b + k * comp));
+          cv.push_back(ReadTexComponent(ac.tex_format, ac.frac, cur_data + a + k * comp));
+          pv.push_back(ReadTexComponent(ac.tex_format, ac.frac, prev_data + b + k * comp));
         }
       }
-      const bool wrapped = TexStepped(cv, pv, ac.elems);
-      // A flipbook cell or a wrapped scroll can't be blended: the previous frame's coordinates for the first half of the
-      // way, the current frame's after (the picture changes at the middle, as a frame of the game would)
-      step_prev = wrapped && t < 0.5f;
-      if (wrapped && !step_prev)
-        continue;
+      wrapped = TexStepped(cv, pv, ac.elems);
     }
+    out->push_back({i, bc, wrapped});
+  }
+}
+
+// Blend the decided copies at t into s_blended_arrays; a texture coordinate copy that stepped takes the previous frame's
+// coordinates for the first half of the way and the current frame's after (the picture changes at the middle, as a
+// frame of the game would); colour copies only when `colours`
+void BlendArrays(const Frame& cur_frame, const Frame& prev_frame, const Prim& prim, const Prim& old, float t, bool colours,
+                 const ApplyDecisions::ArrayEntry* first, const ApplyDecisions::ArrayEntry* last)
+{
+  for (const ApplyDecisions::ArrayEntry* e = first; e != last; ++e)
+  {
+    const u32 i = e->copy;
+    const ArrayCopy& ac = cur_frame.array_copies[i];
+    const ArrayCopy* bc = e->prev;
+    if (ac.kind == 1 && !colours)
+      continue;
+    const u32 comp = ac.tex_format <= FORMAT_BYTE ? 1u : ac.tex_format <= FORMAT_SHORT ? 2u : 4u;
+    const u32 span = ArraySpan(ac);
+    const u8* cur_stream = cur_frame.stream.data() + prim.data_offset;
+    const u8* prev_stream = prev_frame.stream.data() + old.data_offset;
+    const bool step_prev = ac.kind == 2 && e->wrapped && t < 0.5f;
+    if (ac.kind == 2 && e->wrapped && !step_prev)
+      continue;
     for (u32 v = 0; v < prim.num_vertices; ++v)
     {
-      const u32 a = where(cur_stream, ac, v), b = where(prev_stream, *bc, v);
+      const u32 a = ArrayWhere(cur_stream, prim.vertex_size, ac, span, v), b = ArrayWhere(prev_stream, prim.vertex_size, *bc, span, v);
       if (a == ~0u || b == ~0u)
         continue;
       if (!s_copy_blended[i])
@@ -2354,8 +2558,8 @@ void BlendArrays(const Frame& cur_frame, const Frame& prev_frame, const Prim& pr
       {
         for (u32 k = 0; k < ac.elems; ++k)
         {
-          const float c = read(cur + k * comp), p = read(prev + k * comp);
-          write(dst + k * comp, p + (c - p) * t);
+          const float c = ReadTexComponent(ac.tex_format, ac.frac, cur + k * comp), p = ReadTexComponent(ac.tex_format, ac.frac, prev + k * comp);
+          WriteTexComponent(ac.tex_format, ac.frac, dst + k * comp, p + (c - p) * t);
         }
       }
       else
@@ -2366,18 +2570,220 @@ void BlendArrays(const Frame& cur_frame, const Frame& prev_frame, const Prim& pr
   }
 }
 
+// [Skies] A load whose words are the same in both frames, where blending them (and KeepMatrixScale) writes back the
+// bytes the copy holds: no float word is -0 (p + (c - p) t gives +0), infinite or not a number, or so large that its
+// square overflows (KeepMatrixScale's lengths); colours blend to themselves. Most of a still scene's matrices.
+bool UnchangedLoad(const Load& load, const u8* cur, const u8* prev)
+{
+  if (std::memcmp(cur, prev, load.count * 4u) != 0)
+    return false;
+  for (u32 i = 0; i < load.count; ++i)
+  {
+    if (load.address + i >= XFMEM_SETPROJECTION + 6 || WordKind(load.address + i) != Word::Float)
+      continue;
+    const u32 word = BE32(cur + i * 4);
+    const float value = std::bit_cast<float>(word);
+    if (word == 0x80000000u || !(std::fabs(value) < 1e18f))
+      return false;
+  }
+  return true;
+}
+
 bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan& plan, std::vector<u8>* out, float t)
 {
+  // [Skies] A camera cut has no in-between: nothing to blend (at the display's rate, at every refresh)
+  if (plan.cut)
+  {
+    s_arrays_blended = false;
+    return false;
+  }
+  static ApplyDecisions d;
+  if (d.version != plan.version || plan.version == 0)
+  {
+    d.version = plan.version;
+    d.unchanged_load.resize(plan.loads.size());
+    for (size_t k = 0; k < plan.loads.size(); ++k)
+    {
+      const Load& load = *plan.loads[k].first;
+      d.unchanged_load[k] = UnchangedLoad(load, cur_frame.stream.data() + load.data_offset,
+                                          prev_frame.stream.data() + plan.loads[k].second->data_offset);
+    }
+    // Draws turning round in one frame (Collapses) snap with their texture's group too. [Skies] Decided at the middle
+    // (t = 0.5) for every t, as KeepMatrixScale, to the previous frame's places before the middle and the current
+    // frame's after: at the display's rate the pictures stepped new -> shrunken -> new.
+    static std::vector<u64> collapsing;
+    static std::vector<BlendPlan::Trigger> collapse_triggers;
+    collapse_triggers.clear();
+    collapsing.clear();
+    d.collapsed.assign(plan.prims.size(), 0);
+    d.collapsed_count = 0;
+    for (size_t i = 0; i < plan.prims.size(); ++i)
+    {
+      const BlendPlan::PrimPair& pair = plan.prims[i];
+      if (!pair.check_collapse)
+        continue;
+      const Prim& prim = cur_frame.prims[pair.index];
+      if (Collapses(cur_frame.stream.data() + prim.data_offset, prev_frame.stream.data() + pair.old->data_offset, prim,
+                    0.5f))
+      {
+        d.collapsed[i] = 1;
+        collapsing.push_back(prim.texture);
+        collapse_triggers.push_back(MakeTrigger(cur_frame, prim));
+        ++d.collapsed_count;
+      }
+    }
+    std::sort(collapsing.begin(), collapsing.end());
+    // (by_jump: a jumping draw's group, which shows the current frame at every t; else a turning one's)
+    const auto group_snaps_texture = [&](u64 texture, bool by_jump) {
+      return by_jump ? std::binary_search(plan.jumping_textures.begin(), plan.jumping_textures.end(), texture)
+                     : std::binary_search(collapsing.begin(), collapsing.end(), texture);
+    };
+    // [Skies] Local snapping (issue #18): a trigger snaps the draws with its texture of the same object (the battle
+    // transition task's shatter card stays whole), or, for draws of no object (task 0: the pyramid's ~140 flame quads,
+    // their glows), only those near it. Snapping every flame on that picture drew them all a frame ahead.
+    static const bool local_snap = [] {
+      const char* env = std::getenv("SKIES_INTERP_LOCAL_SNAP");
+      return !env || env[0] != '0';
+    }();
+    const auto group_snaps_prim = [&](const Prim& prim, bool by_jump) {
+      if (!local_snap)
+        return group_snaps_texture(prim.texture, by_jump);
+      if (!group_snaps_texture(prim.texture, by_jump))
+        return false;
+      const BlendPlan::Trigger self = MakeTrigger(cur_frame, prim);
+      const auto near = [&](const BlendPlan::Trigger& tr) {
+        if (tr.texture != prim.texture)
+          return false;
+        if (tr.task != 0 || prim.task != 0)
+          return tr.task == prim.task;
+        const float dx = tr.at[0] - self.at[0], dy = tr.at[1] - self.at[1], dz = tr.at[2] - self.at[2];
+        const float length = std::sqrt(tr.at[0] * tr.at[0] + tr.at[1] * tr.at[1] + tr.at[2] * tr.at[2]);
+        const float radius = std::max(50.0f, 0.15f * length);
+        return dx * dx + dy * dy + dz * dz <= radius * radius;
+      };
+      return by_jump ? std::any_of(plan.triggers.begin(), plan.triggers.end(), near)
+                     : std::any_of(collapse_triggers.begin(), collapse_triggers.end(), near);
+    };
+    // [Skies] Which pairs blend (not jumping, turning round or snapped with their group); a turning one before the
+    // middle is held (the previous frame's)
+    d.blends.assign(plan.prims.size(), 0);
+    d.turning.assign(plan.prims.size(), 0);
+    for (size_t i = 0; i < plan.prims.size(); ++i)
+    {
+      const BlendPlan::PrimPair& pair = plan.prims[i];
+      const Prim& prim = cur_frame.prims[pair.index];
+      if (pair.jumps || group_snaps_prim(prim, true))
+        continue;
+      d.turning[i] = d.collapsed[i] || group_snaps_prim(prim, false);
+      d.blends[i] = !d.turning[i];
+    }
+    // [Skies] Colours blend all or nothing per object (task; task 0, the 2D layers and other draws of no object, as
+    // one): only when every draw of it with colours (direct, or read from an indexed colour array) has a same-texture
+    // partner that blends (or is held, before the middle). A 2D screen fading in from black (the first battle's
+    // results) had most of its tiles blended halfway dark and the rest, unpaired or snapped, at full brightness.
+    d.colours_off_before.clear();
+    d.colours_off_after.clear();
+    if (ColourMask() & 12)
+    {
+      const auto indexed_colours = [&](const Prim& prim) {
+        const u32 offset = prim.data_offset - 3;
+        const auto it = std::lower_bound(cur_frame.draws.begin(), cur_frame.draws.end(), offset,
+                                         [](const Draw& dr, u32 value) { return dr.offset < value; });
+        if (it == cur_frame.draws.end() || it->offset != offset)
+          return false;
+        for (u32 k = it->arrays_begin; k < it->arrays_end; ++k)
+          if (cur_frame.array_copies[k].kind == 1)
+            return true;
+        return false;
+      };
+      static std::vector<u8> colour_partner;  // by cur_frame.prims index
+      for (const bool before : {true, false})
+      {
+        colour_partner.assign(cur_frame.prims.size(), 0);
+        for (size_t i = 0; i < plan.prims.size(); ++i)
+        {
+          const BlendPlan::PrimPair& pair = plan.prims[i];
+          const Prim& prim = cur_frame.prims[pair.index];
+          bool ok = (d.blends[i] || (d.turning[i] && before)) && prim.texture == pair.old->texture;
+          for (int c = 0; c < 2 && ok; ++c)
+            ok = prim.col_off[c] == 0xFF || (pair.old->col_off[c] == prim.col_off[c] && pair.old->col_fmt[c] == prim.col_fmt[c]);
+          colour_partner[pair.index] = ok;
+        }
+        std::vector<u32>& off = before ? d.colours_off_before : d.colours_off_after;
+        for (size_t i = 0; i < cur_frame.prims.size(); ++i)
+        {
+          const Prim& prim = cur_frame.prims[i];
+          if (colour_partner[i])
+            continue;
+          const bool direct = ((ColourMask() & 4) && (prim.col_off[0] != 0xFF || prim.col_off[1] != 0xFF));
+          if (direct || ((ColourMask() & 8) && indexed_colours(prim)))
+            off.push_back(prim.task);
+        }
+        std::sort(off.begin(), off.end());
+        off.erase(std::unique(off.begin(), off.end()), off.end());
+      }
+    }
+    // What changed in each pair that can blend or be held: array copies, direct texture units, direct colours
+    d.arrays.clear();
+    d.texs.clear();
+    d.ranges.assign(plan.prims.size(), {0, 0, 0, 0});
+    d.colour_changed.assign(plan.prims.size(), 0);
+    for (size_t i = 0; i < plan.prims.size(); ++i)
+    {
+      if (!d.blends[i] && !d.turning[i])
+        continue;
+      const BlendPlan::PrimPair& pair = plan.prims[i];
+      const Prim& prim = cur_frame.prims[pair.index];
+      const Prim& old = *pair.old;
+      if (prim.texture != old.texture)
+        continue;
+      d.ranges[i][0] = static_cast<u32>(d.arrays.size());
+      if (ColourMask() & 8)
+        DecideArrays(cur_frame, prev_frame, prim, old, &d.arrays);
+      d.ranges[i][1] = static_cast<u32>(d.arrays.size());
+      d.ranges[i][2] = static_cast<u32>(d.texs.size());
+      if (ColourMask() & 16)
+        DecideDirectTexture(cur_frame, prev_frame, prim, old, &d.texs);
+      d.ranges[i][3] = static_cast<u32>(d.texs.size());
+      for (int c = 0; c < 2; ++c)
+        if (prim.col_off[c] != 0xFF && old.col_off[c] == prim.col_off[c] && old.col_fmt[c] == prim.col_fmt[c])
+        {
+          // (a colour that didn't change blends to itself: the copy holds it)
+          const u32 size = prim.col_fmt[c] == 0 || prim.col_fmt[c] == 3 ? 2u : prim.col_fmt[c] == 1 || prim.col_fmt[c] == 4 ? 3u : 4u;
+          for (u32 v = 0; v < prim.num_vertices; ++v)
+          {
+            const u32 at = v * prim.vertex_size + prim.col_off[c];
+            if (!SameBytes(cur_frame.stream.data() + prim.data_offset + at, prev_frame.stream.data() + old.data_offset + at, size))
+            {
+              d.colour_changed[i] |= static_cast<u8>(1 << c);
+              break;
+            }
+          }
+        }
+    }
+    d.moved_by_jump.assign(plan.moved.size(), 0);
+    d.moved_turning.assign(plan.moved.size(), 0);
+    for (size_t m = 0; m < plan.moved.size(); ++m)
+    {
+      const Prim& prim = cur_frame.prims[plan.moved[m].index];
+      d.moved_by_jump[m] = group_snaps_prim(prim, true);
+      d.moved_turning[m] = group_snaps_prim(prim, false);
+    }
+  }
+  s_stat_collapsed += d.collapsed_count;
+
   *out = cur_frame.stream;
   s_arrays_blended = false;
   s_copy_blended.assign(cur_frame.array_copies.size(), 0);
   size_t paired = 0;
-  for (const auto& [load_ptr, match_ptr] : plan.loads)
+  for (size_t li = 0; li < plan.loads.size(); ++li)
   {
-    const Load& load = *load_ptr;
+    const Load& load = *plan.loads[li].first;
     const u8* cur = cur_frame.stream.data() + load.data_offset;
-    const u8* prev = prev_frame.stream.data() + match_ptr->data_offset;
+    const u8* prev = prev_frame.stream.data() + plan.loads[li].second->data_offset;
     paired += IsColourLoad(load.address, load.count) ? 0 : 1;
+    if (d.unchanged_load[li])
+      continue;
     for (u32 i = 0; i < load.count; ++i)
     {
       // The projection type (the word after the six parameters) isn't a float.
@@ -2397,91 +2803,41 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
     }
     KeepMatrixScale(load, cur, prev, t, out->data() + load.data_offset);
   }
-  for (const BlendPlan::Synth& sy : plan.synth)
-  {
-    const Load& load = cur_frame.loads[sy.index];
-    const u8* cur = cur_frame.stream.data() + load.data_offset;
-    for (u32 i = 0; i < load.count; ++i)
-    {
-      const float c = ReadFloat(cur + i * 4), p = sy.words[i];
-      WriteFloat(out->data() + load.data_offset + i * 4, p + (c - p) * t);
-    }
-  }
-  // Draws turning round in one frame (Collapses, at this t) snap with their texture's group too
-  static std::vector<u64> collapsing;
-  static std::vector<u8> collapsed;
-  static std::vector<BlendPlan::Trigger> collapse_triggers;
-  collapse_triggers.clear();
-  collapsing.clear();
-  collapsed.assign(plan.prims.size(), 0);
-  for (size_t i = 0; i < plan.prims.size(); ++i)
-  {
-    const BlendPlan::PrimPair& pair = plan.prims[i];
-    if (!pair.check_collapse)
-      continue;
-    const Prim& prim = cur_frame.prims[pair.index];
-    if (Collapses(cur_frame.stream.data() + prim.data_offset, prev_frame.stream.data() + pair.old->data_offset, prim,
-                  t))
-    {
-      collapsed[i] = 1;
-      collapsing.push_back(prim.texture);
-      collapse_triggers.push_back(MakeTrigger(cur_frame, prim));
-      ++s_stat_collapsed;
-    }
-  }
-  std::sort(collapsing.begin(), collapsing.end());
-  const auto group_snaps_texture = [&](u64 texture) {
-    return std::binary_search(plan.jumping_textures.begin(), plan.jumping_textures.end(), texture) ||
-           std::binary_search(collapsing.begin(), collapsing.end(), texture);
-  };
-  // [Skies] Local snapping (issue #18): a trigger snaps the draws with its texture of the same object (the battle
-  // transition task's shatter card stays whole), or, for draws of no object (task 0: the pyramid's ~140 flame quads,
-  // their glows), only those near it. Snapping every flame on that picture drew them all a frame ahead.
-  static const bool local_snap = [] {
-    const char* env = std::getenv("SKIES_INTERP_LOCAL_SNAP");
-    return !env || env[0] != '0';
-  }();
-  const auto group_snaps_prim = [&](const Prim& prim) {
-    if (!local_snap)
-      return group_snaps_texture(prim.texture);
-    if (!group_snaps_texture(prim.texture))
-      return false;
-    const BlendPlan::Trigger self = MakeTrigger(cur_frame, prim);
-    const auto near = [&](const BlendPlan::Trigger& tr) {
-      if (tr.texture != prim.texture)
-        return false;
-      if (tr.task != 0 || prim.task != 0)
-        return tr.task == prim.task;
-      const float dx = tr.at[0] - self.at[0], dy = tr.at[1] - self.at[1], dz = tr.at[2] - self.at[2];
-      const float length = std::sqrt(tr.at[0] * tr.at[0] + tr.at[1] * tr.at[1] + tr.at[2] * tr.at[2]);
-      const float radius = std::max(50.0f, 0.15f * length);
-      return dx * dx + dy * dy + dz * dz <= radius * radius;
-    };
-    return std::any_of(plan.triggers.begin(), plan.triggers.end(), near) ||
-           std::any_of(collapse_triggers.begin(), collapse_triggers.end(), near);
-  };
+  const std::vector<u32>& colours_off = t < 0.5f ? d.colours_off_before : d.colours_off_after;
   for (size_t i = 0; i < plan.prims.size(); ++i)
   {
     const BlendPlan::PrimPair& pair = plan.prims[i];
     const Prim& prim = cur_frame.prims[pair.index];
     const Prim& old = *pair.old;
-    if (pair.jumps || collapsed[i] || group_snaps_prim(prim))
+    // (a turning draw before the middle is held whole: its positions, colours and texture coordinates, direct and from
+    // the arrays, the previous frame's, as a blend at t = 0)
+    const bool hold = d.turning[i] && t < 0.5f;
+    if (!d.blends[i] && !hold)
       continue;
-    ++paired;
-    ++s_stat_prims_blended;
+    if (!hold)
+      ++paired, ++s_stat_prims_blended;
+    const float tb = hold ? 0.0f : t;
+    const bool colours = !std::binary_search(colours_off.begin(), colours_off.end(), prim.task);
+    s_stat_colours_held += colours ? 0 : 1;
+    const std::array<u32, 4>& r = d.ranges[i];
     if ((ColourMask() & 8) && prim.texture == old.texture)
-      BlendArrays(cur_frame, prev_frame, prim, old, t);
+      BlendArrays(cur_frame, prev_frame, prim, old, tb, colours, d.arrays.data() + r[0], d.arrays.data() + r[1]);
     if ((ColourMask() & 16) && prim.texture == old.texture)
-      BlendDirectTexture(cur_frame, prev_frame, prim, old, out->data(), t);
-    if ((ColourMask() & 4) && prim.texture == old.texture)
+      BlendDirectTexture(cur_frame, prev_frame, prim, old, out->data(), tb, d.texs.data() + r[2], d.texs.data() + r[3]);
+    if ((ColourMask() & 4) && prim.texture == old.texture && colours)
       for (int c = 0; c < 2; ++c)
-        if (prim.col_off[c] != 0xFF && old.col_off[c] == prim.col_off[c] && old.col_fmt[c] == prim.col_fmt[c])
+        if ((d.colour_changed[i] >> c) & 1)
+        {
+          const u32 size = prim.col_fmt[c] == 0 || prim.col_fmt[c] == 3 ? 2u : prim.col_fmt[c] == 1 || prim.col_fmt[c] == 4 ? 3u : 4u;
           for (u32 v = 0; v < prim.num_vertices; ++v)
           {
             const u32 at = v * prim.vertex_size + prim.col_off[c];
-            BlendVertexColour(prim.col_fmt[c], cur_frame.stream.data() + prim.data_offset + at,
-                              prev_frame.stream.data() + old.data_offset + at, out->data() + prim.data_offset + at, t);
+            const u8* cur = cur_frame.stream.data() + prim.data_offset + at;
+            const u8* prev = prev_frame.stream.data() + old.data_offset + at;
+            if (!SameBytes(cur, prev, size))
+              BlendVertexColour(prim.col_fmt[c], cur, prev, out->data() + prim.data_offset + at, tb);
           }
+        }
     for (u32 v = 0; v < prim.num_vertices; ++v)
     {
       const u32 at = v * prim.vertex_size + prim.pos_offset;
@@ -2493,7 +2849,7 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
         for (u32 k = 0; k < prim.pos_count; ++k)
         {
           const float c = ReadFloat(cur + k * 4), p = ReadFloat(prev + k * 4);
-          WriteFloat(dst + k * 4, p + (c - p) * t);
+          WriteFloat(dst + k * 4, p + (c - p) * tb);
         }
       }
       else if (prim.pos_format == FORMAT_SHORT || prim.pos_format == FORMAT_USHORT)
@@ -2504,7 +2860,7 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
           const u32 cu = BE16(cur + k * 2), pu = BE16(prev + k * 2);
           const float c = is_signed ? static_cast<s16>(cu) : static_cast<float>(cu);
           const float pf = is_signed ? static_cast<s16>(pu) : static_cast<float>(pu);
-          const s32 value = static_cast<s32>(std::lround(pf + (c - pf) * t));
+          const s32 value = static_cast<s32>(std::lround(pf + (c - pf) * tb));
           dst[k * 2] = static_cast<u8>(value >> 8);
           dst[k * 2 + 1] = static_cast<u8>(value);
         }
@@ -2516,17 +2872,21 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
         {
           const float c = is_signed ? static_cast<s8>(cur[k]) : static_cast<float>(cur[k]);
           const float pf = is_signed ? static_cast<s8>(prev[k]) : static_cast<float>(prev[k]);
-          dst[k] = static_cast<u8>(static_cast<s32>(std::lround(pf + (c - pf) * t)));
+          dst[k] = static_cast<u8>(static_cast<s32>(std::lround(pf + (c - pf) * tb)));
         }
       }
     }
   }
-  for (const BlendPlan::Moved& move : plan.moved)
+  for (size_t m = 0; m < plan.moved.size(); ++m)
   {
+    const BlendPlan::Moved& move = plan.moved[m];
     const Prim& prim = cur_frame.prims[move.index];
-    if (group_snaps_prim(prim))
+    // (snapped with a turning draw's group: the motion's previous places before the middle, the current ones after)
+    const bool turning_group = d.moved_turning[m];
+    if (d.moved_by_jump[m] || (turning_group && t >= 0.5f))
       continue;
     ++s_stat_moved;
+    const float tt = turning_group ? 0.0f : t;
     for (u32 v = 0; v < prim.num_vertices; ++v)
     {
       const u32 at = prim.data_offset + v * prim.vertex_size + prim.pos_offset;
@@ -2534,7 +2894,7 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
                           ReadFloat(cur_frame.stream.data() + at + 8)};
       const std::array<float, 3> p = MoveBack(move, c);
       for (u32 k = 0; k < 3; ++k)
-        WriteFloat(out->data() + at + k * 4, p[k] + (c[k] - p[k]) * t);
+        WriteFloat(out->data() + at + k * 4, p[k] + (c[k] - p[k]) * tt);
     }
   }
   if (StrictTest())
@@ -2558,7 +2918,7 @@ bool ApplyPlan(const Frame& cur_frame, const Frame& prev_frame, const BlendPlan&
         std::memmove(out->data() + prim.data_offset + v * prim.vertex_size + prim.pos_offset, first, size * prim.pos_count);
     }
   }
-  return plan.total != 0 && paired * 2 >= plan.total;
+  return plan.total != 0 && paired * 2 >= plan.total && !plan.cut;
 }
 
 u64 s_serial = 0;  // the game's thread: each finished recording's (BlendPlan's key)
@@ -3198,17 +3558,17 @@ void LogStats()
   if (s_stats)
   {
     Log("[interp] per blend %.1f draws, %.1f matrix loads (%.1f blended, %.1f changed), %.1f with "
-        "positions (%.1f blended, %.1f changed, %.2f paired across a texture change, %.2f snapped turning, %.2f matrices snapped turning, %.1f with their object, %.1f paired by number, %.2f moved with their object, %.2f re-paired by it, %.2f re-paired by its or the camera's motion, %.2f kept apart, %.2f load groups by object, %.2f matrices from the camera, %.2f jumps explained); ms per frame: keep real %.2f, blend %.2f, enter "
+        "positions (%.1f blended, %.1f changed, %.2f paired across a texture change, %.2f snapped turning, %.2f matrices snapped turning, %.1f with their object, %.1f paired by number, %.2f moved with their object, %.2f re-paired by it, %.2f re-paired by its or the camera's motion, %.2f kept apart, %.2f load groups by object, %.2f colours held, %.2f jumps explained, %.3f camera cuts); ms per frame: keep real %.2f, blend %.2f, enter "
         "%.2f, feed %.2f, keep in-between %.2f, leave %.2f\n",
         s_stat_draws / 600.0, s_stat_loads / 600.0, s_stat_loads_blended / 600.0,
         s_stat_words_changed / 600.0, s_stat_prims / 600.0, s_stat_prims_blended / 600.0,
         s_stat_prims_changed / 600.0, s_stat_repaired / 600.0, s_stat_collapsed / 600.0, s_stat_matrix_snaps / 600.0,
-        s_stat_tasked / 600.0, s_stat_by_number / 600.0, s_stat_moved / 600.0, s_stat_rigid_repaired / 600.0, s_stat_camera_paired / 600.0, s_stat_kept_apart / 600.0, s_stat_loads_by_object / 600.0, s_stat_synth_matrices / 600.0, s_stat_jumps_explained / 600.0, s_ms[0] / 600, s_ms[1] / 600, s_ms[2] / 600, s_ms[3] / 600,
+        s_stat_tasked / 600.0, s_stat_by_number / 600.0, s_stat_moved / 600.0, s_stat_rigid_repaired / 600.0, s_stat_camera_paired / 600.0, s_stat_kept_apart / 600.0, s_stat_loads_by_object / 600.0, s_stat_colours_held / 600.0, s_stat_jumps_explained / 600.0, s_stat_camera_cuts / 600.0, s_ms[0] / 600, s_ms[1] / 600, s_ms[2] / 600, s_ms[3] / 600,
         s_ms[4] / 600, s_ms[5] / 600);
   }
   s_stat_loads = s_stat_prims = s_stat_loads_blended = s_stat_prims_blended = s_stat_words_changed =
       s_stat_draws = s_stat_prims_changed = s_stat_repaired = s_stat_collapsed = s_stat_matrix_snaps =
-      s_stat_tasked = s_stat_by_number = s_stat_moved = s_stat_rigid_repaired = s_stat_camera_paired = s_stat_kept_apart = s_stat_loads_by_object = s_stat_synth_matrices = s_stat_jumps_explained = 0;
+      s_stat_tasked = s_stat_by_number = s_stat_moved = s_stat_rigid_repaired = s_stat_camera_paired = s_stat_kept_apart = s_stat_loads_by_object = s_stat_colours_held = s_stat_jumps_explained = s_stat_camera_cuts = 0;
   std::fill(std::begin(s_ms), std::end(s_ms), 0.0);
 }
 }  // namespace

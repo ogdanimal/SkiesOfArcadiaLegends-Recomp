@@ -2153,11 +2153,12 @@ which the strict test can't see).
   its texture moved (Vyse's shadow, a render target at another address) the matrices had no partner and took the
   next frame's place. Leftover loads are aligned by object, address and size; object-less ones by the next
   draw's key without its texture (`ade3941`).
-- A matrix with no partner at all (the reef haze, drawn as 434 view-space draws in third person and 46
-  matrix-drawn ones once first person settles; objects culled the frame before) gets the previous value the
-  camera's motion gives (`R M`, translation `R t + to - R from`; within 0.1 of real partners)
-  (`SKIES_INTERP_NEW_MATRICES=0` off). Never for an identity matrix: view-space draws load one and the next,
-  paired, draws use it too (moved twice, `45c99aa`).
+- (Removed before v0.94.) A matrix with no partner got the previous value the camera's motion would give it
+  (`ade3941`, for the reef haze). Nothing checked the guess: things fixed to the screen were moved with the camera
+  (the first battle's darkening layer over a band of the picture in close-ups; the EU ship battle's command-wheel
+  icons gone for a picture), and no scene was found where it made a picture better (the reef's first-person
+  switch byte-identical without it). Its identity-matrix exception (`45c99aa`) went with it; the strict test still
+  leaves identity matrices drawn.
 - A paired draw past the jump test whose jump its object's (or the camera's) motion explains keeps its partner
   (fitted motion left outlines).
 - Colours and texture coordinates of paired draws (Sonnet worker, `4095e4e`): the torch glows, the save point's
